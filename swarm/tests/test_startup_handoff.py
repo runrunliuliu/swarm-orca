@@ -226,6 +226,73 @@ class HandoffTests(unittest.TestCase):
             startup.prepare(self.f.t.ref("bootstrap/missing-inputs.json", value), str(self.output))
         self.assertEqual(list(self.output.iterdir()), [])
 
+    def test_trigger_template_is_read_only_and_not_an_approval(self):
+        self.configure(mode="native-event")
+        output = io.StringIO()
+        with patch.object(startup, "load", wraps=startup.load), \
+                patch.object(monitor, "native") as native, redirect_stdout(output):
+            code = handoff.main(["trigger-template", "--plan", self.ref["path"],
+                "--plan-sha256", self.ref["sha256"], "--actor", "operator"])
+        self.assertEqual(code, 0)
+        native.assert_not_called()
+        result = parse(output.getvalue().encode())
+        self.assertIsNone(result["candidate_template"]["decision"])
+        self.assertFalse(result["execution_authorized"])
+        bad = self.f.t.ref("bootstrap/unreviewed.json", result["candidate_template"])
+        with self.assertRaisesRegex(ValueError, "startup_trigger_review_required"):
+            execution.trigger_candidate(bad)
+        self.assertFalse((self.root / "trigger-ready.json").exists())
+
+    def test_raw_preflight_rejected_before_plan_or_owner_io_with_template(self):
+        raw = self.f.t.ref("bootstrap/raw-preflight.json", dict(kind="native_event_trigger_preflight", ready=True))
+        output = io.StringIO()
+        with patch.object(startup, "load") as load, patch.object(handoff, "authority") as authority, \
+                redirect_stdout(output):
+            code = handoff.main(["trigger-ready", "--plan", "/unused", "--plan-sha256", "0" * 64,
+                "--actor", "operator", "--input", raw["path"], "--input-sha256", raw["sha256"], "--execute"])
+        self.assertEqual(code, 2)
+        load.assert_not_called()
+        authority.assert_not_called()
+        result = parse(output.getvalue().encode())
+        self.assertEqual(result["reason"], "startup_trigger_review_required")
+        self.assertEqual(result["candidate_template"], execution.trigger_template())
+
+    def test_trigger_template_deliberately_requires_operator_before_io(self):
+        output = io.StringIO()
+        with patch.object(startup, "load") as load, patch.object(monitor, "native") as native, \
+                redirect_stdout(output):
+            code = handoff.main(["trigger-template", "--plan", "/unused",
+                "--plan-sha256", "0" * 64, "--actor", "coordinator"])
+        self.assertEqual(code, 2)
+        self.assertEqual(parse(output.getvalue().encode())["reason"], "startup_original_role_required")
+        load.assert_not_called()
+        native.assert_not_called()
+
+    def test_cli_missing_or_irrelevant_arguments_fail_before_native_io(self):
+        for mode, extra, reason in [
+                ("trigger-ready", [], "startup_input_pin_required"),
+                ("refresh-review", [], "startup_input_pin_required"),
+                ("accept", [], "startup_action_required"),
+                ("complete", ["--action", "materials"], "startup_input_pin_required"),
+                ("pull", ["--action", "review"], "startup_unexpected_action"),
+                ("complete", ["--action", "dispatch", "--input", "/unused", "--input-sha256", "0" * 64],
+                 "startup_unexpected_input")]:
+            with self.subTest(mode=mode, extra=extra), patch.object(handoff, "context") as context, \
+                    redirect_stdout(io.StringIO()) as output:
+                code = handoff.main([mode, "--plan", "/unused", "--plan-sha256", "0" * 64,
+                                     "--actor", "operator", "--execute", *extra])
+                self.assertEqual(code, 2)
+                self.assertEqual(parse(output.getvalue().encode())["reason"], reason)
+                context.assert_not_called()
+
+    def test_generated_inspect_command_remains_accepted(self):
+        self.configure()
+        argv = handoff.commands(self.ref, "materials", "coordinator")["inspect_argv"]
+        with patch.object(handoff, "inspect", return_value=dict(ok=True)) as inspect, \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(handoff.main(argv[3:]), 0)
+        inspect.assert_called_once()
+
     def test_new_prepare_requires_independently_fixed_runtime_policy(self):
         value = dict(self.inputs)
         del value["runtime"]

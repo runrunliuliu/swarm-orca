@@ -140,6 +140,9 @@ def attest_trigger(ref, input_ref, *, call=None):
     from startup_handoff import context, publish, authority
     from coordinator_io import bound_lock
     from operator_startup import load
+    # Cheap pinned input checks precede native identity queries / owner RPC.
+    # The publication path repeats these checks; this is not authorization.
+    trigger_candidate(input_ref)
     plan, _, _, _ = load(ref)
     if "runtime" in plan:
         from startup_runtime import established
@@ -170,15 +173,32 @@ def attest_trigger(ref, input_ref, *, call=None):
     return dict(ok=True, trigger_readiness=result, acceptance_complete=False, automatic_sends_allowed=False)
 
 
+def trigger_template():
+    """Unapproved review skeleton, deliberately invalid until independently filled."""
+    return dict(decision=None, notes="", evidence=[], valid_until=None,
+                trigger=dict(path="ABSOLUTE_PREFLIGHT_PATH", sha256="PREFLIGHT_SHA256"))
+
+
+def trigger_candidate(input_ref):
+    """Shared structural/pin checks; never infer a review from a raw preflight."""
+    candidate = parse(pinned(input_ref))
+    require(isinstance(candidate, dict) and set(candidate) == set(trigger_template())
+            and candidate["decision"] == "ready" and isinstance(candidate["notes"], str) and candidate["notes"].strip()
+            and isinstance(candidate["evidence"], list) and candidate["evidence"]
+            and isinstance(candidate["valid_until"], str), "startup_trigger_review_required")
+    timestamp(candidate["valid_until"])
+    trigger = parse(pinned(candidate["trigger"]))
+    require(isinstance(trigger, dict), "startup_trigger_scope_changed")
+    for evidence in candidate["evidence"]:
+        pinned(evidence)
+    return candidate, trigger
+
+
 def trigger_review(ref, input_ref, plan, contract):
     """Read-only validation shared by startup and the narrow runtime Operator RPC."""
     from startup_handoff import confirmed, admission
     require(plan["execution"]["mode"] == "native-event", "startup_native_trigger_required")
-    candidate = parse(pinned(input_ref))
-    require(set(candidate) == {"decision", "notes", "evidence", "valid_until", "trigger"}
-            and candidate["decision"] == "ready" and isinstance(candidate["notes"], str) and candidate["notes"].strip()
-            and isinstance(candidate["evidence"], list) and candidate["evidence"], "startup_trigger_review_required")
-    trigger = parse(pinned(candidate["trigger"]))
+    candidate, trigger = trigger_candidate(input_ref)
     require(trigger.get("kind") == "native_event_trigger_preflight" and trigger.get("ready") is True
             and trigger.get("run") == contract["run"] and trigger.get("source") == plan["execution"]["trigger"]["source"]
             and isinstance(trigger.get("trigger_id"), str) and trigger["trigger_id"], "startup_trigger_scope_changed")
@@ -188,8 +208,6 @@ def trigger_review(ref, input_ref, plan, contract):
             "startup_trigger_readiness_expired")
     limit = plan["runtime"]["deadline"] if "runtime" in plan else plan["bootstrap_deadline"]
     require(limit is None or timestamp(candidate["valid_until"]) <= timestamp(limit), "startup_trigger_readiness_expired")
-    for evidence in candidate["evidence"]:
-        pinned(evidence)
     admitted = admission(ref, confirmed(plan, Path(plan["state_root"]) / "admission.json"))
     if trigger["source"] == "worker_done":
         require(admitted["kind"] == "worker-dispatched", "startup_worker_trigger_requires_worker")

@@ -354,9 +354,18 @@ class CommitOwner:
                 owner.__exit__(None, None, None)
 
 
-def receive(connection):
+def transport_timeout(connection, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("bootstrap_rpc_transport_timeout")
+    connection.settimeout(remaining)
+
+
+def receive(connection, *, deadline=None):
     data = bytearray()
     while len(data) <= MAX_MESSAGE:
+        if deadline is not None:
+            transport_timeout(connection, deadline)
         part = connection.recv(min(65536, MAX_MESSAGE + 1 - len(data)))
         if not part:
             break
@@ -375,7 +384,7 @@ def send(connection, value):
 
 
 class OwnerServer:
-    """One bounded RPC at a time; no lock held during native identity refresh."""
+    """Serial RPC dispatch; bounded transport is not cancellation of owner work."""
 
     def __init__(self, owner, endpoint):
         self.owner = owner
@@ -482,7 +491,7 @@ class OwnerServer:
             with connection:
                 connection.settimeout(10)
                 try:
-                    message = receive(connection)
+                    message = receive(connection, deadline=time.monotonic() + 10)
                     request_hash = io.digest(io.canonical(message))
                     try:
                         io.pinned(self.owner_ref)
@@ -532,12 +541,20 @@ class AuthorityClient:
     def rpc(self, op, **args):
         io.require(not self.read_only_poll or op in {"heartbeat", "check", "query", "observe", "runtime-observe"},
                    "bootstrap_poll_mutation_forbidden")
+        prior = self.deadline
+        # A socket inactivity timeout alone restarts for each receive fragment.
+        # Share one transport budget across connect/send/all reply fragments.
+        deadline = time.monotonic() + 30
+        self.deadline = deadline if prior is None else min(prior, deadline)
         try:
             return self._rpc(op, **args)
         except TimeoutError as exc:
             if self.read_only_poll:
                 raise ReadOnlyPollExpired("bootstrap_read_only_poll_expired") from exc
-            raise
+            # The owner may still publish. Never retry a mutation on timeout.
+            raise ValueError("bootstrap_tool_timeout_requires_reconciliation") from exc
+        finally:
+            self.deadline = prior
 
     def check_deadline(self):
         if self.deadline is not None and time.monotonic() >= self.deadline:
@@ -551,13 +568,15 @@ class AuthorityClient:
         # Never compare a sandbox PID with the host /proc view. Server still
         # checks its own boot/start and authenticates the caller's host peer PID.
         request = dict(control=asdict(self.control), op=op, args=args, nonce=secrets.token_hex(32))
+        deadline = self.deadline if self.deadline is not None else time.monotonic() + 30
         with socket.socket(socket.AF_UNIX) as connection:
-            remaining = 30 if self.deadline is None else min(30, self.deadline - time.monotonic())
             self.check_deadline()
-            connection.settimeout(remaining)
+            transport_timeout(connection, deadline)
             connection.connect(self.owner["endpoint"])
+            self.check_deadline()
+            transport_timeout(connection, deadline)
             send(connection, request)
-            envelope = receive(connection)
+            envelope = receive(connection, deadline=deadline)
         reply = verify(envelope, self.public_key, request, self.owner_ref)
         io.pinned(self.owner_ref)
         # Only exact, authenticated revalidation conditions in a read-only

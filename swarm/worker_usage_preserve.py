@@ -23,7 +23,10 @@ def relation(native, options, run_id, dispatch_id):
     require(dispatch.get("id") == dispatch_id and dispatch.get("runId") == run_id
             and worker.get("dispatchId") == dispatch_id and dispatch.get("hostScope") == LOCAL_HOST,
             "preserve_dispatch_mismatch")
-    require(dispatch.get("status") == "completed" and worker.get("state") in ("succeeded", "failed")
+    # Native failed reports settle to failed, not completed. Keep outcome and
+    # dispatch paired; a terminal-looking but inconsistent snapshot is unsafe.
+    require((dispatch.get("status"), worker.get("state")) in
+            (("completed", "succeeded"), ("failed", "failed"))
             and dispatch.get("completedAt"), "preserve_settlement_required")
     require(resource and resource.get("ownershipState") == "owned"
             and resource.get("ownerDispatchId") == dispatch_id
@@ -39,7 +42,8 @@ def relation(native, options, run_id, dispatch_id):
                 dispatch_id=dispatch_id, task_id=identifier(dispatch.get("taskId")),
                 started_at=timestamp(dispatch.get("dispatchedAt"), native=True),
                 settled_at=timestamp(dispatch["completedAt"], native=True),
-                terminal_handle=options["terminal_handle"], provider_session=row.get("providerSession"))
+                terminal_handle=options["terminal_handle"], provider_session=row.get("providerSession"),
+                dispatch_status=dispatch["status"], worker_state=worker["state"])
 
 
 def preserve(native, options, run_id, dispatch_id, output, *, clock=time.time):

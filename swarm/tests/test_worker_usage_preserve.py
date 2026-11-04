@@ -48,6 +48,8 @@ class WorkerUsagePreserveTests(unittest.TestCase):
     def test_released_unsettled_wrong_run_or_terminal_rejected(self):
         original = copy.deepcopy(self.f.native.worker)
         for section, key, value in [("dispatch", "status", "dispatched"),
+                ("dispatch", "status", "failed"), ("worker", "state", "failed"),
+                ("dispatch", "completedAt", None),
                 ("dispatch", "runId", "other"), ("terminalResource", "releaseCompletedAt", "2026-10-13T00:06:00Z"),
                 ("terminalResource", "terminalHandle", "other"),
                 ("terminalResource", "ownershipState", "released"),
@@ -60,6 +62,29 @@ class WorkerUsagePreserveTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 self.preserve()
             self.assertFalse(self.output.exists())
+
+    def test_failed_settled_worker_preserves_partial_usage(self):
+        self.f.native.worker["dispatch"]["status"] = "failed"
+        self.f.native.worker["worker"]["state"] = "failed"
+        result = self.preserve()
+        receipt = read_json(self.output)
+        self.assertEqual(receipt["scope"]["dispatch_status"], "failed")
+        self.assertEqual(receipt["scope"]["worker_state"], "failed")
+        self.assertFalse(result["final"])
+        self.assertFalse(result["release_performed"])
+        self.assertEqual(len(receipt["evidence"]["sample"]["raw_usage"]["requests"]), 2)
+
+    def test_outcome_change_during_capture_does_not_publish(self):
+        from worker_usage_preserve import capture as real_capture
+        def race(*args, **kwargs):
+            evidence = real_capture(*args, **kwargs)
+            self.f.native.worker["dispatch"]["status"] = "failed"
+            self.f.native.worker["worker"]["state"] = "failed"
+            return evidence
+        with patch("worker_usage_preserve.capture", side_effect=race):
+            with self.assertRaisesRegex(ValueError, "preserve_scope_changed"):
+                self.preserve()
+        self.assertFalse(self.output.exists())
 
     def test_permission_failure_does_not_retry_or_publish(self):
         with patch("worker_usage_preserve.capture", side_effect=PermissionError("denied")) as capture:

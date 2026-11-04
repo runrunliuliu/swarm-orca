@@ -46,11 +46,11 @@ inputs 示例（全部占位值须来自当前任务核验；`BOOTSTRAP` 只是�
     "authority": [{"path": "/approved/authority.json", "sha256": "REVIEWED_AUTHORITY_SHA256"}]
   },
   "workers": "required",
-  "continuation_publication": "/approved/continuation/continuation-ref.json",
+  "continuation_publication": "/approved/bootstrap/continuation/continuation-ref.json",
   "sender": {"terminal": "VERIFIED_HANDLE", "incarnation": "VERIFIED_INCARNATION", "workspace": "EXPLICIT_ID"},
-  "state_root": "/approved/lifecycle-state",
-  "monitor_state_root": "/approved/monitor-state",
-  "deployment_dir": "/approved/deployment",
+  "state_root": "/approved/bootstrap/operator-state/lifecycle-state",
+  "monitor_state_root": "/approved/bootstrap/operator-state/monitor-state",
+  "deployment_dir": "/approved/bootstrap/operator-state/deployment",
   "poll_seconds": 3,
   "bootstrap_deadline": "ABSOLUTE_ISO8601_WITH_TIMEZONE"
 }
@@ -61,6 +61,10 @@ inputs 示例（全部占位值须来自当前任务核验；`BOOTSTRAP` 只是�
 roots 内且不得与 strict-start/control/lifecycle 目录重叠。新注册 attempt 的
 `bootstrap_owner` 必须是原 `control/owner.json`，不能设为 null；仅未注册的独立 helper
 场景允许 null，仍须真实原角色身份校验，不能用于绕过 bootstrap owner。
+
+上述布局假定 `/approved/bootstrap` 已在契约的 observation roots 中；`/approved`
+本身并不因示例前缀而获准。不要把状态目录放到 roots 外的相邻 `sender/`，也不要为
+使示例通过而扩大 roots。`runtime.authority` 是独立固定的授权来源，不是写根。
 
 `bootstrap_deadline` 必须为 prepare 时未来一小时内，且不超过原 attempt deadline。
 它约束启动交接，不扩展业务授权、continuation deadline、上下文新鲜度或 gate TTL。
@@ -143,7 +147,7 @@ gate 过期或剩余窗口不足 Worker timeout +15 秒时，inspect 路由原 O
 | execution | 当前 readiness 条件 | 本生命周期的自动发送 |
 | --- | --- | --- |
 | `{"mode":"autonomous","trigger":null}` | 合法 continuation、原 monitor 部署/首 tick/当前锁与身份、当前 scheduler readiness | 仅按原授权、sender、STOP 与防重规则允许 |
-| `{"mode":"native-event","trigger":{"source":"worker_done","readiness":"/approved/lifecycle-state/trigger-ready.json"}}` | 合法 continuation、观察型 monitor、指定触发源的独立预检回执 | 始终禁止 scheduler、通用事实提醒和恢复发送；窗口过期也不开放 |
+| `{"mode":"native-event","trigger":{"source":"worker_done","readiness":"/approved/bootstrap/operator-state/lifecycle-state/trigger-ready.json"}}` | 合法 continuation、观察型 monitor、指定触发源的独立预检回执 | 始终禁止 scheduler、通用事实提醒和恢复发送；窗口过期也不开放 |
 | `{"mode":"manual","trigger":null}` | 合法 continuation、观察型 monitor；明确非自主交还执行 | 不自动发送 |
 
 native-event 的 `source` 可为 `worker_done` 或 `external_fact`；readiness 路径必须恰为
@@ -184,8 +188,33 @@ monitor 在原独占锁内核验运行准入和 sender，把接收证据写入�
 
 continuation 发布后，原 Operator 独立审查指定触发源预检，用 `startup_handoff.py
 trigger-ready --actor operator --input ... --input-sha256 ... --execute`，同时传原 plan pins。
-候选必须包含 `decision:"ready"`、非空 `notes/evidence`、`valid_until` 和 `trigger` pin。
-trigger 文件最少包含：
+`--input` 是**独立审查文档**，不是下述原始预检，也不是最终 `trigger-ready.json`。
+可先只读获取待填写模板（不查询原生身份、不发布回执、不自动批准）：
+
+```bash
+python3 -B startup_handoff.py trigger-template --actor operator \
+  --plan /approved/bootstrap/lifecycle/lifecycle.json --plan-sha256 REVIEWED_PLAN_SHA256
+```
+
+其 `candidate_template` 的 decision 为 null，需原 Operator 审查后另存候选，再固定原始字节 hash。
+`trigger-template` 有意仅接受 `--actor operator`：它属于原 Operator 独立审查工作流，
+不是通用 schema 自查入口；该参数也不构成原 Operator 身份证明，真正发布仍核验身份。
+Coordinator 可阅读此结构说明；将来若增加其自查入口，应保持只读且不替代 Operator 审查，
+不要通过放宽此入口的 actor 约束来兼任审查角色。
+候选字段**恰好**为：
+
+```json
+{
+  "decision": "ready",
+  "notes": "原 Operator 对指定触发入口和证据的独立审查结论",
+  "evidence": [{"path": "ABSOLUTE_HARNESS_EVIDENCE_PATH", "sha256": "EVIDENCE_SHA256"}],
+  "valid_until": "ISO8601_WITH_TIMEZONE",
+  "trigger": {"path": "ABSOLUTE_PREFLIGHT_PATH", "sha256": "PREFLIGHT_SHA256"}
+}
+```
+
+notes/evidence 必须非空；结构、时间格式和 pin 在原生查询/owner RPC 前检查，发布边界仍重新校验
+身份、时效、Run/Dispatch 和发送隔离，不接受将原始预检自动转换为批准。trigger 文件最少包含：
 
 ```json
 {
@@ -198,6 +227,13 @@ trigger 文件最少包含：
   "valid_until": "ISO8601_WITH_TIMEZONE"
 }
 ```
+
+owner RPC 复用 30 秒传输预算，connect/send/分片回复共享截止期，不因持续小片回复重置。
+超时返回 `bootstrap_tool_timeout_requires_reconciliation`，`retry_allowed:false`；先核对原
+readiness 文件及 owner 确认。出现该错误码时，不得重试同一 mutation，也不得仅凭它判断
+动作失败：owner 仍可能完成已接纳工作。该预算不是 owner 端取消机制，也不是包括文件系统
+读取和全部本地校验的硬超时。会话显示 working 不证明正在此 RPC 内；记录实际命令、起止时间
+和返回码。`operator_startup.py run` 是另一个预期持续运行的前台 monitor，不能与 trigger-ready 混为一谈。
 
 worker_done 必须匹配实际接受的 dispatchId；external_fact 的 trigger_id 和就绪事实由
 独立 Operator 对固定 harness 证据审查，本 helper 不自动证明外部触发器可用。

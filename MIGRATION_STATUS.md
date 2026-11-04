@@ -2,7 +2,25 @@
 
 Imported on: 2026-11-04
 
-Current state:
+## Incremental Swarm sync — 2026-11-04
+
+- Updated bootstrap RPCs to share a bounded transport deadline; timeout requires reconciliation, not mutation retry.
+- Added an unapproved trigger-review template and early input validation without changing the independent Operator approval boundary.
+- Preserved usage for settled failed Workers while rejecting inconsistent outcomes and capture-time scope changes.
+- Added a selective evidence archive helper and tests. Its output remains private: preview redaction is not secret scanning, lifecycle settlement, or permission to publish.
+- Kept existing public configuration/path adaptations and excluded private execution reports and accounting documents. No private Git history was imported.
+- This is a source-only update; it does not deploy a runtime, launch Agents, or establish live acceptance.
+
+Validation for this sync (from `swarm/`, with `RSI_CHECKER_TEST_ROOT` unset):
+
+- `PYTHONPATH=.:tests python3 -B -m unittest test_evidence_archive test_worker_usage_preserve test_startup_handoff test_coordinator_tui_prepare test_operator_startup test_bootstrap_production test_bootstrap_transport -v`: 161 tests passed.
+- `PYTHONPATH=.:tests python3 -B -m unittest test_coordinator_driver test_progress_watch test_supervisor -q`: 262 tests passed.
+- Gitleaks 8.24.2 current-tree scan passed with the unchanged repository configuration. This does not replace review of excluded or allowlisted content.
+- These are targeted offline regressions, not the full Swarm/Orca matrix or live acceptance. No production identity checks were relaxed.
+
+## Initial import record (historical)
+
+The following records the original migration and its validation, not a fresh validation of every later change:
 
 - `orca/` was copied from the private workspace's tracked source snapshot.
 - `swarm/` was copied from the tracked files in the private `swarm` submodule.

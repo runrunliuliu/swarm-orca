@@ -17,9 +17,9 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from bootstrap_control import AuthorityClient, CommitOwner, OwnerServer, ReadOnlyPollExpired
+from bootstrap_control import AuthorityClient, CommitOwner, OwnerServer, ReadOnlyPollExpired, receive
 from bootstrap_transport import verify
 from bootstrap_identity import (process, unchanged, descendant, IdentitySnapshotExpired,
                                 IdentityVerificationPending, IDENTITY_LEASE_SECONDS)
@@ -123,6 +123,50 @@ def production(*, armed=True, probe_names=None):
 def read_child(control, owner_ref, ref, pipe):
     pipe.send(AuthorityClient(control, owner_ref).query(control, ref).status)
     pipe.close()
+
+
+class TransportDeadlineTests(unittest.TestCase):
+    def test_fragmented_reply_cannot_restart_budget(self):
+        connection = Mock()
+        connection.recv.side_effect = [b'{', b'"', b'x']
+        with patch("bootstrap_control.time") as clock:
+            clock.monotonic.side_effect = [0, 12, 24, 30]
+            with self.assertRaisesRegex(TimeoutError, "bootstrap_rpc_transport_timeout"):
+                receive(connection, deadline=30)
+        self.assertEqual(connection.recv.call_count, 3)
+        self.assertEqual([c.args[0] for c in connection.settimeout.call_args_list], [30, 18, 6])
+
+    def test_fragmented_valid_reply_within_deadline(self):
+        connection = Mock()
+        connection.recv.side_effect = [b'{"ok":', b'true}', b'']
+        with patch("bootstrap_control.time") as clock:
+            clock.monotonic.side_effect = [0, 1, 2]
+            self.assertEqual(receive(connection, deadline=30), {"ok": True})
+
+    def test_rpc_caps_budget_restores_scope_and_never_retries(self):
+        client = object.__new__(AuthorityClient)
+        client.deadline, client.read_only_poll = None, False
+        def timeout(*args, **kwargs):
+            self.assertEqual(client.deadline, 130)
+            raise TimeoutError("private detail")
+        with patch("bootstrap_control.time") as clock, patch.object(client, "_rpc", side_effect=timeout) as rpc:
+            clock.monotonic.return_value = 100
+            with self.assertRaisesRegex(ValueError, "^bootstrap_tool_timeout_requires_reconciliation$"):
+                client.rpc("runtime-attest-trigger")
+            rpc.assert_called_once()
+        self.assertIsNone(client.deadline)
+        with client.polling(110), patch("bootstrap_control.time") as clock:
+            clock.monotonic.return_value = 100
+            def poll_timeout(*args, **kwargs):
+                self.assertEqual(client.deadline, 110)
+                raise TimeoutError()
+            with patch.object(client, "_rpc", side_effect=poll_timeout) as rpc:
+                with self.assertRaises(ReadOnlyPollExpired):
+                    client.rpc("observe")
+                rpc.assert_called_once()
+            self.assertEqual(client.deadline, 110)
+        self.assertIsNone(client.deadline)
+        self.assertFalse(client.read_only_poll)
 
 
 class ProductionTests(unittest.TestCase):
@@ -647,8 +691,9 @@ class ProductionTests(unittest.TestCase):
                 return reply
             try:
                 with patch.object(client, "_rpc", side_effect=lose_reply):
-                    with self.assertRaises(TimeoutError):
+                    with self.assertRaisesRegex(ValueError, "bootstrap_tool_timeout_requires_reconciliation") as caught:
                         tool.pull(30)
+                self.assertIsInstance(caught.exception.__cause__, TimeoutError)
                 self.assertEqual(len(commits), 1)
                 self.assertFalse(client.read_only_poll)
                 self.assertIsNone(client.deadline)

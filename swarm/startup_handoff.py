@@ -486,21 +486,42 @@ def refresh_review(ref, input_ref, *, call=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("pull", "accept", "complete", "inspect", "refresh-review", "trigger-ready"))
+    parser.add_argument("mode", choices=("pull", "accept", "complete", "inspect", "refresh-review", "trigger-ready", "trigger-template"))
     parser.add_argument("--plan", required=True)
     parser.add_argument("--plan-sha256", required=True)
     parser.add_argument("--actor", choices=("coordinator", "operator"), required=True)
     parser.add_argument("--action", choices=tuple(ACTIONS))
-    parser.add_argument("--input")
+    parser.add_argument("--input", help="Pinned candidate document; trigger-ready takes an independent review, not the raw preflight (see trigger-template)")
     parser.add_argument("--input-sha256")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     try:
         ref = dict(path=args.plan, sha256=args.plan_sha256)
-        require(args.mode == "inspect" or args.execute, "startup_explicit_execute_required")
+        require(args.mode in ("inspect", "trigger-template") or args.execute, "startup_explicit_execute_required")
         require(bool(args.input) == bool(args.input_sha256), "startup_input_pin_required")
+        require(args.mode not in ("accept", "complete") or args.action is not None,
+                "startup_action_required")
+        # Existing generated inspect_argv includes an action hint. Inspect still
+        # reports the actual next action, never mutates or trusts that hint.
+        require(args.mode in ("accept", "complete", "inspect") or args.action is None,
+                "startup_unexpected_action")
+        needs_input = args.mode in ("refresh-review", "trigger-ready") or (
+            args.mode == "complete" and args.action != "dispatch")
+        require(not needs_input or args.input is not None, "startup_input_pin_required")
+        require(needs_input or args.input is None, "startup_unexpected_input")
         from operator_monitor import native
-        if args.mode == "inspect":
+        if args.mode == "trigger-template":
+            # Deliberately scoped to the original Operator's independent review
+            # workflow, not a general schema inspector or proof of identity.
+            # Coordinator self-inspection would need a separate read-only entry.
+            require(args.actor == "operator", "startup_original_role_required")
+            from operator_startup import load
+            from startup_execution import trigger_template
+            plan, _, _, _ = load(ref)
+            require(plan["execution"]["mode"] == "native-event", "startup_native_trigger_required")
+            result = dict(ok=True, candidate_template=trigger_template(),
+                          execution_authorized=False, automatic_sends_allowed=False)
+        elif args.mode == "inspect":
             result = inspect(ref, call=native, observe_idle=True)
         elif args.mode == "pull":
             result = task(ref, args.actor, call=native)
@@ -517,6 +538,9 @@ def main(argv=None):
     except (OSError, ValueError, KeyError, TypeError) as exc:
         from operator_readiness import unavailable
         result = dict(ok=False, state="review_required", reason=unavailable(exc), retry_allowed=False)
+        if result["reason"] == "startup_trigger_review_required":
+            from startup_execution import trigger_template
+            result["candidate_template"] = trigger_template()
     print(canonical(result).decode())
     return 2 if result.get("ok") is False else 0
 
