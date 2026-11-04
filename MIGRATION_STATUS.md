@@ -4,9 +4,9 @@ Imported on: 2026-11-04
 
 Current state:
 
-- `orca/` was copied from the private workspace's tracked `source-v1.4.219/` files.
+- `orca/` was copied from the private workspace's tracked source snapshot.
 - `swarm/` was copied from the tracked files in the private `swarm` submodule.
-- The original private `source-v1.4.219/` directory and `swarm/` submodule were not removed or modified by this migration step.
+- The original private source directory and `swarm/` submodule were not removed or modified by this migration step.
 - Obvious private Swarm history/validation documents were removed from the public copy.
 - Obvious hard-coded private paths in the public Swarm copy were replaced with explicit configuration or examples.
 - Orca provenance files were added under `orca/UPSTREAM.md` and `orca/upstream.json`.

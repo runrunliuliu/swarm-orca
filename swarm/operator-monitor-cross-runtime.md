@@ -71,7 +71,7 @@ canonical JSON digest。代码核对并传递它们，禁止手工混用或改�
 
 ## Server 实现边界
 
-源码及细节见 [Server 计划重启](../source-v1.4.219/docs/reference/strict-runtime-continuity.md)。
+源码及细节见 [Server 计划重启](../orca/docs/reference/strict-runtime-continuity.md)。
 沿用实例锁、lineage journal、DB seal、现有文件 inventory 和恢复锁；不扩展灾备或克隆防御。
 
 - Server 从 plan→config→continuation→contract 推导核心 scope，再核验原生 Run、sender、

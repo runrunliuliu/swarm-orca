@@ -1,6 +1,6 @@
 # Orca upstream provenance
 
-This directory is a reviewed source snapshot derived from the local `source-v1.4.219/` tree in the private integration workspace.
+This directory is a reviewed source snapshot derived from the private integration workspace source tree.
 
 Current local evidence:
 

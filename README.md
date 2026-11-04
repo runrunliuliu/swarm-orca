@@ -7,7 +7,7 @@ claim to be a deployable implementation.
 
 ## Layout
 
-- `orca/` contains a source snapshot derived from the local `source-v1.4.219/`
+- `orca/` contains a source snapshot derived from the private integration workspace source tree
   tree. See `orca/UPSTREAM.md` for provenance notes and remaining upstream
   baseline verification.
 - `swarm/` contains reusable Swarm orchestration code and public-safe examples.
