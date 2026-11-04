@@ -170,8 +170,16 @@ Driver 复用文件 pin 和接受收据，不另建 skill 服务：
 10. 必填 `outer_operator:{"id":"submit-operator"}`，指定外层动作的唯一受信操作者。
     缺省、`null` 或附带执行命令均拒绝；ID 不是凭据或用户认证。
 
-本版配置为 **schema 5**，Journal 为 **schema 3**，固定包含 `operator_requests` 与 `background_jobs`。
-回合接受记录与动作结果均为 schema 2。旧配置及 Journal 格式显式拒绝；
+11. 新配置使用 `startup_contract:{path,sha256}` 固定 run 阶段启动契约（原始文件 SHA256），
+    其中 `cli` 是唯一 CLI 来源。校验 runtime、Run/generation、Coordinator 会话/终端/incarnation、
+    workspace ID/path 与 driver/启动计划完全一致；仅支持 exec/stream adapter。
+    它不替代领域验收用的 `contract` 字段，也不代表启动门或用户授权已通过。
+
+本版新配置为 **schema 6**，Journal 为 **schema 3**，固定包含 `operator_requests` 与 `background_jobs`。
+driver 与其 progress watcher 不再要求 Shell export：每次原生调用校验契约 CLI 的 hash、可执行性；
+若设置了 `ORCA_SERVER_CLI`（含空值）则必须精确等于契约路径，否则拒绝，不回退到 PATH/其他 runtime。
+历史 schema 5 仍按原显式 `ORCA_SERVER_CLI` 读取，不能向 schema 5 偷加 `startup_contract`。
+回合接受记录与动作结果均为 schema 2。其他旧配置及 Journal 格式显式拒绝；
 不静默补默认授权或技能、不自动迁移活动状态。已有 pending/outcome 的 Run 必须保全证据，
 显式完成生命周期核对与迁移审查；不能删除 journal 来绕过恢复门禁。
 

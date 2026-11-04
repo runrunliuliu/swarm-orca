@@ -14,6 +14,7 @@ import sys
 import time
 
 import progress_watch
+import startup_cli
 import trae_exec_capture
 import coordinator_handoff as handoff
 import coordinator_background as background
@@ -74,9 +75,10 @@ class Config:
         require(isinstance(c, dict) and set(c) == {"schema_version", "enabled", "authorization_ref",
                 "binding", "previous_plan", "initial_checkpoint", "initial_waiting_dispatches",
                 "contract", "brief", "checker", "session_log", "progress_roots", "limits",
-                "authority", "initial_gates", "repository_skills", "outer_operator"},
+                "authority", "initial_gates", "repository_skills", "outer_operator"}
+                | ({"startup_contract"} if c.get("schema_version") == DRIVER_CONFIG_SCHEMA else set()),
                 "invalid_driver_config")
-        require(type(c["schema_version"]) is int and c["schema_version"] == DRIVER_CONFIG_SCHEMA
+        require(type(c["schema_version"]) is int and c["schema_version"] in (5, DRIVER_CONFIG_SCHEMA)
                 and type(c["enabled"]) is bool, "invalid_driver_config")
         handoff.validate_operator(c["outer_operator"])
         require(isinstance(c["authorization_ref"], str) and c["authorization_ref"].strip(),
@@ -102,6 +104,7 @@ class Config:
         self.archive = path(p["artifact_dirs"]["archive"], directory=True)
         require(self.archive.name == b["run"], "archive_run_mismatch")
         self.cwd = path(p["cwd"], directory=True)
+        self.startup_contract = startup_cli.driver_contract(c)
         self.skills = repository_skills(self.cwd, c["repository_skills"])
         for root in p["task_write_roots"]:
             path(root, directory=True)
@@ -131,6 +134,10 @@ class Config:
         # Control/authority evidence is not scientific progress, even when it
         # happens to live under a broad, otherwise authorized research root.
         self.control_paths = {self.filename, c["session_log"], p["runtime_config"], p["prompt_file"]}
+        if self.startup_contract is not None:
+            self.control_paths.add(c["startup_contract"]["path"])
+            self.control_paths.update(self.startup_contract[k]["path"] for k in
+                                      ("cli", "runtime_config", "role_skill", "handoff", "skill_read_evidence"))
         self.control_paths.update(c[k]["path"] for k in
                                   ("brief", "contract", "initial_checkpoint", "initial_gates", "previous_plan"))
         self.control_paths.add(str(Path(c["previous_plan"]["path"]).with_suffix(".stdin.md")))
@@ -265,9 +272,13 @@ def live_fence(config):
 
 def observe_binding(config):
     """Read-only identity fence, also usable by the real outer Operator (not a PTY impersonator)."""
-    cli = os.environ.get(CLI_ENV)
-    require(cli, "orca_server_cli_required")
+    with startup_cli.scope(startup_cli.driver_contract(config.data)):
+        return _observe_binding(config)
+
+
+def _observe_binding(config):
     b = config.data["binding"]
+    cli = startup_cli.resolve(b["runtime"])
     status = progress_watch.query(["status"], b["runtime"])
     require(status.get("runtime", {}).get("appVersion") == "1.4.219"
             and status["runtime"].get("state") == "ready", "runtime_not_ready_or_supported")

@@ -5,6 +5,12 @@
 固定 Python 适配器和响应校验，以及 `coordinator_io` 的原子持久化与单写入锁。
 `progress_watch.py` 本身仍是只读工具；旧 driver 对 strict Run 的拒绝没有放宽。
 
+有 continuation 的 monitor 及部署校验、启动交接、恢复入口，统一沿
+`continuation → contract → cli:{path,sha256}` 选择原生 CLI，不要求 Shell export 或修改 `.bashrc`。
+每次原生调用校验固定文件 hash、可执行权限和 runtime；若存在 `ORCA_SERVER_CLI`（含空值），
+必须与契约路径精确一致，否则明确拒绝。CLI 不写入全局环境，不回退 PATH/旧 relay。
+无 continuation 的历史 monitor 仍使用原显式环境变量入口；既有部署源码 pins、Run 和回执不自动迁移。
+
 schema v2 可选启用 strict TUI 自动调度：真实模型回合结束后，由 Python 循环读取并校验
 checkpoint，自动通过原生 Run mailbox 排续跑，不再依赖模型调用 enqueue/turn-end。
 业务决策仍来自 Coordinator 的领域 checkpoint；调度器不替模型决定任务。

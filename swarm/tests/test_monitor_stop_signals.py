@@ -55,7 +55,7 @@ def fixture(root, route, result):
     publish_new(adapter, CHILD.encode())
     state = root / 'state'
     state.mkdir(mode=0o700)
-    config = SimpleNamespace(root=state, ref={'test': 'signal'},
+    config = SimpleNamespace(root=state, ref={'test': 'signal'}, startup_contract=None,
                              data={'enabled': True, 'schema_version': 2, 'poll_seconds': 1})
     children = []
     original_popen = subprocess.Popen

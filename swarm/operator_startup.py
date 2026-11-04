@@ -183,6 +183,7 @@ def validate_continuation_binding(ref, config, contract, *, require_executing=Tr
 
 def created(ref, *, call=None):
     plan, start, contract, directory = load(ref)
+    call = monitor.bind_contract(call, contract)
     target = directory / "created.json"
     if not os.path.lexists(target):
         require(not any(os.path.lexists(directory / name) for name in
@@ -250,7 +251,7 @@ def publication(ref, creation):
 
 def own_sender(plan, contract, call):
     # Reuse exactly the monitor's inherited-context fence, not a target preflight.
-    shell = SimpleNamespace(data=dict(schema_version=2, sender=plan["sender"],
+    shell = SimpleNamespace(startup_contract=contract, data=dict(schema_version=2, sender=plan["sender"],
                                      binding={"runtime": contract["runtime"]}))
     monitor.sender_fence(shell, lambda args, runtime: call(args, runtime, 20))
 
@@ -277,9 +278,9 @@ def read_state(plan, ref):
 
 
 def status(ref, *, call=None):
-    call = call or monitor.native
     """Read current evidence, never promote a cached monitor_ready milestone."""
-    plan, _, _, _ = load(ref)
+    plan, _, contract, _ = load(ref)
+    call = monitor.bind_contract(call, contract)
     state = read_state(plan, ref)
     result = dict(ok=False, state="bootstrap", monitor_ready=False, autonomy_verified=False,
                   runtime_ready=False, acceptance_complete=False,
@@ -310,8 +311,8 @@ def status(ref, *, call=None):
 
 def run(ref, *, once=False, call=None):
     """One durable foreground executor; once bounds diagnostics, not deployment proof."""
-    call = call or monitor.native
     plan, _, contract, _ = load(ref)
+    call = monitor.bind_contract(call, contract)
     own_sender(plan, contract, call)
     root = Path(plan["state_root"])
     with bound_lock(root, ref, "operator-startup"):

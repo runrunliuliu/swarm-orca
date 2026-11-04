@@ -39,6 +39,28 @@ strict-start 交接按阶段文件/事件推进，不以 `tui-idle` 代替协议
 这里的 **v2 是启动契约 schema**，不是原生 Run 的 `coordinatorPolicy` 版本；当前
 严格创建仍要求 `strict-v1`。放宽新契约 TTL 不增加进程退出后的 resume/takeover 能力。
 
+## CLI 启动契约
+
+启动契约已有的 `cli:{path,sha256}` 是下游原生 CLI 的唯一来源：`path` 为已核验、
+绝对且无符号链接的可执行文件路径，`sha256` 固定其原始字节。部署方在生成契约时选择
+入口，不在公共代码中硬编码主机路径，也不依赖 `.bashrc`。
+
+| 消费入口 | CLI 引用链 |
+| --- | --- |
+| Operator 启动生命周期 / 交接 | strict-start plan → startup contract → cli |
+| TUI monitor、部署检查和恢复 | continuation → contract → cli |
+| exec/stream driver（新 schema 6） | startup_contract → cli |
+| progress watcher | driver_binding → startup_contract → cli |
+
+这些下游入口无需额外 export。若进程已有 `ORCA_SERVER_CLI`，它只是兼容性断言：
+必须精确等于契约路径，空值或不同路径都拒绝。原生调用前复核 CLI pin 和可执行权限，
+保留原命令白名单及响应 runtime 校验；不按 PATH 自动发现、不回退旧 relay、不修改全局环境。
+已审批的 planned-restart runtime 路由仍按原连续性协议执行，不能用 CLI 选择绕过。
+
+无契约引用的历史 schema-5 driver / 无 continuation monitor 继续按原显式环境变量读取。
+不修改已有启动契约版本、hash、Run 或部署源码 pins；旧部署使用新代码仍须按既有升级流程审查。
+契约固定入口不代表启动门通过、部署完成或获得 Agent 启动授权。
+
 ## 两阶段顺序
 
 1. **Run 创建前，Operator 检查独立会话。** 按任务授权与 worktree 准备规则启动独立

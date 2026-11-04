@@ -16,6 +16,7 @@ import uuid
 
 import coordinator_operator as operator
 import progress_watch as watch
+import startup_cli
 from terminal_idle_wait import MIN_RPC_TIMEOUT_SECONDS, decode_idle_wait, idle_wait_target
 from operator_sender import preflight as sender_preflight
 from coordinator_io import (bound_lock, correction_fence, canonical, digest, file_ref, now, parse, path, pinned,
@@ -31,6 +32,7 @@ class Config:
     def validate(self, c):
         """Shared by immutable config preparation and execution; no native I/O."""
         self.data = c
+        self.startup_contract = None
         keys = {"schema_version", "enabled", "binding",
                 "operator_id", "state_root", "watch_file", "artifact_roots", "adapters",
                 "poll_seconds", "rpc_timeout_seconds", "idle_seconds", "inbox_limit"}
@@ -81,16 +83,24 @@ class Config:
                         and ("execution" not in continuation or c.get("startup_lifecycle") == continuation.get("startup_lifecycle")),
                         "startup_monitor_mode_changed")
                 require(continuation.get("scheduler") == s
-                        and contract["cli"]["path"] == watch.CLI
                         and b == dict(runtime=contract["runtime"], run=contract["run"]["id"],
                             generation=contract["run"]["generation"], workspace=contract["workspace"]["id"],
                             terminal=contract["coordinator"]["terminal"], incarnation=contract["coordinator"]["incarnation"]),
                         "monitor_continuation_binding_mismatch")
+                self.startup_contract = contract
                 require(root != self.root and not root.is_relative_to(self.root)
                         and not self.root.is_relative_to(root), "monitor_state_is_not_continuation")
 
     def revalidate(self):
         Config(self.ref["path"], self.ref["sha256"])
+
+
+def bind_contract(call, contract):
+    return startup_cli.bind(call or native, contract)
+
+
+def bind_config(call, config):
+    return bind_contract(call, config.startup_contract)
 
 
 def native(args, runtime, timeout=12):
@@ -102,9 +112,7 @@ def native(args, runtime, timeout=12):
     if tuple(args[:2]) not in {("orchestration", "send"), ("orchestration", "inbox"),
                               ("orchestration", "request-show"), ("terminal", "show"), ("terminal", "wait")}:
         return watch.query(args, runtime, timeout, start_new_session=True)
-    cli = os.environ.get(watch.CLI_ENV) or watch.CLI
-    if not cli:
-        raise watch.StopObservation("orca_server_cli_required")
+    cli = watch.resolve_cli(runtime)
     reply = subprocess.run([cli, *args, "--json"], stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL, timeout=timeout, start_new_session=True)
     target = idle_wait_target(args)
@@ -119,6 +127,7 @@ def invoke(ref, request, *, cwd, timeout):
 
 
 def fence(config, call, *, environment=None):
+    call = bind_config(call, config)
     b = config.data["binding"]
     shown = call(["orchestration", "run-show", "--id", b["run"]], b["runtime"])
     run = shown.get("run", {})
@@ -136,6 +145,7 @@ def fence(config, call, *, environment=None):
 
 def sender_fence(config, call, *, environment=None):
     """A dedicated native Operator shell, never an audit label or borrowed agent."""
+    call = bind_config(call, config)
     require(config.data["schema_version"] == 2, "monitor_native_sender_configuration_required")
     s = config.data["sender"]
     environment = os.environ if environment is None else environment
@@ -285,6 +295,7 @@ def tick(config, *, call=native, invoke=invoke):
     from operator_continuity_route import require_monitor
     require_monitor(config)
     config.revalidate()
+    call = bind_config(call, config)
     c, root = config.data, config.root
     require(c["enabled"], "monitor_disabled")
     if persistently_stopped(config):
@@ -372,7 +383,7 @@ def run(config, *, once=False, observer=None):
     stopped = threading.Event()
     previous = {s: signal.signal(s, lambda *_: stopped.set()) for s in (signal.SIGTERM, signal.SIGINT)}
     try:
-        with bound_lock(config.root, config.ref, "monitor"), observation_scope(observer):
+        with bound_lock(config.root, config.ref, "monitor"), observation_scope(observer), startup_cli.scope(config.startup_contract):
             started, pending_count = False, 0
             while not stopped.is_set():
                 try:

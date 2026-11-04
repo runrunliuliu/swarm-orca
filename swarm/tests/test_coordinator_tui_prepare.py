@@ -71,7 +71,7 @@ class PrepareTests(unittest.TestCase):
         state, output = self.f.t.f.bootstrap / "monitor-state", self.f.t.f.bootstrap / "monitor-out"
         state.mkdir(mode=0o700)
         output.mkdir(mode=0o700)
-        with patch("progress_watch.CLI", contract["cli"]["path"]):
+        with patch("progress_watch.CLI", None):
             plan = monitor_prepare(result["config"], str(state), str(output),
                 call=lambda args, runtime, timeout: self.f.query(contract["cli"]["path"], runtime, args))
         self.assertTrue(Path(plan["path"]).is_file())

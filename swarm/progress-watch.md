@@ -6,7 +6,12 @@ and saves a private summary every ~5 minutes. It does not call Inbox/check, cons
 messages, execute nextAction, send prompts, create/stop/release Workers, restart a
 Coordinator, or submit training. It never invokes Merlin or reads its credentials.
 
-Set the native CLI explicitly with `ORCA_SERVER_CLI`. Only status, run-show,
+The native CLI comes from `driver_binding → startup_contract → cli:{path,sha256}`
+for schema-6 drivers. No Shell export is needed. Each native call verifies the pinned
+executable; an existing `ORCA_SERVER_CLI` (including an empty value) must exactly match
+the contract path. There is no PATH discovery or runtime fallback. Historical schema-5
+drivers retain their explicit `ORCA_SERVER_CLI` requirement, without rewriting pins.
+Only status, run-show,
 fully paginated worker-list, task-list and terminal-list are called. Runtime ID,
 Run scope and inventory completeness are checked; failure produces unknown,
 never a fresh-looking copy of old counts. A timeout cancels only the query client,
@@ -31,7 +36,7 @@ validation. `authority_binding` is the sole optional field, described below.
 
 ### Driver binding
 
-Pin the reviewed schema-5 [Coordinator driver](coordinator-driver.md) config, which
+Pin the reviewed schema-6 [Coordinator driver](coordinator-driver.md) config, which
 requires a named `outer_operator` and schema-3 Journal (including background Job cursors):
 
 ```json

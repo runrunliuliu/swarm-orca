@@ -104,7 +104,7 @@ submitted 之后只允许 queued/running/unknown/succeeded/failed，不能改报
 
 | 字段 | 约束 |
 | --- | --- |
-| `schema_version` | 本版为 2；driver schema 5 / Journal schema 3，旧版显式拒绝，不自动迁移 |
+| `schema_version` | 本版为 2；新 driver schema 6 从启动契约读取 CLI，历史 driver schema 5 保留原环境变量入口；Journal schema 3，不自动迁移 |
 | `driver_binding` | 精确 driver 配置及 pin，沿用其 Run、Coordinator、会话、原始授权和角色 skill |
 | `adapters` | 名称到已审查 Python 适配器 `{path,sha256}` 的映射，不从模型输出选择任意程序 |
 | `routes` | 固定权限目录 path ID → `{operation,adapter,kinds,completion}`；completion 为 terminal/background，同一动作的所有路径必须选中相同 adapter 和 completion |

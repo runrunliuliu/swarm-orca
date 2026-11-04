@@ -80,6 +80,7 @@ def failed_before_tick(status, plan_ref):
 
 def prepare(plan_ref, sender, output_dir, *, call=monitor.native):
     plan, config, cref, continuation, contract, roots = original(plan_ref)
+    call = monitor.bind_contract(call, contract)
     output = deploy.private_directory(output_dir)
     require(not any(output.iterdir()) and all(not output.is_relative_to(r) and not r.is_relative_to(output)
             for r in roots), "correction_requires_fresh_output")
@@ -141,6 +142,7 @@ def apply(proposal_ref, review_ref, *, call=monitor.native):
     for ref in review["evidence"]:
         pinned(ref)
     plan, config, cref, continuation, contract, roots = original(proposal["old_plan"])
+    call = monitor.bind_contract(call, contract)
     new_plan = parse(pinned(proposal["new_plan"]))
     new_config = parse(pinned(new_plan["config"]))
     new_continuation = parse(pinned(proposal["new_continuation"]))

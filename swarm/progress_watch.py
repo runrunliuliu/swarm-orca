@@ -25,7 +25,7 @@ from coordinator_io import validate_ref
 from coordinator_state import follow_launch
 
 CLI_ENV = "ORCA_SERVER_CLI"
-CLI = None  # Test-only injection point; production must set ORCA_SERVER_CLI.
+CLI = None  # Test-only injection for historical configurations without a contract.
 PHASES = {"startup", "development", "review", "preflight", "training", "evaluation", "blocked", "completed"}
 
 
@@ -118,9 +118,7 @@ def query(args, runtime, timeout=12, *, start_new_session=False):
                 ("orchestration", "strict-caller-check"), ("terminal", "list"))
     if not any(tuple(args[:len(p)]) == p for p in approved):
         raise ObservationError("query_not_allowlisted")
-    cli = os.environ.get(CLI_ENV) or CLI
-    if not cli:
-        raise StopObservation("orca_server_cli_required")
+    cli = resolve_cli(runtime)
     try:
         process = subprocess.Popen([cli, *args, "--json"], stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, start_new_session=start_new_session)
@@ -565,12 +563,27 @@ def markdown(snapshot):
             "Read-only observer: no Inbox consumption, dispatch, submission, or automatic recovery. Unknown is not zero; idle is not dead.\n")
 
 
+def resolve_cli(runtime):
+    from startup_cli import resolve
+    try:
+        return resolve(runtime, legacy=CLI)
+    except (ValueError, OSError) as exc:
+        code = str(exc) if isinstance(exc, ValueError) else "startup_cli_unavailable"
+        raise StopObservation(code) from None
+
+
 def tick(config, directory, previous, now=None, call=query):
     now = time.time() if now is None else now
     try:
         # Presence, not parseability, is the gate. Restart never clears this file.
         if os.path.lexists(directory / "query-stop.json"):
             raise ObservationError("native_queries_stopped_operator_action_required")
+        if call is query:
+            from startup_cli import bind, watch_contract
+            try:
+                call = bind(call, watch_contract(config))
+            except (ValueError, OSError, KeyError, TypeError):
+                raise StopObservation("watch_startup_contract_invalid") from None
         native = collect(config, call)
         snapshot, state = summarize(config, native, reported(config, native, now), previous, now)
     except (ObservationError, OSError, ValueError, KeyError, TypeError) as exc:

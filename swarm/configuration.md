@@ -11,7 +11,7 @@
 | Codex 权限 | `--runtime-config /canonical/private/coordinator-runtime.json` | 仅适用 Codex；必须与模型适配器匹配 |
 | Trae exec / TUI 权限 | `--trae-runtime-config /canonical/private/approved-trae-runtime.json` | exec 与 TUI 使用各自 schema，不能互套 |
 | Worker 固定参数 | 调用进程环境 `SWARM_WORKER_PROFILES=/canonical/private/worker-model-profiles.json` | Operator 选择路径，请求只传已审核的 `profiles_sha256` |
-| Orca CLI | 各入口显式 `--cli` / 固定契约中的 CLI；driver/progress 使用 `ORCA_SERVER_CLI` | 核验 runtime 和真实身份，不自动发现或回退 |
+| Orca CLI | 建立启动契约时显式选择 `cli:{path,sha256}`；Operator/monitor、schema-6 driver/progress 沿固定引用链读取 | 无需 export；若存在 `ORCA_SERVER_CLI` 则必须与契约一致；不自动发现或回退。无启动契约的历史配置保留显式环境变量入口 |
 | Supervisor / monitor / continuation | 对应入口的显式配置及协议规定的 pin | 不自动读取上述 Coordinator 配置或切换旧 Run |
 
 `prepare-tools` 也须传相同的模型/runtime 参数；Operator materials 中的 `launch`

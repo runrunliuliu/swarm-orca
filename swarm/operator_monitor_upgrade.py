@@ -275,6 +275,7 @@ def prepare(plan_ref, output_dir, *, call=monitor.native, transition_ref=None):
         from operator_continuity_route import routed
         call = routed(call)
     plan, config, cref, continuation, contract, roots = current(plan_ref)
+    call = monitor.bind_contract(call, contract)
     require(plan["python"] == str(Path(deploy.sys.executable).resolve()), "monitor_deployment_python_changed")
     output = deploy.private_directory(output_dir)
     require(not any(output.iterdir()) and all(not output.is_relative_to(r) and not r.is_relative_to(output)
@@ -309,6 +310,7 @@ def apply(proposal_ref, review_ref, *, call=monitor.native):
         from operator_continuity_route import routed
         call = routed(call)
     plan, config, cref, continuation, contract, roots = current(proposal["old_plan"])
+    call = monitor.bind_contract(call, contract)
     require(proposal["new_plan"] == {**plan, "sources": deploy.sources()}
             and proposal["new_plan"] != plan
             and plan["python"] == str(Path(deploy.sys.executable).resolve()), "upgrade_revision_changed_scope")

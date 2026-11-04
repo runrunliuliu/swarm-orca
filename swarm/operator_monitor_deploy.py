@@ -41,6 +41,7 @@ def prepare(continuation_ref, state_root, output_dir, *, poll_seconds=3,
     """Derive binding from a reviewed schema2 continuation, never invent receipts."""
     require(verification_mode in ("native-runtime", "host-process"), "invalid_monitor_verification_mode")
     continuation, contract, continuation_root = load(continuation_ref)
+    call = monitor.bind_contract(call, contract)
     require(continuation["schema_version"] == 2, "monitor_scheduler_configuration_required")
     private_directory(str(continuation_root))
     validate_checkpoint(read_json(continuation["checkpoint_head"]), continuation, contract)

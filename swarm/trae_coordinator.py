@@ -335,7 +335,9 @@ def verify_log(path, *, thread_id, cwd, roots, now=None, max_age=300, execution=
 @budget.observed("native_rpc")
 def native(cli, runtime, args, *, timeout_seconds=15):
     from operator_continuity_route import runtime as transport_runtime
+    from startup_cli import check_explicit
     runtime = transport_runtime(runtime)
+    check_explicit(cli, runtime)
     with budget.stage(budget.query_name(args)):
         reply = subprocess.run([cli, *args, "--json"], check=True, text=True,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=budget.timeout(timeout_seconds))

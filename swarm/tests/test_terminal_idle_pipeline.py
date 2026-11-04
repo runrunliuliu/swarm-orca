@@ -7,6 +7,7 @@ persistent monitor-stop handling and the actual continuation outbox lifecycle.
 from contextlib import redirect_stdout
 import copy
 import io
+from pathlib import Path
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -23,6 +24,8 @@ class IdlePipelineTests(unittest.TestCase):
         self.s.setUp()
         self.addCleanup(self.s.doCleanups)
         self.m, self.f = self.s.m, self.s.f
+        # Native process I/O is mocked, but the contract executable preflight is real.
+        Path(self.f.c["cli"]["path"]).chmod(0o700)
         self.waits = []
 
     def reply(self, kind="ready"):

@@ -83,6 +83,9 @@ def confirmed(plan, target):
 def context(ref, *, call=None, actor=None):
     from operator_startup import load, created
     plan, start, session, _ = load(ref)
+    if call is not None:
+        from operator_monitor import bind_contract
+        call = bind_contract(call, session)
     require(plan["schema_version"] == 2, "startup_new_lifecycle_required")
     require(not os.path.lexists(Path(plan["state_root"]) / "STOP"), "startup_persistent_stop")
     if plan["bootstrap_owner"] is not None:
@@ -108,8 +111,8 @@ def context(ref, *, call=None, actor=None):
             fence(contract, **options)
         else:
             from operator_session import observe_identity
-            from operator_monitor import native
-            terminal = (call or native)(["terminal", "show", "--terminal", contract[actor]["terminal"]], contract["runtime"], 20)["terminal"]
+            from operator_monitor import bind_contract
+            terminal = bind_contract(call, contract)(["terminal", "show", "--terminal", contract[actor]["terminal"]], contract["runtime"], 20)["terminal"]
             observe_identity(cli=contract["cli"]["path"], runtime=contract["runtime"], operator=contract["operator"],
                 workspace=terminal["worktreeId"], profile=contract["observation"]["profile"],
                 log_root=contract["observation"]["log_root"],
@@ -172,6 +175,9 @@ def candidate_template(action, plan, contract, inputs):
 
 def inspect(ref, *, creation=None, call=None, observe_idle=False):
     plan, _, contract, current = context(ref, call=call)
+    if call is not None:
+        from operator_monitor import bind_contract
+        call = bind_contract(call, contract)
     require(creation is None or current == creation, "startup_run_binding_changed")
     root = Path(plan["state_root"])
     inputs = [ref, current["receipt"]]
@@ -308,6 +314,9 @@ def material(plan, contract, value):
 
 def complete(ref, actor, action, input_ref=None, *, call=None, dispatch_call=None):
     plan, _, contract, creation = context(ref, call=call, actor=actor)
+    if call is not None:
+        from operator_monitor import bind_contract
+        call = bind_contract(call, contract)
     require(ACTIONS.get(action) == actor, "startup_original_role_required")
     root = Path(plan["state_root"])
     with bound_lock(root, ref, "startup-role-action"):

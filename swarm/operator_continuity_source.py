@@ -81,6 +81,7 @@ def locked_source(plan_ref, *, call=monitor.native, caller_call=native, observe_
     """Reuse the recovery locks through the caller's native prepare/seal operation."""
     parts = original(plan_ref)
     plan, config, _, _, contract, roots = parts
+    call = monitor.bind_contract(call, contract)
     deploy.validate(plan_ref)
     with ExitStack() as stack:
         transition = plan.get("recovery", {}).get("transition")

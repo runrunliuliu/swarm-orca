@@ -156,8 +156,8 @@ def attest_trigger(ref, input_ref, *, call=None):
         from operator_session import observe_identity
         check_actor_context(contract, "operator")
         require_operator_context(contract)
-        from operator_monitor import native
-        terminal = (call or native)(["terminal", "show", "--terminal", contract["operator"]["terminal"]], contract["runtime"], 20)["terminal"]
+        from operator_monitor import bind_contract
+        terminal = bind_contract(call, contract)(["terminal", "show", "--terminal", contract["operator"]["terminal"]], contract["runtime"], 20)["terminal"]
         observe_identity(cli=contract["cli"]["path"], runtime=contract["runtime"], operator=contract["operator"],
             workspace=terminal["worktreeId"], profile=contract["observation"]["profile"],
             log_root=contract["observation"]["log_root"], max_age_seconds=contract["freshness"]["context_max_age_seconds"])

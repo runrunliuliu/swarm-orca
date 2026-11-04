@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "enabled": false,
   "outer_operator": {"id": "REPLACE_WITH_RESPONSIBLE_OPERATOR_ID"},
   "authorization_ref": "REPLACE_WITH_EXPLICIT_CONTINUATION_AUTHORIZATION",
@@ -14,6 +14,10 @@
   },
   "previous_plan": {
     "path": "/REPLACE/run_REPLACE/previous-launch-plan.json",
+    "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+  },
+  "startup_contract": {
+    "path": "/REPLACE/run_REPLACE/startup-contract.json",
     "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
   },
   "initial_checkpoint": {

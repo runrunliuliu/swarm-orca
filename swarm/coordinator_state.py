@@ -13,7 +13,7 @@ from coordinator_input import input_bytes
 from coordinator_io import (canonical, file_ref, fsync_dir, now, parse, path,
                             pinned, read_json, require, write_new)
 
-DRIVER_CONFIG_SCHEMA = 5
+DRIVER_CONFIG_SCHEMA = 6
 
 
 class Journal:
@@ -112,7 +112,7 @@ def follow_launch(config, previous):
     """
     ref = config["driver_binding"]
     driver = parse(pinned(ref))
-    require(type(driver.get("schema_version")) is int and driver["schema_version"] == DRIVER_CONFIG_SCHEMA,
+    require(type(driver.get("schema_version")) is int and driver["schema_version"] in (5, DRIVER_CONFIG_SCHEMA),
             "unsupported_driver_schema")
     validate_operator(driver["outer_operator"])
     binding = driver["binding"]

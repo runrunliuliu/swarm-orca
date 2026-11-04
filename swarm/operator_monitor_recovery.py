@@ -105,6 +105,7 @@ def prepare(plan_ref, output_dir, *, call=monitor.native, transition_ref=None):
         require(transition["old_plan"] == plan_ref, "cross_runtime_source_state_changed")
     parts = original(plan_ref)
     plan, config, cref, continuation, contract, roots = parts
+    call = monitor.bind_contract(call, contract)
     # The recovery/deployment chain pins legacy completion receipts including
     # turn-end. Do not begin a recovery which cannot consume a v2 submission.
     require(continuation.get("turn_protocol") != WORKFLOW_PROTOCOL,
@@ -164,6 +165,7 @@ def proposal_data(ref):
 def apply(proposal_ref, review_ref, *, call=monitor.native):
     p, parts, output = proposal_data(proposal_ref)
     plan, config, cref, continuation, contract, roots = parts
+    call = monitor.bind_contract(call, contract)
     receipt = dict(schema_version=1, kind=p["kind"], state="reviewed_not_resumed", proposal=proposal_ref,
                    review=review_ref, continuation=cref)
     with ExitStack() as stack:
@@ -224,6 +226,7 @@ def complete(permit_ref, workflow_ref, *, call=monitor.native, observe_turn=comp
     receipt = parse(pinned(permit_ref))
     receipt, p, parts, output = permit(permit_ref, receipt["continuation"])
     plan, config, cref, continuation, contract, roots = parts
+    call = monitor.bind_contract(call, contract)
     proof = parse(pinned(workflow_ref))
     old = p["snapshot"]["outbox"]
     key = p["snapshot"]["action_key"]
