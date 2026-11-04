@@ -23,6 +23,11 @@ Current state:
 Validation run in this workspace:
 
 - Targeted Swarm regression tests for the publicized CLI/config behavior passed.
+- Clean checkout validation was run from a fresh local clone at submodule commit `fa9e183e` in `/tmp/swarm-orca-clean.VYE3pv/repo`:
+  - `gitleaks git . --config .gitleaks.toml --redact` completed with `no leaks found` (`/tmp/swarm-orca-clean-gitleaks-git.json`).
+  - `gitleaks dir . --config .gitleaks.toml --redact` completed with `no leaks found` (`/tmp/swarm-orca-clean-gitleaks-dir.json`).
+  - `python3 -B -m unittest tests.test_coordinator_driver tests.test_progress_watch tests.test_supervisor -v` passed `262` tests from `swarm/`.
+  - `NOTICE.md`, `.gitleaks.toml`, and the exact upstream commit in `orca/upstream.json` were present in the clean checkout.
 - Full Swarm unittest discovery ran `2165` tests with `18` skipped and `85` errors in this container. The observed errors are from the current execution environment's `/proc` PID namespace mismatch: `os.getpid()` differs from `/proc/self/stat`, which intentionally trips Swarm's host process identity checks (`bootstrap_host_proc_view_mismatch`) plus one `/proc/2/stat` lookup failure. The production identity checks were not weakened for this migration snapshot.
 
 Not yet complete:
@@ -31,6 +36,6 @@ Not yet complete:
 - Confirm the final repository-level open-source license for Swarm code that does not carry an explicit upstream license header.
 - Review all licenses, third-party notices, icons, fonts, and bundled resources for the exact public release artifact set.
 - Decide which CI workflows should be added at repository root. The copied `orca/.github` tree was excluded from this migration snapshot to avoid publishing unreviewed production release/deploy workflows.
-- Run Orca build/tests and Swarm offline tests from a clean checkout without private parent-directory dependencies, including a CI environment with coherent `/proc` process identity for Swarm bootstrap tests.
+- Run full Orca build/tests and full Swarm offline tests from a clean checkout without private parent-directory dependencies, including a CI environment with coherent `/proc` process identity for Swarm bootstrap tests. The targeted clean-checkout regression above is complete, but is not a substitute for the full matrix.
 - Update private callers to consume this submodule layout before deleting old source locations.
 
