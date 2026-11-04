@@ -9,16 +9,29 @@ from coordinator_tui_continue import (active_scheduler_stop, applicable_schedule
                                       validate_next_scheduled_action, validate_scheduler_progress)
 from coordinator_tui_errors import require
 from trae_coordinator import native
+import observation_budget as budget
 
 
 def turn_end(config_ref, *, prevalidated_scheduler_head=None, call=native):
-    checked, live_runtime = check_with_runtime(config_ref, call=call)
-    config, contract, root = load(config_ref)
-    scheduled = "scheduler" in config
-    journal = read_scheduler_journal(root, config_ref) if scheduled else None
-    head = read_json(config["checkpoint_head"])
-    record, route = validate_checkpoint(head, config, contract)
-    state = read_outbox(root)
+    # Scope the function, not only the CLI: workflow.finish audits after ACK too.
+    def query(cli, runtime, args):
+        with budget.stage(budget.query_name(args)):
+            return call(cli, runtime, args)
+    with budget.scope():
+        return _turn_end(config_ref, prevalidated_scheduler_head=prevalidated_scheduler_head,
+                         call=query)
+
+
+def _turn_end(config_ref, *, prevalidated_scheduler_head=None, call=native):
+    with budget.stage("initial_fence"):
+        checked, live_runtime = check_with_runtime(config_ref, call=call)
+    with budget.stage("checkpoint"):
+        config, contract, root = load(config_ref)
+        scheduled = "scheduler" in config
+        journal = read_scheduler_journal(root, config_ref) if scheduled else None
+        head = read_json(config["checkpoint_head"])
+        record, route = validate_checkpoint(head, config, contract)
+        state = read_outbox(root)
     pending = [entry for entry in state["actions"].values() if entry["result"] is None]
     require(len(pending) <= 1, "tui_outbox_invalid")
     require(not any(entry["claimed_at"] is not None for entry in pending),
@@ -103,11 +116,13 @@ def turn_end(config_ref, *, prevalidated_scheduler_head=None, call=native):
     readiness = None
     if scheduled and "startup_lifecycle" in config:
         from operator_readiness import for_continuation
-        readiness = for_continuation(config_ref, call=lambda args, runtime, timeout:
-            call(contract["cli"]["path"], runtime, args))
+        with budget.stage("readiness"):
+            readiness = for_continuation(config_ref, call=lambda args, runtime, timeout:
+                budget.call_with_timeout(call, contract["cli"]["path"], runtime, args, timeout))
     # Readiness performs native I/O too; retain the final context/head/journal
     # fence after that observation, not before it.
-    final, final_runtime = check_with_runtime(config_ref, call=call)
+    with budget.stage("final_fence"):
+        final, final_runtime = check_with_runtime(config_ref, call=call)
     require(final_runtime == live_runtime, "tui_turn_end_runtime_changed")
     validate_checkpoint(head, config, contract)
     require(read_json(config["checkpoint_head"]) == head and read_outbox(root) == state,

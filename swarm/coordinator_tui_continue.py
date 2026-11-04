@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import uuid
+import observation_budget as budget
 
 from coordinator_io import (try_bound_lock, correction_fence, canonical, digest, now, parse, path, pinned,
                             publish_new, read_json, replace_json, timestamp, validate_ref)
@@ -590,6 +591,7 @@ def request_show_with_runtime_epoch(cli, runtime, call, request_id):
     return call(cli, current, args), current
 
 
+@budget.observed("runtime_discovery")
 def discover_runtime(cli):
     """Read the current Server epoch without weakening native query fences.
 
@@ -600,7 +602,7 @@ def discover_runtime(cli):
     before any continuation action can proceed.
     """
     reply = subprocess.run([cli, "status", "--json"], check=True, text=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=budget.timeout(15))
     value = json.loads(reply.stdout)
     result = value.get("result", {})
     runtime = result.get("runtime", {})

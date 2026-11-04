@@ -321,6 +321,27 @@ python3 -B /absolute/swarm/coordinator_tui_continue.py turn-end \
 旧 Server 缺字段时返回 `tui_turn_end_mailbox_state_unavailable`，不假定 inbox 为空。
 该字段来自原生 outstanding-delivery 视图，保留原有防重抑制，不改变 Delivery 生命周期。
 
+`turn_end()` 的只读审计共用 60 秒单调时钟预算，涵盖初始/最终身份检查、mailbox、
+readiness、嵌套 TUI 观察和 bootstrap owner 查询。每次 I/O 使用原调用上限与剩余预算的
+较小值；嵌套检查不续期，也不延长 gate、context 或任务期限。CLI、workflow 内部审计
+和跨 runtime 审计使用同一入口；不把整个有写入的 workflow 包成只读预算。
+
+阶段开始/结束/失败以脱敏 JSON 行即时输出到 stderr（`observation_stage`），stdout
+保留最终 JSON。诊断只含固定阶段名和时间，不输出命令参数、路径、原生回复或凭据。
+预算耗尽或审计内 I/O 超时返回 `tui_turn_end_observation_timeout`，附 `stage`、
+`timeout_kind`、`elapsed_seconds`、`budget_seconds`；CLI 返回非零退出码。
+这表示**合法结束审计未完成**，不是回合已经结束，也不推翻之前已确认的提交、ACK 或释放。
+保留原回执并核查阻塞阶段；不得据此重放业务或 ACK。需再次审计时仍须具备原身份、
+原 pins 和当前合法 checkpoint，不自动重试或跳过最后一次身份/head/journal 复查。
+非只读 owner RPC 仍使用 `bootstrap_tool_timeout_requires_reconciliation` 的未知结果语义：
+不能仅凭该错误判断失败或重试同一 mutation，owner 仍可能完成已接纳工作。
+
+预算对文件读取是合作式检查，日志读取在分段边界检查；不能强行取消阻塞中的文件系统
+调用，stderr 写入及子进程回收也不是硬实时保证。因此不承诺命令在所有操作系统故障下
+严格 60 秒退出；阶段日志可定位未返回的读取。此预算不改变监控/业务状态，不生成成功回执。
+共享预算模块属于部署源码依赖，会进入 `operator_monitor_deploy.sources()` 的 pins；
+修复须在经审查的新源码基线上部署，不静默重签旧 deployment 或历史 Run。
+
 schema v2 还检查 `context_observed_at <= source.observed_at <= now`，且 source 不早于成功
 首派 gate。旧回合 checkpoint 返回 `tui_checkpoint_not_from_current_turn`，缺时间戳或早于
 gate 也拒绝。该检查覆盖 continue/wait/blocked/complete；它不生成或认证业务事实。

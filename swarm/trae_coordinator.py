@@ -15,6 +15,7 @@ import re
 import shlex
 import stat
 import subprocess
+import observation_budget as budget
 
 from coordinator_launch import artifact_layout, canonical_directory, read_config
 from coordinator_loop import phase_contract
@@ -244,6 +245,7 @@ def stream_thread(text):
     return ids[0]
 
 
+@budget.observed("session_log")
 def verify_log(path, *, thread_id, cwd, roots, now=None, max_age=300, execution=None,
                cli_version=VERSION):
     # The driver also verifies historical turns using their precise (possibly
@@ -330,11 +332,13 @@ def verify_log(path, *, thread_id, cwd, roots, now=None, max_age=300, execution=
             "trust": "native-terminal-stream-and-session-log-not-process-attested"}
 
 
+@budget.observed("native_rpc")
 def native(cli, runtime, args, *, timeout_seconds=15):
     from operator_continuity_route import runtime as transport_runtime
     runtime = transport_runtime(runtime)
-    reply = subprocess.run([cli, *args, "--json"], check=True, text=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout_seconds)
+    with budget.stage(budget.query_name(args)):
+        reply = subprocess.run([cli, *args, "--json"], check=True, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=budget.timeout(timeout_seconds))
     value = json.loads(reply.stdout)
     require(value.get("ok") is True and value.get("_meta", {}).get("runtimeId") == runtime,
             "native query failed or runtime changed")

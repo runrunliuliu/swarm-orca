@@ -1,6 +1,7 @@
 """Read a finite log snapshot without imposing a lifetime transcript size limit."""
 
 import hashlib
+from observation_budget import check
 
 
 def prefix_lines(source, size):
@@ -11,7 +12,9 @@ def prefix_lines(source, size):
     """
     remaining = size
     while remaining:
+        check()
         line = source.readline(remaining)
+        check()
         if not line:
             raise ValueError("log truncated during read")
         remaining -= len(line)
@@ -23,7 +26,9 @@ def prefix_digest(source, size):
     remaining = size
     digest = hashlib.sha256()
     while remaining:
+        check()
         chunk = source.read(min(remaining, 1024 * 1024))
+        check()
         if not chunk:
             raise ValueError("log truncated during read")
         remaining -= len(chunk)

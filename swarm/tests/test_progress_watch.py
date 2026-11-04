@@ -732,6 +732,22 @@ class MonitorNativeRoutingTests(unittest.TestCase):
         self.assertEqual(result["caller"]["terminalHandle"], "term_x")
         self.assertIn("orchestration strict-caller-check --json", self.calls.read_text())
 
+    def test_native_special_route_uses_production_cli_environment(self):
+        import operator_monitor
+        stub = watch.CLI
+        with patch.object(watch, "CLI", None), \
+                patch.dict(watch.os.environ, {watch.CLI_ENV: stub}):
+            result = operator_monitor.native(["terminal", "show", "--terminal", "term_x"], "rt", 10)
+        self.assertEqual(result["caller"]["terminalHandle"], "term_x")
+        self.assertIn("terminal show --terminal term_x --json", self.calls.read_text())
+
+    def test_native_special_route_requires_a_cli(self):
+        import operator_monitor
+        with patch.object(watch, "CLI", None), patch.dict(watch.os.environ, {}, clear=True):
+            with self.assertRaisesRegex(watch.StopObservation, "orca_server_cli_required"):
+                operator_monitor.native(["terminal", "show", "--terminal", "term_x"], "rt", 10)
+        self.assertFalse(self.calls.exists())
+
     def test_native_still_refuses_unlisted_verb_without_spawning(self):
         import operator_monitor
         with self.assertRaises(watch.ObservationError) as caught:

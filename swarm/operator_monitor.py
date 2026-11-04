@@ -102,7 +102,10 @@ def native(args, runtime, timeout=12):
     if tuple(args[:2]) not in {("orchestration", "send"), ("orchestration", "inbox"),
                               ("orchestration", "request-show"), ("terminal", "show"), ("terminal", "wait")}:
         return watch.query(args, runtime, timeout, start_new_session=True)
-    reply = subprocess.run([watch.CLI, *args, "--json"], stdout=subprocess.PIPE,
+    cli = os.environ.get(watch.CLI_ENV) or watch.CLI
+    if not cli:
+        raise watch.StopObservation("orca_server_cli_required")
+    reply = subprocess.run([cli, *args, "--json"], stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL, timeout=timeout, start_new_session=True)
     target = idle_wait_target(args)
     if target is not None:

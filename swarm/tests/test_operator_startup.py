@@ -415,6 +415,28 @@ class StartupTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "tui_turn_end_(state|context)_changed"):
                     self.audit()
 
+    def test_readiness_adapter_caps_timeout_and_expiry_skips_final_fence(self):
+        import observation_budget as budget
+        from types import SimpleNamespace
+        self.create_receipt()
+        self.initialize()
+        tick = [100.0]
+        def expired(ref, *, call):
+            def inspect_timeout(cli, runtime, args):
+                self.assertEqual(budget.timeout(15), 2)
+                tick[0] += 61
+                return {}
+            with patch.object(self.f, "query", side_effect=inspect_timeout):
+                return call(["status"], "runtime_test", 2)
+        from coordinator_tui_continue import check_with_runtime
+        with patch.object(budget, "time", SimpleNamespace(monotonic=lambda: tick[0])), \
+                patch.object(readiness, "for_continuation", side_effect=expired), \
+                patch("coordinator_tui_turn_end.check_with_runtime", wraps=check_with_runtime) as fence:
+            with self.assertRaises(budget.ObservationTimeout):
+                self.audit()
+            self.assertEqual(fence.call_count, 1)
+        self.assertFalse(budget.active())
+
     def test_changed_head_during_live_verify_cannot_report_ready(self):
         self.create_receipt()
         self.initialize()

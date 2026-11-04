@@ -4,6 +4,7 @@ import math
 
 from coordinator_io import FilePinChanged
 from trae_coordinator import ContextFreshnessError
+from observation_budget import ObservationTimeout
 
 
 class TuiError(ValueError):
@@ -17,7 +18,10 @@ def require(condition, code):
 
 def failure(exc, fallback):
     result = {"ok": False, "decision": "stop", "error": fallback}
-    if isinstance(exc, TuiError):
+    if isinstance(exc, ObservationTimeout):
+        result.update(error=str(exc), **exc.details, execute_action=False,
+                      recovery="preserve_receipts_audit_incomplete_no_business_or_ack_replay")
+    elif isinstance(exc, TuiError):
         result["error"] = str(exc)
         recovery = {
             "tui_action_window_insufficient": "checkpoint_enqueue_end_turn_no_new_business_action",

@@ -57,6 +57,27 @@ class SubmissionTests(unittest.TestCase):
         self.assertEqual(file_ref(self.w.receipt_path), pin)
         self.assertEqual(len(self.w.mutations), 2)
 
+    def test_post_ack_audit_timeout_preserves_acceptance_without_replay(self):
+        import observation_budget as budget
+        import subprocess
+        self.w.begin()
+        self.w.evidence()
+        original = self.w.query
+        def slow_audit(cli, runtime, args):
+            if budget.active():
+                raise subprocess.TimeoutExpired(["fixture"], 15)
+            return original(cli, runtime, args)
+        with patch.object(self.w, "query", side_effect=slow_audit):
+            result = self.submit()
+        self.assertTrue(result["submission_accepted"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["turn_end"]["error"], "tui_turn_end_observation_timeout")
+        self.assertTrue(self.w.acked)
+        pin = file_ref(self.w.receipt_path)
+        self.assertTrue(self.submit()["submission_accepted"])
+        self.assertEqual(file_ref(self.w.receipt_path), pin)
+        self.assertEqual(len(self.w.mutations), 2)
+
     def test_progress_review_does_not_prevent_valid_settlement_and_ack(self):
         self.w.begin()
         self.w.evidence()

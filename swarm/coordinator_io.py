@@ -53,6 +53,8 @@ def path(value, *, directory=False):
 
 
 def read_bytes(value):
+    from observation_budget import check
+    check()
     target = path(str(value))
     fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
@@ -60,6 +62,7 @@ def read_bytes(value):
         size = os.fstat(stream.fileno()).st_size
         raw = stream.read(size)
         require(len(raw) == size, "file_truncated")
+    check()
     return raw
 
 

@@ -13,6 +13,7 @@ import secrets
 import socket
 import threading
 import time
+import observation_budget as budget
 
 from bootstrap_admission import control_paths, inspect_chain
 from bootstrap_identity import (host_process, peer, unchanged, IdentitySnapshotExpired,
@@ -539,6 +540,14 @@ class AuthorityClient:
             self.deadline, self.read_only_poll = prior
 
     def rpc(self, op, **args):
+        if budget.active():
+            io.require(op in {"heartbeat", "check", "query", "observe", "runtime-observe"},
+                       "observation_budget_mutation_forbidden")
+            with budget.stage("owner_rpc"), self.polling(time.monotonic() + budget.timeout(30)):
+                return self._bounded_rpc(op, **args)
+        return self._bounded_rpc(op, **args)
+
+    def _bounded_rpc(self, op, **args):
         io.require(not self.read_only_poll or op in {"heartbeat", "check", "query", "observe", "runtime-observe"},
                    "bootstrap_poll_mutation_forbidden")
         prior = self.deadline
@@ -612,7 +621,7 @@ class AuthorityClient:
             io.require(result["control"] == asdict(control) and result["target"] == target,
                        "bootstrap_confirmation_mismatch")
             return Confirmation(control, target, result["status"])
-        except (ReadOnlyPollExpired, IdentityVerificationPending):
+        except (ReadOnlyPollExpired, IdentityVerificationPending, budget.ObservationTimeout):
             raise
         except (OSError, ValueError):
             return Confirmation(control, target, "durability_unverified")

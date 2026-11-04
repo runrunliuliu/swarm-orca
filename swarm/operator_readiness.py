@@ -5,6 +5,7 @@ not a lease: the monitor and Coordinator retain their independent action fences.
 """
 
 import subprocess
+from observation_budget import ObservationTimeout
 
 from coordinator_io import (canonical, digest, now, parse, pinned, read_json,
                             require, timestamp)
@@ -110,6 +111,8 @@ def check(continuation_ref, plan_ref, *, call=None):
                       next_owner="coordinator" if ready else "operator")
         result.update(runtime_ready=ready, legal_yield_ready=ready,
                       execution_mode="autonomous" if execution else "historical")
+    except ObservationTimeout:
+        raise
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         result["reason"] = unavailable(exc)
     result["missing"] = ([] if result["runtime_ready"] else [result.get("reason") or "monitor_not_ready"])
@@ -134,6 +137,8 @@ def for_continuation(config_ref, *, call=None):
         require(monitor.data["state_root"] == plan["monitor_state_root"]
                 and monitor.data["sender"] == plan["sender"], "readiness_lifecycle_deployment_changed")
         return check(config_ref, deployment_ref, call=call)
+    except ObservationTimeout:
+        raise
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         missing = isinstance(exc, FileNotFoundError) and state is not None and state["deployment"] is None
         reason = "monitor_deployment_not_published" if missing else unavailable(exc)

@@ -28,6 +28,24 @@ class TurnEndTests(unittest.TestCase):
     def end(self):
         return turn_end(self.f.config_ref, call=self.query)
 
+    def test_cumulative_slow_queries_stop_without_writes_or_final_fence(self):
+        import observation_budget as budget
+        from types import SimpleNamespace
+        tick, calls = [100.0], []
+        def slow(cli, runtime, args):
+            calls.append(args)
+            result = self.query(cli, runtime, args)
+            tick[0] += 13  # Below the native 15s cap, but the total exceeds 60s.
+            return result
+        before = list(self.f.state.iterdir())
+        with patch.object(budget, "time", SimpleNamespace(monotonic=lambda: tick[0])):
+            with self.assertRaises(budget.ObservationTimeout):
+                turn_end(self.f.config_ref, call=slow)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(list(self.f.state.iterdir()), before)
+        self.assertFalse(self.f.sends)
+        self.assertFalse(budget.active())
+
     def enqueue(self):
         result = self.f.step()
         self.mailbox.update(count=1, messages=[dict(id=result["delivery"]["message_id"])])
