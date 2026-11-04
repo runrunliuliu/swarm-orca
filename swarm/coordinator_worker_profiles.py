@@ -1,9 +1,11 @@
 """Resolve model-only Worker selection from reviewed, pinned local policy.
 
 This is Swarm policy, not the Coordinator profile or a native capability probe.
-No request-selected config path, environment defaults, aliases or fallbacks.
+The trusted Operator may select a policy file via SWARM_WORKER_PROFILES.
+Requests still cannot select paths, override settings or request fallbacks.
 """
 
+import os
 from pathlib import Path
 
 from coordinator_io import parse, pinned, require
@@ -13,7 +15,11 @@ PROFILES = Path(__file__).resolve().with_name("worker-model-profiles.json")
 
 
 def resolve(model, sha256):
-    ref = {"path": str(PROFILES), "sha256": sha256}
+    # Preserve the supplied path for pinned()'s canonical/non-symlink checks.
+    # An explicit invalid override must never fall back to the bundled fixture.
+    source = os.environ.get("SWARM_WORKER_PROFILES", str(PROFILES))
+    require(bool(source), "empty_worker_profiles_path")
+    ref = {"path": source, "sha256": sha256}
     config = parse(pinned(ref))
     require(isinstance(config, dict) and set(config) == {"schema_version", "scope", "profiles"}
             and type(config["schema_version"]) is int and config["schema_version"] == 1

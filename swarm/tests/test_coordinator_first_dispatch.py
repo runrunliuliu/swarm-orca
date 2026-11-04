@@ -128,6 +128,37 @@ class FirstDispatchTests(unittest.TestCase):
         self.assertEqual(result["resolved_profile"]["backend_variant"], "standard")
         self.assertEqual(result["resolved_profile"]["config"], file_ref(PROFILES))
 
+    def test_external_profile_is_preserved_in_dispatch_and_acceptance(self):
+        profile = self.s.fixture.bootstrap / "private-profiles.json"
+        profile.write_bytes(PROFILES.read_bytes() + b"\n")
+        self.request["profiles_sha256"] = file_ref(profile)["sha256"]
+        with patch.dict(os.environ, SWARM_WORKER_PROFILES=str(profile)):
+            result = self.execute()
+            accepted = first.verify_accepted(file_ref(self.state / "dispatched.json"),
+                                             contract_ref=self.contract_ref)
+        self.assertTrue(accepted["ok"])
+        self.assertEqual(result["resolved_profile"]["config"], file_ref(profile))
+        self.assertEqual(len(self.calls), 1)
+
+    def test_external_policy_path_change_during_gate_stops_before_intent(self):
+        profile = self.s.fixture.bootstrap / "private-profiles.json"
+        replacement = self.s.fixture.bootstrap / "replacement-profiles.json"
+        profile.write_bytes(PROFILES.read_bytes())
+        replacement.write_bytes(PROFILES.read_bytes())
+        original_gate = first.run_gate
+
+        def changing_gate(*args, **kwargs):
+            receipt = original_gate(*args, **kwargs)
+            os.environ["SWARM_WORKER_PROFILES"] = str(replacement)
+            return receipt
+
+        with patch.dict(os.environ, SWARM_WORKER_PROFILES=str(profile)), \
+                patch.object(first, "run_gate", side_effect=changing_gate):
+            with self.assertRaisesRegex(ValueError, "first_dispatch_inputs_changed"):
+                self.execute()
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
     def test_write_isolation_resolves_exact_workspace_twice_before_intent(self):
         review = self.s.fixture.bootstrap / "worker-review"
         source = self.s.fixture.bootstrap / "source"
