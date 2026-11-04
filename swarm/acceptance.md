@@ -6,20 +6,13 @@ Operator lifecycle、monitor、scheduler 的核心标准统一见 [Swarm 测试�
 核心 suite 不替代本文的离线自治、长驻、经济性及业务验收范围，也不将本文带日期的结果或
 未勾选项当作当前 Run 的验收结论。下文历史结果不因新标准发布而重新评定。
 
-Strict 最新进展见 [live11 当前续验进展（2026-11-02 更新）](docs/validation/current.md)。
-当前 Run `run_70dcf6e13fcd` 最后已核验的 **2026-11-02 13:18:45 +08:00** checkpoint 记录
-`live-2/3=PASS_CURRENT_RUN`；terminal-wait / presend 仍 blocked，pending-history 未命中，
-accounting 为 PARTIAL，live-5 未到达、Run 未退役。另四项本次未重新评定，不继承旧 Run 的 MET。
-这不是实时状态查询或完整 suite 的独立 PASS 统计。固定 monitor 的 `continuation=null`，
-`decision=blocked`，`next_action` 是待 Operator 补条件的请求，不是可发送的 scheduler action。
-按[当前 TODO](docs/validation/current.md#validation-priorities)先补受支持的 scheduler
-衔接及边界触发条件，再补最小 live 证据；保留 live-2/3 结果，用量采集前置、独立收尾后置。
+部署方私有维护当前 Run 状态与历史证据，公开清单不携带真实 Run/terminal 身份。
+源码存在、历史局部 PASS 和待 Operator 补条件的请求均不等于当前 scheduler 可发送。
+用量采集前置、独立收尾后置；不同版本、环境和尝试的验收结果分别记录。
 未知用量须披露并由独立审查判断影响，不能填 0，也不能仅因披露缺口就声称完整 accounting PASS。
 不自动重跑整套、不将 BLOCKED 改为 PASS，也不改变已有验收合同或授权。
-此前 [2026-10-30 正式部署后续验计划](docs/validation/reports/operator-planned-restart-validation-20261030.md#post-deploy-plan)
-保留为历史计划来源；计划 Server 重启与同 runtime 的 monitor 重启仍分别验收。
-此前的 [NFS 修复验证](docs/validation/reports/strict-start-nfs-validation-20261030.md) 和
-[pre-Run 发布失败记录](docs/validation/reports/strict-start-validation-20261030.md) 保留；与下面 MVP 历史清单分开记账。
+计划 Server 重启与同 runtime 的 monitor 重启仍分别验收；文件系统发布和 pre-Run
+启动失败记录由部署方归档，与下面 MVP 清单分开记账。
 
 更新时间：2026-10-13（Asia/Shanghai）。本地 MVP 已实现；真实 Swarm 未部署、未启动。离线测试不证明原生接口、远端认证、长驻或 Mac 离线自治已通过。
 

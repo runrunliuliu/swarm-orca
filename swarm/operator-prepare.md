@@ -90,7 +90,7 @@ python3 -B /absolute/swarm/operator_prepare.py prepare --input /absolute/reviewe
 
 ## 2. Operator 复用已有启动 argv
 
-先按现有 [Coordinator 启动说明](coordinator-runtime.md) 生成 strict launch plan，并用
+先按现有 [Coordinator 启动说明（私有部署）](configuration.md) 生成 strict launch plan，并用
 `assemble-materials` 固定材料清单。`native-plan` 直接消费该清单中的
 `artifacts.bound_launch_plan`，且必须等于本次 `--plan`；清单里的业务 workspace id/path
 也必须与本次 native 目标和计划 cwd 一致。另先固定 Operator 自身身份输入，由同一个

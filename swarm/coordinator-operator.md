@@ -18,7 +18,7 @@
 从目标仓库已确认基线创建并核验专属 Orca worktree，固定到任务交接；不是仅切换 Git 分支。
 同一任务续作、修正、重试和恢复沿用原 worktree；只读任务不强制新建，用户指定已有
 worktree 时优先遵从并核验。完整流程及边界见
-[任务 worktree 准备规则](../skills/orchestration/references/swarm-execution-policy.md#新独立修改任务的-worktree-准备)。
+[任务 worktree 准备规则（部署方提供）](configuration.md#部署政策与历史材料)。
 
 这是外层操作者的启动前职责，不是本执行器的新功能；下述执行与恢复循环消费既有
 Run/workspace 绑定，不自动创建 worktree，也不迁移现有任务。

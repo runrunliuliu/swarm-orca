@@ -5,7 +5,7 @@
 Run owner 必须是事先独立核验的 Coordinator，而不是两个都填成 Operator 的相等字段。
 
 本文件只定义启动门；角色与 bootstrap/run/recovery 的衔接遵循
-[跨阶段控制循环契约](../skills/orchestration/references/coordinator-loop.md)。
+[跨阶段控制循环契约（部署方提供）](configuration.md#部署政策与历史材料)。
 启动就位后由 Coordinator 自主执行业务循环，不由 Operator 逐轮指定下一任务。
 
 `coordinator_launch.py startup-gate` 是只读、失败即停止的核验入口，不创建或恢复会话、

@@ -25,7 +25,7 @@ Run owner/generation、terminal/incarnation，也会被原生回包校验以 `ru
 Server 维护入口、Python prepare/review/apply/complete 与后续回合已接线并通过本地回归，
 但未部署、未完成真实 Server/TUI 全链验收。这不改变本 same-runtime 入口的拒绝行为，
 也不构成封存/解封生产数据库的许可。
-当时的实机边界见 [2026-10-30 重启后记录](docs/validation/reports/operator-trust-validation-20261030.md#上线与重启后复验2026-10-30)。
+当时的实机边界见 2026-10-30 重启后记录（部署方私有历史材料，不随公开仓库分发）。
 
 ## 流程与职责
 

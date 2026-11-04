@@ -6,7 +6,7 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
 当前严格创建校验的 `coordinatorPolicy` 仍为 `strict-v1`。
 不会部署服务、启动 Agent 或 Worker，也不提供崩溃接管；实际执行仍须已有任务授权。
 
-目标文件系统验证：[2026-10-30 实测记录](docs/validation/reports/strict-start-validation-20261030.md) 显示当时 BN/NFS
+目标文件系统验证：2026-10-30 实测记录（部署方私有历史材料，不随公开仓库分发） 显示当时 BN/NFS
 挂载的独占目录提交探针返回 errno 22，旧 request-only prepare 未完成发布。新请求显式使用
 下述 marker-commit 协议，复用独占文件发布，不再依赖目录 rename。旧失败记录不改写；
 同挂载测试也不等于独立审查、真实启动或 11 项 live 验收通过。

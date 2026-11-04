@@ -299,8 +299,8 @@ lifecycle 保存已知退出码和空 receipt。耗尽后的 lifecycle 重启仍
 - 真实 checkpoint/checker、处理/settle/精确 Run ACK/pending 清零/退役/归档仍按原规范。
   本层不修复 runtime ACK/retire API，也不把终端 inbox 空视作精确 Run 清空。
 
-验证与尚未完成项见 [运行期边界开发报告](docs/validation/reports/strict-bootstrap-runtime-20261103.md)
-及[前序生命周期交接报告](docs/validation/reports/strict-bootstrap-lifecycle-20261103.md)。
+验证与尚未完成项见 运行期边界开发报告（部署方私有历史材料，不随公开仓库分发）
+及前序生命周期交接报告（部署方私有历史材料，不随公开仓库分发）。
 回归入口为 `tests/test_startup_handoff.py`、`tests/test_operator_startup.py` 和
 `tests/test_bootstrap_production.py`；生产 helpers 的离线纵向测试不替代真实 provider、
 NAS 新链实测、独立审查或 live 验收。

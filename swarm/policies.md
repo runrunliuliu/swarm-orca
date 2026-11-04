@@ -10,7 +10,7 @@ Review 必须 fresh Agent、只读；报告/测试输出可写入批准的 artif
 
 ## 固定 DAG 和生命周期
 
-报告与回执归档遵循 [产物归档规则](artifact-storage.md)：默认远端根目录为 `/mnt/hdfs/user_dir/`，本地为可选副本。MVP 的 `artifact_dir` 须在首次初始化前明确配置并核验；已有配置不变，不将状态数据库迁入产物归档目录。
+报告与回执归档遵循 [产物归档规则（私有部署）](configuration.md)：默认远端根目录为 `/mnt/hdfs/user_dir/`，本地为可选副本。MVP 的 `artifact_dir` 须在首次初始化前明确配置并核验；已有配置不变，不将状态数据库迁入产物归档目录。
 
 实施并发最多2，总并发显式配置，Review/Integration 也计数；Integration 与其他 Worker 不并行。最终 Integration 必须传递依赖所有任务。任务契约按拓扑序固化，native Task 延迟到上游验收通过才创建，不用 Orca 的 completed 直接放行业务验收。
 

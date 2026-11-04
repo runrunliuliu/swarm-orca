@@ -8,9 +8,10 @@
 ## 模型选择与固定参数
 
 新请求使用 **schema v2**：Coordinator 只选择实际 `model` ID，不再提供
-`agent/effort/backend_variant`，即使填入相同值或 null 也拒绝。代码从 helper 同目录的
-[worker-model-profiles.json](worker-model-profiles.json) 确定 Agent、effort 和 backend；
-它是 [Worker 白名单](worker-model-candidates.md) 的机器可读参数源，与 Coordinator 配置分离。
+`agent/effort/backend_variant`，即使填入相同值或 null 也拒绝。代码从 Operator 显式设置的
+`SWARM_WORKER_PROFILES` 读取 Agent、effort 和 backend；变量未设置时才使用相邻
+[公开配置](worker-model-profiles.json)。私有接入、规范路径和跨进程交付要求见
+[部署配置](configuration.md#worker-私有白名单)。它与 Coordinator 配置分离。
 任务、placement、写入范围和 timeout 仍按任务授权明确填写，不属于模型固定参数。
 
 Operator 审查该配置并在交接中固定 `profiles_sha256`（文件原始字节 SHA256）。
@@ -18,9 +19,7 @@ Coordinator 原样引用该 hash，不自行修改配置或重新批准 hash；�
 配置丢失、hash 变化、未知模型或未完成适配的组合均在生成命令前拒绝，没有默认模型或降级。
 允许归档经审查的一致 helper/config 副本，但不能只替换配置来扩充白名单。
 
-| 模型 | 自动生成的固定参数 | 当前限制 |
-| --- | --- | --- |
-| `example-model` | `example-agent`、`high`、`standard` | placeholder only; private deployments must provide their own reviewed profile |
+公开 JSON 仅为可解析的示例/测试基线，不代表部署白名单；生产使用自己的已审查配置。
 
 GPT-5.4 固定生成 `--backend-variant standard`，由原生 Trae catalog 映射为
 `-c 'model_backend_variant="standard"'`，复用既有启动链路覆盖旧 Max 参数。

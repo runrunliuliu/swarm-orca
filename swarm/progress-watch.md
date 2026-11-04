@@ -167,9 +167,9 @@ are different). Example, with illustrative identities and timestamp to replace:
 ```json
 {
   "schema_version": 1,
-  "run_id": "run_db5d14ca5304",
+  "run_id": "run_example",
   "consumer_generation": 6,
-  "coordinator_handle": "term_d69cb866-5814-47dc-851f-8499d46b1cb0",
+  "coordinator_handle": "term_example",
   "updated_at": "2026-10-19T10:00:00+00:00",
   "phase": "development",
   "milestone_id": "wave-1-review-complete",

@@ -135,7 +135,7 @@ capture 显式拒绝 strict 计划，driver 的实时 fence 也拒绝 strict-v1 
 
 ## 历史非 strict 两阶段归档
 
-阶段语义遵循[共享契约](../skills/orchestration/references/coordinator-loop.md)。计划中的
+阶段语义遵循[共享契约（部署方提供）](configuration.md#部署政策与历史材料)。计划中的
 `prompt_fragment` 与原 `prompt_file` 在只读规划时绑定为 `input_contract`，固定原正文、
 片段及实际 stdin 的原始字节 SHA256。capture 传入两者组合，原正文不改写。操作者仍
 须检查交接中是否含其他阶段的冲突指令。`replacement` 字段的语义为 recovery。
@@ -176,7 +176,7 @@ Run 前取得独立会话核验回执，步骤 4 首批派发前取得 Operator 
 安全恢复，且版本匹配的原生恢复流程可验证，才适用下面的核验顺序。当前实验性
 `strict-v1` 不支持安全 rebind/adoption 或崩溃接管，须在创建替代终端/会话前停止，
 保留证据并报告；不能通过普通 `run-use`、去掉 strict 或手写 adoption 回执绕过。
-完整边界见 [strict 恢复规则](../skills/orchestration/references/strict-coordinator.md)。
+完整边界见 [strict 恢复规则（部署方提供）](configuration.md#部署政策与历史材料)。
 
 1. 取得旧 Coordinator 的正向进程退出证据，核验当前 Run/consumer generation、
    旧终端和完整 Worker 清单。保留失败记录和未知 Worker；未知者仍占并发名额。

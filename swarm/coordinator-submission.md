@@ -102,7 +102,7 @@ ACK 回包丢失但请求已记录为 attempted 时，只查询原 request-show�
 
 定向离线用例见 `tests/test_coordinator_tui_submission.py`，并需回归既有 TUI workflow/scheduler、
 monitor/recovery、terminal-idle 管道。报告见
-[本次离线验证记录](docs/validation/reports/coordinator-submit-reliability-20261102.md)。
+本次离线验证记录（部署方私有历史材料，不随公开仓库分发）。
 离线 fixtures 不证明真实消息唤醒、长期自治或 11 项 live 验收通过。本批未部署、未启动新 Agent、
 未修改运行中的 Run。预期收益是减少模型编排步骤和漏提交的不确定性；没有测量或宣称 Agent
 冷启动、Provider 会话初始化、首次 dispatch 的耗时改善。

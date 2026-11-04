@@ -111,7 +111,7 @@ orca-cli/orchestration 技能要求的授权、策略交接、身份、写入探
 这份代码/文档不自动授予启动、部署、扩大可写根或接管 Run 的权限。
 
 RSI 的规划、初始交接与恢复均遵循工作区的
-[目标仓库 skill 优先规则](../skills/orchestration/references/repository-skills.md)。
+[目标仓库 skill 优先规则（部署方提供）](configuration.md#部署政策与历史材料)。
 Driver 复用文件 pin 和接受收据，不另建 skill 服务：
 
 - `repository_skills` 是 `{角色:{path,sha256}}`，从原启动计划的 `cwd` 发现，
@@ -267,7 +267,7 @@ checkpoint 转换仍走原来的验证链。该提示约束及本地防重不等
 Coordinator 是跨阶段的唯一业务规划者；正常续跑由 Coordinator 与本 driver 接续，
 Operator 负责启动/恢复门、交付证据及执行精确委托，
 不能因为“已获准训练”或缺 Worker-start 回执而自行代派发。恢复/adoption 仍遵循
-[全阶段业务归属规则](../skills/orchestration/references/swarm-execution-policy.md#全阶段业务归属与训练期间并行)。
+[全阶段业务归属规则（部署方提供）](configuration.md#部署政策与历史材料)。
 
 `submitted` 报告示例：
 
@@ -427,7 +427,7 @@ RSI_CHECKER_TEST_ROOT=/absolute/verified/fin-verl-checkout \
 
 每回合收据保留 capture 的起止时间及原始 `turn.completed.usage`（若提供）。
 它不是账单审计或完整 Swarm 台账；缺失 usage 保留 null，不填 0。
-真实上线仍须按 [ledger.md](ledger.md) 采集 Coordinator、全部 Worker/失败尝试的
+真实上线仍须按 [ledger.md（私有部署）](configuration.md) 采集 Coordinator、全部 Worker/失败尝试的
 Token/耗时、统计覆盖和缺口，以及归档 hash 回读证明。
 
 `progress_watch` 必须通过 `driver_binding` 跟随已固定 driver 的

@@ -136,7 +136,7 @@ model-mediated operator confirmation. The Coordinator invokes the explicit nativ
 `dispatch_explicit_task_once` is a preflight result, not a business progress decision
 or a single-Worker scheduling policy; later dispatches still require fresh checks
 and available authorized capacity. Continue independent actionable work under the
-[shared loop contract](../skills/orchestration/references/coordinator-loop.md).
+[shared loop contract（部署方提供）](configuration.md#部署政策与历史材料).
 Only when none remains should the Coordinator use native blocking
 `orchestration check --wait` with a bounded timeout instead of repeated model
 polls. A timeout is only a checkpoint and never authorizes retry or replacement.

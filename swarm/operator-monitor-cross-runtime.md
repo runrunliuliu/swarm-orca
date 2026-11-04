@@ -116,10 +116,10 @@ Python 回归覆盖 CLI envelope、持锁 seal、review、两周期恢复、第�
 保留会话而被接纳、未升级，所需重启能力仍须实测核验。部署不证明完整恢复已通过，
 也不能追补旧 Run 的重启前回执。
 
-当前验证顺序及出口以[当前 TODO](docs/validation/current.md#validation-priorities)为准。
-[2026-10-30 正式部署后的续验计划](docs/validation/reports/operator-planned-restart-validation-20261030.md#post-deploy-plan)
+当前验证顺序及出口以当前 TODO（部署方私有历史材料，不随公开仓库分发）为准。
+2026-10-30 正式部署后的续验计划（部署方私有历史材料，不随公开仓库分发）
 仅保留为历史来源，不作为现在新建 Run 的指令。连续两个计划 Server 重启周期须在独立
 验收窗口验证；它是 [核心测试标准](docs/testing/reliability.md)之外的专项能力，
 不替代同 runtime、同 sender/state 的 monitor 重启验收，也不能由部署记录推定通过。
 
-当时的测试和构建缺口见 [两周期验证记录](docs/validation/reports/operator-planned-restart-validation-20261030.md)。
+当时的测试和构建缺口见 两周期验证记录（部署方私有历史材料，不随公开仓库分发）。

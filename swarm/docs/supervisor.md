@@ -132,7 +132,7 @@ resume 只解除 `operator:` 暂停，不清预算/失败数。request-round 只
 
 ## 预算、费用和可观察性
 
-Token 与耗时用独立 [swarm_ledger](../ledger.md) 记录；每次 Run 开始、派发/结算检查点和收尾调用采集，既适用于原生编排，也可由此 MVP 的 Coordinator 调用。台账不改预留或费用结算；下述 `cost-import` 仍是另外的账单流程。
+Token 与耗时用独立 [swarm_ledger（私有部署）](../configuration.md) 记录；每次 Run 开始、派发/结算检查点和收尾调用采集，既适用于原生编排，也可由此 MVP 的 Coordinator 调用。台账不改预留或费用结算；下述 `cost-import` 仍是另外的账单流程。
 
 预留覆盖初始 Coordinator、每次唤醒、实施、Review、Integration，以及失败尝试。达到 Run/服务启动次数、时长或费用额度后不启动新模型回合；未知账单一直按预留计入，重启不重置。周期窗口按 Unix 时间整除 period_seconds、按启动时刻归档，**不是供应商逐请求账单周期**。
 

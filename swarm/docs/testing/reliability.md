@@ -8,7 +8,7 @@
 ## 1. 范围与版本
 
 默认验证对象是 **strict bootstrap → Coordinator TUI → Operator lifecycle / monitor / scheduler**
-的核心控制链，以及真实 Worker 协作与交付。角色规则见[架构说明](../../../docs/orca-fin-verl-rsi-skill-integration.md)，
+的核心控制链，以及真实 Worker 协作与交付。角色规则由部署方交付，见[私有政策接入](../../configuration.md#部署政策与历史材料)，
 运行契约见[启动门](../../coordinator-startup.md)、[生命周期](../../operator-startup.md)、
 [TUI](../../coordinator-tui.md)和 [monitor](../../operator-monitor.md)。测试标准不替代或改写运行契约。
 
@@ -18,7 +18,7 @@
   新 suite 可以包含预先声明的多个 Run；单个证据闭环仍必须保持其要求的原 Run/会话/身份连续性。
 - 默认 profile 的通过不证明其他 provider、driver、固定 DAG Supervisor、跨 runtime 接管、Mac 离线长驻或性能收益。
   这些能力按[专项清单](../../acceptance.md)及对应运行契约另验。RSI 研究/训练收益还需目标仓库业务验收。
-- [当前进展](../validation/current.md)与历史报告只记录各次尝试；文档合并不修改其结果、授权、部署或完成状态。
+- 当前进展与历史报告由部署方私有维护，只记录各次尝试；文档合并不修改其结果、授权、部署或完成状态。
 
 <a id="validation-strategy"></a>
 
@@ -220,7 +220,7 @@ I 层使用真实 runtime 的受支持入口，触发者与执行者仍须满足
 
 ## 6. 执行前准备
 
-1. **确认范围与授权。** 读目标 checkout 的 [AGENTS.md](../../../AGENTS.md)和本文，列明完整 v2、定向子项或旧版续验。
+1. **确认范围与授权。** 读目标 checkout 实际提供的 `AGENTS.md` 和本文，列明完整 v2、定向子项或旧版续验。
    固定原始授权来源、目标/业务判据、写入范围、消息/故障/重启许可、预算、时限、重试/停止条件及证据目录。
    缺授权证据是核验缺口，不推导用户否决；需要扩大范围再取得明确授权。
 2. **固定资源与版本。** 用户确认正整数 `max_workers`，按实际依赖安排并行、计划峰值/累计尝试及未用满原因。
@@ -247,8 +247,8 @@ L-events 的两个 idle 子项及旧 live-3 使用 `fin-verl-rsi-coordinator`。
 其他场景同样需要其适用的合法领域契约；不假设已有 generic adapter，不借 RSI 回执代替非 RSI 授权。
 
 - **先核验目标 worktree。** 固定 runtime/主机、repo ID、完整 worktree ID、规范根路径、分支和基线。
-  新独立修改任务按[worktree 规则](../../../skills/orchestration/references/swarm-execution-policy.md#新独立修改任务的-worktree-准备)准备；同任务续验沿用原工作区，用户指定已有 worktree 时优先核验。
-- **两端实际完整读 skill。** 按[目标仓库技能优先规则](../../../skills/orchestration/references/repository-skills.md)，
+  新独立修改任务按部署方交付的 worktree 规则准备；同任务续验沿用原工作区，用户指定已有 worktree 时优先核验。
+- **两端实际完整读 skill。** 目标仓库角色技能优先，按[部署交接](../../configuration.md#部署政策与历史材料)，
   在目标 worktree 含隐藏目录的入口发现 `fin-verl-rsi-coordinator/SKILL.md`。Operator 在交接前完整读取，
   Coordinator 在自身上下文通过文件工具完整读取 skill 及所需引用；保存绝对路径、SHA256 和两端读取记录。
   路径/hash、“已读”自述、通用 orchestration skill 或调用 checker 均不能替代实际角色 skill；它也不是 `--agent` 启动器名。
@@ -291,13 +291,13 @@ Server/runtime 换代按[跨 runtime 专项](../../operator-monitor-cross-runtim
 
 - 从准备阶段固定 Operator、Coordinator、每次 Worker 的角色/会话/Dispatch 和采集基线，失败/替换尝试也计入。
   记录准备、启动、Run 创建、首工具、结算/释放、最终回复及审计等待时间；只知道首回合时间不冒充进程启动时间。
-- 按[台账](../../ledger.md)交付请求数、真实回合、Token 原始计数、工具/等待耗时、用户上限、实际峰值和累计尝试。
+- 按[部署侧台账政策](../../configuration.md#部署政策与历史材料)交付请求数、真实回合、Token 原始计数、工具/等待耗时、用户上限、实际峰值和累计尝试。
   复用会话取本轮可核验差值，累计快照不相加；原始/标准化/计费口径分开，重叠耗时不相加冒充 wall time。
   未知不记 0，不用总耗时减工具耗时猜模型延迟；没有对照实验不承诺提速倍数。
 - 释放前尝试最后用量快照，无法取得则保留 gap，不另开 Worker 补旧用量。
   角色/尝试清单、采集范围、已有来源和缺口披露为必需证据；不可取得的细分 Token/计费数据如实未知。
   独立审查说明缺口是否妨碍本次行为/资源结论；披露缺口不等于证明用量完整或成本达标。
-- 按[归档规则](../../artifact-storage.md)保存私有原件与脱敏报告；manifest 不包含自身，
+- 按[部署侧归档政策](../../configuration.md#部署政策与历史材料)保存私有原件与脱敏报告；manifest 不包含自身，
   从实际归档路径回读所有列入文件并核对 SHA256。公开摘要放入 `swarm/docs/validation/reports/`，
   仅在获准负责续验时更新 current；不把运行结果回填本指南。
 

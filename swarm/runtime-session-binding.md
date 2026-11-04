@@ -29,7 +29,7 @@ Trae 路径还需要下述 Orca hook / Worker 查询接口补丁。
 
 ## Trae Worker 接入前提
 
-参见 [Orca Trae hook 接入与验收说明](trae-token-accounting.md)
+参见 [Orca Trae hook 接入与验收说明（私有部署）](configuration.md)
 和 [Trae runtime binding 示例](examples/ledger-trae-runtime-binding.example.json)。
 该入口不是已部署的后台采集器，不能只改 `provider` 就认为原来的运行时已支持。
 
