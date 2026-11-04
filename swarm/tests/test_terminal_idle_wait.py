@@ -25,6 +25,11 @@ def wait_response(runtime=RUNTIME, terminal=TERMINAL, **changes):
 
 
 class IdleWaitTests(unittest.TestCase):
+    def setUp(self):
+        cli = patch.object(watch, "CLI", "/test/orca-server-cli")
+        cli.start()
+        self.addCleanup(cli.stop)
+
     def native(self, body, code=0, args=None):
         reply = subprocess.CompletedProcess([], code, canonical(body))
         with patch.object(monitor.subprocess, "run", return_value=reply):
