@@ -1,0 +1,40 @@
+[extend]
+useDefault = true
+
+# The repository intentionally keeps deterministic fixtures and generated audit
+# outputs that exercise token redaction, relay pairing, local TLS, OAuth, and
+# issue-provider code paths. Keep this allowlist narrow and documented so the
+# release scan remains useful instead of suppressing the whole tree.
+
+[allowlist]
+description = "Documented deterministic fixtures and generated audit outputs"
+condition = "OR"
+paths = [
+  '''^orca/.+\.(test|spec)\.(ts|tsx|js|jsx|mjs)$''',
+  '''^orca/config/scripts/.+\.test\.mjs$''',
+  '''^orca/config/scripts/raw-markdown-comment-scan-benchmark\.mjs$''',
+  '''^orca/config/patches/.+\.patch$''',
+  '''^orca/docs/audits/.+\.json$''',
+  '''^orca/mobile/rpc-foundation/goldens/.+\.json$''',
+  '''^orca/mobile/rpc-foundation/pilot-scenarios\.json$''',
+  '''^orca/mobile/src/transport/.+\.test\.ts$''',
+  '''^orca/src/main/browser/browser-local-https-test-certificate\.ts$''',
+  '''^orca/src/main/ipc/pty-ipc-test-constants\.ts$''',
+  '''^orca/src/renderer/src/components/JiraIssueWorkspace\.tsx$''',
+  '''^orca/src/renderer/src/components/use-task-page-jira-list-projection\.ts$''',
+  '''^orca/src/renderer/src/components/use-task-page-jira-issue-creation\.ts$''',
+  '''^orca/src/renderer/src/components/use-task-page-jira-creation-state\.ts$''',
+  '''^orca/src/renderer/src/components/use-task-page-provider-metadata\.ts$''',
+  '''^orca/src/shared/mobile-e2ee-(legacy|v2)-fixtures\.ts$''',
+  '''^orca/src/shared/mobile-relay-pairing-fixtures\.ts$''',
+  '''^orca/tests/e2e/terminal-long-table-fixtures\.ts$'''
+]
+regexTarget = "secret"
+regexes = [
+  # Public Claude OAuth client id; not a client secret.
+  '''^9d1c250a-e61b-44d9-88ed-5944d1962f5e$''',
+  # RFC 6455 example WebSocket handshake nonce used in relay tests.
+  '''^dGhlIHNhbXBsZSBub25jZQ==$''',
+  # Explicit relay assignment test key.
+  '''^test-assignment-key-with-at-least-32-bytes$'''
+]

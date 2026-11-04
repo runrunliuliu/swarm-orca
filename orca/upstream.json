@@ -4,10 +4,12 @@
   "declaredHomepage": "https://github.com/stablyai/orca",
   "sourceWorkspacePath": "source-v1.4.219",
   "importedAt": "2026-11-04",
-  "upstreamTag": null,
-  "upstreamCommit": null,
+  "upstreamTag": "v1.4.219",
+  "upstreamTagObject": "482a2438d5d5b76d538b903c8bb8fa81ed48c540",
+  "upstreamCommit": "e705cac04a1db7e7e2184746e912142d34ca838b",
+  "verificationCommand": "git ls-remote --tags https://github.com/stablyai/orca.git 'v1.4.219*'",
   "notes": [
-    "Exact upstream tag/commit must be verified before public release.",
+    "v1.4.219 is an annotated tag; upstreamCommit is the dereferenced ^{} commit.",
     "This is a reviewed source snapshot import, not a Git history import."
   ]
 }
