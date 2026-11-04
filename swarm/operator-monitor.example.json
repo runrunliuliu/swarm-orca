@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "enabled": false,
+  "binding": {
+    "runtime": "VERIFIED_RUNTIME_ID",
+    "run": "VERIFIED_RUN_ID",
+    "workspace": "VERIFIED_WORKSPACE_ID",
+    "terminal": "VERIFIED_COORDINATOR_HANDLE",
+    "incarnation": "VERIFIED_COORDINATOR_TERMINAL_INCARNATION",
+    "generation": 1
+  },
+  "operator_id": "operator-monitor:REVIEWED_RUN_LABEL",
+  "sender": {
+    "terminal": "VERIFIED_OPERATOR_SHELL_HANDLE",
+    "incarnation": "VERIFIED_OPERATOR_SHELL_INCARNATION",
+    "workspace": "VERIFIED_OPERATOR_WORKSPACE_ID"
+  },
+  "continuation": null,
+  "state_root": "/absolute/private/operator-monitor",
+  "watch_file": null,
+  "artifact_roots": [],
+  "adapters": {},
+  "poll_seconds": 30,
+  "rpc_timeout_seconds": 12,
+  "idle_seconds": 900,
+  "inbox_limit": 1000
+}

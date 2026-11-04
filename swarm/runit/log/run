@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+umask 077
+task_log=/REPLACE/approved/persistent/swarm-log
+case "$task_log" in
+  /REPLACE/*) echo 'Configure the private Swarm log directory before registration.' >&2; exit 78 ;;
+esac
+task_user=${SWARM_SERVICE_USER:-REPLACE}
+case "$task_user" in
+  REPLACE) echo 'Configure the private Swarm log user before registration.' >&2; exit 78 ;;
+esac
+exec chpst -u "$task_user" svlogd -tt "$task_log"

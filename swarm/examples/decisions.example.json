@@ -1,0 +1,30 @@
+{
+  "messages": {
+    "<实际 question message ID>": {
+      "action": "reply",
+      "within_scope": true,
+      "body": "<Coordinator 已核验的授权范围内答复>"
+    },
+    "<需人工决策 message ID>": {
+      "action": "human",
+      "reason": "<所需确认，不能自动批准>"
+    },
+    "<非生命周期 message ID>": {
+      "action": "reviewed",
+      "note": "<实际审阅结果>"
+    }
+  },
+  "evidence": {
+    "module-a": {
+      "message_id": "<原生 accepted worker_done 的 message ID>",
+      "base_commit": "<配置的完整基线 SHA>",
+      "commit": "<实际交付完整 SHA>",
+      "files": ["src/module_a/example.py"],
+      "tests": [{"command": "<与契约一致的命令>", "exit_code": 0}],
+      "risks": [],
+      "artifacts": [{"path": "/REPLACE/approved/persistent/swarm-artifacts/approved-pilot/module-a/report.md", "sha256": "<实际文件的 SHA256>"}],
+      "coordinator_verified": true,
+      "verdict": "pass"
+    }
+  }
+}

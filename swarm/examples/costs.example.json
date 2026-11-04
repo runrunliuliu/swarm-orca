@@ -1,0 +1,20 @@
+[
+  {
+    "key": "<从费用台账复制完整 key>",
+    "actual_micro_usd": null,
+    "source": "<完整最终 provider 账单引用，不含凭据>",
+    "details": {
+      "run_id": "<实际 Run ID>",
+      "task_id": null,
+      "dispatch_id": null,
+      "model": null,
+      "input_tokens": null,
+      "output_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "elapsed_seconds": null,
+      "retry_count": 0,
+      "final_bill": true
+    }
+  }
+]

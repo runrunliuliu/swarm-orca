@@ -1,0 +1,11 @@
+[
+  {
+    "provider": "trae",
+    "format": "jsonl",
+    "agent_id": "COPY_DISPATCH_ID",
+    "binding": "/COPY_PRIVATE_DIRECTORY/verified-jsonl-binding.json",
+    "file": "/COPY_VERIFIED_LOG_DIRECTORY/rollout.jsonl",
+    "since": "2026-10-13T10:01:00+08:00",
+    "final": false
+  }
+]

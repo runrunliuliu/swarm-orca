@@ -1,0 +1,86 @@
+{
+  "schema_version": 5,
+  "enabled": false,
+  "outer_operator": {"id": "REPLACE_WITH_RESPONSIBLE_OPERATOR_ID"},
+  "authorization_ref": "REPLACE_WITH_EXPLICIT_CONTINUATION_AUTHORIZATION",
+  "binding": {
+    "runtime": "REPLACE_WITH_VERIFIED_SERVER_RUNTIME",
+    "run": "run_REPLACE",
+    "generation": 1,
+    "terminal": "REPLACE_WITH_NATIVE_COORDINATOR_HANDLE",
+    "incarnation": "REPLACE_WITH_CURRENT_INCARNATION",
+    "workspace": "REPLACE_WITH_NATIVE_WORKSPACE_ID",
+    "session": "REPLACE_WITH_STREAM_OBSERVED_SESSION_UUID"
+  },
+  "previous_plan": {
+    "path": "/REPLACE/run_REPLACE/previous-launch-plan.json",
+    "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+  },
+  "initial_checkpoint": {
+    "path": "/REPLACE/run_REPLACE/checkpoint.json",
+    "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+  },
+  "initial_waiting_dispatches": [],
+  "initial_gates": {
+    "path": "/REPLACE/run_REPLACE/initial-gates.json",
+    "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+  },
+  "authority": {
+    "ledger": {
+      "path": "/REPLACE/independently-reviewed-authority-ledger.json",
+      "sha256": "REPLACE_WITH_CANONICAL_JSON_SHA256"
+    },
+    "source_root": "/REPLACE/original-user-source-evidence",
+    "scope_id": "REPLACE_WITH_REVIEWED_SCOPE_ID",
+    "handoff": {
+      "path": "/REPLACE/replayed-authority-handoff.json",
+      "sha256": "REPLACE_WITH_CANONICAL_JSON_SHA256"
+    },
+    "path_catalog": {
+      "path": "/REPLACE/independently-reviewed-operation-permission-catalog.json",
+      "sha256": "REPLACE_WITH_CANONICAL_JSON_SHA256"
+    }
+  },
+  "contract": {
+    "path": "/REPLACE/original-acceptance-contract.json",
+    "sha256": "REPLACE_WITH_CANONICAL_JSON_SHA256"
+  },
+  "brief": {
+    "path": "/REPLACE/approved-task-and-rules.md",
+    "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+  },
+  "repository_skills": {
+    "coordinator": {
+      "path": "/REPLACE/authorized-research-worktree/.agents/skills/fin-verl-rsi-coordinator/SKILL.md",
+      "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+    },
+    "researcher": {
+      "path": "/REPLACE/authorized-research-worktree/.agents/skills/fin-verl-rsi-researcher/SKILL.md",
+      "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+    },
+    "reviewer": {
+      "path": "/REPLACE/authorized-research-worktree/.agents/skills/fin-verl-rsi-reviewer/SKILL.md",
+      "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+    },
+    "paper-scout": {
+      "path": "/REPLACE/authorized-research-worktree/.agents/skills/fin-verl-rsi-paper-scout/SKILL.md",
+      "sha256": "REPLACE_WITH_RAW_FILE_SHA256"
+    }
+  },
+  "checker": {
+    "root": "/REPLACE/verified-fin-verl-checker-checkout",
+    "files": {
+      "rsi/__init__.py": "REPLACE_WITH_RAW_FILE_SHA256",
+      "rsi/authority.py": "REPLACE_WITH_RAW_FILE_SHA256",
+      "rsi/progress.py": "REPLACE_AND_INCLUDE_EVERY_RSI_PYTHON_SOURCE_FILE"
+    }
+  },
+  "session_log": "/REPLACE/exact-bound-session.jsonl",
+  "progress_roots": ["/REPLACE/authorized-research-worktree"],
+  "limits": {
+    "max_workers": 8,
+    "max_training_trials": 1,
+    "max_no_progress_turns": 3,
+    "wait_poll_seconds": 30
+  }
+}

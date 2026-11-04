@@ -1,0 +1,16 @@
+{
+  "provider": "trae",
+  "session_id": "REPLACE_WITH_VERIFIED_SESSION_ID",
+  "since": "2026-10-13T10:01:00+08:00",
+  "until": "2026-10-13T10:06:00+08:00",
+  "tokens": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "cache_read_tokens": null,
+    "cache_write_tokens": null,
+    "reasoning_tokens": null
+  },
+  "source": "REPLACE_WITH_PROVIDER_RECEIPT_SHA256",
+  "complete": false,
+  "warnings": ["missing_provider_usage"]
+}

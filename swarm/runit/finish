@@ -1,0 +1,33 @@
+#!/bin/sh
+# runsv invokes this in the service directory. Never restart an Agent here.
+set -eu
+umask 077
+exec 2>&1
+task_source=/REPLACE/approved/persistent/swarm-source
+task_config=/REPLACE/approved/persistent/swarm-config.json
+case "$task_source:$task_config" in
+  *'/REPLACE/'*) echo 'Swarm service template remains down.'; exec sv down . ;;
+esac
+# Keep cd in a subshell: sv down . below must address the SERVICE directory.
+task_user=${SWARM_SERVICE_USER:-REPLACE}
+task_path=${SWARM_SERVICE_PATH:-/REPLACE/approved/bin:/usr/local/bin:/usr/bin:/bin}
+task_config_home=${SWARM_SERVICE_CONFIG_HOME:-/REPLACE/approved/config}
+case "$task_user:$task_path:$task_config_home" in
+  *REPLACE*) echo 'Swarm service template remains down; private user/PATH/config home is not configured.'; exec sv down . ;;
+esac
+if (
+  cd "$task_source" || exit 78
+  exec sudo -n -H -u "$task_user" env \
+    -u DISPLAY -u ORCA_CLI_COMMAND -u ORCA_ENVIRONMENT -u ORCA_PAIRING_CODE \
+    -u ORCA_DEV_REPO_ROOT -u ORCA_USER_DATA -u ORCA_USER_DATA_PATH \
+    -u ORCA_TERMINAL_HANDLE -u ORCA_PANE_KEY -u ORCA_AGENT_SESSION_ID \
+    -u PYTHONPATH -u PYTHONHOME \
+    PATH="$task_path" \
+    XDG_CONFIG_HOME="$task_config_home" \
+    python3 -m supervisor.service_finish --config "$task_config" \
+      --exit-code "${1:-1}" --signal "${2:-0}"
+); then
+  exit 0
+fi
+echo 'Swarm restart refused; inspect private state before starting again.'
+exec sv down .

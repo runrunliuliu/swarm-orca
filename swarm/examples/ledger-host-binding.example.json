@@ -1,0 +1,12 @@
+[
+  {
+    "provider": "codex",
+    "format": "host-receipt",
+    "agent_id": "coordinator",
+    "socket": "/REPLACE/socket-directory/collector.sock",
+    "public_key": "/REPLACE/trusted-readonly/collector-public.pem",
+    "worktree_id": "REPLACE_VERIFIED_WORKTREE_ID",
+    "host": "REPLACE_ACTUAL_EXECUTION_HOSTNAME",
+    "since": "REPLACE_VERIFIED_WINDOW_START_UTC"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "scope": "swarm_coordinator_only",
+  "provider": "trae",
+  "cli_version": "0.211.1",
+  "execution": {
+    "sandbox_mode": "workspace-write",
+    "approval_policy": "on-request",
+    "approvals_reviewer": "auto_review",
+    "launch_mode": "exec",
+    "network_access": true
+  }
+}

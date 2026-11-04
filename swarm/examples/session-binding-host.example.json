@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "isolation_verified": false,
+  "host": "REPLACE_ACTUAL_EXECUTION_HOSTNAME",
+  "runtime_id": "REPLACE_VERIFIED_RUNTIME_ID",
+  "uid": -1,
+  "cli": "/REPLACE/verified/orca",
+  "openssl": "/usr/bin/openssl",
+  "private_key": "/REPLACE/service-private/ed25519.pem",
+  "state": "/REPLACE/service-private/binding-state",
+  "socket": "/REPLACE/socket-directory/collector.sock",
+  "executables": ["/REPLACE/exact/agent/executable"],
+  "log_roots": ["/REPLACE/agent/codex/sessions"],
+  "max_log_bytes": null,
+  "worktree_ids": ["REPLACE_VERIFIED_WORKTREE_ID"],
+  "run_ids": [],
+  "preflight_terminals": []
+}

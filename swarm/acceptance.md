@@ -1,0 +1,81 @@
+# Swarm 验收与证据清单
+
+本文保留固定 DAG MVP、Mac 离线和长驻等范围的历史清单。当前 strict bootstrap / TUI /
+Operator lifecycle、monitor、scheduler 的核心标准统一见 [Swarm 测试与验收指南](docs/testing/reliability.md)，
+包含测试分层、分组、通过条件、证据及报告模板；已有 Run 的旧 11 项标准仍以其原归档及固定 hash 为准。
+核心 suite 不替代本文的离线自治、长驻、经济性及业务验收范围，也不将本文带日期的结果或
+未勾选项当作当前 Run 的验收结论。下文历史结果不因新标准发布而重新评定。
+
+Strict 最新进展见 [live11 当前续验进展（2026-11-02 更新）](docs/validation/current.md)。
+当前 Run `run_70dcf6e13fcd` 最后已核验的 **2026-11-02 13:18:45 +08:00** checkpoint 记录
+`live-2/3=PASS_CURRENT_RUN`；terminal-wait / presend 仍 blocked，pending-history 未命中，
+accounting 为 PARTIAL，live-5 未到达、Run 未退役。另四项本次未重新评定，不继承旧 Run 的 MET。
+这不是实时状态查询或完整 suite 的独立 PASS 统计。固定 monitor 的 `continuation=null`，
+`decision=blocked`，`next_action` 是待 Operator 补条件的请求，不是可发送的 scheduler action。
+按[当前 TODO](docs/validation/current.md#validation-priorities)先补受支持的 scheduler
+衔接及边界触发条件，再补最小 live 证据；保留 live-2/3 结果，用量采集前置、独立收尾后置。
+未知用量须披露并由独立审查判断影响，不能填 0，也不能仅因披露缺口就声称完整 accounting PASS。
+不自动重跑整套、不将 BLOCKED 改为 PASS，也不改变已有验收合同或授权。
+此前 [2026-10-30 正式部署后续验计划](docs/validation/reports/operator-planned-restart-validation-20261030.md#post-deploy-plan)
+保留为历史计划来源；计划 Server 重启与同 runtime 的 monitor 重启仍分别验收。
+此前的 [NFS 修复验证](docs/validation/reports/strict-start-nfs-validation-20261030.md) 和
+[pre-Run 发布失败记录](docs/validation/reports/strict-start-validation-20261030.md) 保留；与下面 MVP 历史清单分开记账。
+
+更新时间：2026-10-13（Asia/Shanghai）。本地 MVP 已实现；真实 Swarm 未部署、未启动。离线测试不证明原生接口、远端认证、长驻或 Mac 离线自治已通过。
+
+## L：本地工程检查
+
+- [x] Python 标准库控制器、默认禁用配置、角色契约、Coordinator 提示词与未注册 runit 模板。
+- [x] 离线 FakeNative 测试：双 Worker wave → 独立 Review → 串行 Integration；全部前置证据通过后才启动下游。
+- [x] 整批 Delivery/下一批缓存、问题答复、人工决策、已结算资源释放、证据越界与摘要校验。
+- [x] 同身份回执恢复；丢失启动/释放回执不重复执行；PTY/generation 改变拒绝唤醒。
+- [x] Run/服务/周期预算、实际费用超额暂停、持久退避/熔断、操作员暂停不覆盖安全暂停。
+- [x] 空闲不重复唤醒、状态锁争用跳过、完整盘点/分页与原生错误内容不泄露。
+- [x] checkpoint 拒绝 step 后新到消息及未处理的下一批；人工问题持久化后推进 FIFO、重启后按原 ID 回复，确认收取不等于授权。
+- [x] 纯原生 heartbeat 不触发模型回合/预算预留；真实存活、阻塞和任务变化仍唤醒；人工回复回执恢复不重复发送。
+- [x] 可选 Trae 精确目录自动信任：创建/核验/登记早于启动；幂等追加、保留其他配置/hooks、拒绝宽目录/错误主机与账号/并发写入；创建回执丢失不重试。
+
+复现：在仓库根目录执行 `python3 -m unittest discover -s tests -v`。2026-10-13 本地复验：105 项测试通过（Python 3.13；Trae 文件测试使用临时目录和模拟主机/账号），Python 编译与 JSON 语法检查通过，未配置示例按预期以退出码 78 拒绝启动。Python 3.10 会跳过可选 Trae TOML 测试且不能启用自动信任。测试用虚构 ID、模型和预算，不访问真实 Orca，不启动 Agent。所有 live 项保持未勾选，直到附有执行宿主证据。
+
+## A1：真实远端闭环（未执行）
+
+- [ ] 用户确认一个专用试点需求、真实基线、repo/worktree ID、Agent/模型、预算、时长、明确写入范围；不得选择既有实验/巡检工作区。现有 smoke 零 SHA 仓库不能充当可执行试点。
+- [ ] 验证独立 Server 1.4.219、准确 runtime ID、真实 Coordinator PTY 和 Run consumer generation；核对 CLI 回执字段与适配器，无隐式桌面路由。
+- [ ] 核验宿主驻留、源码/状态/产物持久位置、权限、备份策略；模型/Git/数据源可直接访问，凭据期限与续期方式不依赖 Mac。
+- [ ] 若启用 Trae 自动信任，核对实际 launcher 账号/HOME/TRAE_HOME、已审查的默认终端、配置单写入者；在专用新工作区验证只增加其精确项目条目、hooks 哈希不变、目录提示消失。独立验证新 hooks 审批、登录与 TUI readiness/提示投递；未通过不得视作无人值守可用。
+- [ ] 按批准路径部署服务，记录源码版本/摘要、配置摘要、开始时间和初始原生 Run/Task/Dispatch。
+- [ ] 有一项任务持续超过5分钟；用户按约定窗口主动关闭 Mac/退出本地 Orca，不仅断开一个终端。
+- [ ] Mac 离线期间出现后续 Task 的新派发、Coordinator 对 Worker 的答复、独立验收/集成推进；至少跨越一次正常 Coordinator 回合结束/续接。
+- [ ] 重连后仍为原 Run，远端时间戳、Dispatch、提交/patch、日志和 manifest 可查，无重复 Worker、无重新提交目标、无本地“继续”驱动。
+
+每项证据至少记录：远端 UTC 时间、goal/Run ID、Task/Dispatch ID、操作回执标识、文件路径与 SHA256、实际 outcome。用原生盘点验证发生位置；Mac 轮询日志、进程还活着和已启动 Worker 的输出都不能单独证明完整闭环。开始前明确用户离线窗口及人工升级入口。
+
+## A2：长驻、故障和预算（未执行；故障注入需单独批准）
+
+- [ ] 确认首轮离线驻留时长及费用（方案建议24小时，不是默认授权）；跨新模型/Git/数据源请求验证独立认证。
+- [ ] 已完成任务不重做，无工作时不重复模型请求；等待人工决策时保留原因和消息，其他独立已授权分支可继续。
+- [ ] 到达预算后停止新派发，保留在途 Worker 及待清理记录；重启 Sidecar/换 goal 不清费用、失败数或安全暂停。
+- [ ] 在专用试点中经批准停止/重启 Sidecar，仍绑定原 Run，已保存回执只恢复本地索引，不产生重复副作用。
+- [ ] 经批准注入“变更已执行、回执丢失”：停止后续写操作，原生盘点/request-show（有真实 request ID 时）可供人工恢复；不盲重发、不重复合并。
+- [ ] 经批准验证 Coordinator 进程确实退出或 PTY/generation 改变：本版的通过条件是安全暂停、保全状态、人工恢复说明准确，**不是自动接管成功**。更换身份的自动恢复是后续能力缺口。
+- [ ] 如要求 Server/容器/主机重启测试，另行确认范围和备份。列明在途 PTY、原生状态和持久目录实际保留情况，不将 runit 常驻等同于跨主机高可用。
+
+不得在现有训练、巡检、已运行实验 Agent 上注入故障。未知状态保持 unverifiable；只有正面退出证据及原生契约才可决定停止/放弃/重试。安全熔断无自动清除入口，人工恢复不得直接改 SQLite 或开新 Run 绕过旧状态。
+
+## B：真实双 Worker 开发（未执行）
+
+- [ ] A/B 同轮启动、独立 worktree、范围不重叠；完整实现提交和基线可追溯。
+- [ ] Reviewer 是独立上下文，实际检查 A/B 提交及测试，不只重复作者报告；只读工作区的测试材料化方式已批准。
+- [ ] Integration 是唯一集成写入者，接入已审查提交，合并后重新执行全部验收。
+- [ ] 整条 Delivery 全部处理、问题按原 message ID 回复、已结算 Worker 保全证据并完成释放后才 ack。
+- [ ] 审查失败阻止下游，固定 DAG 不自动新建返工任务。返工/模型升级/新需求另行审批并扩展策略，保留旧证据和预算。
+- [ ] 最终所有任务原生 completed、业务证据 pass、资源已释放、无未确认消息；无训练、生产部署、外部通知、主分支 push。
+
+## C：经济性（未执行）
+
+- [ ] 对同一基线、固定任务粒度和验收标准，比较单强模型、全强 Swarm、混合 Swarm；不先设定降本结论。
+- [ ] 汇总 Coordinator、实施、Review、Integration、失败尝试的完整真实账单；未知费用/token/cache 保持未知，预留不是实付。
+- [ ] 单独列出交付耗时、首次通过率、返工、冲突、人工介入及基础设施成本；供应商请求级限额与本程序准入预算分别验证。
+- [ ] 只有数据支持时才扩大并发、引入子 Planner、模型升级或自动重规划。
+
+交付物为私有 manifest 和人工验收报告，不自动公开发布。分享前检查目标、问题、日志和证据中的敏感信息。

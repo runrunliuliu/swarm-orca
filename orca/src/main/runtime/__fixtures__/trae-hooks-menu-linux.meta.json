@@ -1,0 +1,9 @@
+{
+  "capturedAt": "2026-10-12T16:29:57.668Z",
+  "platform": "linux",
+  "command": ["/home/guest/.local/bin/traecli", "--no-daemon", "--yolo"],
+  "cols": 120,
+  "rows": 40,
+  "note": "Trae CLI 0.209.1; Linux x64; internal account; DeepSeek-V4-Flash high; /hooks menu opened after the composer loaded, without trusting, enabling, or disabling any hook; no task prompt. This is not an untrusted startup Hooks need review dialog. Account identifier replaced with a same-length placeholder.",
+  "exitCode": 0
+}

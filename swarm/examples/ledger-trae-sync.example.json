@@ -1,0 +1,10 @@
+[
+  {
+    "provider": "trae",
+    "agent_id": "REPLACE_WITH_DISPATCH_ID_OR_coordinator",
+    "file": "/REPLACE_WITH_PRIVATE_PATH/end-snapshot.json",
+    "baseline": "/REPLACE_WITH_PRIVATE_PATH/before-dispatch-snapshot.json",
+    "semantics": "unverified",
+    "final": false
+  }
+]

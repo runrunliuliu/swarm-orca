@@ -1,0 +1,11 @@
+[
+  {
+    "agent_id": "REPLACE_WITH_NATIVE_DISPATCH_ID",
+    "provider": "codex",
+    "session_id": "REPLACE_WITH_VERIFIED_SESSION_ID",
+    "file": "/REPLACE/with/verified/execution-host/rollout.jsonl",
+    "since": "2026-10-13T10:01:00+08:00",
+    "until": "2026-10-13T10:06:00+08:00",
+    "final": false
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "capturedAt": "2026-10-12T16:28:07.545Z",
+  "platform": "linux",
+  "command": ["/home/guest/.local/bin/traecli", "--yolo"],
+  "cols": 120,
+  "rows": 40,
+  "note": "Trae CLI 0.209.1; Linux x64; internal account; DeepSeek-V4-Flash high; already-trusted smoke folder; startup only, no task input. Account identifier replaced with a same-length placeholder. Complete frames end at byte 2296 (loading) and 6427 (loaded composer).",
+  "exitCode": 0
+}

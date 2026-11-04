@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "goal_id": "approved-pilot",
+  "objective": "<填写已批准、可客观验收的试点需求>",
+  "enabled": false,
+  "launch_contract": null,
+  "authorization": {
+    "remote_host_confirmed": false,
+    "persistent_storage_confirmed": false,
+    "independent_auth_confirmed": false,
+    "pilot_scope_approved": false,
+    "spend_approved": false,
+    "admission_budget_not_provider_cap_accepted": false
+  },
+  "runtime": {
+    "cli": "/REPLACE/approved/orca-server-cli",
+    "version": "1.4.219",
+    "runtime_id": "<从独立 Server status 复制>",
+    "repo_id": "<专用试点 repo.id>",
+    "coordinator_worktree_id": "<原生返回的完整 Coordinator worktree.id>"
+  },
+  "trae_workspace_trust": {
+    "enabled": false,
+    "hostname": "<远端 hostname 原样输出>",
+    "username": "<启动 worker 的 Unix 账号>",
+    "trae_home": "/REPLACE/worker-home/.trae",
+    "launch_context_confirmed": false
+  },
+  "base_commit": "<真实核验的非零 40 位 SHA>",
+  "state_dir": "/REPLACE/approved/persistent/swarm-state",
+  "artifact_dir": "/REPLACE/approved/persistent/swarm-artifacts",
+  "limits": {
+    "implementation_concurrency": 2,
+    "total_concurrency": 2,
+    "max_run_launches": null,
+    "max_service_launches": null,
+    "max_run_seconds": null,
+    "max_run_micro_usd": null,
+    "max_service_micro_usd": null,
+    "max_period_micro_usd": null,
+    "period_seconds": null,
+    "coordinator_reservation_micro_usd": null,
+    "worker_reservation_micro_usd": null,
+    "max_failures": null,
+    "poll_seconds": 30,
+    "max_round_seconds": null,
+    "max_task_retries": 0,
+    "max_model_upgrades": 0
+  },
+  "agents": {
+    "coordinator": {"agent": "<选择已批准 Agent>", "model": null, "effort": null},
+    "implementation": {"agent": "<选择已批准 Agent>", "model": null, "effort": null},
+    "review": {"agent": "<选择已批准 Agent>", "model": null, "effort": null},
+    "integration": {"agent": "<选择已批准 Agent>", "model": null, "effort": null}
+  },
+  "tasks": [
+    {
+      "key": "module-a",
+      "role": "implementation",
+      "goal": "<模块 A 的明确实现需求>",
+      "depends_on": [],
+      "allowed_paths": ["src/module_a", "tests/module_a"],
+      "do_not_touch": ["deploy", "field-guide"],
+      "constraints": ["遵守已批准接口；不部署、不训练、不发外部消息、不推主分支"],
+      "references": ["<远端可读的已批准接口文档绝对路径>"],
+      "acceptance": {
+        "commands": ["<已在目标仓库核验的测试命令>"],
+        "expected_results": ["<可观察的通过条件>"]
+      },
+      "placement": {"kind": "new-top-level", "name": "swarm-module-a"}
+    },
+    {
+      "key": "module-b",
+      "role": "implementation",
+      "goal": "<模块 B 的明确实现需求>",
+      "depends_on": [],
+      "allowed_paths": ["src/module_b", "tests/module_b"],
+      "do_not_touch": ["deploy", "field-guide"],
+      "constraints": ["遵守已批准接口；不部署、不训练、不发外部消息、不推主分支"],
+      "references": ["<远端可读的已批准接口文档绝对路径>"],
+      "acceptance": {
+        "commands": ["<已在目标仓库核验的测试命令>"],
+        "expected_results": ["<可观察的通过条件>"]
+      },
+      "placement": {"kind": "new-top-level", "name": "swarm-module-b"}
+    },
+    {
+      "key": "review",
+      "role": "review",
+      "goal": "根据契约、两个实现提交和独立测试给出通过/不通过结论；只读审查",
+      "depends_on": ["module-a", "module-b"],
+      "allowed_paths": [],
+      "do_not_touch": ["src", "tests", "deploy", "field-guide"],
+      "constraints": ["独立上下文；不得修改源码；报告写入批准的产物目录；不能只复述作者报告"],
+      "references": ["<远端 field-guide 绝对路径>"],
+      "acceptance": {
+        "commands": ["<不修改源码的独立检查/测试命令>"],
+        "expected_results": ["两个模块符合接口；列出实际检查的提交和未解决风险"]
+      },
+      "placement": {"kind": "new-top-level", "name": "swarm-review"}
+    },
+    {
+      "key": "integration",
+      "role": "integration",
+      "goal": "在专用集成分支串行接入审查通过的提交，运行合并后验收测试",
+      "depends_on": ["review"],
+      "allowed_paths": ["src/module_a", "src/module_b", "tests/module_a", "tests/module_b"],
+      "do_not_touch": ["deploy", "field-guide"],
+      "constraints": ["唯一集成写入者；语义/接口冲突提交 Coordinator 决策；不推主分支、不部署"],
+      "references": ["<远端已批准的合并顺序和最终验收文档>"],
+      "acceptance": {
+        "commands": ["<合并后完整验收命令>"],
+        "expected_results": ["合并后测试全部通过，提交和证据可追溯"]
+      },
+      "placement": {"kind": "exact", "worktree_id": "<原生返回的专用集成 worktree.id>"}
+    }
+  ]
+}

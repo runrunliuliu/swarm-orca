@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "enabled": false,
+  "driver_binding": {
+    "path": "/absolute/private/driver.json",
+    "sha256": "REVIEWED_RAW_DRIVER_CONFIG_SHA256"
+  },
+  "adapters": {
+    "reviewed-provider": {
+      "path": "/absolute/private/provider_adapter.py",
+      "sha256": "REVIEWED_RAW_ADAPTER_SHA256"
+    }
+  },
+  "routes": {
+    "REVIEWED_AUTHORITY_PATH_ID": {
+      "operation": "EXACT_AUTHORITY_CATALOG_OPERATION",
+      "adapter": "reviewed-provider",
+      "completion": "background",
+      "kinds": ["implement", "wait"]
+    }
+  },
+  "evidence_root": "/absolute/authorized/progress/operator-evidence",
+  "budget": {
+    "run_started_at": "2026-10-22T00:00:00+08:00",
+    "deadline_at": "2026-10-22T01:00:00+08:00",
+    "max_tokens": 100000,
+    "max_cost_micro_usd": 1000000
+  },
+  "poll_seconds": 30,
+  "rpc_timeout_seconds": 30,
+  "max_unknown_polls": 3
+}

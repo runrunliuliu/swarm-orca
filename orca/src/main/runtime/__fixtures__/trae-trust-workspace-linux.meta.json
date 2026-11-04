@@ -1,0 +1,18 @@
+{
+  "capturedAt": "2026-10-15T08:10:59.811Z",
+  "platform": "linux",
+  "command": [
+    "traecli",
+    "--yolo",
+    "--model",
+    "gpt-5.6-sol",
+    "-c",
+    "model_reasoning_effort=\"high\"",
+    "-c",
+    "model_backend_variant=\"max\""
+  ],
+  "cols": 120,
+  "rows": 40,
+  "note": "Trae CLI 0.209.1, Linux x64. Raw output extracted with the native terminal-history OCKL decoder from a fresh Worker before release; generation 0, complete output-only log. Two independently launched Workers produced identical bytes. Model/effort/backend flags are requested values only: the trust dialog precedes session creation, so actual model and account type are unverified. YOLO mode is visible but does not bypass Folder access. No trust choice or task input was sent. Hostname, username, workspace and environment paths were replaced with same-length placeholders; ESC/CR bytes and wrapping are preserved.",
+  "exitCode": null
+}

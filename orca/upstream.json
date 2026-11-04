@@ -1,0 +1,13 @@
+{
+  "packageName": "orca",
+  "packageVersion": "1.4.219",
+  "declaredHomepage": "https://github.com/stablyai/orca",
+  "sourceWorkspacePath": "source-v1.4.219",
+  "importedAt": "2026-11-04",
+  "upstreamTag": null,
+  "upstreamCommit": null,
+  "notes": [
+    "Exact upstream tag/commit must be verified before public release.",
+    "This is a reviewed source snapshot import, not a Git history import."
+  ]
+}

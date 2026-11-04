@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "adapter": "codex-local",
+  "cli": "/absolute/verified/orca-server-cli",
+  "runtime_id": "runtime-explicit-id",
+  "runtime_version": "1.4.219",
+  "run_id": "run_explicit_id",
+  "workspace": {
+    "id": "repo-explicit-id::/absolute/canonical/workspace",
+    "path": "/absolute/canonical/workspace"
+  },
+  "terminal": {
+    "handle": "term_exact_coordinator_handle",
+    "incarnation_id": "exact-incarnation-id",
+    "agent": "codex"
+  },
+  "session": {
+    "id": "exact-provider-session-id",
+    "provider": "codex",
+    "model": "REPLACE_WITH_APPROVED_CODEX_MODEL_ID",
+    "effort": "REPLACE_WITH_APPROVED_EFFORT",
+    "sandbox_mode": "danger-full-access",
+    "approval_policy": "never"
+  },
+  "paths": {
+    "cwd": "/absolute/canonical/workspace",
+    "archive_dir": "/absolute/canonical/swarm-artifacts/run_explicit_id"
+  },
+  "probe_roots": [
+    "/absolute/canonical/swarm-artifacts/run_explicit_id",
+    "/absolute/canonical/swarm-artifacts/run_explicit_id/evidence",
+    "/absolute/canonical/swarm-artifacts/run_explicit_id/receipts",
+    "/absolute/canonical/swarm-artifacts/run_explicit_id/workers",
+    "/absolute/canonical/swarm-artifacts/run_explicit_id/ledger"
+  ],
+  "runtime_state": {
+    "profile": "/absolute/verified/orca-profile",
+    "log_root": "/absolute/verified/codex-sessions"
+  },
+  "baselines": [
+    {
+      "name": "root",
+      "path": "/absolute/canonical/workspace",
+      "head": "1111111111111111111111111111111111111111",
+      "clean": true
+    },
+    {
+      "name": "swarm",
+      "path": "/absolute/canonical/workspace/swarm",
+      "head": "2222222222222222222222222222222222222222",
+      "clean": true
+    }
+  ],
+  "policy_files": [
+    "/absolute/canonical/workspace/AGENTS.md",
+    "/absolute/canonical/workspace/skills/orchestration/references/swarm-execution-policy.md",
+    "/absolute/canonical/workspace/swarm/worker-model-candidates.md"
+  ],
+  "config_files": [
+    "/absolute/canonical/workspace/swarm/coordinator-model.json",
+    "/absolute/canonical/workspace/swarm/coordinator-runtime.json"
+  ],
+  "evidence": {
+    "session": "/absolute/canonical/swarm-artifacts/run_explicit_id/evidence/session-a1.json",
+    "file_tool": "/absolute/canonical/swarm-artifacts/run_explicit_id/evidence/file-tool-a1.json"
+  },
+  "limits": {
+    "per_check_timeout_ms": 5000,
+    "max_parallel": 6
+  },
+  "freshness": {
+    "session_max_age_seconds": 300,
+    "file_tool_max_age_seconds": null
+  },
+  "preparation": {
+    "attempt": 1,
+    "max_attempts": 3
+  },
+  "milestones": {
+    "run_created_at": "2026-10-15T09:52:24Z",
+    "coordinator_turn_started_at": "2026-10-15T09:53:11.768Z"
+  }
+}

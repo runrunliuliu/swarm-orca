@@ -1,0 +1,25 @@
+#!/bin/sh
+# Uninstalled template. Replace approved paths before registering this service.
+set -eu
+umask 077
+exec 2>&1
+task_source=/REPLACE/approved/persistent/swarm-source
+task_config=/REPLACE/approved/persistent/swarm-config.json
+case "$task_source:$task_config" in
+  *'/REPLACE/'*) echo 'Swarm service is an unconfigured template.'; exit 78 ;;
+esac
+cd "$task_source" || exit 78
+task_user=${SWARM_SERVICE_USER:-REPLACE}
+task_path=${SWARM_SERVICE_PATH:-/REPLACE/approved/bin:/usr/local/bin:/usr/bin:/bin}
+task_config_home=${SWARM_SERVICE_CONFIG_HOME:-/REPLACE/approved/config}
+case "$task_user:$task_path:$task_config_home" in
+  *REPLACE*) echo 'Configure the private Swarm service user, PATH, and config home before registration.'; exit 78 ;;
+esac
+exec sudo -n -H -u "$task_user" env \
+  -u DISPLAY -u ORCA_CLI_COMMAND -u ORCA_ENVIRONMENT -u ORCA_PAIRING_CODE \
+  -u ORCA_DEV_REPO_ROOT -u ORCA_USER_DATA -u ORCA_USER_DATA_PATH \
+  -u ORCA_TERMINAL_HANDLE -u ORCA_PANE_KEY -u ORCA_AGENT_SESSION_ID \
+  -u PYTHONPATH -u PYTHONHOME \
+  PATH="$task_path" \
+  XDG_CONFIG_HOME="$task_config_home" \
+  python3 -m supervisor --config "$task_config" supervise

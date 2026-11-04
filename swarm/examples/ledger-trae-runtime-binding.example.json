@@ -1,0 +1,15 @@
+[
+  {
+    "provider": "trae",
+    "format": "runtime-state",
+    "agent_id": "REPLACE_WITH_VERIFIED_DISPATCH_ID",
+    "host": "REPLACE_WITH_EXECUTION_HOSTNAME",
+    "profile": "/REPLACE/CANONICAL/ORCA_PROFILE",
+    "log_root": "/REPLACE/CANONICAL/TRAE_SESSIONS",
+    "worktree_id": "REPLACE_WITH_VERIFIED_WORKTREE_ID",
+    "terminal_handle": "REPLACE_WITH_FRESH_TERMINAL_HANDLE",
+    "max_hook_age_seconds": 86400,
+    "since": "2026-10-15T00:00:00Z",
+    "final": false
+  }
+]

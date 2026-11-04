@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+config.local.json
+state/
+artifacts/
+docs/validation/reports/
+*.sqlite3*
+trials/
+.env
+.env.*
+!.env.example
+.DS_Store

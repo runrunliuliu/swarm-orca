@@ -1,0 +1,14 @@
+{
+  "runtime_id": "COPY_VERIFIED_RUNTIME_ID",
+  "run_id": "COPY_RUN_ID",
+  "agent_id": "COPY_DISPATCH_ID",
+  "host": {"kind": "local", "hostId": "local"},
+  "terminal_handle": "COPY_EXACT_NATIVE_TERMINAL_HANDLE",
+  "thread_id": "COPY_SESSION_META_ID",
+  "session_id": "COPY_SESSION_META_SESSION_ID",
+  "source": "COPY_PRIVATE_PROCESS_FD_BINDING_EVIDENCE_REFERENCE",
+  "verified_prefix": {
+    "bytes": 1234,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

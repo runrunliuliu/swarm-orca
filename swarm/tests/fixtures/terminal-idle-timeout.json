@@ -1,0 +1,9 @@
+{
+  "returncode": 1,
+  "response": {
+    "id": "5a067dcb-3ecf-44e6-a9aa-d1171c2b9c6e",
+    "ok": false,
+    "error": {"code": "timeout", "message": "timeout"},
+    "_meta": {"runtimeId": "878e1670-314a-4fa6-91b4-96a67ba37306"}
+  }
+}

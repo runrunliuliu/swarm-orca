@@ -1,0 +1,9 @@
+{
+  "runtime_id": "REPLACE_WITH_VERIFIED_RUNTIME_ID",
+  "run_id": "REPLACE_WITH_VERIFIED_RUN_ID",
+  "agent_id": "REPLACE_WITH_DISPATCH_ID_OR_coordinator",
+  "host": {"kind": "local", "hostId": "local"},
+  "thread_id": "REPLACE_WITH_VERIFIED_THREAD_ID",
+  "session_id": "REPLACE_WITH_VERIFIED_SESSION_TREE_ID",
+  "source": "launch-binding:sha256:REPLACE_WITH_REAL_EVIDENCE_DIGEST"
+}
