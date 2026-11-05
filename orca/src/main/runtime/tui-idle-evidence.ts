@@ -204,14 +204,14 @@ const READY_STRONG: TuiIdleVerdict = { kind: 'ready-strong' }
 const READY_WEAK: TuiIdleVerdict = { kind: 'ready-weak' }
 const WORKING: TuiIdleVerdict = { kind: 'working' }
 
-const QUIET_READY_SCREEN_AGENTS: ReadonlySet<TuiAgent> = new Set(['muse', 'codex'])
+const QUIET_READY_SCREEN_AGENTS: ReadonlySet<TuiAgent> = new Set(['muse', 'codex', 'codex-ark'])
 
 /**
  * Tier 1b: a ready screen in the body, believed only once the stream has gone quiet.
  *
- * Muse's OSC title is the bare cwd and never changes, and an idle Codex titles its pane with
- * the cwd (plus a thread name) and no agent name, so neither the explicit-idle nor the
- * sustained-title lane can fire. The ready screen proves the TUI is up; the quiescence
+ * Muse's OSC title is the bare cwd and never changes, and an idle Codex (or its Ark wrapper)
+ * titles its pane with the cwd (plus a thread name) and no agent name, so neither the
+ * explicit-idle nor the sustained-title lane can fire. The ready screen proves the TUI is up; the quiescence
  * demand keeps a mid-turn streaming pane from satisfying, mirroring the tier-3 lane's
  * positive-evidence-plus-quiet shape. Scoped to those agents and agent-unknown panes (which
  * read only Muse's screen): another agent's scrollback quoting them must not settle its wait.

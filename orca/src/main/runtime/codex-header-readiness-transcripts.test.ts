@@ -189,6 +189,18 @@ describe('Codex 0.157 header readiness from captured bytes', () => {
     expect(isQuietReadyScreenBody('', 'codex', readScreenLines)).toBe(true)
   })
 
+  it('reads Codex Ark through the same Codex lanes', () => {
+    const screenLines = [
+      '│ >_ OpenAI Codex (v0.163.0)                               │',
+      '│ model:       GPT-6-Sol high   /model to change           │',
+      '│ directory:   ~/repo/app                                  │'
+    ]
+    expect(isQuietReadyScreenBody('', 'codex-ark', () => screenLines)).toBe(true)
+    // Tier 1 holds a clocked Codex pane to quiescence; Ark must not skip that bar.
+    expect(isKnownReadyPromptBody('', 'codex-ark', () => screenLines, true)).toBe(false)
+    expect(isKnownReadyPromptBody('', 'codex-ark', () => screenLines, false)).toBe(true)
+  })
+
   describe('at the 80x24 default grid the header garbles and today’s answer stands', () => {
     it.each(ALL_FIXTURES)('%s', async (name) => {
       const { screenLines, waitText } = await finalFrame(name, 80, 24)

@@ -68,6 +68,13 @@ describe('hasQuietReadyScreen', () => {
     expect(hasQuietReadyScreen(record(), 'codex', () => true, QUIESCENCE_MS)).toBe(true)
   })
 
+  it('covers Codex Ark, which paints the same screen without Codex hooks', () => {
+    expect(hasQuietReadyScreen(record(), 'codex-ark', () => true, QUIESCENCE_MS)).toBe(true)
+    expect(
+      hasQuietReadyScreen(record({ lastOutputAt: Date.now() }), 'codex-ark', () => true, QUIESCENCE_MS)
+    ).toBe(false)
+  })
+
   it('refuses another agent quoting Muse or Codex in its scrollback', () => {
     expect(hasQuietReadyScreen(record(), 'claude', () => true, QUIESCENCE_MS)).toBe(false)
   })
