@@ -1,7 +1,8 @@
 # AGENTS.md — swarm-orca
 
-Guidance for agents working in this repository. The parent workspace has its own `AGENTS.md`;
-this file only adds rules specific to `swarm-orca` and does not relax anything there.
+Guidance for agents working in this repository; all paths below are repository-relative.
+This checkout is self-contained. If embedded in another workspace, also follow its applicable
+instructions and explicit deployment policy; no particular private parent repository is required.
 
 ## Two layers, two contracts
 
@@ -44,16 +45,17 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 
 - Never install dependencies into `orca/` as a side effect of a code change; reuse a prepared tree
   or report the gap.
-- New tests live next to the source they pin, and must fail against the old behavior. A test that
-  never failed does not prove anything.
+- Put regression tests next to the source they cover. Where practical, demonstrate a bug test
+  against the old baseline in an isolated fixture/checkout; never revert an active shared checkout
+  or invalidate a running source pin just to obtain a red test.
 - Report "tests added" and "tests executed" separately, and name what did not run.
 
 ## Git
 
-- **Never commit on a detached `HEAD`.** Create a branch first; a commit on a detached head is
-  reachable only until the worktree disappears.
-- Bump a submodule pointer only after its branch is pushed. A parent pointer to an unpushed commit
-  is a broken delivery.
+- Detached HEAD is normal for pinned submodules. Before new commits, establish an approved
+  branch or durable reference; do not rewrite a shared/pinned branch.
+- Before publishing a parent gitlink, verify its submodule commit is available on the intended
+  remote. Remote availability does not necessarily require merging into the default branch.
 - Do not rewrite a branch that another worktree, Run, or deployment pins.
 - Use the full `id:<repoId>::<path>` worktree selector. `path:` is ambiguous when two registrations
   share one directory.
@@ -63,15 +65,32 @@ Delivery steps after development — integration, deployment, verification, clea
 “merge it”, “ship it”, “deploy/restart”, “clean up the worktree”, or “the work is done”.
 Deployment and service restarts are separately authorized actions, not part of "merge".
 
-The parent workspace's `AGENTS.md` points here explicitly, because a nested `AGENTS.md` is not
-loaded automatically for an agent whose working directory is the parent repository. Keep that
-pointer intact when editing either file.
+Embedding workspaces should explicitly route relevant tasks here. Agent harnesses differ in how
+nested instructions are loaded; do not rely on automatic recursive discovery.
 
 ## Skills
 
-- `orca/skills/<name>/SKILL.md` belongs to upstream. Do not add project skills there.
-- Project skills live in `swarm/skills/<name>/SKILL.md` with `name` and `description` frontmatter.
-  The description states when to use the skill and what it is not for.
+Discover skills through the table below and read the applicable `SKILL.md` completely before acting.
+No global installation is required. Paths/references resolve from the skill's directory. These are
+repository reading entry points, not a claim that every harness automatically lists them.
+
+| Task | Required entry |
+| --- | --- |
+| Orca worktrees, terminals, repositories or handoff | [orca-cli](orca/skills/orca-cli/SKILL.md) |
+| Native messages, tasks, Dispatches and lifecycle | [orchestration](orca/skills/orchestration/SKILL.md) |
+| Supervised Swarm preparation, Coordinator loop, recovery and accounting | [swarm-orchestration](swarm/skills/swarm-orchestration/SKILL.md) |
+| Review, merge, optional deployment and safe worktree cleanup | [worktree-delivery](swarm/skills/worktree-delivery/SKILL.md) |
+
+The first two entries load version-matched guides from the selected executable; they do not duplicate
+its command reference. Project skills live under `swarm/skills/`, not the upstream skill directory.
+For all entries, access denial or connection failure means stop affected operations and report the
+error: no automatic escalation, runtime switching or restart. This overrides automatic recovery
+suggestions in upstream stubs without rewriting the snapshot.
+
+Before live Swarm work read [configuration](swarm/configuration.md); for validation read
+[reliability](swarm/docs/testing/reliability.md). Deployment supplies exact target identities, approved
+models/limits, artifact locations and domain skills. Missing inputs are not permission to use public
+examples or a different runtime. Do not copy private policies here; existing pinned Runs are not migrated.
 
 ## Claims
 
