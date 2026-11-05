@@ -49,11 +49,14 @@ class ExternalWorkerProfilesTests(unittest.TestCase):
     def test_invalid_explicit_paths_never_fall_back(self):
         link = self.root / "link.json"
         link.symlink_to(self.policy)
-        for source in ("", "relative.json", str(self.root / "missing.json"),
-                       str(link), str(self.root)):
+        for source, code in (("", "empty_worker_profiles_path"),
+                             ("relative.json", "absolute_path_required"),
+                             (str(self.root / "missing.json"), "worker_profiles_unreadable"),
+                             (str(link), "canonical_nonsymlink_path_required"),
+                             (str(self.root), "wrong_path_type")):
             with self.subTest(source=source), patch.dict(os.environ, {
                     "SWARM_WORKER_PROFILES": source}):
-                with self.assertRaises((ValueError, OSError)):
+                with self.assertRaisesRegex(ValueError, code):
                     resolve("gpt-5.5", file_ref(PROFILES)["sha256"])
 
     def test_changed_hash_unknown_model_and_blocked_profile_fail_closed(self):

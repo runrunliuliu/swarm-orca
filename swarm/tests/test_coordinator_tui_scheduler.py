@@ -150,6 +150,27 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual((self.f.state / "outbox.json").read_bytes(), before)
         self.assertEqual(len(self.m.messages), 1)
 
+    def test_context_projection_growth_has_no_configured_bound(self):
+        """PIN: the strict scheduler today has no ceiling on projection growth.
+
+        Each cycle enqueues another continuation while the observed turn projection
+        (prefix_bytes and the checkpoint payload) grows monotonically. Nothing here
+        says that is acceptable; the assertion exists so that adding a bound, or
+        deciding to accept unbounded growth, becomes an explicit change.
+        """
+        growth = []
+        for cycle in range(3):
+            self.assertEqual(self.tick()["state"], "continuation_enqueued")
+            self.execute()
+            self.new_turn(("met", "actionable"), action_id="action-%d" % (cycle + 2))
+            growth.append(self.ended["completed_turn"]["prefix_bytes"])
+        self.assertEqual(len(self.m.messages), 3)
+        self.assertEqual(growth, sorted(set(growth)))  # strictly increasing, never reset
+        # No ceiling fired: no stop record and no review stop reason appeared.
+        self.assertFalse((self.m.state_root / "monitor-stop.json").exists())
+        self.assertNotIn("bound_exceeded", str(self.m.calls))
+        self.assertIsNone(read_json(self.f.state / "scheduler.json").get("stop"))
+
     def test_two_automatic_continuations_without_model_enqueue_or_turn_end(self):
         for _ in range(3):
             self.tick()

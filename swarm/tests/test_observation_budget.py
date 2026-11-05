@@ -56,6 +56,21 @@ class BudgetTests(unittest.TestCase):
                 budget.call_with_timeout(call, "cli", "runtime", [], 10)
         call.assert_called_once()
 
+    def test_budget_is_monotonic_across_nested_stages(self):
+        reply = SimpleNamespace(stdout=json.dumps(dict(ok=True, _meta=dict(runtimeId="r"), result={})))
+        with patch("trae_coordinator.subprocess.run", return_value=reply) as run:
+            with self.assertRaises(budget.ObservationTimeout):
+                with budget.scope(5):
+                    with budget.stage("turn_end/readiness"):
+                        self.tick += 3
+                        native("cli", "r", ["status"])
+                        self.assertEqual(run.call_count, 1)
+                    # The second stage shares the same deadline: no renewal.
+                    with budget.stage("turn_end/observe"):
+                        self.tick += 3
+                        native("cli", "r", ["status"])
+        self.assertEqual(run.call_count, 1)  # exhausted budget never reaches native
+
     def test_invalid_budgets_rejected(self):
         for value in (0, -1, True, float("nan"), float("inf")):
             with self.subTest(value=value), self.assertRaises(ValueError):

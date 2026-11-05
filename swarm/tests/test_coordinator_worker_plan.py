@@ -14,9 +14,15 @@ from coordinator_io import file_ref
 from coordinator_launch import main
 from coordinator_worker_plan import build_plan
 from coordinator_worker_profiles import PROFILES
+import offline_env
 
 
 class WorkerPlanTests(unittest.TestCase):
+    def setUp(self):
+        # These assertions describe the bundled fixture, so a private Operator override
+        # in the caller's environment must not change which file the plan pins.
+        self.addCleanup(offline_env.cleared().stop)
+
     def request(self, **updates):
         return dict(schema_version=2, cli="/verified/orca-server-cli", run="run_test",
                     task="task_test", model="gpt-5.5", profiles_sha256=file_ref(PROFILES)["sha256"],
@@ -277,7 +283,7 @@ class WorkerPlanTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory).resolve() / "missing-profile.json"
             with patch("coordinator_worker_profiles.PROFILES", missing):
-                with self.assertRaises(OSError):
+                with self.assertRaisesRegex(ValueError, "worker_profiles_unreadable"):
                     build_plan(self.request())
 
     def test_malformed_catalog_and_unverified_backend_adapter_fail_closed(self):
