@@ -71,7 +71,7 @@ export class OrcaRuntimeWithResolveWorktreeSelector extends OrcaRuntimeWithResol
         )
         // Why: duplicate registrations on one host describe one path; identical paths on different hosts do not.
         if (hostIds.size === 1) {
-          candidates = [candidates[0]]
+          candidates = [this.pickPathOwner(candidates, selector.slice(5))]
         }
       }
     } else if (selector.startsWith('branch:')) {
@@ -103,6 +103,21 @@ export class OrcaRuntimeWithResolveWorktreeSelector extends OrcaRuntimeWithResol
       throw new Error('selector_ambiguous')
     }
     throw new Error('selector_not_found')
+  }
+
+  // Why: a repo registered at a linked worktree path reports every worktree of the shared `.git`,
+  // including another registration's main checkout. `path:` names one directory, so the repo
+  // registered AT that directory owns it; otherwise prefer the main worktree, then order by id so
+  // the choice never depends on repo insertion order (was: silent candidates[0]).
+  private pickPathOwner(candidates: ResolvedWorktree[], target: string): ResolvedWorktree {
+    const repoOwned = candidates.filter((worktree) => {
+      const repo = this.store?.getRepo(worktree.repoId)
+      return repo ? runtimePathsEqual(repo.path, target) : false
+    })
+    const pool = repoOwned.length > 0 ? repoOwned : candidates
+    const mainWorktrees = pool.filter((worktree) => worktree.git?.isMainWorktree === true)
+    const resolved = mainWorktrees.length > 0 ? mainWorktrees : pool
+    return [...resolved].sort((left, right) => left.id.localeCompare(right.id))[0]
   }
 
   protected resolveLineageForWorktreeCreate(
