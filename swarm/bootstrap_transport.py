@@ -27,6 +27,10 @@ def safe_reason(error):
             "startup_operator_input_unsupported", "startup_operator_input_request_changed",
             "startup_operator_input_handling_required", "tui_continuation_deadline"}:
         return value
+    if isinstance(error, ValueError) and value in {
+            "startup_release_window_invalid", "startup_trigger_window_insufficient",
+            "startup_trigger_readiness_expired"}:
+        return value
     if isinstance(error, ValueError) and re.fullmatch(
             r"(?:bootstrap_rpc_rejected:)?bootstrap_[a-z0-9_]{1,100}", value):
         return value

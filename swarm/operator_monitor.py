@@ -377,6 +377,7 @@ def run(config, *, once=False, observer=None):
     """The single foreground loop; optional local deployment receipts under its lock."""
     from operator_continuity_route import require_monitor
     from bootstrap_identity import IdentityVerificationPending, OperatorInputPending
+    from observation_budget import ObservationBusy
     require_monitor(config)
     require(config.data["enabled"], "monitor_execution_not_enabled")
     require(config.data["schema_version"] == 2, "monitor_native_sender_configuration_required")
@@ -392,6 +393,14 @@ def run(config, *, once=False, observer=None):
                             observer("starting", None)
                         started = True
                     status = tick(config)
+                except ObservationBusy as exc:
+                    # Busy is unavailable observation, not an identity problem.
+                    # Exit without a STOP latch, refresh loop, or mutation retry.
+                    replace_json(config.root / "status.json", dict(observed_at=now(),
+                        state="observation_unavailable", reason=str(exc), sending_allowed=False))
+                    if observer and started:
+                        observer("unavailable", None)
+                    return 3
                 except (IdentityVerificationPending, OperatorInputPending) as exc:
                     # Only typed read-only denials reach here. Never retry an
                     # unknown mutation or erase STOP while revalidating identity.

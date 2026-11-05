@@ -4,7 +4,7 @@ import math
 
 from coordinator_io import FilePinChanged
 from trae_coordinator import ContextFreshnessError
-from observation_budget import ObservationTimeout
+from observation_budget import ObservationTimeout, ObservationBusy
 
 
 class TuiError(ValueError):
@@ -18,7 +18,10 @@ def require(condition, code):
 
 def failure(exc, fallback):
     result = {"ok": False, "decision": "stop", "error": fallback}
-    if isinstance(exc, ObservationTimeout):
+    if isinstance(exc, ObservationBusy):
+        result.update(error=str(exc), observation="unavailable", execute_action=False,
+                      recovery="preserve_receipts_no_mutation_replay")
+    elif isinstance(exc, ObservationTimeout):
         result.update(error=str(exc), **exc.details, execute_action=False,
                       recovery="preserve_receipts_audit_incomplete_no_business_or_ack_replay")
     elif isinstance(exc, TuiError):

@@ -503,9 +503,12 @@ def main(argv=None):
     parser.add_argument("--input", help="Pinned candidate document; trigger-ready takes an independent review, not the raw preflight (see trigger-template)")
     parser.add_argument("--input-sha256")
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--with-release-window", action="store_true",
+                        help="trigger-template only: explicit v2 release deadline and safety margin")
     args = parser.parse_args(argv)
     try:
         ref = dict(path=args.plan, sha256=args.plan_sha256)
+        require(not args.with_release_window or args.mode == "trigger-template", "startup_unexpected_release_window")
         require(args.mode in ("inspect", "trigger-template") or args.execute, "startup_explicit_execute_required")
         require(bool(args.input) == bool(args.input_sha256), "startup_input_pin_required")
         require(args.mode not in ("accept", "complete") or args.action is not None,
@@ -528,7 +531,7 @@ def main(argv=None):
             from startup_execution import trigger_template
             plan, _, _, _ = load(ref)
             require(plan["execution"]["mode"] == "native-event", "startup_native_trigger_required")
-            result = dict(ok=True, candidate_template=trigger_template(),
+            result = dict(ok=True, candidate_template=trigger_template(with_window=args.with_release_window),
                           execution_authorized=False, automatic_sends_allowed=False)
         elif args.mode == "inspect":
             result = inspect(ref, call=native, observe_idle=True)
@@ -547,6 +550,17 @@ def main(argv=None):
     except (OSError, ValueError, KeyError, TypeError) as exc:
         from operator_readiness import unavailable
         result = dict(ok=False, state="review_required", reason=unavailable(exc), retry_allowed=False)
+        # Export only these exact signed-RPC rejection strings, never arbitrary
+        # exception bodies. This is diagnostic, not permission to replay.
+        if isinstance(exc, ValueError) and str(exc) in {
+                "bootstrap_rpc_rejected:startup_release_window_invalid",
+                "bootstrap_rpc_rejected:startup_trigger_window_insufficient",
+                "bootstrap_rpc_rejected:startup_trigger_readiness_expired",
+                "bootstrap_rpc_rejected:bootstrap_owner_busy_not_executed"}:
+            result["reason"] = str(exc)
+        from blocking_io import BlockingIOTimeout
+        if isinstance(exc, BlockingIOTimeout):
+            result["diagnostics"] = exc.details
         if result["reason"] == "startup_trigger_review_required":
             from startup_execution import trigger_template
             result["candidate_template"] = trigger_template()

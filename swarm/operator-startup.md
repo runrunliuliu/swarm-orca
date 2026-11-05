@@ -201,7 +201,7 @@ python3 -B startup_handoff.py trigger-template --actor operator \
 不是通用 schema 自查入口；该参数也不构成原 Operator 身份证明，真正发布仍核验身份。
 Coordinator 可阅读此结构说明；将来若增加其自查入口，应保持只读且不替代 Operator 审查，
 不要通过放宽此入口的 actor 约束来兼任审查角色。
-候选字段**恰好**为：
+默认兼容候选字段**恰好**为：
 
 ```json
 {
@@ -212,6 +212,27 @@ Coordinator 可阅读此结构说明；将来若增加其自查入口，应保�
   "trigger": {"path": "ABSOLUTE_PREFLIGHT_PATH", "sha256": "PREFLIGHT_SHA256"}
 }
 ```
+
+新验收建议在模板命令中加 `--with-release-window`，审查后额外固定以下字段（不填完不能发布）：
+
+```json
+"release_window": {
+  "deadline": "EXACT_WORKER_BARRIER_DEADLINE_WITH_TIMEZONE",
+  "publish_budget_seconds": 30,
+  "reserve_seconds": 120
+}
+```
+
+此时发布 schema v2 回执；默认模板及既有 schema v1 回执不变，不补写旧 attempt。
+发布前要求 `min(valid_until, release_window.deadline) - now > publish_budget_seconds + reserve_seconds`，
+等号也拒绝；发布预算为 30–3600 秒整数，余量为 120–3600 秒整数。
+`publish_budget_seconds` 是准入预留量，不调整 helper 的 30 秒调用等待预算。
+消费回执在慢证据读取后再次要求 `min(valid_until, deadline) - now > reserve_seconds`，
+为 turn-end 与释放保留至少 120 秒（等号拒绝）；不足时报
+`startup_trigger_window_insufficient`，过期报 `startup_trigger_readiness_expired`。
+deadline 必须由 Operator 从实际屏障契约核对固定，不是 helper 自动推算的值。
+这是可选的准入/消费保护，不代替 Worker 释放端的完整校验，不自动延长 TTL 或屏障。
+使用带时区的墙钟检查，尚未实现跨时钟回拨保护。
 
 notes/evidence 必须非空；结构、时间格式和 pin 在原生查询/owner RPC 前检查，发布边界仍重新校验
 身份、时效、Run/Dispatch 和发送隔离，不接受将原始预检自动转换为批准。trigger 文件最少包含：
@@ -231,8 +252,14 @@ notes/evidence 必须非空；结构、时间格式和 pin 在原生查询/owner
 owner RPC 复用 30 秒传输预算，connect/send/分片回复共享截止期，不因持续小片回复重置。
 超时返回 `bootstrap_tool_timeout_requires_reconciliation`，`retry_allowed:false`；先核对原
 readiness 文件及 owner 确认。出现该错误码时，不得重试同一 mutation，也不得仅凭它判断
-动作失败：owner 仍可能完成已接纳工作。该预算不是 owner 端取消机制，也不是包括文件系统
-读取和全部本地校验的硬超时。会话显示 working 不证明正在此 RPC 内；记录实际命令、起止时间
+动作失败：owner 仍可能完成已接纳工作。该传输预算不是 owner 端取消机制。
+另有 `blocking_io` 的 30 秒单调调用等待预算，从 trigger-ready 第一次候选读取前开始，
+覆盖本地读取、锁获取与 RPC 前后处理。超时返回
+`bootstrap_io_timeout_requires_reconciliation`，附 `outcome:unknown`、
+`execution_cancelled:false`、`retry_allowed:false` 和非持久化阶段诊断。
+`operator_startup.py status/check`、`coordinator_tui_continue.py check` 也有 30 秒调用等待隔离，
+观察超时为 `bootstrap_io_observation_timeout`。这些边界不覆盖解释器启动、模块加载或最终 stdout。
+会话显示 working 不证明正在此 RPC 内；记录实际命令、起止时间
 和返回码。`operator_startup.py run` 是另一个预期持续运行的前台 monitor，不能与 trigger-ready 混为一谈。
 
 worker_done 必须匹配实际接受的 dispatchId；external_fact 的 trigger_id 和就绪事实由
@@ -243,6 +270,49 @@ worker_done 必须匹配实际接受的 dispatchId；external_fact 的 trigger_i
 与 monitor outbox 的未知发送。原 owner 独占发布预检回执，过期失败关闭，不自动覆盖续期。
 缺回执时允许 `monitor_ready=true`、`runtime_ready=false` 同时存在。
 **这只证明验收前提，不证明发生了真实 idle、唤醒或业务成功。**
+
+### 阻塞诊断与文件锁边界
+
+NAS 仍是权威持久化存储。调用等待用同进程 daemon 线程隔离，以保留原 peer PID/身份；
+最多四个隔离任务，超时任务返回前一直占槽，耗尽时报 `bootstrap_io_capacity_exhausted`。
+这只是每进程上限，不是跨 CLI 进程的资源治理。超时不 join、不重发，也不能中断 hard NFS 的 D 状态；
+CLI 退出不证明底层操作已取消。不得因超时新启 owner、重试 mutation 或删除锁文件。
+
+- `owner.lock` 保持全生命周期单例；非阻塞 `flock` 竞争仍报 `bound_lock_busy`，与 I/O 超时区分。
+  保留 inode 校验，不换锁文件；迟到 open/flock 返回后会关闭本次 fd，不进入受保护业务体。
+- 正式协议只有一个执行通道。owner 忙时新请求直接拒绝为
+  `bootstrap_rpc_rejected:bootstrap_owner_busy_not_executed`，不新增无界队列；
+  签名验证通过的只读请求将它分类为 `ObservationBusy` / 不可观察，不走身份刷新路径；
+  pull 返回 owner-busy pending，monitor 单次退出且不新增 STOP，mutation 不自动重试。
+- `CommitOwner.serial` 中的最终路径、身份、STOP、generation 校验与原子发布/fsync 保留。
+  正式 reconcile 会修改确认状态，仍须等原请求结束后由原 owner 串行处理。
+  请求未结束时 close 报 `bootstrap_owner_busy_requires_reconciliation`，不提前释放 owner.lock。
+  CLI 不再通过外层 finally 绕过该拒绝。关闭拒绝时最多等待 250ms，尽力在独立私有目录
+  `/tmp/swarm-owner-close-*/owner-close-rejected.json` 暂存 L1 诊断，并在错误结果中返回记录。
+  该文件是可选诊断暂存，不是 lifecycle state；NAS 权威存储不迁移。它始终标注
+  `durable=false/archive_pending=true`，写出失败或超时保持 unavailable/unknown。
+  NAS 恢复后需人工归档并回读；CLI 返回或诊断标记均不证明进程已经退出，也不授权接管。
+
+`check` 从首次文件读取前使用单个总预算：最多 15 个原生 RPC × 15 秒、两个 owner 查询
+× 30 秒，再加 30 秒文件访问余量，当前合计 315 秒；不续期、不改变协议 freshness。
+continuation 配置没有 `rpc_timeout_seconds` 字段；此值是 monitor 配置而非 check 配置。
+`--action-seconds` 只用于窗口建议，不是实际等待时长，也不延长检查预算。
+
+已持有原注册 endpoint 时，可用独立诊断入口（不为找 endpoint 先遍历阻塞 NAS）：
+
+```bash
+python3 -B bootstrap_diagnostics.py --endpoint /EXACT/ORIGINAL/OWNER.sock
+```
+
+它只通过同 UID Unix socket 获取内存中的 busy/idle 和在途请求阶段（idle 时 operation 为 null），绕过 NAS、/proc、
+身份刷新和提交锁；连接预算 2 秒，CLI 外层等待 3 秒。最多八个接入处理器共享容量，
+饱和、进程失调度或解释器启动阻塞时不能保证诊断可用；失败仍为 unknown。
+阶段环形缓冲最多 64 条，CPython 下单写者以 deque 原子 append/copy 记录与快照，
+诊断读取不丢弃 begin；仅溢出标注 dropped/partial，不同步写 NAS 日志。
+溢出后的 end-only 片段不得作为完成证据。
+`diagnostic_only:true`、`durable:false`：未签名、不是 generation 身份证明；idle 仅表示执行通道空闲，
+不是 Coordinator idle，更不是确认、健康或屏障释放证据。正式对账仍使用原 owner 和原 pins。
+当前 helper 与 owner 的 op_id 各自独立，尚无跨进程 trace 关联或自动 /proc/mountstats 归档。
 
 ## 运行期输入与暂时性复核
 

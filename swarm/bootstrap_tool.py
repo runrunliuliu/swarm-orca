@@ -16,6 +16,7 @@ import time
 
 from bootstrap_control import AuthorityClient, CommitOwner, OwnerServer, ReadOnlyPollExpired
 from bootstrap_identity import IdentityVerificationPending, NativeIdentity
+from observation_budget import ObservationBusy
 from bootstrap_driver import BootstrapMachine
 from bootstrap_transport import safe_reason
 from bootstrap_protocol import ControlBinding, EVENTS
@@ -305,6 +306,9 @@ class RoleTool(BootstrapMachine, ActionReader):
                 except IdentityVerificationPending:
                     reason = "identity_reverification_pending"
                     return pending()
+                except ObservationBusy:
+                    reason = "owner_busy_not_executed"
+                    return pending()
                 if actionable:
                     # A fresh step rechecks identity/facts. Its mutations and
                     # unknown outcomes are deliberately outside the catch above.
@@ -511,13 +515,23 @@ def cli_main(argv=None):
             owner = CommitOwner(control, identity)
             try:
                 server = OwnerServer(owner, args.endpoint)
-                print(json.dumps({"owner": file_ref(owner.root / "owner.json"), "armed": False}), flush=True)
-                try:
-                    server.serve(threading.Event())
-                finally:
-                    server.close()
-            finally:
+            except BaseException:
+                # No server has taken ownership and no requests can execute.
                 owner.close()
+                raise
+            try:
+                print(json.dumps({"owner": file_ref(owner.root / "owner.json"), "armed": False}), flush=True)
+                server.serve(threading.Event())
+            finally:
+                try:
+                    server.close()
+                except ValueError as exc:
+                    if str(exc) == "bootstrap_owner_busy_requires_reconciliation":
+                        from bootstrap_diagnostics import close_rejected
+                        exc.diagnostics = close_rejected(server)
+                    # NEVER bypass a rejected close via owner.close(). The CLI
+                    # exits; only externally observed exit permits reconciliation.
+                    raise
             return 0
         owner_ref = dict(path=args.owner, sha256=args.owner_sha256)
         control, authority = connect(owner_ref)
@@ -558,8 +572,11 @@ def cli_main(argv=None):
         print(json.dumps(dict(ok=True, result=result), ensure_ascii=False))
         return 0
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        print(json.dumps(dict(ok=False, error="bootstrap_tool_failed", error_type=type(exc).__name__,
-                              reason=safe_reason(exc), execution_authorized=False)))
+        result = dict(ok=False, error="bootstrap_tool_failed", error_type=type(exc).__name__,
+                      reason=safe_reason(exc), execution_authorized=False)
+        if hasattr(exc, "diagnostics"):
+            result["diagnostics"] = exc.diagnostics
+        print(json.dumps(result))
         return 2
 
 

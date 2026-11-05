@@ -14,6 +14,7 @@ import tempfile
 import sys
 
 from trae_exec_capture import exclusive
+import blocking_io
 
 
 def require(value, code):
@@ -52,12 +53,16 @@ def path(value, *, directory=False):
     return target
 
 
+@blocking_io.observed("read_bytes", lambda value: str(value))
 def read_bytes(value):
     from observation_budget import check
     check()
-    target = path(str(value))
-    fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with blocking_io.stage("resolve", str(value)):
+        target = path(str(value))
+    with blocking_io.stage("open", str(value), check_after=False):
+        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
+        blocking_io.check()
         require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "not_regular")
         size = os.fstat(stream.fileno()).st_size
         raw = stream.read(size)
@@ -111,6 +116,7 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+@blocking_io.observed("fsync_dir", lambda directory: str(directory))
 def fsync_dir(directory):
     fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -127,6 +133,7 @@ def write_new(target, value):
     fsync_dir(target.parent)
 
 
+@blocking_io.observed("publish_new", lambda target, value: str(target))
 def publish_new(target, value):
     """Atomically expose one immutable receipt; never replace another claimant's file."""
     # Scoped to the actual protected strict-start entry, never a global monkey
@@ -198,19 +205,26 @@ class LockBusy(BlockingIOError):
 @contextmanager
 def directory_lock(root, name, *, create=True):
     """The shared nonblocking lock inode, without changing its binding."""
-    root = path(str(root), directory=True)
-    info = root.stat()
+    with blocking_io.stage("lock_directory", str(root)):
+        root = path(str(root), directory=True)
+    with blocking_io.stage("lock_directory_stat", str(root)):
+        info = root.stat()
     require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700,
             "private_state_directory_required")
     target = root / (name + ".lock")
     root_identity = (info.st_dev, info.st_ino)
-    fd = os.open(target, (os.O_CREAT if create else 0) | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    # Resource cleanup encloses the post-open deadline check as well.
+    fd = None
     try:
-        info = os.fstat(fd)
+        with blocking_io.stage("lock_open", str(target)):
+            fd = os.open(target, (os.O_CREAT if create else 0) | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        with blocking_io.stage("lock_fstat", str(target)):
+            info = os.fstat(fd)
         require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
                 and stat.S_IMODE(info.st_mode) == 0o600, "invalid_lock_file")
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with blocking_io.stage("flock", str(target)):
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
                 raise LockBusy(exc.errno, "bound_lock_busy") from exc
@@ -218,7 +232,14 @@ def directory_lock(root, name, *, create=True):
         def unchanged():
             if create:
                 return
-            current, named, parent = os.fstat(fd), target.lstat(), root.stat()
+            with blocking_io.stage("lock_recheck_fstat", str(target)):
+                current = os.fstat(fd)
+            with blocking_io.stage("lock_recheck_lstat", str(target)):
+                named = target.lstat()
+            with blocking_io.stage("lock_recheck_directory_stat", str(root)):
+                parent = root.stat()
+            with blocking_io.stage("lock_recheck_resolve", str(root)):
+                resolved = root.resolve(strict=True)
             require(current.st_nlink == named.st_nlink == 1
                     and (current.st_dev, current.st_ino) == (named.st_dev, named.st_ino)
                     == (info.st_dev, info.st_ino)
@@ -227,7 +248,7 @@ def directory_lock(root, name, *, create=True):
                     and stat.S_IMODE(current.st_mode) == stat.S_IMODE(named.st_mode) == 0o600
                     and (parent.st_dev, parent.st_ino) == root_identity
                     and parent.st_uid == os.getuid() and stat.S_IMODE(parent.st_mode) == 0o700
-                    and root.resolve(strict=True) == root, "existing_lock_changed")
+                    and resolved == root, "existing_lock_changed")
         unchanged()
         # Long-lived cooperative owners may also recheck before each admission.
         # This detects inode/path drift; it is not authentication or protection
@@ -235,7 +256,8 @@ def directory_lock(root, name, *, create=True):
         yield unchanged
         unchanged()
     finally:
-        os.close(fd)
+        if fd is not None:
+            os.close(fd)
 
 
 def correction_fence(root, ref):

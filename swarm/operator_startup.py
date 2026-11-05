@@ -22,6 +22,7 @@ import coordinator_strict_start as strict
 import operator_monitor as monitor
 import operator_monitor_deploy as deploy
 import operator_readiness as readiness
+from blocking_io import bounded, run as bounded_io, BlockingIOTimeout
 
 
 INPUT_KEYS = {"schema_version", "strict_start", "continuation_publication", "sender",
@@ -277,6 +278,7 @@ def read_state(plan, ref):
     return state
 
 
+@bounded("startup_status")
 def status(ref, *, call=None):
     """Read current evidence, never promote a cached monitor_ready milestone."""
     plan, _, contract, _ = load(ref)
@@ -461,14 +463,20 @@ def main(argv=None):
             result = dict(state="prepared_not_started", plan=ref, native_sender_command=shlex.join(command))
         else:
             ref = dict(path=a.plan, sha256=a.plan_sha256)
-            load(ref)
             if a.command == "run":
+                load(ref)
                 require(a.execute and a.confirm_skill_read, "startup_execution_not_enabled")
                 result = run(ref, once=a.once)
             else:
-                result = status(ref) if a.command == "status" else dict(state="validated_not_started", plan=ref)
+                if a.command == "status":
+                    result = status(ref)
+                else:
+                    bounded_io(lambda: load(ref), name="startup_check")
+                    result = dict(state="validated_not_started", plan=ref)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         result = dict(ok=False, state="review_required", missing=[readiness.unavailable(exc)])
+        if isinstance(exc, BlockingIOTimeout):
+            result["diagnostics"] = exc.details
     print(canonical(result).decode(), flush=True)
     return 2 if result.get("ok") is False or result["state"] == "review_required" else 0
 
