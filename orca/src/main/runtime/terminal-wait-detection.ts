@@ -7,6 +7,7 @@ import {
 } from '../../shared/agent-detection'
 import type { RuntimeTerminalWaitBlockedReason } from '../../shared/runtime-types'
 import type { TuiAgent } from '../../shared/tui-agent'
+import { isCodexTuiAgent } from '../../shared/codex-tui-agent'
 import { findAntigravityReadyPromptIndex } from './antigravity-terminal-readiness'
 import {
   findCodexHeaderIndex,
@@ -90,14 +91,14 @@ export function isKnownReadyPromptBody(
   if (agent === 'qoder') {
     return isQoderComposerReady(readScreenLines())
   }
-  if (agent === 'codex' && hasOutputClock) {
+  if (isCodexTuiAgent(agent) && hasOutputClock) {
     return false
   }
   if (isKnownReadyPromptSettled(waitText)) {
     return true
   }
   // Why the agent gate: another agent's screen can merely mention "OpenAI Codex".
-  if (agent !== null && agent !== 'codex') {
+  if (agent !== null && !isCodexTuiAgent(agent)) {
     return false
   }
   const screen = readScreen(readScreenLines)
@@ -108,13 +109,14 @@ export function isKnownReadyPromptBody(
  * Tier 1b body evidence: a ready screen from an agent with no title rest signal. Unlike tier 1
  * it only proves the TUI is up, so the ranking holds it to quiescence.
  * Why codex panes only: a `cat`ed transcript or pager in an unknown pane can show the composer.
+ * Codex Ark shares Codex's screen, so both launchers qualify.
  */
 export function isQuietReadyScreenBody(
   waitText: string,
   agent: TuiAgent | null,
   readScreenLines: () => readonly string[] | null
 ): boolean {
-  if (agent === 'codex') {
+  if (isCodexTuiAgent(agent)) {
     const screen = readScreen(readScreenLines)
     if (
       screen !== null &&
