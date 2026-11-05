@@ -332,8 +332,11 @@ def verify_log(path, *, thread_id, cwd, roots, now=None, max_age=300, execution=
             "trust": "native-terminal-stream-and-session-log-not-process-attested"}
 
 
+NATIVE_RPC_TIMEOUT_SECONDS = 15
+
+
 @budget.observed("native_rpc")
-def native(cli, runtime, args, *, timeout_seconds=15):
+def native(cli, runtime, args, *, timeout_seconds=NATIVE_RPC_TIMEOUT_SECONDS):
     from operator_continuity_route import runtime as transport_runtime
     from startup_cli import check_explicit
     runtime = transport_runtime(runtime)

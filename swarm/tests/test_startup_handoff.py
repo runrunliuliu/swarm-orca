@@ -210,12 +210,15 @@ class HandoffTests(unittest.TestCase):
             result = startup.run(self.ref, once=True, call=self.monitor_query)
         return result, seen
 
-    def trigger_candidate(self, source="worker_done", trigger_id="ctx_test"):
-        until = (timestamp(now()) + timedelta(seconds=120)).isoformat()
+    def trigger_candidate(self, source="worker_done", trigger_id="ctx_test", with_window=False):
+        until = (timestamp(now()) + timedelta(seconds=300 if with_window else 120)).isoformat()
         trigger = self.f.t.ref("bootstrap/trigger.json", dict(kind="native_event_trigger_preflight", ready=True,
             run=self.contract["run"], source=source, trigger_id=trigger_id, checked_at=now(), valid_until=until))
-        return self.f.t.ref("bootstrap/trigger-review.json", dict(decision="ready", notes="independently reviewed",
-            evidence=[self.f.c["handoff"]], trigger=trigger, valid_until=until))
+        candidate = dict(decision="ready", notes="independently reviewed",
+            evidence=[self.f.c["handoff"]], trigger=trigger, valid_until=until)
+        if with_window:
+            candidate["release_window"] = dict(deadline=until, publish_budget_seconds=30, reserve_seconds=120)
+        return self.f.t.ref("bootstrap/trigger-review.json", candidate)
 
     def test_new_prepare_refuses_old_schema_and_missing_mode(self):
         with self.assertRaisesRegex(ValueError, "startup_new_inputs_v2_required"):
@@ -691,6 +694,43 @@ class HandoffTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "startup_trigger_readiness_expired"):
                 execution.event_ready(self.config, self.contract)
             self.assertFalse(execution.can_send(self.config))
+
+    def test_event_window_receipt_roundtrip_and_expiry_after_slow_evidence(self):
+        self.configure(mode="native-event")
+        self.initialize()
+        with patch.dict(os.environ, ORCA_TERMINAL_HANDLE="term_operator"):
+            execution.attest_trigger(self.ref, self.trigger_candidate(with_window=True), call=self.query)
+        receipt = execution.event_ready(self.config, self.contract)
+        self.assertEqual(receipt["schema_version"], 2)
+        self.assertEqual(receipt["release_window"]["reserve_seconds"], 120)
+        original = execution.unknown_sends
+        for remaining, reason in ((120, "startup_trigger_window_insufficient"),
+                                  (0, "startup_trigger_readiness_expired")):
+            clock = [now()]
+            def slow_last_read(*args):
+                result = original(*args)
+                clock[0] = (timestamp(receipt["valid_until"]) - timedelta(seconds=remaining)).isoformat()
+                return result
+            with self.subTest(remaining=remaining), \
+                    patch.object(execution, "now", side_effect=lambda: clock[0]), \
+                    patch.object(execution, "unknown_sends", side_effect=slow_last_read):
+                with self.assertRaisesRegex(ValueError, reason):
+                    execution.event_ready(self.config, self.contract)
+
+    def test_trigger_cli_preserves_only_exact_safe_rpc_rejections(self):
+        for code in ("startup_release_window_invalid", "startup_trigger_window_insufficient",
+                     "startup_trigger_readiness_expired", "bootstrap_owner_busy_not_executed",
+                     "secret path or payload"):
+            reason = "bootstrap_rpc_rejected:" + code
+            output = io.StringIO()
+            with patch.object(execution, "attest_trigger", side_effect=ValueError(reason)), redirect_stdout(output):
+                result = handoff.main(["trigger-ready", "--actor", "operator", "--execute",
+                    "--plan", "/fixture/plan", "--plan-sha256", "a" * 64,
+                    "--input", "/fixture/candidate", "--input-sha256", "b" * 64])
+            self.assertEqual(result, 2)
+            value = parse(output.getvalue().encode())
+            self.assertEqual(value["reason"], reason if code != "secret path or payload" else "readiness_observation_failed")
+            self.assertFalse(value["retry_allowed"])
 
     def test_no_worker_cannot_claim_worker_done_trigger_ready(self):
         self.configure(mode="native-event", workers="not-applicable")

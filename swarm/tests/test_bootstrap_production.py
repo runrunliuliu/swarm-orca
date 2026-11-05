@@ -625,6 +625,15 @@ class ProductionTests(unittest.TestCase):
                 self.assertEqual(result["current_liveness"], "unverified")
                 self.assertEqual(owner.attempted, {})
                 self.assertTrue(owner.armed)
+                # Releasing the fixture's I/O does not prove the original RPC
+                # drained. The bounded ingress now rejects concurrent protocol
+                # work instead of silently queueing a second heartbeat.
+                from bootstrap_diagnostics import diagnose
+                deadline = time.monotonic() + 3
+                while diagnose(client.owner["endpoint"])["state"] == "busy":
+                    self.assertLess(time.monotonic(), deadline, "original heartbeat did not drain")
+                    time.sleep(.01)
+                # Diagnostic idle is not liveness: verify a fresh signed reply.
                 self.assertEqual(client.heartbeat(f.control, "operator")["state"], "ready")
             finally:
                 release.set()

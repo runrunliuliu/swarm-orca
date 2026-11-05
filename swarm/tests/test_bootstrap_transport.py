@@ -46,6 +46,10 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(safe_reason(error), "bootstrap_operation_unverifiable")
         self.assertEqual(safe_reason(ValueError("bootstrap_rpc_rejected:bootstrap_peer_pid_unmapped")),
                          "bootstrap_rpc_rejected:bootstrap_peer_pid_unmapped")
+        for code in ("startup_release_window_invalid", "startup_trigger_window_insufficient",
+                     "startup_trigger_readiness_expired"):
+            self.assertEqual(safe_reason(ValueError(code)), code)
+            self.assertEqual(safe_reason(ValueError(code + ": private data")), "bootstrap_operation_unverifiable")
 
     def test_proc_not_visible_is_not_exit_or_wrong_ancestry(self):
         for error, reason in ((FileNotFoundError(), "process_not_visible"),

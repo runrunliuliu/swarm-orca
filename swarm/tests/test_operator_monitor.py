@@ -19,6 +19,15 @@ import progress_watch as watch
 
 
 class MonitorTests(unittest.TestCase):
+    def test_busy_is_unavailable_without_identity_retry_or_stop_latch(self):
+        from observation_budget import ObservationBusy
+        with patch.object(monitor, "tick", side_effect=ObservationBusy()) as tick, redirect_stdout(io.StringIO()):
+            self.assertEqual(monitor.run(self.config), 3)
+        self.assertEqual(tick.call_count, 1)
+        self.assertEqual(read_json(self.state_root / "status.json")["state"], "observation_unavailable")
+        self.assertFalse(monitor.failure_latch(self.config).exists())
+        self.assertFalse(self.messages)
+
     def test_typed_revalidation_recovers_without_stop_or_send_while_pending(self):
         from bootstrap_identity import IdentityVerificationPending
         ticks, events = [], []

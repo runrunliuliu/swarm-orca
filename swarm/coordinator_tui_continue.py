@@ -24,11 +24,16 @@ from coordinator_loop import transition
 from coordinator_startup import KIND, identity, validate
 from coordinator_strict import caller_result
 from operator_sender import preflight as sender_preflight
-from trae_coordinator import ContextFreshnessError, TUI_ADAPTER, native
+from trae_coordinator import ContextFreshnessError, TUI_ADAPTER, native, NATIVE_RPC_TIMEOUT_SECONDS
 
 
 STRICT_CALLER_CAPABILITY = "orchestration.strict-caller-check.v1"
 WORKFLOW_PROTOCOL = "workflow-v2"
+# check: five native fence calls + two four-call TUI snapshots, and up to
+# two extra calls on the verified runtime-rebind path. Also allow two 30s
+# owner observations and 30s aggregate filesystem work. No config read precedes
+# this budget. action_seconds is advice, NOT time spent executing/waiting here.
+CHECK_IO_SECONDS = 15 * NATIVE_RPC_TIMEOUT_SECONDS + 2 * 30 + 30
 
 
 def freshness(contract, evidence, deadline):
@@ -602,7 +607,8 @@ def discover_runtime(cli):
     before any continuation action can proceed.
     """
     reply = subprocess.run([cli, "status", "--json"], check=True, text=True,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=budget.timeout(15))
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=budget.timeout(NATIVE_RPC_TIMEOUT_SECONDS))
     value = json.loads(reply.stdout)
     result = value.get("result", {})
     runtime = result.get("runtime", {})
@@ -935,7 +941,9 @@ def main(argv=None):
                 from coordinator_tui_turn_end import turn_end
                 result = turn_end(config_ref)
             else:
-                result = check(config_ref, action_seconds=args.action_seconds)
+                from blocking_io import run as bounded_io
+                result = bounded_io(lambda: check(config_ref, action_seconds=args.action_seconds),
+                                    seconds=CHECK_IO_SECONDS, name="tui_check")
             print(json.dumps(result, ensure_ascii=False))
             if result.get("ok") is False or result.get("action_allowed") is False:
                 return 2
@@ -964,7 +972,11 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False))
         return 75 if result.get("retryable") is True else 0
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
-        print(json.dumps(failure(exc, "tui_continuation_stopped_preserve_receipts")))
+        result = failure(exc, "tui_continuation_stopped_preserve_receipts")
+        from blocking_io import BlockingIOTimeout
+        if isinstance(exc, BlockingIOTimeout):
+            result["diagnostics"] = exc.details
+        print(json.dumps(result))
         return 2
 
 

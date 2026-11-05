@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 from coordinator_io import now, parse, pinned, read_json, require, timestamp
+from blocking_io import bounded
 
 
 MODES = {"autonomous", "native-event", "manual"}
@@ -118,7 +119,8 @@ scheduler sends. All references are re-read at every readiness observation.
     receipt = read_json(value["trigger"]["readiness"])
     require(set(receipt) == {"schema_version", "lifecycle", "run", "source", "operator",
                              "checked_at", "valid_until", "evidence", "decision"}
-            and receipt["schema_version"] == 1 and receipt["lifecycle"] == config["startup_lifecycle"]
+            | ({"release_window"} if receipt.get("schema_version") == 2 else set())
+            and receipt["schema_version"] in (1, 2) and receipt["lifecycle"] == config["startup_lifecycle"]
             and receipt["run"] == contract["run"] and receipt["source"] == value["trigger"]["source"]
             and receipt["operator"] == contract["operator"] and receipt["decision"] == "ready"
             and isinstance(receipt["evidence"], list) and receipt["evidence"],
@@ -132,9 +134,12 @@ scheduler sends. All references are re-read at every readiness observation.
     from startup_handoff import confirmed
     confirmed(plan, value["trigger"]["readiness"])
     require(not unknown_sends(config, plan["monitor_state_root"]), "startup_isolation_send_unknown")
+    # Evidence/owner reads may consume the entire validity window.
+    trigger_window(receipt, publishing=False)
     return receipt
 
 
+@bounded("trigger_ready", mutation=True)
 def attest_trigger(ref, input_ref, *, call=None):
     """Publish an original Operator's trigger preflight, never an acceptance PASS."""
     from startup_handoff import context, publish, authority
@@ -169,20 +174,49 @@ def attest_trigger(ref, input_ref, *, call=None):
     with bound_lock(Path(plan["state_root"]), ref, "startup-role-action"):
         value = trigger_review(ref, input_ref, plan, contract)
         context(ref, call=call, actor="operator")
+        trigger_window(value, publishing=True)
         result = publish(plan, plan["execution"]["trigger"]["readiness"], value, actor="operator")
     return dict(ok=True, trigger_readiness=result, acceptance_complete=False, automatic_sends_allowed=False)
 
 
-def trigger_template():
+def trigger_template(*, with_window=False):
     """Unapproved review skeleton, deliberately invalid until independently filled."""
-    return dict(decision=None, notes="", evidence=[], valid_until=None,
+    result = dict(decision=None, notes="", evidence=[], valid_until=None,
                 trigger=dict(path="ABSOLUTE_PREFLIGHT_PATH", sha256="PREFLIGHT_SHA256"))
+    if with_window:
+        result["release_window"] = dict(deadline=None, publish_budget_seconds=30, reserve_seconds=120)
+    return result
+
+
+def trigger_window(value, *, publishing):
+    """UTC deadlines only; no implicit extension or cross-host monotonic math.
+
+    This is admission/consumption checking, not cancellation of a late write.
+    Legacy reviews retain their schema and expiry; v2 explicitly pins a window.
+    """
+    current = timestamp(now())
+    until = timestamp(value["valid_until"])
+    require(current < until, "startup_trigger_readiness_expired")
+    window = value.get("release_window")
+    if window is None:
+        require("release_window" not in value, "startup_release_window_invalid")
+        return
+    require(isinstance(window, dict) and set(window) == {"deadline", "publish_budget_seconds", "reserve_seconds"},
+            "startup_release_window_invalid")
+    for key, minimum in (("publish_budget_seconds", 30), ("reserve_seconds", 120)):
+        require(type(window[key]) is int and minimum <= window[key] <= 3600, "startup_release_window_invalid")
+    require(isinstance(window["deadline"], str), "startup_release_window_invalid")
+    deadline = timestamp(window["deadline"])
+    remaining = (min(until, deadline) - current).total_seconds()
+    needed = window["reserve_seconds"] + (window["publish_budget_seconds"] if publishing else 0)
+    require(remaining > needed, "startup_trigger_window_insufficient")
 
 
 def trigger_candidate(input_ref):
     """Shared structural/pin checks; never infer a review from a raw preflight."""
     candidate = parse(pinned(input_ref))
     require(isinstance(candidate, dict) and set(candidate) == set(trigger_template())
+            | ({"release_window"} if "release_window" in candidate else set())
             and candidate["decision"] == "ready" and isinstance(candidate["notes"], str) and candidate["notes"].strip()
             and isinstance(candidate["evidence"], list) and candidate["evidence"]
             and isinstance(candidate["valid_until"], str), "startup_trigger_review_required")
@@ -191,6 +225,7 @@ def trigger_candidate(input_ref):
     require(isinstance(trigger, dict), "startup_trigger_scope_changed")
     for evidence in candidate["evidence"]:
         pinned(evidence)
+    trigger_window(candidate, publishing=True)
     return candidate, trigger
 
 
@@ -218,10 +253,12 @@ def trigger_review(ref, input_ref, plan, contract):
     config, _, _ = load(config_ref)
     require(config.get("startup_lifecycle") == ref and not unknown_sends(config, plan["monitor_state_root"]),
             "startup_isolation_send_unknown")
-    return dict(schema_version=1, lifecycle=ref,
+    trigger_window(candidate, publishing=True)
+    return dict(schema_version=2 if "release_window" in candidate else 1, lifecycle=ref,
             run=contract["run"], source=trigger["source"], operator=contract["operator"], decision="ready",
             checked_at=checked, valid_until=candidate["valid_until"],
-            evidence=[input_ref, candidate["trigger"], *candidate["evidence"]])
+            evidence=[input_ref, candidate["trigger"], *candidate["evidence"]],
+            **({"release_window": candidate["release_window"]} if "release_window" in candidate else {}))
 
 
 def startup_gate(config):

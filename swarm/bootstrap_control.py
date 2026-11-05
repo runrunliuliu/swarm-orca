@@ -14,6 +14,7 @@ import socket
 import threading
 import time
 import observation_budget as budget
+import blocking_io
 
 from bootstrap_admission import control_paths, inspect_chain
 from bootstrap_identity import (host_process, peer, unchanged, IdentitySnapshotExpired,
@@ -385,10 +386,18 @@ def send(connection, value):
 
 
 class OwnerServer:
-    """Serial RPC dispatch; bounded transport is not cancellation of owner work."""
+    """Bounded ingress, one protocol executor, separate non-authoritative diagnostics.
+
+    A busy executor rejects new protocol requests before execution. It does not
+    release owner.lock, cancel the running request, or run reconcile concurrently.
+    """
 
     def __init__(self, owner, endpoint):
         self.owner = owner
+        self.ingress = threading.BoundedSemaphore(8)
+        self.execution = threading.Lock()
+        self.closing = threading.Event()
+        self.diagnostic_operation = None
         self.signer = Signer()
         endpoint = Path(endpoint)
         parent = io.path(str(endpoint.parent), directory=True)
@@ -483,37 +492,87 @@ class OwnerServer:
         raw = bytes.fromhex(args.pop("raw"))
         return asdict(owner.commit_new(control, raw=raw, **args, recheck=lambda: unchanged(identity)))
 
+    def _connection(self, connection):
+        try:
+            self._handle(connection)
+        finally:
+            connection.close()
+            self.ingress.release()
+
+    def _handle(self, connection):
+        from bootstrap_diagnostics import same_uid
+        connection.settimeout(10)
+        try:
+            message = receive(connection, deadline=time.monotonic() + 10)
+            if message == {"op": "diagnose"}:
+                same_uid(connection)
+                busy = self.execution.locked()
+                operation = self.diagnostic_operation if busy else None
+                # No NAS, /proc, identity refresh, signing tempfiles or serial lock.
+                send(connection, dict(diagnostic_only=True, durable=False, execution_authorized=False,
+                    control=asdict(self.owner.control), process=self.owner.process,
+                    state="busy" if busy else "idle",
+                    operation=operation.snapshot() if operation else None))
+                return
+            request_hash = io.digest(io.canonical(message))
+            acquired = self.execution.acquire(blocking=False)
+            try:
+                io.require(acquired, "bootstrap_owner_busy_not_executed")
+                io.require(not self.closing.is_set(), "bootstrap_owner_closed")
+                operation = blocking_io.Operation("owner_request", mutation=True)
+                self.diagnostic_operation = operation
+                with blocking_io.tracking(operation), blocking_io.stage("owner_dispatch"):
+                    io.pinned(self.owner_ref)
+                    result = self.dispatch(connection, message)
+                reply = dict(ok=True, result=result)
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                reply = dict(ok=False, error="bootstrap_rpc_rejected:" + safe_reason(exc),
+                             error_type=type(exc).__name__)
+            finally:
+                if acquired:
+                    self.diagnostic_operation = None
+                    self.execution.release()
+            send(connection, self.signer.sign(dict(request_sha256=request_hash,
+                                                  owner=self.owner_ref, reply=reply)))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            # Unsigned diagnostics never become identity/durability evidence.
+            try:
+                send(connection, dict(ok=False, error=safe_reason(exc), error_type=type(exc).__name__))
+            except OSError:
+                pass
+
     def serve(self, finished):
         while not finished.is_set():
             try:
                 connection, _ = self.socket.accept()
             except socket.timeout:
                 continue
-            with connection:
-                connection.settimeout(10)
-                try:
-                    message = receive(connection, deadline=time.monotonic() + 10)
-                    request_hash = io.digest(io.canonical(message))
-                    try:
-                        io.pinned(self.owner_ref)
-                        result = self.dispatch(connection, message)
-                        reply = dict(ok=True, result=result)
-                    except (OSError, ValueError, KeyError, TypeError) as exc:
-                        reply = dict(ok=False, error="bootstrap_rpc_rejected:" + safe_reason(exc),
-                                     error_type=type(exc).__name__)
-                    send(connection, self.signer.sign(dict(request_sha256=request_hash,
-                                                          owner=self.owner_ref, reply=reply)))
-                except (OSError, ValueError, KeyError, TypeError) as exc:
-                    # Unsigned diagnostics never become identity/durability evidence.
-                    try:
-                        send(connection, dict(ok=False, error=safe_reason(exc),
-                                              error_type=type(exc).__name__))
-                    except OSError:
-                        pass
+            except OSError:
+                if self.closing.is_set():
+                    return
+                raise
+            if not self.ingress.acquire(blocking=False):
+                connection.close()  # Capacity is not evidence of non-execution at a client.
+                continue
+            try:
+                threading.Thread(target=self._connection, args=(connection,), daemon=True).start()
+            except BaseException:
+                connection.close()
+                self.ingress.release()
+                raise
 
     def close(self):
-        self.socket.close()
-        self.owner.close()
+        # Never release lifetime ownership while work is still outside serial
+        # (e.g. an identity refresh); the executor covers the entire request.
+        # On rejection retain the endpoint too, so diagnostics and eventual
+        # same-owner reconciliation remain possible after the request drains.
+        io.require(self.execution.acquire(blocking=False), "bootstrap_owner_busy_requires_reconciliation")
+        try:
+            self.closing.set()
+            self.socket.close()
+            self.owner.close()
+        finally:
+            self.execution.release()
         # Retain endpoint and owner.json as crash/ownership evidence. No unlink.
 
 
@@ -571,6 +630,7 @@ class AuthorityClient:
                 raise ReadOnlyPollExpired("bootstrap_read_only_poll_expired")
             raise ValueError("bootstrap_tool_timeout_requires_reconciliation")
 
+    @blocking_io.observed("owner_rpc")
     def _rpc(self, op, **args):
         self.check_deadline()
         io.pinned(self.owner_ref)
@@ -595,6 +655,10 @@ class AuthorityClient:
                     ("IdentityVerificationPending", "bootstrap_rpc_rejected:bootstrap_native_identity_timeout"),
                     ("IdentitySnapshotExpired", "bootstrap_rpc_rejected:bootstrap_identity_snapshot_expired")}):
             raise IdentityVerificationPending("bootstrap_identity_reverification_pending")
+        if (op in {"heartbeat", "check", "query", "observe", "runtime-observe"} and reply.get("ok") is False and
+                reply.get("error_type") == "ValueError" and
+                reply.get("error") == "bootstrap_rpc_rejected:bootstrap_owner_busy_not_executed"):
+            raise budget.ObservationBusy()
         if (self.read_only_poll and reply.get("ok") is False and
                 reply.get("error_type") == "OperatorInputPending" and
                 reply.get("error") == "bootstrap_rpc_rejected:startup_operator_input_review_required"):
@@ -621,7 +685,7 @@ class AuthorityClient:
             io.require(result["control"] == asdict(control) and result["target"] == target,
                        "bootstrap_confirmation_mismatch")
             return Confirmation(control, target, result["status"])
-        except (ReadOnlyPollExpired, IdentityVerificationPending, budget.ObservationTimeout):
+        except (ReadOnlyPollExpired, IdentityVerificationPending, budget.ObservationTimeout, budget.ObservationBusy):
             raise
         except (OSError, ValueError):
             return Confirmation(control, target, "durability_unverified")

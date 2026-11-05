@@ -27,6 +27,13 @@ class Budget:
     deadline: float
 
 
+class ObservationBusy(ValueError):
+    """Authenticated non-execution of this read, not identity revalidation."""
+
+    def __init__(self):
+        super().__init__("bootstrap_owner_busy_not_executed")
+
+
 class ObservationTimeout(ValueError):
     def __init__(self, reason="deadline"):
         super().__init__("tui_turn_end_observation_timeout")

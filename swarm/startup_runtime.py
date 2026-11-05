@@ -192,6 +192,9 @@ def operator_action(owner, owner_ref, op, args, peer):
         # Candidate/evidence reads may be slow. Fence again after them, without
         # native I/O under the publication lock or retrying any publication.
         context(local=True)
+        if not reviewing:
+            from startup_execution import trigger_window
+            trigger_window(value, publishing=True)
     return owner.runtime_publish(target, value, recheck)
 
 
