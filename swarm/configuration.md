@@ -54,9 +54,9 @@ SWARM_WORKER_PROFILES=/canonical/private/worker-model-profiles.json \
 从公开仓库的 `swarm/` 目录执行：
 
 ```bash
-env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
-  PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -q
+tests/run_offline.sh -q
 ```
 
-不要把私有旧代码目录加入 `PYTHONPATH`。测试边界见[测试指南](docs/testing/reliability.md)；
+脚本自行清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT`；不要手动继承私有策略路径，
+也不要把私有旧代码目录加入 `PYTHONPATH`。测试边界见[测试指南](docs/testing/reliability.md)；
 离线 PASS 不替代目标文件系统、原生 runtime 或真实 Agent 验收。
