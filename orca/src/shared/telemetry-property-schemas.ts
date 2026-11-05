@@ -13,6 +13,7 @@ export const AGENT_KIND_VALUES = [
   'codebuddy',
   'openclaude',
   'codex',
+  'codex-ark',
   'autohand',
   'opencode',
   'opencode2',

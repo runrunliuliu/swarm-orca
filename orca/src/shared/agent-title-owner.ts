@@ -11,6 +11,7 @@ import {
   isLegacyPiCompatibleTitle
 } from './pi-compatible-synthetic-title'
 import { getWrapperTitleSegments } from './terminal-title-wrapper-segments'
+import { isCodexTuiAgent } from './codex-tui-agent'
 
 type TitleProfileMatch = {
   profile: SyntheticAgentTitleProfile
@@ -126,6 +127,10 @@ export function resolveCompatibleAgentTypeForOwner(
   if (!incomingAgentType) {
     return undefined
   }
+  // Why: codex-ark execs codex; foreground evidence must not erase the selected launcher.
+  if (incomingAgentType === 'codex' && ownerAgentType === 'codex-ark') {
+    return ownerAgentType
+  }
   const incomingProfile = getSyntheticAgentTitleProfile(incomingAgentType)
   const ownerProfile = getSyntheticAgentTitleProfile(ownerAgentType)
   if (
@@ -231,6 +236,9 @@ export function shareCompatibleTitleIdentityGroup(
     return false
   }
   if (left === right) {
+    return true
+  }
+  if (isCodexTuiAgent(left) && isCodexTuiAgent(right)) {
     return true
   }
   const leftGroup = getSyntheticAgentTitleProfile(left)?.titleIdentityGroup

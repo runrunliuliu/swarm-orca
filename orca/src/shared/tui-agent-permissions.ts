@@ -1,5 +1,6 @@
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { TuiAgent } from './tui-agent'
+import { CODEX_TUI_YOLO_ARGS } from './codex-tui-agent'
 
 export type AgentPermissionMode = 'yolo' | 'manual' | 'mixed'
 
@@ -8,7 +9,8 @@ export const YOLO_TUI_AGENT_ARGS: Partial<Record<TuiAgent, string>> = {
   codebuddy: '--dangerously-skip-permissions',
   'claude-agent-teams': '--dangerously-skip-permissions',
   openclaude: '--dangerously-skip-permissions',
-  codex: '--dangerously-bypass-approvals-and-sandbox',
+  codex: CODEX_TUI_YOLO_ARGS,
+  'codex-ark': CODEX_TUI_YOLO_ARGS,
   qoder: '--dangerously-skip-permissions',
   gemini: '--yolo',
   antigravity: '--dangerously-skip-permissions',

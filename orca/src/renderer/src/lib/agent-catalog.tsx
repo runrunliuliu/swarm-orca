@@ -60,6 +60,12 @@ export const getAgentCatalog = createLocalizedCatalog((): AgentCatalogEntry[] =>
     homepageUrl: 'https://github.com/openai/codex'
   },
   {
+    id: 'codex-ark',
+    label: translate('auto.lib.agent.catalog.codex_ark_label', 'Codex Ark'),
+    cmd: 'codex-ark',
+    homepageUrl: 'https://github.com/openai/codex'
+  },
+  {
     id: 'grok',
     label: translate('auto.lib.agent.catalog.0baad2d5d2', 'Grok'),
     cmd: 'grok',
@@ -370,7 +376,7 @@ export function AgentIcon({
   if (agent === 'claude' || agent === 'claude-agent-teams') {
     return <ClaudeIcon size={size} />
   }
-  if (agent === 'codex') {
+  if (agent === 'codex' || agent === 'codex-ark') {
     return <OpenAIIcon size={size} />
   }
   if (agent === 'droid') {
@@ -391,10 +397,7 @@ export function AgentIcon({
   if (agent === 'copilot') {
     return <CopilotIcon size={size} />
   }
-  if (agent === 'opencode') {
-    return <OpenCodeIcon size={size} />
-  }
-  if (agent === 'opencode2') {
+  if (agent === 'opencode' || agent === 'opencode2') {
     return <OpenCodeIcon size={size} />
   }
   const catalogEntry = getAgentCatalog().find((a) => a.id === agent)

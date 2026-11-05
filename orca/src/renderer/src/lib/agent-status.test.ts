@@ -771,6 +771,11 @@ describe('formatAgentTypeLabel', () => {
 })
 
 describe('agentTypeToIconAgent', () => {
+  it('preserves the separate Codex Ark icon identity', () => {
+    expect(agentTypeToIconAgent('codex-ark')).toBe('codex-ark')
+    expect(formatAgentTypeLabel('codex-ark')).toBe('Codex Ark')
+  })
+
   it('returns null for null', () => {
     expect(agentTypeToIconAgent(null)).toBeNull()
   })

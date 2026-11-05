@@ -1,5 +1,6 @@
 import { recognizeAgentProcessFromCommandLine } from './agent-process-recognition'
 import { shellReadyMarkerComesFromLineEditor } from './shell-ready-marker-timing'
+import { isCodexTuiAgent } from './codex-tui-agent'
 
 export type StartupCommandDelivery = 'fast' | 'shell-ready'
 
@@ -76,7 +77,7 @@ export function hasCodexNativeDraftFlag(command: string | null | undefined): boo
 }
 
 export function isCodexStartupCommand(command: string | null | undefined): boolean {
-  return recognizeAgentProcessFromCommandLine(command)?.agent === 'codex'
+  return isCodexTuiAgent(recognizeAgentProcessFromCommandLine(command)?.agent)
 }
 
 export function shouldUseShellReadyStartupDelivery(args: {

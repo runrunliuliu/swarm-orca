@@ -7,6 +7,7 @@ export const RESUMABLE_TUI_AGENTS = [
   'claude',
   'codebuddy',
   'codex',
+  'codex-ark',
   'qoder',
   'gemini',
   'antigravity',
@@ -285,7 +286,8 @@ export function getAgentResumeArgv(
     case 'claude':
       return providerSession.key === 'session_id' ? ['claude', '--resume', id] : null
     case 'codex':
-      return providerSession.key === 'session_id' ? ['codex', 'resume', id] : null
+    case 'codex-ark':
+      return providerSession.key === 'session_id' ? [agent, 'resume', id] : null
     case 'qoder':
       return providerSession.key === 'session_id' ? ['qodercli', '--resume', id] : null
     case 'gemini':
