@@ -10,6 +10,7 @@ describe('migrateAgentYoloDefaults', () => {
     } as never)
 
     expect(migrated.agentDefaultArgs?.droid).toBe('')
+    expect(migrated.agentDefaultArgs?.['codex-ark']).toBe('')
     expect(migrated.agentDefaultEnv?.goose).toEqual({})
   })
 

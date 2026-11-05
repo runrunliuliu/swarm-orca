@@ -8,6 +8,7 @@ import { getTuiAgentRestSignal, type TuiAgentRestSignal } from './tui-agent-rest
 const EXPECTED_REST_SIGNALS: Record<TuiAgent, TuiAgentRestSignal> = {
   dsh: 'hook-done',
   codex: 'synthetic-title',
+  'codex-ark': 'title',
   cursor: 'synthetic-title',
   pi: 'synthetic-title',
   omp: 'synthetic-title',

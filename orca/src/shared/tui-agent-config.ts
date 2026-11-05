@@ -23,6 +23,14 @@ function resolveTuiAgentConfig(source: TuiAgentConfigSource): TuiAgentConfig {
   }
 }
 
+const CODEX_TUI_INTERACTION = {
+  promptInjectionMode: 'argv',
+  windowsInputRecordPasteNewline: 'alt-enter',
+  draftPasteReadySignal: 'codex-composer-prompt',
+  draftPasteReadyTimeoutMs: 20_000,
+  submitRetryDelayMs: 1200
+} as const satisfies Partial<TuiAgentConfigSource>
+
 const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
   claude: {
     detectCmd: 'claude',
@@ -61,13 +69,15 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
     draftPromptFlag: '--prefill'
   },
   codex: {
+    ...CODEX_TUI_INTERACTION,
     detectCmd: 'codex',
-    promptInjectionMode: 'argv',
-    windowsInputRecordPasteNewline: 'alt-enter',
-    preflightTrust: 'codex',
-    draftPasteReadySignal: 'codex-composer-prompt',
-    draftPasteReadyTimeoutMs: 20_000,
-    submitRetryDelayMs: 1200
+    preflightTrust: 'codex'
+  },
+  'codex-ark': {
+    ...CODEX_TUI_INTERACTION,
+    detectCmd: 'codex-ark',
+    // Why: the wrapper owns its home and server; do not apply standard Codex preflight.
+    expectedProcess: 'codex'
   },
   autohand: {
     detectCmd: 'autohand',

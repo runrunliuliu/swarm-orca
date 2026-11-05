@@ -18,6 +18,8 @@ export const SKILLS_CLI_AGENT_KEY_BY_TUI_AGENT = {
   // Why: Orca states OpenClaude reads Claude-owned roots (native-chat-agent-profiles).
   openclaude: 'claude-code',
   codex: 'codex',
+  // Why: the community installer targets standard Codex's home, not the Ark wrapper's.
+  'codex-ark': null,
   autohand: 'autohand-code',
   opencode: 'opencode',
   opencode2: 'opencode',
