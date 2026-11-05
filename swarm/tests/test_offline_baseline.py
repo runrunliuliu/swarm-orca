@@ -17,7 +17,6 @@ from unittest.mock import patch
 from coordinator_io import file_ref
 from coordinator_worker_plan import build_plan
 from coordinator_worker_profiles import PROFILES
-from test_coordinator_worker_plan import WorkerPlanTests
 
 
 class OfflineBaselineTests(unittest.TestCase):
@@ -47,6 +46,9 @@ class OfflineBaselineTests(unittest.TestCase):
                              {"path": str(self.policy),
                               "sha256": file_ref(self.policy)["sha256"]})
             # The shipped plan-argv tests must reach the same file under the same env.
+            # Imported here, not at module scope: unittest collects any TestCase visible
+            # in a discovered module, so a top-level import would run those 19 cases twice.
+            from test_coordinator_worker_plan import WorkerPlanTests
             case = WorkerPlanTests("test_existing_workspace_never_emits_creation_flags")
             case.setUp()
             try:

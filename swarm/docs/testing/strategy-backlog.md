@@ -103,7 +103,7 @@ B0-1/B0-3 只是让失败可归因，不改变被测逻辑。
 
 - 仓库**没有 CI 配置**，“可”只表示能并入 `unittest discover` 并由退出码判定；
   实际执行仍是本地或外部脚本。
-- 离线套件当前实测基线（M1 落地后）：`Ran 2284 tests`，`OK (skipped=18)`，约 1292 s（≈ 21.5 min）。
+- 离线套件当前实测基线（M1 落地后）：`Ran 2265 tests`，`OK (skipped=18)`，约 1280 s（≈ 21.5 min）。
   新增用例若显著拉长时长，应放入按层的子集命令（例如 `-p "test_coordinator_tui_*"`），
   否则门禁会因成本被绕过。
 - 任何新增断言都必须使用**事件序列/状态投影**，不得退化为“最终文本”或“返回码为 0”。
@@ -121,7 +121,10 @@ B0-1/B0-3 只是让失败可归因，不改变被测逻辑。
 | B1-4 | `tests/test_supervisor.py` | `type=escalation` + `reply` 缺 `within_scope` → `in-scope answer`；不回复、不落 `human:`、不 ACK、batch 保持未决 | **移到 Supervisor**：strict TUI scheduler 没有 question/escalation 处理分支（`coordinator_tui_scheduler.py` 入口处即拦），属 B 类，草稿归 P1 不准确，仍按 B3-1 跟踪 |
 | B1-5 | `tests/test_observation_budget.py` | 跨 stage 累计耗尽后不再调用 native（`subprocess.run` 调用数不变） | 与已有的嵌套不续期断言互补 |
 
-落地后实测（无网络、无真实 Agent）：`tests/run_offline.sh -q` → `Ran 2284 tests`，`OK (skipped=18)`，≈ 1292 s。
+落地后实测（无网络、无真实 Agent）：`tests/run_offline.sh -q` → `Ran 2265 tests`，`OK (skipped=18)`，≈ 1280 s。
+首次提交的计数为 2284：`test_offline_baseline.py` 在模块级 import 了 `WorkerPlanTests`，而
+unittest 会把被发现模块里**可见的**任何 `TestCase` 一并收集，导致那 19 项被重复执行两次。
+该 import 已移入用例内部，收集数回到 2265，用例集不变。
 M1 对 M2/M3/M4 及其余条目的结论不变；本次仍不构成 I/L 任何通过。
 
 ---
