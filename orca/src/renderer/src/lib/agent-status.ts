@@ -103,6 +103,7 @@ const ICONABLE_AGENT_TYPES: Record<TuiAgent, true> = {
   codebuddy: true,
   openclaude: true,
   codex: true,
+  'codex-ark': true,
   autohand: true,
   opencode: true,
   opencode2: true,

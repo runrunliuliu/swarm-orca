@@ -177,6 +177,19 @@ describe('AgentsPane', () => {
     expect(detectedAgentsMock.lastTarget).toEqual({ kind: 'local' })
   })
 
+  it('shows Codex Ark next to Codex with its own command', () => {
+    detectedAgentsMock.detectedIds = ['codex', 'codex-ark']
+    const codexIndex = AGENT_CATALOG.findIndex((agent) => agent.id === 'codex')
+    expect(AGENT_CATALOG[codexIndex + 1]).toMatchObject({
+      id: 'codex-ark',
+      label: 'Codex Ark',
+      cmd: 'codex-ark'
+    })
+    const markup = renderPane(getDefaultSettings('/tmp'))
+    expect(markup).toContain('Codex Ark')
+    expect(markup).toContain('codex-ark')
+  })
+
   it('scopes agent detection to the active remote server', () => {
     // Repro for the "Remote Server lists local agents" bug: with an Active
     // Server selected, the Installed list must probe that server's PATH.
