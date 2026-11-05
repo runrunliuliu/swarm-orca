@@ -84,6 +84,32 @@ or lock deletion to bypass native safety. Keep rollback artifacts according to r
 Worker settlement/release and strict retirement remain Coordinator-owned under the native protocol;
 worktree deletion is not a substitute.
 
+### Reconcile ambiguous lifecycle results
+
+A transport result is not always the operation result. In particular, a slow filesystem or initialized
+submodules can let create/remove continue after the CLI reports `runtime_unavailable`, or can leave an
+initializing worktree locked. Do not immediately replay the mutation, restart the runtime, or infer
+success/failure from that transport error.
+
+- Preserve the error and timestamps, then use bounded, read-only checks against the same runtime and
+  exact ID. Reconcile runtime identity, native `worktree list`/`show`, terminal inventory, the canonical
+  path, `git worktree list`, local/remote refs, status, and host processes whose cwd is under the path.
+- An empty terminal list does not prove every PTY or Agent exited after
+  `terminal_stop_unverifiable`. Do not delete until process ownership and exit are proven. Any direct
+  host process intervention requires explicit authorization; prefer graceful termination and never
+  describe a missing terminal surface as a stopped process.
+- A create that timed out may still own a live `git worktree add` and show `locked initializing`.
+  Do not launch a duplicate create, unlock it, or remove underneath the creator. Wait boundedly; if
+  the creator remains live or is blocked in uninterruptible I/O, preserve it and report the blocker.
+- A list omitting the target does not prove its catalog record is gone. After removal, query the exact
+  ID: if the filesystem and Git worktree/ref cleanup are complete but exact `worktree show` still
+  returns stale metadata, repeat the same supported native removal without force only after the prior
+  operation has settled. Require an affirmative removal receipt, then `selector_not_found` for the
+  exact ID. Never edit the runtime catalog directly.
+- Verify deletion separately in all relevant planes: native catalog/display, terminals/processes,
+  filesystem and Git worktree metadata, local branch, and any authorized remote branch. Refresh the
+  native list after the exact-ID check so the user-facing view observes the new catalog generation.
+
 ## 6. Report distinct outcomes
 
 Report reviewed and integrated commits, target branch/remote, push status, post-integration tests,
