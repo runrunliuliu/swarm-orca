@@ -4,8 +4,13 @@
 
 ## 已验证的控制器命令
 
-从 swarm 源码根运行 `python3 -m unittest discover -s tests -v`。
+从 swarm 源码根运行 `tests/run_offline.sh`（等价于 `env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT
+PYTHONPATH=.:tests python3 -m unittest discover -s tests -v`）。
 Python 3.10+，标准库，无联网测试，无真实 Agent 启动。
+**必须清除 `SWARM_WORKER_PROFILES`。** 调用方如导出私有 Worker 策略，请求中的固定 pin 与
+实际读取的文件不一致，同一命令会分别得到 `FAILED` 与 `OK`（拒绝码
+`worker_profiles_pin_source_mismatch`）；`RSI_CHECKER_TEST_ROOT` 则决定 18 项 RSI 用例是
+skip 还是执行。两者都不是被测逻辑的缺陷。
 控制器运行方式见 ../README.md；原生技能以所选 CLI 当前指南为准。
 
 ## 试点构建与验收（待批准）

@@ -8,19 +8,47 @@ Requests still cannot select paths, override settings or request fallbacks.
 import os
 from pathlib import Path
 
-from coordinator_io import parse, pinned, require
+from coordinator_io import FilePinChanged, digest, parse, pinned, read_bytes, require
 
 
 PROFILES = Path(__file__).resolve().with_name("worker-model-profiles.json")
 
 
+def source():
+    """Return the policy path the caller must pin; an override never falls back."""
+    return os.environ.get("SWARM_WORKER_PROFILES", str(PROFILES))
+
+
+def reviewed(source_path, sha256):
+    """Read the active policy without conflating a wrong pin source with a change."""
+    try:
+        return pinned({"path": source_path, "sha256": sha256})
+    except OSError:
+        # Missing, unreadable or non-canonical override: an explicit, path-free refusal.
+        require(False, "worker_profiles_unreadable")
+    except FilePinChanged:
+        require(not pins_bundled_fixture(source_path, sha256),
+                "worker_profiles_pin_source_mismatch")
+        raise
+
+
+def pins_bundled_fixture(source_path, sha256):
+    """Only a pin taken from the bundled file while an override is active can do this."""
+    if source_path == str(PROFILES):
+        return False
+    try:
+        return sha256 == digest(read_bytes(PROFILES))
+    except OSError:
+        return False
+
+
 def resolve(model, sha256):
     # Preserve the supplied path for pinned()'s canonical/non-symlink checks.
     # An explicit invalid override must never fall back to the bundled fixture.
-    source = os.environ.get("SWARM_WORKER_PROFILES", str(PROFILES))
-    require(bool(source), "empty_worker_profiles_path")
-    ref = {"path": source, "sha256": sha256}
-    config = parse(pinned(ref))
+    active = source()
+    require(bool(active), "empty_worker_profiles_path")
+    ref = {"path": active, "sha256": sha256}
+    config = parse(reviewed(active, sha256))
     require(isinstance(config, dict) and set(config) == {"schema_version", "scope", "profiles"}
             and type(config["schema_version"]) is int and config["schema_version"] == 1
             and config["scope"] == "swarm_worker_only"

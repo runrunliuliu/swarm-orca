@@ -79,8 +79,12 @@ Python helper 使用标准库；Supervisor / 台账基线为 Python 3.10+，Trae
 从公开仓库的 `swarm/` 目录运行离线回归（不连接 Orca 或启动模型）：
 
 ```bash
-env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -v
+tests/run_offline.sh -v
 ```
+
+该脚本固定清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT` 后执行
+`PYTHONPATH=.:tests python3 -B -m unittest discover -s tests`，退出码即 unittest 退出码；
+不要继承调用方环境里的私有策略路径（原因见[字段指南](field-guide/index.md)）。
 
 这不替代目标环境测试。固定 DAG 配置检查与示例拒绝原因见 [Supervisor 手册](docs/supervisor.md#离线配置检查)。
 

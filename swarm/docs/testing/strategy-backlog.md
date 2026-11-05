@@ -3,7 +3,10 @@
 配套：[strategy.md](strategy.md)（L1–L7 与门禁）、[gap-matrix.md](gap-matrix.md)（缺口矩阵）、
 [reliability.md](reliability.md)（唯一验收口径）。
 
-排序依据 = **缺口严重度 × 断言价值 ÷ 实现成本**。所有条目都是“拟新增”，本轮**没有实现任何一条**。
+排序依据 = **缺口严重度 × 断言价值 ÷ 实现成本**。除第 8 节记录的 M1 子集外，其余条目仍为“拟新增”。
+
+> **实现状态（2026-11-05 后续一轮）**：B0-1、B0-2、B0-3、B1-1、B1-2、B1-3、B1-4、B1-5 已落地，
+> 详见第 8 节；其中 B1-3 只 PIN 现状，B1-4 落在 Supervisor 侧（strict TUI 无对应分支，已按 B 类重新判定）。
 
 **与缺口的对应.** [gap-matrix.md](gap-matrix.md) §1.1 把缺口分成 A（仅缺用例）/
 B（能力或工具未实现）/C（已接受的设计边界）。本文件中：**A → B0/B1/B2**（写入即绿）、
@@ -100,10 +103,26 @@ B0-1/B0-3 只是让失败可归因，不改变被测逻辑。
 
 - 仓库**没有 CI 配置**，“可”只表示能并入 `unittest discover` 并由退出码判定；
   实际执行仍是本地或外部脚本。
-- 离线套件当前实测基线：`Ran 2225 tests`，`OK (skipped=18)`，约 1244 s（≈ 21 min）。
+- 离线套件当前实测基线（M1 落地后）：`Ran 2284 tests`，`OK (skipped=18)`，约 1292 s（≈ 21.5 min）。
   新增用例若显著拉长时长，应放入按层的子集命令（例如 `-p "test_coordinator_tui_*"`），
   否则门禁会因成本被绕过。
 - 任何新增断言都必须使用**事件序列/状态投影**，不得退化为“最终文本”或“返回码为 0”。
+
+## 8. M1 落地记录（2026-11-05，离线，无真实 Run）
+
+| 条目 | 落地文件 | 断言要点 | 备注 |
+| --- | --- | --- | --- |
+| B0-1 | `tests/test_offline_baseline.py` | 私算水印生效时，用活动文件 pin 的 plan 成功；用 bundled pin 必被按名拒绕；不存在路径给 `worker_profiles_unreadable` | 草稿【B0-1】的两个断言都在；另加一条“失败信息不含路径/模型/agent” |
+| B0-2 | `tests/run_offline.sh` | `exec` 后退出码即 unittest 退出码；脚本自行清除两个变量，不读其他配置 | `README.md` / `configuration.md` / `field-guide/index.md` 改为引用它 |
+| B0-3 | `coordinator_worker_profiles.reviewed()` + `tests/test_worker_profiles_pin.py` | 新拒绝码 `worker_profiles_pin_source_mismatch`；真实改动仍为 `file_pin_changed`；字节相同的副本不算错源 | 同文件新增 `source()`，`PROFILES` 仍可被测试 patch |
+| B1-1 | `supervisor/config.py:task_spec` + `tests/test_supervisor.py` | 上游 `risks` 等自由文本只出现在 `prerequisites.kind=untrusted_evidence` 节点内；`--spec` 是单个 argv 元素 | 改动了 spec 形状（属契约变更），同步修正 `test_parallel_wave…` 的旧断言 |
+| B1-2 | `tests/test_supervisor.py` | `verdict=pass` 但 `files` 越界 → `outside task ownership`；证据不落盘、`blocked:` 不置、Worker 不释放、无 `create:review` | **与草稿不同**：`do_not_touch` 违反在已校验配置里不可达（`validate` 已拒叠合路径），用例同时 PIN 了这一点 |
+| B1-3 | `tests/test_coordinator_tui_scheduler.py` | PIN：连续三周期仍 `continuation_enqueued`，`prefix_bytes` 严格递增，无 stop、无 `bound_exceeded` | 仓库**没有**上下文上限；按草稿“首版只 PIN 现状”执行，未新增上限也没把缺失当缺陷 |
+| B1-4 | `tests/test_supervisor.py` | `type=escalation` + `reply` 缺 `within_scope` → `in-scope answer`；不回复、不落 `human:`、不 ACK、batch 保持未决 | **移到 Supervisor**：strict TUI scheduler 没有 question/escalation 处理分支（`coordinator_tui_scheduler.py` 入口处即拦），属 B 类，草稿归 P1 不准确，仍按 B3-1 跟踪 |
+| B1-5 | `tests/test_observation_budget.py` | 跨 stage 累计耗尽后不再调用 native（`subprocess.run` 调用数不变） | 与已有的嵌套不续期断言互补 |
+
+落地后实测（无网络、无真实 Agent）：`tests/run_offline.sh -q` → `Ran 2284 tests`，`OK (skipped=18)`，≈ 1292 s。
+M1 对 M2/M3/M4 及其余条目的结论不变；本次仍不构成 I/L 任何通过。
 
 ---
 

@@ -235,18 +235,21 @@ I-12 尚无 D 层正例，见缺口矩阵。
 
 ## 5. 跑法与门禁地图
 
-**唯一基线命令**（`field-guide/index.md:8` 的同一命令）：
+**唯一基线命令**（`field-guide/index.md` 引用同一入口）：
 
 ```bash
-cd swarm-orca/swarm && env -u SWARM_WORKER_PROFILES python3 -m unittest discover -s tests -v
+cd swarm-orca/swarm && tests/run_offline.sh -v
+# 等价于 env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
+#   PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -v
 ```
 
-> **必须 `env -u SWARM_WORKER_PROFILES`。** 本次实测：在本工作区当前环境下
-> （该变量指向私有 `swarm/worker-model-profiles.json`），不设该变量时整包出现
-> 39 项 `FAIL/ERROR`，全部集中在 `tests/test_coordinator_worker_plan.py`，
-> 根因是 profile 文件 pin 不匹配导致 `file_pin_changed`；清除该变量后该文件 19 项全部通过。
-> 这与 `field-guide/index.md:8` “无联网测试”的表述不冲突，但说明**该命令的可复现性依赖
-> 环境干净**。详见 [gap-matrix.md](gap-matrix.md) 第 6 节。
+> **两个变量都必须清除，脚本已固化这一点。** 实测：在本工作区的环境下
+> （`SWARM_WORKER_PROFILES` 指向私有 `swarm/worker-model-profiles.json`），
+> 不清除时整包会出现 39 项 `FAIL/ERROR`，全部集中在 `tests/test_coordinator_worker_plan.py`；
+> 现已被两层修正：该模块 `setUp` 显式清除 override，`coordinator_worker_profiles` 则把
+> “pin 来源不一致”与“文件真的变了”区分为 `worker_profiles_pin_source_mismatch` /
+> `file_pin_changed`。详见 [gap-matrix.md](gap-matrix.md) 第 6 节与
+> [strategy-backlog.md](strategy-backlog.md) 第 8 节。
 
 **没有 CI 流水线。** 本仓库（含 `swarm-orca/swarm/`）不含 `.github/workflows`
 或等价的流水线配置，因此“能否进 CI”在本文与 [strategy-backlog.md](strategy-backlog.md)
