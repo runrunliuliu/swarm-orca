@@ -68,6 +68,14 @@ Deployment and service restarts are separately authorized actions, not part of "
 Embedding workspaces should explicitly route relevant tasks here. Agent harnesses differ in how
 nested instructions are loaded; do not rely on automatic recursive discovery.
 
+## Task workspace design
+
+When planning task/workspace routing or cross-project development, read
+[the task-centric workspace design](swarm/docs/design/task-workspaces.md). A logical task may bind
+multiple repository worktrees and continue from different Projects or terminals; entry points are
+not task identities. This is a target design, not an implemented automatic gate or permission to
+migrate existing Runs. Current task authorization, isolation policy and delivery requirements still apply.
+
 ## Skills
 
 Discover skills through the table below and read the applicable `SKILL.md` completely before acting.
