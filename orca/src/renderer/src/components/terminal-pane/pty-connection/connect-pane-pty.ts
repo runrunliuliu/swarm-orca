@@ -9,6 +9,7 @@ import { writeTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-sch
 import { createTerminalStructuralReplayCoordinator } from '@/lib/pane-manager/terminal-structural-replay-coordinator'
 import { makePaneKey } from '../../../../../shared/stable-pane-id'
 import type { AgentType } from '../../../../../shared/agent-status-types'
+import { isCodexTuiAgent } from '../../../../../shared/codex-tui-agent'
 import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 
 import { shouldWritePtyOutputForeground } from './foreground-output-scan'
@@ -120,8 +121,12 @@ export function connectPanePty(
     agentType: AgentType | undefined
   ): void => {
     const titleAgentType = resolveCommittedTitleAgentType(title ?? '')
+    // Why Codex Ark too: it execs Codex, so the native Windows idle focus reports it
+    // emits are the same ones this suppression exists for.
     session.suppressNativeWindowsIdleCodexFocusReports =
-      agentType && agentType !== 'unknown' ? agentType === 'codex' : titleAgentType === 'codex'
+      agentType && agentType !== 'unknown'
+        ? isCodexTuiAgent(agentType)
+        : isCodexTuiAgent(titleAgentType)
   }
   // Why: idle callbacks are registered before the deferred PTY output plumbing
   // exists. Start with the shared scheduler, then switch to the PTY writer

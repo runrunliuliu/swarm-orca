@@ -73,7 +73,9 @@ describe('agent interrupt inference', () => {
   it.each([
     ['plain-escape', 'gemini'],
     ['ctrl-c', 'gemini'],
-    ['plain-escape', 'codex']
+    ['plain-escape', 'codex'],
+    // Codex Ark execs Codex, so its Escape interrupt flushes on the same evidence.
+    ['plain-escape', 'codex-ark']
   ] as const)('emits a strict baseline request for %s from %s immediately', (intent, agentType) => {
     vi.useFakeTimers()
     let entry: AgentStatusEntry | undefined = makeEntry({ agentType })

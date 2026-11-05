@@ -10,6 +10,7 @@ import {
   type AgentInterruptInputIntent
 } from '../../../../shared/agent-interrupt-intent'
 import { isAskUserQuestionTool } from '../../../../shared/agent-question-answered-intent'
+import { isCodexTuiAgent } from '../../../../shared/codex-tui-agent'
 import { isExplicitAgentStatusFresh } from '@/lib/agent-status'
 
 export type AgentInterruptInference = {
@@ -46,7 +47,9 @@ function shouldFlushInterruptImmediately(
   return (
     requiresDoubleEscapeInterrupt(baseline.agentType, baseline.intent) ||
     baseline.agentType === 'gemini' ||
-    (baseline.agentType === 'codex' && baseline.intent === 'plain-escape')
+    // Why codex here: its Escape interrupt can land an idle/done hook before the settle timer.
+    // Codex Ark execs Codex and reports the same hook order, so it needs the same flush.
+    (isCodexTuiAgent(baseline.agentType) && baseline.intent === 'plain-escape')
   )
 }
 
