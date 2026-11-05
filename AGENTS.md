@@ -59,8 +59,13 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
   share one directory.
 
 Delivery steps after development — integration, deployment, verification, cleanup — are in
-`swarm/skills/worktree-delivery/SKILL.md`. Deployment and service restarts are separately
-authorized actions, not part of "merge".
+`swarm/skills/worktree-delivery/SKILL.md`. Read that file in full before acting when the task is
+“merge it”, “ship it”, “deploy/restart”, “clean up the worktree”, or “the work is done”.
+Deployment and service restarts are separately authorized actions, not part of "merge".
+
+The parent workspace's `AGENTS.md` points here explicitly, because a nested `AGENTS.md` is not
+loaded automatically for an agent whose working directory is the parent repository. Keep that
+pointer intact when editing either file.
 
 ## Skills
 
