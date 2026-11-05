@@ -1,119 +1,92 @@
 ---
 name: worktree-delivery
 description: >-
-  Deliver an Orca worktree back to its main branch and clean it up: verify the worktree and its
-  submodule/deployment state, run and record tests, merge or hand off to the main branch, sync the
-  deployed copies (start scripts, pins), deploy and restart with a rollback point, then retire the
-  worktree and branch. Use when the user says the work is done and wants it merged, released,
-  deployed, or the worktree cleaned up; also when a worktree was built on a detached HEAD, or a
-  deployment was done by hand. Not for starting new work or for ordinary read-only review.
+  Verify and deliver completed Orca worktree changes: independent review, integration into a
+  confirmed target branch, optional authorized deployment, and safe cleanup. Use for merge,
+  delivery or worktree-cleanup requests; not for starting new work or automatic service operations.
 ---
 
 # Worktree delivery
 
-Development in a worktree ends with an integration decision, not with a commit. This skill covers
-the last mile: **verify → test → integrate → deploy (if asked) → verify live → retire the
-worktree**. Every step leaves a rollback point; nothing is deleted before its replacement is proven.
+Read this skill in full for delivery tasks. Paths are relative to this file. A commit, integration,
+push, deployment and deletion are separate outcomes and permissions. Do not infer permission for
+all of them from “work is done”. Read [Orca CLI discovery](../../../orca/skills/orca-cli/SKILL.md)
+and the selected executable's version-matched guide before Orca state operations.
+On access denial or connection failure, stop affected operations; do not automatically escalate,
+switch runtimes or restart despite upstream discovery suggestions.
 
-Deployment and merging are separate authorities. Landing a fix does not authorize a restart of a
-running service; ask before any lifecycle action that interrupts live sessions.
+## 1. Establish the target and scope
 
-## 1. Inspect before touching anything
+Verify repository, execution host, full native worktree ID, canonical path, branch, HEAD, status,
+submodule pointers and untracked files. Confirm the intended integration branch and method from
+the repository/task policy; “main branch” does not necessarily mean a branch named `main`.
 
-```bash
-git -C <worktree> status --short --branch      # detached HEAD? uncommitted? submodule dirty?
-git -C <worktree> log --oneline -3
-git -C <worktree> rev-parse HEAD
-git -C <worktree> submodule status             # pointer vs checkout mismatch
-```
+- Detached HEAD is normal for pinned submodules. Before creating new commits, establish an approved
+  branch or durable reference; do not imply existing detached commits immediately disappear.
+- A changed submodule checkout is not automatically an error. Review the exact gitlink delta and
+  ensure referenced objects are available on the intended remote before publishing the parent.
+- Preserve unrelated changes and evidence. Do not automatically stash, reset, clean or delete.
+- Follow task workspace-isolation policy; use explicit Orca IDs, not active/current targets.
 
-Stop and report when any of these hold:
+## 2. Verify the change
 
-| Finding | Why it stops delivery |
-| --- | --- |
-| `HEAD detached` | A commit here is unreachable once the worktree is removed. Create a branch **before** committing. |
-| Submodule shows a different commit than its own worktree HEAD | The parent pointer would publish a commit that does not exist on the submodule's branch. |
-| Untracked files that look like evidence or scratch output | They are not part of the change; decide keep/ignore/delete explicitly. |
-| A dirty submodule you did not touch | Not yours to commit; report it instead of sweeping it in. |
+Run relevant deterministic tests and adjacent suites; report commands, results and skipped coverage.
+For bug fixes, demonstrate the regression against the old baseline where practical in an isolated
+fixture/checkout. Do not temporarily revert a live shared checkout or invalidate a running source pin.
+Tests need not all fail on the old version to be useful.
 
-Record the baseline commit of every repository you will modify. That value is the rollback target.
+Inspect actual dependencies and documented test environments before assuming packages are missing.
+Do not download, install or replace dependency links silently. Reuse only verified compatible inputs.
+Obtain independent review of the actual change and fix findings before integration.
 
-## 2. Test at the layer the change lives in
+## 3. Integrate with one writer
 
-- Deterministic tests first; they must fail before the fix and pass after. A test that never failed
-  proves nothing — revert the source change once, watch it fail, restore it.
-- Run the neighbouring suites for the files you touched, not only the new test.
-- Report what did **not** run (missing dependencies, skipped integration, live prerequisites).
-  "Tests added" and "tests executed" are different claims.
-- Do not install dependencies into a checkout silently. If a prepared environment already exists,
-  say which one you reused.
+Use the repository's approved PR/MR, merge, fast-forward or squash workflow. Verify both source and
+target revisions and worktree ownership before writing. Do not switch to a branch checked out in
+another worktree. Rebase is not a default: never rewrite shared or pinned history without permission.
+Resolve conflicts explicitly, then run tests on the integrated result rather than relying only on
+branch tests. Publish only to the authorized remote/branch.
 
-## 3. Integrate deliberately
+For submodules, verify the submodule commit is remotely available before pushing its parent pointer.
+Landing on the submodule default branch is required only when the repository's delivery policy says
+so; remote availability and merge completion are different checks.
 
-```bash
-git -C <worktree> fetch origin
-git -C <worktree> rebase origin/<main>        # prefer rebase for a short branch
-git -C <worktree> checkout <main> && git -C <worktree> merge --ff-only <branch>
-```
+## 4. Deploy only if authorized
 
-- Merge only after review; an implementation author does not approve their own change.
-- If the repository uses submodules, land the submodule branch **first**, then bump the pointer in
-  the parent. A parent pointer to an unpushed submodule commit is a broken delivery.
-- Keep the branch until the parent pointer commit is pushed and verified.
-- Never rewrite a branch that another worktree, Run, or deployment pins.
+Read the target deployment runbook. Inventory live terminals, Workers, pending operations and jobs;
+resolve unsafe/unknown activity before restart. Build with the supported reproducible build process
+and lockfile versions, preserving all required artifacts and integrity metadata.
 
-## 4. Deploy only with an explicit decision
+Stage a new validated artifact, keep the previous artifact and configuration, and record a rollback
+procedure. Run preflight/smoke checks before switching the service. Do not replace only one bundled
+file when the deployment contract requires a coherent artifact set.
 
-Deployment is a separate, authorized step. Before it:
+After an authorized restart, verify native readiness, actual artifact identity, the original behavior
+and an unchanged adjacent case. A down service is a diagnostic checkpoint, not automatic permission
+to force-start it. Follow the runbook's recovery and rollback gates. Mirror private deployment-script
+changes in the private source, never in public examples.
 
-1. Build with the repository's own build script, never by hand-assembling the artifact. Partial
-   bundles fail readiness checks (missing version file, missing preflight payloads) and look like
-   runtime bugs.
-2. Keep build-time dependency versions equal to the lockfile pin; a newer minor version can be
-   rejected by an integrity check at build time.
-3. Deploy into a **new directory**; leave the previous one untouched as the rollback target.
-4. Update the start script, and keep a timestamped backup of it.
-5. Restart, then verify with read-only commands. If the service reports `down`, use the runner's
-   start command once (`sv up`), not repeated restarts.
-6. Mirror any start-script change into the repository copy so the next operator sees reality.
+## 5. Cleanup is explicit and last
 
-Record: artifact version, deployment directory, previous directory, script backup, verification
-output, and the exact rollback command.
+Before deleting a worktree or branch, verify:
 
-## 5. Verify from the outside
+- the authorized integration/publication is complete (for squash, use the accepted review and
+  integrated diff/tests rather than only ancestry);
+- no uncommitted/untracked work, private evidence or unpushed commits would be lost;
+- no live or unresolved Agent/Worker/job, pending request, worktree child or deployment depends on it;
+- evidence and usage have been preserved and remaining resources have owners;
+- deletion is within the user's scope.
 
-- Service health (ready/connected), not just "process exists".
-- The specific behavior the change claims: reproduce the original symptom's command and show the
-  new answer.
-- An adjacent case that must not change, to prove the fix is not a blanket behavior change.
-- Degradations that existed before the deploy and still exist after (do not silently inherit them
-  as "passing").
+Use the selected runtime's supported worktree removal procedure with the exact ID, without default
+`--force`. Never remove a main checkout. Use safe branch deletion only after verifying it is no longer
+needed or checked out. On refusal preserve and report; do not switch to raw Git removal, `-D`, force,
+or lock deletion to bypass native safety. Keep rollback artifacts according to retention policy.
+Worker settlement/release and strict retirement remain Coordinator-owned under the native protocol;
+worktree deletion is not a substitute.
 
-## 6. Retire the worktree
+## 6. Report distinct outcomes
 
-```bash
-orca worktree set --worktree id:<repoId>::<path> --comment "delivered in <commit>"
-orca worktree rm --worktree id:<repoId>::<path> --force
-git -C <main> branch -d <branch>          # -d, not -D: keep only merged work
-```
-
-- Use the **full** `id:<repoId>::<path>` selector. `path:` is ambiguous when two registrations
-  share one directory, and the answer can depend on registration order.
-- Remove the worktree only after its work is reachable from the main branch and pushed.
-- Delete the branch only when merged; keep unmerged branches and report them.
-- Keep the previous deployment directory and the script backups; they are the rollback, not clutter.
-- If terminals or agents were running, re-check them after any restart: terminal records survive a
-  restart, but a live agent may not.
-
-## 7. Report
-
-State, separately and without merging them:
-
-- what was merged (commits, target branch, whether pushed)
-- what was deployed (artifact version, directory, restart time, rollback point)
-- what was verified live, with the exact commands and their answers
-- what was left behind on purpose (old artifact, backups, retained branch)
-- what is still unknown (unrun suites, unverified terminals, usage not collected)
-
-An interrupted delivery is reported as `blocked` with the last proven step; it is never described as
-complete because a later step was attempted.
+Report reviewed and integrated commits, target branch/remote, push status, post-integration tests,
+deployed version (if any), live checks, rollback reference, cleanup performed, resources retained and
+coverage gaps. If blocked, name the last proven step and next owner. Do not call “committed” merged,
+“deployed” accepted, or an absent terminal exited.

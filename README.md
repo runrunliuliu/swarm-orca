@@ -23,6 +23,13 @@ runtime data must remain outside this repository.
 Other repositories may consume this project as a Git submodule pinned to a
 specific commit. Deployment instructions will be added with the implementation.
 
+## Agent entry points
+
+Start with [AGENTS.md](AGENTS.md). Its task-to-skill index provides Orca CLI/native orchestration,
+Swarm coordination, and worktree delivery workflows without a private parent checkout or global
+skill installation. Deployment-specific configuration and domain roles are explicit inputs; see
+[configuration](swarm/configuration.md).
+
 ## Release status
 
 This tree has been copied for migration work only. Do not publish it until the
