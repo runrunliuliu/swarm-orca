@@ -1,10 +1,11 @@
 import type { CommandHandler } from '../../dispatch'
 import { printResult } from '../../format'
-import { getOptionalStringFlag } from '../../flags'
+import { getOptionalStringFlag, getRepeatedStringFlag } from '../../flags'
 import { RuntimeClientError } from '../../runtime-client'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import {
   ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY,
   TRAE_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
   TRAE_WORKER_WRITABLE_ROOTS_CAPABILITY
 } from '../../../shared/protocol-version'
@@ -24,10 +25,11 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
     const effort = getOptionalStringFlag(flags, 'effort')
     const agent = getOptionalStringFlag(flags, 'agent')
     const backendVariant = getOptionalStringFlag(flags, 'backend-variant')
+    const sparseDirectories = getRepeatedStringFlag(flags, 'sparse-dir')
     const writableRoots = parseWorkerWritableRootsFlag(
       getOptionalStringFlag(flags, 'writable-roots')
     )
-    if (model || effort || backendVariant || writableRoots) {
+    if (model || effort || backendVariant || writableRoots || sparseDirectories.length > 0) {
       const status = await client.call<RuntimeStatus>('status.get')
       if (
         (model || effort || backendVariant) &&
@@ -56,6 +58,15 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
         throw new RuntimeClientError(
           'incompatible_runtime',
           'The connected Orca runtime does not support Trae worker writable roots. No worker was started.'
+        )
+      }
+      if (
+        sparseDirectories.length > 0 &&
+        !status.result.capabilities?.includes(ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY)
+      ) {
+        throw new RuntimeClientError(
+          'incompatible_runtime',
+          'The connected Orca runtime does not support sparse checkout worker creation. Update or restart Orca and try again.'
         )
       }
     }
@@ -90,6 +101,7 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
       displayName: getOptionalStringFlag(flags, 'display-name'),
       comment: getOptionalStringFlag(flags, 'comment'),
       setup: getOptionalStringFlag(flags, 'setup'),
+      ...(sparseDirectories.length > 0 ? { sparseDirectories } : {}),
       agent,
       model,
       effort,

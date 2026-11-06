@@ -261,6 +261,52 @@ describe('orchestration new-worktree workers', () => {
     )
   })
 
+  it('passes sparse checkout directories into new worktree creation and records intent', async () => {
+    mockCreatedWorktree()
+
+    const { result } = await startWorker({
+      sparseDirectories: ['packages/web', 'docs']
+    })
+
+    expect(runtime.createManagedWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sparseCheckout: { directories: ['packages/web', 'docs'] }
+      })
+    )
+    const dispatchId = (result as { dispatchId: string }).dispatchId
+    expect(JSON.parse(db.getWorkerDispatch(dispatchId)?.start_options ?? '{}')).toMatchObject({
+      sparseDirectories: ['packages/web', 'docs']
+    })
+  })
+
+  it('rejects sparse checkout directories for existing worktree placement', async () => {
+    const createWorktree = vi.spyOn(runtime, 'createManagedWorktree')
+    const task = db.createTask({ spec: 'existing sparse task', runId })
+    const method = ORCHESTRATION_METHODS.find(
+      (candidate) => candidate.name === 'orchestration.workerStart'
+    )
+    if (!method) {
+      throw new Error('workerStart method is not registered')
+    }
+
+    await expect(
+      method.handler(
+        method.params!.parse({
+          task: task.id,
+          from: 'term_coord',
+          worktree: 'id:repo::/existing',
+          agent: 'codex',
+          sparseDirectories: ['packages/web']
+        }),
+        { runtime }
+      )
+    ).rejects.toMatchObject({
+      code: 'invalid_argument',
+      message: expect.stringContaining('sparse checkout options apply only')
+    })
+    expect(createWorktree).not.toHaveBeenCalled()
+  })
+
   it('reports an absent setup hook as not configured without failing the start', async () => {
     mockCreatedWorktree({ hookFound: false })
 

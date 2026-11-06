@@ -50,7 +50,11 @@ describe('orca search command spec', () => {
     expect(searchSpec.repeatableFlags).toEqual(['agent', 'path'])
     for (const spec of COMMAND_SPECS) {
       if (spec !== searchSpec) {
-        expect(spec.repeatableFlags).toBeUndefined()
+        if (spec.path.join(' ') === 'orchestration worker-start') {
+          expect(spec.repeatableFlags).toEqual(['sparse-dir'])
+        } else {
+          expect(spec.repeatableFlags).toBeUndefined()
+        }
       }
     }
   })

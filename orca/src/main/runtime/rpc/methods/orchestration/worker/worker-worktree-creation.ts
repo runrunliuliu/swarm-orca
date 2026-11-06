@@ -27,6 +27,7 @@ export async function createWorkerWorktree(args: {
     displayName?: string
     comment?: string
     setup?: 'run' | 'skip' | 'inherit'
+    sparseDirectories?: string[]
     from: string
   }
   agent: TuiAgent
@@ -55,6 +56,7 @@ export async function createWorkerWorktree(args: {
     displayName: params.displayName,
     ...(params.displayName !== undefined ? { displayNameKind: 'user' as const } : {}),
     comment: params.comment,
+    ...(params.sparseDirectories ? { sparseCheckout: { directories: params.sparseDirectories } } : {}),
     // setupDecision runs setup without the legacy runHooks activation side effect.
     runHooks: false,
     setupDecision,

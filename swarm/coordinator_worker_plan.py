@@ -11,6 +11,7 @@ from coordinator_worker_profiles import resolve
 
 
 CREATION_FIELDS = ("name", "repo", "base_branch", "display_name", "comment", "setup")
+SPARSE_FIELD = "sparse_directories"
 REQUEST_FIELDS = {"schema_version", "cli", "run", "task", "spec", "task_title", "deps",
                   "parent", "placement", "on", "terminal", "model", "profiles_sha256",
                   "writable_roots", "write_isolation", "retry_of", "timeout_ms",
@@ -46,25 +47,48 @@ def contains(parent, child):
     return child == parent or child.is_relative_to(parent)
 
 
+def sparse_directory(value):
+    directory = text(value, "sparse_directory")
+    require(directory == directory.strip(), "invalid sparse_directory")
+    path = Path(directory)
+    require(not path.is_absolute(), "sparse_directory must be relative")
+    require(directory not in (".", "./"), "sparse_directory must name a subdirectory")
+    require(".." not in path.parts, "sparse_directory must not traverse parents")
+    require(not any(ord(character) < 32 for character in directory),
+            "invalid sparse_directory")
+    return directory
+
+
+def sparse_directory_flags(placement):
+    if SPARSE_FIELD not in placement:
+        return []
+    directories = placement[SPARSE_FIELD]
+    require(isinstance(directories, list) and 1 <= len(directories) <= 128,
+            "invalid sparse_directories")
+    return [("sparse_dir", sparse_directory(directory)) for directory in directories]
+
+
 def placement_flags(placement, remote):
     require(isinstance(placement, dict), "placement object required")
     kind = placement.get("kind")
     require(isinstance(kind, str) and kind in ("existing", "new-child", "new-top-level"),
             "placement kind must be existing, new-child or new-top-level")
     if kind == "existing":
-        require(not set(placement).intersection(CREATION_FIELDS),
+        require(not set(placement).intersection((*CREATION_FIELDS, SPARSE_FIELD)),
                 "existing placement rejects creation fields; use task_title with spec for a Task title")
         require(set(placement) == {"kind", "worktree"}, "invalid existing placement fields")
         return [("worktree", exact(placement["worktree"], "worktree"))]
     require(not remote or kind == "new-top-level", "remote new-child is unsupported")
-    require(set(placement) <= {"kind", *CREATION_FIELDS}, "unknown new-worktree placement fields")
+    require(set(placement) <= {"kind", *CREATION_FIELDS, SPARSE_FIELD},
+            "unknown new-worktree placement fields")
     text(placement.get("name"), "new-worktree name")
     if kind == "new-top-level" or "repo" in placement:
         exact(placement.get("repo"), "repo")
     if "setup" in placement:
         require(placement["setup"] in ("run", "skip", "inherit"), "invalid setup")
     return [("worktree", kind), *((key, text(placement[key], key))
-                                  for key in CREATION_FIELDS if key in placement)]
+                                  for key in CREATION_FIELDS if key in placement),
+            *sparse_directory_flags(placement)]
 
 
 def build_plan(request, *, request_ref=None):

@@ -119,6 +119,7 @@ export async function startLocalWorker(args: {
     launch: launch.receipt,
     ...(workspaceWrite ? { workspaceWrite: workspaceWrite.receipt } : {}),
     timeoutMs: params.timeoutMs ?? 60_000,
+    ...(params.sparseDirectories ? { sparseDirectories: params.sparseDirectories } : {}),
     setup: createsWorktree ? (params.setup ?? 'run') : 'not_applicable',
     setupSource: createsWorktree
       ? params.setup

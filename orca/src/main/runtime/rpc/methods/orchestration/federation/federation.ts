@@ -107,6 +107,9 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
             displayName: params.displayName,
             displayNameKind: params.displayNameKind,
             comment: params.comment,
+            ...(params.sparseDirectories
+              ? { sparseCheckout: { directories: params.sparseDirectories } }
+              : {}),
             // setupDecision runs setup without the legacy runHooks activation side effect.
             runHooks: false,
             setupDecision,

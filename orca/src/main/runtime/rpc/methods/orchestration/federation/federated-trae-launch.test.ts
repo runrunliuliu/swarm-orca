@@ -4,6 +4,7 @@ import {
   ORCHESTRATION_CONTRACT_RUNTIME_CAPABILITY,
   ORCHESTRATION_FEDERATION_RUNTIME_CAPABILITY,
   ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY,
   TRAE_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY
 } from '../../../../../../shared/protocol-version'
 import { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -26,7 +27,9 @@ describe('federated Trae launch preferences', () => {
     vi.restoreAllMocks()
   })
 
-  function setup(options: { legacy?: boolean; effective?: typeof selection | null } = {}) {
+  function setup(
+    options: { legacy?: boolean; effective?: typeof selection | null; sparse?: boolean } = {}
+  ) {
     const db = new OrchestrationDb(':memory:')
     databases.push(db)
     const runtime = new OrcaRuntimeService()
@@ -56,7 +59,8 @@ describe('federated Trae launch preferences', () => {
               ORCHESTRATION_CONTRACT_RUNTIME_CAPABILITY,
               ORCHESTRATION_FEDERATION_RUNTIME_CAPABILITY,
               ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
-              ...(options.legacy ? [] : [TRAE_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY])
+              ...(options.legacy ? [] : [TRAE_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY]),
+              ...(options.sparse ? [ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY] : [])
             ]
           }
         }
@@ -101,6 +105,29 @@ describe('federated Trae launch preferences', () => {
             method: 'orchestration.workerStart',
             payloadHash: 'payload'
           }
+        }),
+      startSparse: () =>
+        startFederatedWorker({
+          params: {
+            task: task.id,
+            from: 'term_coord',
+            on: 'remote',
+            worktree: 'new-top-level',
+            name: 'remote-sparse-worker',
+            repo: 'id:repo_remote',
+            sparseDirectories: ['packages/web', 'docs'],
+            ...selection
+          },
+          runtime,
+          db,
+          runId: run.id,
+          task,
+          orchestrationMutation: {
+            callerFingerprint: 'caller',
+            requestId: 'remote_sparse_start',
+            method: 'orchestration.workerStart',
+            payloadHash: 'payload'
+          }
         })
     }
   }
@@ -128,6 +155,23 @@ describe('federated Trae launch preferences', () => {
     })
     expect(remoteCall.mock.calls[1][1]).toBe('orchestration.federationAttachStart')
     expect(remoteCall.mock.calls[1][2]).toMatchObject(selection)
+  })
+
+  it('refuses remote sparse worker creation when the worker server lacks support', async () => {
+    const { startSparse, remoteCall } = setup()
+    await expect(startSparse()).rejects.toMatchObject({ code: 'capability_unsupported' })
+    expect(remoteCall).toHaveBeenCalledTimes(1)
+    expect(remoteCall.mock.calls[0][1]).toBe('status.get')
+  })
+
+  it('forwards sparse worker creation only after remote capability negotiation', async () => {
+    const { startSparse, remoteCall } = setup({ sparse: true })
+    await expect(startSparse()).resolves.toMatchObject({ state: 'ready' })
+    expect(remoteCall.mock.calls[1][1]).toBe('orchestration.federationAttachStart')
+    expect(remoteCall.mock.calls[1][2]).toMatchObject({
+      worktree: 'new-top-level',
+      sparseDirectories: ['packages/web', 'docs']
+    })
   })
 
   it.each([

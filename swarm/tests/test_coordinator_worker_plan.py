@@ -40,14 +40,16 @@ class WorkerPlanTests(unittest.TestCase):
                 plan = build_plan(request)
                 self.assertEqual(request, before)
                 self.assertIn(target, plan["argv"])
-                for flag in ("name", "repo", "base-branch", "display-name", "comment", "setup"):
+                for flag in ("name", "repo", "base-branch", "display-name", "comment",
+                             "setup", "sparse-dir"):
                     self.assertNotIn("--" + flag, plan["argv"])
                 self.assertEqual(shlex.split(plan["command"]), plan["argv"])
                 self.assertFalse(plan["effectsApplied"])
                 self.assertFalse(plan["runtime_verified"])
 
     def test_observed_wave_label_is_rejected_not_dropped_or_reinterpreted(self):
-        for field in ("name", "repo", "base_branch", "display_name", "comment", "setup"):
+        for field in ("name", "repo", "base_branch", "display_name", "comment", "setup",
+                      "sparse_directories"):
             for value in ("wave1-review", "", None, False):
                 request = self.request()
                 request["placement"][field] = value
@@ -73,18 +75,35 @@ class WorkerPlanTests(unittest.TestCase):
             request = self.request()
             request["placement"] = dict(kind=kind, name="wave1-implementation", repo="id:repo",
                 base_branch="approved-sha", display_name="Wave 1", comment="separate worktree",
-                setup="skip")
+                setup="skip", sparse_directories=["swarm-orca/swarm", "docs/design notes"])
             argv = build_plan(request)["argv"]
             for flag, value in (("worktree", kind), ("name", "wave1-implementation"),
                                 ("repo", "id:repo"), ("base-branch", "approved-sha"),
                                 ("display-name", "Wave 1"), ("comment", "separate worktree"),
                                 ("setup", "skip")):
                 self.assertEqual(argv[argv.index("--" + flag) + 1], value)
+            sparse_values = [argv[index + 1] for index, item in enumerate(argv)
+                             if item == "--sparse-dir"]
+            self.assertEqual(sparse_values, ["swarm-orca/swarm", "docs/design notes"])
         del request["placement"]["setup"]
         self.assertNotIn("--setup", build_plan(request)["argv"])
         del request["placement"]["name"]
         with self.assertRaisesRegex(ValueError, "name"):
             build_plan(request)
+
+    def test_sparse_directories_are_new_worktree_only_relative_paths(self):
+        base = self.request()
+        base["placement"] = dict(kind="new-child", name="worker",
+                                  sparse_directories=["packages/web"])
+        self.assertIn("--sparse-dir", build_plan(base)["argv"])
+        for sparse in ([], [""], ["/absolute"], ["."], ["./"], ["../secret"],
+                       ["packages/../secret"], [" leading"], ["trailing "],
+                       ["contains\0nul"], ["line\nbreak"]):
+            request = self.request()
+            request["placement"] = dict(kind="new-child", name="worker",
+                                         sparse_directories=sparse)
+            with self.subTest(sparse=sparse), self.assertRaises(ValueError):
+                build_plan(request)
 
     def test_placement_and_remote_constraints_fail_closed(self):
         for placement in ({"kind": "current"}, {"kind": "existing", "worktree": "current"},

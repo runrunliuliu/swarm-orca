@@ -7,7 +7,8 @@ import {
   ORCHESTRATION_FEDERATION_CONTROL_MAIL_RUNTIME_CAPABILITY,
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_PROTOCOL_VERSION,
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_RUNTIME_CAPABILITY,
-  ORCHESTRATION_FEDERATION_RUNTIME_CAPABILITY
+  ORCHESTRATION_FEDERATION_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY
 } from '../../../../../../shared/protocol-version'
 import { orchestrationMigrationData } from '../../../../../../shared/orchestration-rpc-contract'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -116,6 +117,15 @@ export async function startFederatedWorker(args: {
     capabilities: status.capabilities,
     serverName: server.name
   })
+  if (
+    params.sparseDirectories &&
+    !status.capabilities?.includes(ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY)
+  ) {
+    throw new OrchestrationError(
+      'capability_unsupported',
+      `Connected server ${server.name} does not support sparse checkout worker creation. No effects were applied.`
+    )
+  }
   const supportsControlMail = status.capabilities?.includes(
     ORCHESTRATION_FEDERATION_CONTROL_MAIL_RUNTIME_CAPABILITY
   )
@@ -149,6 +159,7 @@ export async function startFederatedWorker(args: {
       agent: params.agent ?? null,
       launch: requestedLaunch,
       timeoutMs: budgets.readinessTimeoutMs,
+      ...(params.sparseDirectories ? { sparseDirectories: params.sparseDirectories } : {}),
       setup: setupDecision,
       setupSource: createsWorktree
         ? params.setup
@@ -189,6 +200,7 @@ export async function startFederatedWorker(args: {
           displayName: params.displayName,
           ...(params.displayName !== undefined ? { displayNameKind: 'user' as const } : {}),
           comment: params.comment,
+          sparseDirectories: params.sparseDirectories,
           setup: createsWorktree ? (params.setup ?? 'run') : undefined,
           setupSource: createsWorktree
             ? params.setup

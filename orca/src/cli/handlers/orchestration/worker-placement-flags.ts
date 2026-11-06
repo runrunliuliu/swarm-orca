@@ -7,7 +7,15 @@ export function validateWorkerPlacementFlags(flags: Map<string, string | boolean
     return
   }
 
-  const creationFlags = ['name', 'repo', 'base-branch', 'display-name', 'comment', 'setup']
+  const creationFlags = [
+    'name',
+    'repo',
+    'base-branch',
+    'display-name',
+    'comment',
+    'setup',
+    'sparse-dir'
+  ]
   const conflicts = creationFlags.filter((flag) => flags.has(flag))
   if (conflicts.length === 0) {
     return

@@ -54,6 +54,10 @@ export const ORCHESTRATION_WORKER_STOP_VERDICT_RUNTIME_CAPABILITY =
   'orchestration.worker-stop-verdict.v1' as const
 export const ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY =
   'orchestration.worker-launch-preferences.v1' as const
+// Why: older worker-start schemas strip sparse directories before creation, so clients must
+// negotiate before asking a Worker dispatch to create a sparse worktree.
+export const ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY =
+  'orchestration.worker-sparse-checkout.v1' as const
 export const TRAE_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY =
   'orchestration.trae-worker-launch-preferences.v1' as const
 export const TRAE_WORKER_WRITABLE_ROOTS_CAPABILITY = 'orchestration.trae-worker-writable-roots.v1'
@@ -346,6 +350,7 @@ export const RUNTIME_CAPABILITIES = [
   ORCHESTRATION_FEDERATION_LIFECYCLE_SETTLEMENT_RUNTIME_CAPABILITY,
   ORCHESTRATION_WORKER_STOP_VERDICT_RUNTIME_CAPABILITY,
   ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY,
   TRAE_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
   TRAE_WORKER_WRITABLE_ROOTS_CAPABILITY,
   ORCHESTRATION_FEDERATION_STRUCTURED_READ_RUNTIME_CAPABILITY,

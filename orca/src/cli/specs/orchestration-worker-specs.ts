@@ -5,7 +5,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'worker-start'],
     summary: 'Start one supervised worker on the Run home or a connected Orca server',
     usage:
-      'orca orchestration worker-start (--task <task_id> | --spec <text>) [--on <saved-environment>] [--worktree <current|selector|new-child|new-top-level>] (--agent <agent> | --terminal <handle>) [--task-title <text>] [--deps <json_array>] [--parent <task_id>] [--model <id>] [--effort <level>] [--backend-variant <max|standard>] [--writable-roots <json_array>] [--name <name>] [--repo <selector>] [--base-branch <ref>] [--display-name <text>] [--comment <text>] [--setup <run|skip|inherit>] [--retry-of <dispatch_id>] [--timeout-ms <n>] [--run <run_id>] [--from <handle>] [--retry-request <id>] [--json]',
+      'orca orchestration worker-start (--task <task_id> | --spec <text>) [--on <saved-environment>] [--worktree <current|selector|new-child|new-top-level>] (--agent <agent> | --terminal <handle>) [--task-title <text>] [--deps <json_array>] [--parent <task_id>] [--model <id>] [--effort <level>] [--backend-variant <max|standard>] [--writable-roots <json_array>] [--name <name>] [--repo <selector>] [--base-branch <ref>] [--display-name <text>] [--comment <text>] [--setup <run|skip|inherit>] [--sparse-dir <relative_dir>]... [--retry-of <dispatch_id>] [--timeout-ms <n>] [--run <run_id>] [--from <handle>] [--retry-request <id>] [--json]',
     allowedFlags: [
       ...GLOBAL_FLAGS,
       'task',
@@ -21,6 +21,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
       'display-name',
       'comment',
       'setup',
+      'sparse-dir',
       'agent',
       'model',
       'effort',
@@ -33,6 +34,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
       'from',
       'retry-request'
     ],
+    repeatableFlags: ['sparse-dir'],
     identityFlagRoles: { from: 'caller', terminal: 'target' },
     notes: [
       '--writable-roots <json_array> grants 1–32 existing canonical directories to a fresh local POSIX Trae worker in an existing workspace. It replaces default CLI args with --no-daemon, workspace-write, approval never and network access; shared config is unchanged. SSH, WSL, federation, terminal reuse and new-worktree creation are refused. The launch receipt is not actual-session or file-tool proof.',
@@ -43,6 +45,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
       '--backend-variant max enables independent Max for Trae gpt-5.6-sol, gpt-5.5 or DeepSeek-V4.1-Flash. Trae gpt-5.4 workers require explicit --backend-variant standard to prevent inheriting Max. Other models retain their existing omission behavior. Backend requires --model and is separate from --effort; overrides never edit shared config.',
       'New worktrees use agent-first creation and default --setup to run. Repository start-immediately runs setup beside the agent; wait-for-setup gates agent readiness and task input.',
       'Creation flags (--name, --repo, --base-branch, --display-name, --comment, --setup) are rejected for current/existing worktrees. Use exact --repo on the selected server; project/host convenience routing remains on worktree create.',
+      '--sparse-dir may be repeated only with new-child or new-top-level worktrees. It asks native worktree creation for a sparse checkout rooted at relative directories; out-of-cone files may be absent, ancestors can still appear, and sparse scope is not write permission.',
       '--name names a new worktree, not a Worker or Task. Existing workspace example: worker-start --task <task_id> --worktree id:<workspace_id> --agent <agent>. To title a new Task use --spec <text> --task-title <title>; do not add --name.',
       "How the worker runs follows the user's own setting for new agent tabs; there is no flag for it and no caller needs to ask. A dispatch the setting cannot apply to still starts, so the placement, agent, and launch options passed here are always the ones honoured.",
       'Drive every worker the same way whichever way it was started: the same orchestration verbs, the same handle. Mail, dispatch, worker-show, worker-read and the whole lifecycle behave identically. The start receipt records which one ran, for operators and telemetry.',

@@ -9,6 +9,36 @@ export const OptionalWorkerLaunchPreference = z
   .refine((value) => value === value.trim(), 'Surrounding whitespace is invalid')
   .optional()
 
+function isValidSparseDirectory(value: string): boolean {
+  if (!value || value !== value.trim() || value.includes('\0')) {
+    return false
+  }
+  if (value === '.' || value === './' || value.startsWith('/') || value.startsWith('\\')) {
+    return false
+  }
+  if (/^[A-Za-z]:[\\/]/.test(value) || /[\u0000-\u001f]/.test(value)) {
+    return false
+  }
+  const parts = value.split(/[\\/]+/).filter((part) => part.length > 0)
+  return parts.length > 0 && !parts.includes('..')
+}
+
+export const WorkerSparseDirectories = z
+  .array(z.string())
+  .min(1)
+  .max(128)
+  .superRefine((directories, ctx) => {
+    for (const [index, directory] of directories.entries()) {
+      if (!isValidSparseDirectory(directory)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index],
+          message: 'Sparse directories must be relative subdirectories without parent traversal'
+        })
+      }
+    }
+  })
+
 export const WorkerStartParams = z
   .object({
     task: OptionalString,
@@ -26,6 +56,7 @@ export const WorkerStartParams = z
     displayName: OptionalString,
     comment: OptionalString,
     setup: z.enum(['run', 'skip', 'inherit']).optional(),
+    sparseDirectories: WorkerSparseDirectories.optional(),
     terminal: OptionalString,
     agent: OptionalString,
     model: OptionalWorkerLaunchPreference,

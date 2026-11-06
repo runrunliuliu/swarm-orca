@@ -21,7 +21,10 @@ import { printResult } from '../format'
 import { BOOLEAN_FLAGS, parseArgs } from '../args'
 import { formatCommandHelp } from '../help'
 import { ORCHESTRATION_WORKER_COMMAND_SPECS } from '../specs/orchestration-worker-specs'
-import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
+import {
+  ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY,
+  ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY
+} from '../../shared/protocol-version'
 import { renderCommand } from '../orchestration-mutation-recovery'
 
 describe('orchestration worker-start CLI contract', () => {
@@ -177,6 +180,53 @@ describe('orchestration worker-start CLI contract', () => {
     ).rejects.toMatchObject({ code: 'incompatible_runtime' })
 
     expect(callMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails before worker-start when the runtime would strip sparse checkout creation', async () => {
+    callMock.mockResolvedValueOnce({ result: { capabilities: [] } })
+
+    await expect(
+      invokeWorkerStart(
+        new Map<string, string | boolean>([
+          ['task', 'task_1'],
+          ['agent', 'codex'],
+          ['worktree', 'new-child'],
+          ['name', 'sparse-worker'],
+          ['sparse-dir', 'packages/web'],
+          ['from', 'term_coord']
+        ])
+      )
+    ).rejects.toMatchObject({ code: 'incompatible_runtime' })
+
+    expect(callMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('capability-gates and forwards sparse checkout worker creation', async () => {
+    callMock
+      .mockResolvedValueOnce({
+        result: { capabilities: [ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY] }
+      })
+      .mockResolvedValueOnce({
+        result: { taskId: 'task_1', dispatchId: 'ctx_1', state: 'ready' }
+      })
+
+    await invokeWorkerStart(
+      new Map<string, string | boolean>([
+        ['task', 'task_1'],
+        ['agent', 'codex'],
+        ['worktree', 'new-child'],
+        ['name', 'sparse-worker'],
+        ['sparse-dir', 'packages/web'],
+        ['from', 'term_coord']
+      ])
+    )
+
+    expect(callMock).toHaveBeenNthCalledWith(1, 'status.get')
+    expect(callMock).toHaveBeenNthCalledWith(
+      2,
+      'orchestration.workerStart',
+      expect.objectContaining({ sparseDirectories: ['packages/web'] })
+    )
   })
 
   it('sets an unsuccessful exit code for failed and unknown receipts', async () => {

@@ -28,10 +28,13 @@ export function validateFederatedWorkerStartPlacement(
       '--terminal cannot combine with remote new-worktree creation.'
     )
   }
-  if (!createsWorktree && (params.name || params.repo || params.baseBranch || params.setup)) {
+  if (
+    !createsWorktree &&
+    (params.name || params.repo || params.baseBranch || params.setup || params.sparseDirectories)
+  ) {
     throw new OrchestrationError(
       'invalid_argument',
-      'Creation and setup options apply only to remote new-top-level worktrees.'
+      'Creation, setup, and sparse checkout options apply only to remote new-top-level worktrees.'
     )
   }
   if (params.terminal && params.agent) {
@@ -76,10 +79,13 @@ export function prepareLocalWorkerStart(args: {
   if (createsWorktree && !params.name) {
     throw new OrchestrationError('invalid_argument', 'New worktrees require --name.')
   }
-  if (!createsWorktree && (params.name || params.repo || params.baseBranch || params.setup)) {
+  if (
+    !createsWorktree &&
+    (params.name || params.repo || params.baseBranch || params.setup || params.sparseDirectories)
+  ) {
     throw new OrchestrationError(
       'invalid_argument',
-      'Creation and setup options apply only to new-child or new-top-level worktrees.'
+      'Creation, setup, and sparse checkout options apply only to new-child or new-top-level worktrees.'
     )
   }
   return resolveWorkerStartAgent({
@@ -114,11 +120,16 @@ export function prepareFederationAttachmentWorkerStart(args: {
   }
   if (
     !createsWorktree &&
-    (params.name || params.repo || params.baseBranch || params.setup || params.setupSource)
+    (params.name ||
+      params.repo ||
+      params.baseBranch ||
+      params.setup ||
+      params.setupSource ||
+      params.sparseDirectories)
   ) {
     throw new OrchestrationError(
       'invalid_argument',
-      'Creation and setup options apply only to remote new-top-level worktrees.'
+      'Creation, setup, and sparse checkout options apply only to remote new-top-level worktrees.'
     )
   }
   if (params.terminal && params.agent) {

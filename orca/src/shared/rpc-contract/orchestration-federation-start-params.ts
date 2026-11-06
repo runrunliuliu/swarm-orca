@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { OptionalFiniteNumber, OptionalString, requiredString } from './rpc-param-primitives'
-import { OptionalWorkerLaunchPreference } from './orchestration-worker-start-params'
+import {
+  OptionalWorkerLaunchPreference,
+  WorkerSparseDirectories
+} from './orchestration-worker-start-params'
 
 export const FederationAttachStartParams = z.object({
   /** Omitted by v1.4.198 coordinators; the worker host then mints a stub home Run. */
@@ -20,6 +23,7 @@ export const FederationAttachStartParams = z.object({
   comment: OptionalString,
   setup: z.enum(['run', 'skip', 'inherit']).optional(),
   setupSource: z.enum(['explicit_request', 'orchestration_default']).optional(),
+  sparseDirectories: WorkerSparseDirectories.optional(),
   terminal: OptionalString,
   agent: OptionalString,
   model: OptionalWorkerLaunchPreference,

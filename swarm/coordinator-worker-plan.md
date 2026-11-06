@@ -181,7 +181,13 @@ selector 返回的 ID 和路径始终等于已固定的私有 workspace。任何
 新建 child 的 placement：
 
 ```json
-{"kind": "new-child", "name": "worker-review", "base_branch": "approved-commit", "setup": "skip"}
+{
+  "kind": "new-child",
+  "name": "worker-review",
+  "base_branch": "approved-commit",
+  "setup": "skip",
+  "sparse_directories": ["swarm-orca/swarm", "docs"]
+}
 ```
 
 新建 top-level 的 placement：
@@ -191,15 +197,19 @@ selector 返回的 ID 和路径始终等于已固定的私有 workspace。任何
 ```
 
 两种新建模式均要求 `name`，top-level 要求显式 `repo`；可选
-`base_branch/display_name/comment/setup` 仅在此分支生成，省略 setup 时保留原生默认行为，
-示例 skip 不是通用许可。显式 `on` 传给原生 worker server 选择器，禁止 remote new-child。
+`base_branch/display_name/comment/setup/sparse_directories` 仅在此分支生成，省略 setup 时保留原生默认行为，
+示例 skip 不是通用许可。`sparse_directories` 是 1–128 个相对目录，生成重复
+`--sparse-dir` 并交给原生 worktree 创建；它只声明 checkout cone，out-of-cone 文件可能有意缺失，
+祖先目录仍可能出现，且 sparse 范围不是写权限或授权边界。existing/current、terminal 复用和 remote
+new-child 均拒绝 sparse。显式 `on` 传给原生 worker server 选择器，禁止 remote new-child。
 生成器不接受隐式 current 或名称选择器；使用原生发现得到的 `id:`。
 
 新启动必填 `model/profiles_sha256`；`timeout_ms` 正整数、`retry_of`（需 task）可选。
 复用模式只提供 `terminal`，仅接受 existing，不能带 `model/profiles_sha256` 或启动覆盖参数；
 它不重配既有会话，也不证明复用就绪识别问题已解决。`writable_roots` 是 1–32 个绝对路径，仅 fresh Trae + existing 且无 on；
 宿主是否本机 POSIX、SSH/WSL 限制、目录规范性/权限、提供方模型能力继续由原生验证。
-生成器不是 runtime capability 检查器，计划成功不表示原生启动必定成功。
+带 sparse 的 Worker 创建还要求原生 `orchestration.worker-sparse-checkout.v1` capability；旧 runtime
+必须失败关闭，不能为了兼容而静默创建完整 checkout。生成器不是 runtime capability 检查器，计划成功不表示原生启动必定成功。
 
 未知字段、非法组合、请求或配置 hash 改变均退出 2。规划只读请求和配置文件，不写状态或投递命令。
 原生 CLI 另外在 RPC 前拒绝已有工作区上的创建参数；服务端既有拒绝校验保持不变。

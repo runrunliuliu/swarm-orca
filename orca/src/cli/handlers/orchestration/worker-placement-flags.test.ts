@@ -1,11 +1,21 @@
 import { describe, expect, it, vi } from 'vitest'
+import { REPEATED_FLAG_SEPARATOR } from '../../args'
 import { RuntimeClient } from '../../runtime-client'
+import { ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 import { ORCHESTRATION_WORKER_LAUNCH_HANDLER } from './worker-launch-handler'
 
 vi.mock('../../format', () => ({ printResult: vi.fn() }))
 
 describe('worker-start existing workspace creation flags', () => {
-  const creationFlags = ['name', 'repo', 'base-branch', 'display-name', 'comment', 'setup']
+  const creationFlags = [
+    'name',
+    'repo',
+    'base-branch',
+    'display-name',
+    'comment',
+    'setup',
+    'sparse-dir'
+  ]
 
   for (const worktree of [undefined, 'current', 'id:repo::/worker', 'id:folder', 'name:review']) {
     for (const creationFlag of creationFlags) {
@@ -94,4 +104,36 @@ describe('worker-start existing workspace creation flags', () => {
       )
     })
   }
+
+  it('forwards repeated sparse directories for new worktree creation', async () => {
+    const call = vi.fn()
+      .mockResolvedValueOnce({
+        result: { capabilities: [ORCHESTRATION_WORKER_SPARSE_CHECKOUT_RUNTIME_CAPABILITY] }
+      })
+      .mockResolvedValueOnce({ result: { state: 'ready' } })
+    const client = new RuntimeClient('/tmp/orca-worker-placement-unit', 60_000, null, null)
+    client.call = call
+
+    await ORCHESTRATION_WORKER_LAUNCH_HANDLER['orchestration worker-start']({
+      flags: new Map<string, string | boolean>([
+        ['worktree', 'new-child'],
+        ['name', 'new-review'],
+        ['task', 'task_review'],
+        ['agent', 'codex'],
+        ['from', 'term_coordinator'],
+        ['sparse-dir', ['packages/web', 'docs'].join(REPEATED_FLAG_SEPARATOR)]
+      ]),
+      client,
+      cwd: '/task',
+      json: true
+    })
+
+    expect(call).toHaveBeenNthCalledWith(
+      2,
+      'orchestration.workerStart',
+      expect.objectContaining({
+        sparseDirectories: ['packages/web', 'docs']
+      })
+    )
+  })
 })
