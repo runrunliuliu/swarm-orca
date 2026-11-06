@@ -85,8 +85,8 @@ UTF-8 `agent_args` 超过原生 RPC 的 **16 KiB** 上限时，两个规划入�
    并再次检查 live caller。过程持续执行到业务检查点，不接旧 shell goal-loop。
 
 capture 显式拒绝 strict 计划，driver 的实时 fence 也拒绝 strict-v1 Run。
-本修复不提供崩溃接管、自动 resume 或共享 profile 的启用条件；shared-profile activation
-仍关闭，须有安全恢复与真实主机验收证据。单元测试通过不等于已部署/实机验收。
+本修复不提供崩溃接管或自动 resume。共享或隔离 profile 均可用于已授权任务，
+启动前仍核验运行时能力、身份与影响范围。单元测试通过不等于已部署/实机验收。
 
 ## 历史非 strict 启动计划
 

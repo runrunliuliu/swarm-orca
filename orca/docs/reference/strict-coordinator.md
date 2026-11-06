@@ -8,15 +8,16 @@ does not convert existing Runs, and is not production-ready.
 The original live Coordinator can retire a reconciled Run through the bounded protocol
 below; settlement alone does not unpin it or release historical Worker protection.
 `run-use` is refused, and strict history still disables `orchestration reset` for the
-entire database. Test only in an isolated, disposable runtime profile; do not enable
-this on a shared operational profile. Removing database rows/triggers or downgrading
+entire database. Authorized strict tasks may use shared or isolated runtime profiles;
+a shared profile alone is not a launch blocker. Removing database rows/triggers or downgrading
 the server is not a supported recovery procedure.
 
 The workspace skill policy defaults **new supervised Swarms with a separate business
 Coordinator** to requiring strict. This is a launch requirement, not a runtime-wide
 default: unsupported enforcement/recovery stops that path instead of falling back to
-ordinary creation. Ordinary tasks and existing Runs are unchanged. The shared-profile
-activation gate remains closed until safe recovery and live host acceptance exist.
+ordinary creation. Ordinary tasks and existing Runs are unchanged. Verify the target
+runtime's capabilities, native identity and task impact before launch; profile choice
+does not establish recovery support or live host acceptance.
 
 This source change alone does not deploy a server, launch an Agent, migrate a Run, or
 change any training Job. Follow the repository's authorization and launch procedures
@@ -70,8 +71,8 @@ Use Orca's native `terminal create --agent trae --agent-args ...` launch path, n
 shell invoking a capture wrapper. Keep that Agent process alive while it waits for the
 Operator startup gate and creates the Run from its own tool context. Agent exit retires
 launch authority even if the shell/PTY survives. Resuming the same provider UUID from
-that shell cannot restore it. The probe does not enable safe recovery or open the
-shared-profile activation gate described above.
+that shell cannot restore it. The probe does not enable safe recovery or replace task
+authorization and launch checks.
 
 The Coordinator must execute creation in its own verified native terminal context,
 using the CLI belonging to the target runtime. After launch authorization and the

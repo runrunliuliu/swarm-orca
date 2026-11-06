@@ -14,7 +14,7 @@ and external Job capacity/budget limits separately.
 
 ## Experimental runtime guard
 
-In an authorized isolated-profile experiment, the verified native terminal
+For an authorized strict task in a shared or isolated profile, the verified native terminal
 Coordinator creates a new Run using:
 
 ```text
@@ -30,7 +30,8 @@ must stop when prerequisites are unsupported, not use the generic loop instead.
 
 Only same-runtime terminal Workers are supported, not federated/structured ones.
 This guard is experimental and has no safe rebind/adoption or crashed-Coordinator
-recovery. Do not default-enable it in a shared operational profile. Loss of
+recovery. Verify runtime capabilities, native identity and task impact before launch;
+a shared profile alone is not a blocker. Loss of
 identity stops affected writes; another terminal cannot claim ownership through
 run-use, copied credentials, a hand-written receipt or a new Run.
 

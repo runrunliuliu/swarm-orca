@@ -43,7 +43,7 @@ replacement 和非 strict TUI 启动。权限保持 workspace-write/on-request/a
 模型由已审查的显式配置确定，且必须被适配器接受；不改 Worker 或全局配置。
 
 继续使用原有两阶段启动门及固定文件 config/start delivery，不靠 TUI 输入替代门。
-`strict-v1` 的共享 operational profile 激活门和恢复限制不因 TUI 改动而打开。
+共享或隔离 profile 均可用于已授权的 `strict-v1` 任务；恢复限制不因 TUI 改动而解除。
 真实测试须获准，明确隔离/共享 profile 和影响边界，不默认授权修改共享服务。
 
 ## TUI 身份和观察器
