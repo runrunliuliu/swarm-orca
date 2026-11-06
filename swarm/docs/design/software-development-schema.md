@@ -86,7 +86,10 @@ subtrees; the checker does **not** attest excluded contents/changes. There are n
 Gitignore exclusions: visible untracked files count. Excluded files never become writable
 by declaring them in a change manifest. Archive evidence outside the worktree so creating
 records cannot change the snapshot being certified. Output receipt must be outside the
-worktree and within observation roots, outside exclusions. No implicit directory creation.
+worktree, within both observation roots and task `read_roots`, and outside exclusions,
+so the consumer can read it under the same task scope. An output outside this intersection
+is rejected with `software_receipt_output_outside_scope` before publication. No implicit
+directory creation.
 
 Operations are a nonempty subset of `modify, create, delete, test, review`. `max_workers`
 is a positive integer; token budget/retry limit are nonnegative integers or explicit null;
@@ -177,8 +180,9 @@ A met requirement's evidence is a nonempty list of `{kind: software-development-
 ref: evidence ID}`. Each selected record covers that requirement and current snapshot.
 At least one validation must pass with exit code zero and the original verification method.
 At least one no-findings approved review must be from an actor distinct from all implementing
-actors and passing validators for that requirement. Every recorded rejection needs a later
-approved review listing its ID in resolves. Do not discard old rejected reviews on resubmission;
+actors and passing validators for that requirement. Every `resolves` entry must name an
+existing review record ID. Every recorded rejection needs a later approved review listing its ID
+in resolves. Do not discard old rejected reviews on resubmission;
 history retention and native provenance remain part of the outer audit.
 
 For any met requirements, audit is exactly `{actor, snapshot_sha256, evidence, verified,
@@ -186,8 +190,9 @@ source_records}` with the original Operator, matching snapshot, exact ordered co
 of all three evidence-ref lists, verified true and readable source records. It is an audit
 declaration whose authenticity requires independent execution; the checker cannot certify itself.
 
-Barrier evidence_refs use IDs of these readable evidence records. A blocked requirement
-with no remaining path needs path_review_ref naming a review. Native waiting uses existing
+Barrier `evidence_refs` must be a list of IDs of these readable evidence records; malformed
+barrier rows are rejected with a fixed domain error. A blocked requirement with no remaining
+path needs path_review_ref naming a review. Native waiting uses existing
 `prerequisites: ["orca-dispatch:<id>"]`; the dispatch must exist in the linked action exports.
 Job-only software waiting is not supported in v1. Live dependency status remains checked
 by the existing scheduler, not inferred from the software record.

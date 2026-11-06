@@ -235,6 +235,12 @@ def check(binding, startup, source_ref, *, current=False):
     observed = timestamp(source["observed_at"])
     require(observed <= timestamp(now()), "software_future_observation")
     acceptance = scoped_json(task["acceptance"], roots, excluded)
+    require(isinstance(source["barriers"], list), "software_barrier_invalid")
+    for barrier in source["barriers"]:
+        require(isinstance(barrier, dict)
+                and isinstance(barrier.get("evidence_refs"), list)
+                and all(text(ref) for ref in barrier["evidence_refs"]),
+                "software_barrier_invalid")
     route = checkpoint_route({k: source[k] for k in FIELDS}, acceptance)
     require(isinstance(source["snapshot"], list), "software_snapshot_invalid")
     frozen = []
@@ -342,6 +348,10 @@ def check(binding, startup, source_ref, *, current=False):
                 require(isinstance(exported, dict) and exported.get("kind") == kind
                         and canonical(exported.get("record")) == canonical({k: v for k, v in row.items() if k != "source_records"}),
                         "software_execution_record_mismatch")
+    review_ids = {row["id"] for kind, row, _ in evidence.values() if kind == "reviews"}
+    for kind, row, _ in evidence.values():
+        if kind == "reviews":
+            require(set(row["resolves"]) <= review_ids, "software_review_resolves_unknown")
     # Barrier evidence is readable and scoped, never a string claiming an object exists.
     for barrier in source["barriers"]:
         for ref in barrier["evidence_refs"]:
@@ -423,6 +433,7 @@ def main(argv=None):
         path(str(output.parent), directory=True)
         task = scoped_json(startup["domain_binding"]["contract"], startup["observation"]["roots"])
         require(inside(output, startup["observation"]["roots"])
+                and inside(output, task["scope"]["read_roots"])
                 and not inside(output, task["scope"]["exclude_paths"])
                 and not output.is_relative_to(Path(task["repository"]["worktree"])),
                 "software_receipt_output_outside_scope")

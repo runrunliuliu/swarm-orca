@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 
-from coordinator_domain import SOFTWARE
+from coordinator_domain import SOFTWARE, validate_domain
 from coordinator_io import canonical, digest, file_ref, now, read_json
 from coordinator_startup import identity
 import software_development as software
@@ -270,6 +270,12 @@ class SoftwareTests(unittest.TestCase):
         self.audit()
         self.assertTrue(self.s.check()["consistent"])
 
+    def test_review_resolves_must_name_existing_review(self):
+        self.s.complete()
+        self.mutate_evidence("reviews", resolves=["invented-review"])
+        with self.assertRaisesRegex(ValueError, "software_review_resolves_unknown"):
+            self.s.check()
+
     def test_future_timestamp_and_native_link_refused(self):
         self.s.source["observed_at"] = "2999-01-01T00:00:00+00:00"
         with self.assertRaisesRegex(ValueError, "future_observation"):
@@ -303,6 +309,12 @@ class SoftwareTests(unittest.TestCase):
         self.s.source["decision"] = "wait"
         self.s.source["next_action"].update(kind="wait", prerequisites=["orca-dispatch:dispatch-implementation"])
         self.assertEqual(self.s.check()["next_gate"], "dependency_wait")
+        self.s.source["barriers"] = [dict(id="dependency", path_ids=[r["id"] for r in self.s.source["paths"]],
+                                          condition="worker completes")]
+        with self.assertRaisesRegex(ValueError, "software_barrier_invalid"):
+            self.s.check()
+        self.s.source["barriers"] = [dict(id="dependency", path_ids=[r["id"] for r in self.s.source["paths"]],
+                                          evidence_refs=["implementation"], condition="worker completes")]
         self.s.source["next_action"]["prerequisites"] = ["orca-dispatch:invented"]
         with self.assertRaisesRegex(ValueError, "wait_native_evidence"):
             self.s.check()
@@ -439,6 +451,54 @@ class SoftwareTests(unittest.TestCase):
             before = output.read_bytes()
             self.assertEqual(software.main(argv), 2)
             self.assertEqual(before, output.read_bytes())
+
+    def test_cli_rejects_receipt_outside_consumer_scope(self):
+        self.s.task["scope"]["read_roots"] = [str(self.s.workspace), str(self.s.archive)]
+        self.s.bind_task()
+        self.s.source["contract_sha256"] = self.s.binding["contract"]["sha256"]
+        source = self.s.put(self.s.source)
+        output = self.f.t.f.bootstrap / "outside-task-read-roots.json"
+        startup = self.f.config["contract"]
+        argv = ["--startup", startup["path"], "--startup-sha256", startup["sha256"],
+                "--source", source["path"], "--source-sha256", source["sha256"], "--output", str(output)]
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(software.main(argv), 2)
+        self.assertEqual(software.parse(stdout.getvalue())["error"], "software_receipt_output_outside_scope")
+        self.assertFalse(output.exists())
+
+    def test_cli_scoped_receipt_is_accepted_by_consumer(self):
+        self.s.task["scope"]["read_roots"] = [str(self.s.workspace), str(self.s.archive)]
+        self.s.bind_task()
+        self.s.source["contract_sha256"] = self.s.binding["contract"]["sha256"]
+        self.s.publish()
+        source = self.f.record["domain_check"]["source"]
+        output = self.s.archive / "cli-receipt.json"
+        startup = self.f.config["contract"]
+        argv = ["--startup", startup["path"], "--startup-sha256", startup["sha256"],
+                "--source", source["path"], "--source-sha256", source["sha256"], "--output", str(output)]
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(software.main(argv), 0)
+        self.f.record["domain_check"]["receipt"] = file_ref(output)
+        self.assertEqual(validate_domain(self.f.record, self.f.c, self.f.config, current=True),
+                         self.f.record["domain_check"])
+
+    def test_cli_receipt_preserves_other_output_boundaries(self):
+        excluded = self.s.archive / "excluded-receipt.json"
+        self.s.task["scope"]["exclude_paths"].append(str(excluded))
+        self.s.task["scope"]["read_roots"].append(str(self.f.t.f.root))
+        self.s.bind_task()
+        self.s.source["contract_sha256"] = self.s.binding["contract"]["sha256"]
+        source = self.s.put(self.s.source)
+        startup = self.f.config["contract"]
+        outputs = (excluded, self.s.workspace / "receipt.json", self.f.t.f.root / "outside-observation.json")
+        for output in outputs:
+            with self.subTest(output=output):
+                argv = ["--startup", startup["path"], "--startup-sha256", startup["sha256"],
+                        "--source", source["path"], "--source-sha256", source["sha256"], "--output", str(output)]
+                with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    self.assertEqual(software.main(argv), 2)
+                self.assertEqual(software.parse(stdout.getvalue())["error"], "software_receipt_output_outside_scope")
+                self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":
