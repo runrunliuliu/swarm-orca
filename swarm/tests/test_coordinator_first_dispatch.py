@@ -382,6 +382,21 @@ class FirstDispatchTests(unittest.TestCase):
         del self.request["first_dispatch"]
         self.assertEqual(build_plan(self.request)["argv"][1:3], ["orchestration", "worker-start"])
 
+    def test_pi_request_keeps_the_first_dispatch_gate_and_fixed_profile(self):
+        self.request["model"] = "example-pi-model"
+        ref = self.ref()
+        plan = build_plan(self.request, request_ref=ref)
+        self.assertIn("first-dispatch", plan["argv"])
+        self.assertEqual(plan["resolved_profile"]["agent"], "pi")
+        self.assertNotIn("--effort", plan["argv"])
+        self.assertNotIn("--backend-variant", plan["argv"])
+        del self.request["first_dispatch"]
+        native = build_plan(self.request)["argv"]
+        self.assertEqual(native[native.index("--agent") + 1], "pi")
+        self.assertEqual(native[native.index("--model") + 1], "example-pi-model")
+        self.assertNotIn("--effort", native)
+        self.assertNotIn("--backend-variant", native)
+
     def test_cli_requires_execute_and_reports_stale_gate(self):
         ref = self.ref()
         args = ["first-dispatch", "--request", ref["path"], "--request-sha256", ref["sha256"]]

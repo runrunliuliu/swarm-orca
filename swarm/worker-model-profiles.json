@@ -26,6 +26,12 @@
       "backend_variant": "standard",
       "blocked_reason": null
     },
+    "example-pi-model": {
+      "agent": "pi",
+      "effort": null,
+      "backend_variant": null,
+      "blocked_reason": null
+    },
     "example-blocked-model": {
       "agent": "trae",
       "effort": null,

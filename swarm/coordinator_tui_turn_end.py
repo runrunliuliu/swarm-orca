@@ -30,7 +30,7 @@ def _turn_end(config_ref, *, prevalidated_scheduler_head=None, call=native):
         scheduled = "scheduler" in config
         journal = read_scheduler_journal(root, config_ref) if scheduled else None
         head = read_json(config["checkpoint_head"])
-        record, route = validate_checkpoint(head, config, contract)
+        record, route = validate_checkpoint(head, config, contract, current=True)
         state = read_outbox(root)
     pending = [entry for entry in state["actions"].values() if entry["result"] is None]
     require(len(pending) <= 1, "tui_outbox_invalid")

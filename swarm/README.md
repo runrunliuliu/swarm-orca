@@ -60,6 +60,7 @@
 
 | 要查什么 | 文档 |
 | --- | --- |
+| 跨 Project 的任务与工作区模型 | [以任务为中心的工作区设计](docs/design/task-workspaces.md)：一个任务按需绑定多个仓库 worktree，跨入口续做复用，逐仓库交付并联合验收；仅设计理念，不代表自动化或强制隔离已实现 |
 | Coordinator 模型、权限与启动适配 | [部署配置](configuration.md)、[公开 JSON 示例](coordinator-model.json)、[Trae exec](trae-coordinator.md) |
 | Strict bootstrap 事件协议（Phase 1–4 本地开发） | [协议与工具契约](strict-bootstrap-protocol.md)：四 marker / 两阶段 wait / 原 builder 与 S5 同域准入，attempt-local owner 及双方候选交接工具已实现；`--check` 仍为 `ready:false`，不表示已部署常驻服务或通过 live 验收 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
@@ -90,3 +91,11 @@ tests/run_offline.sh -v
 
 本目录保留脚本、相邻协议及公开示例；`docs/` 存放通用手册和测试标准。
 真实配置显式选择；历史、状态、产物与凭据不进入公开版本控制，详见[部署边界](configuration.md)。
+
+## Software development domain
+
+Explicit strict TUI tasks can use the [software-development skill](skills/software-development/SKILL.md)
+and [versioned domain schema](docs/design/software-development-schema.md). The domain checker
+reuses the existing continuation chain; it does not launch Agents or authenticate execution.
+See the [implementation plan](docs/design/software-development-domain-adapter.md) for live
+acceptance boundaries. Existing RSI Runs keep their original configuration and pins.

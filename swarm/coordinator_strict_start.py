@@ -104,6 +104,12 @@ def validate_inputs(config, contract, *, unpublished=False):
             "strict_start_objective_required")
     require(type(config["max_workers"]) is int and config["max_workers"] > 0,
             "strict_start_max_workers_required")
+    if "domain_binding" in contract:
+        from software_development import scoped_json
+        task = scoped_json(contract["domain_binding"]["contract"], contract["observation"]["roots"])
+        require(config["objective"] == task["objective"]
+                and config["max_workers"] == task["policy"]["max_workers"],
+                "software_startup_task_changed")
     require(isinstance(config["request_id"], str)
             and str(uuid.UUID(config["request_id"])) == config["request_id"],
             "strict_start_request_id_invalid")

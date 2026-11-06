@@ -30,6 +30,14 @@ Swarm coordination, and worktree delivery workflows without a private parent che
 skill installation. Deployment-specific configuration and domain roles are explicit inputs; see
 [configuration](swarm/configuration.md).
 
+## Task-centric development model (design)
+
+The [task workspace design](swarm/docs/design/task-workspaces.md) separates task identity from
+Projects and terminals. One task can span multiple repositories, with dedicated worktrees created
+before modification, reused across conversation entry points, and delivered per repository with
+task-level acceptance. This is a design direction, not a claim that automatic routing or enforced
+write isolation is implemented.
+
 ## Release status
 
 This tree has been copied for migration work only. Do not publish it until the

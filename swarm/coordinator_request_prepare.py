@@ -63,6 +63,11 @@ def source_contract_fields(expected, fields):
     require(fields.get("skill_read_evidence") in exact_refs(expected["readiness_evidence"]),
             "strict_start_readiness_evidence_required")
     session_contract_value(fields)  # Reject a Run binding; never silently discard it.
+    if "domain_binding" in fields:
+        from software_development import scoped_json
+        task = scoped_json(fields["domain_binding"]["contract"], fields["observation"]["roots"])
+        if "task_deadline" in expected:
+            require(expected["task_deadline"] == task["policy"]["deadline"], "software_deadline_changed")
     return fields
 
 

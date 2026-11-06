@@ -68,6 +68,14 @@ Deployment and service restarts are separately authorized actions, not part of "
 Embedding workspaces should explicitly route relevant tasks here. Agent harnesses differ in how
 nested instructions are loaded; do not rely on automatic recursive discovery.
 
+## Task workspace design
+
+When planning task/workspace routing or cross-project development, read
+[the task-centric workspace design](swarm/docs/design/task-workspaces.md). A logical task may bind
+multiple repository worktrees and continue from different Projects or terminals; entry points are
+not task identities. This is a target design, not an implemented automatic gate or permission to
+migrate existing Runs. Current task authorization, isolation policy and delivery requirements still apply.
+
 ## Skills
 
 Discover skills through the table below and read the applicable `SKILL.md` completely before acting.
@@ -79,6 +87,7 @@ repository reading entry points, not a claim that every harness automatically li
 | Orca worktrees, terminals, repositories or handoff | [orca-cli](orca/skills/orca-cli/SKILL.md) |
 | Native messages, tasks, Dispatches and lifecycle | [orchestration](orca/skills/orchestration/SKILL.md) |
 | Supervised Swarm preparation, Coordinator loop, recovery and accounting | [swarm-orchestration](swarm/skills/swarm-orchestration/SKILL.md) |
+| Strict software-development-v1 scope, progress and evidence | [software-development](swarm/skills/software-development/SKILL.md) |
 | Review, merge, optional deployment and safe worktree cleanup | [worktree-delivery](swarm/skills/worktree-delivery/SKILL.md) |
 
 The first two entries load version-matched guides from the selected executable; they do not duplicate

@@ -253,6 +253,39 @@ class WorkerPlanTests(unittest.TestCase):
             self.assertEqual(plan["resolved_profile"]["config"], file_ref(PROFILES))
             self.assertEqual(request, before)
 
+    def test_pi_profile_passes_only_the_pinned_model_selector(self):
+        request = dict(self.request(), model="example-pi-model")
+        before = copy.deepcopy(request)
+        plan = build_plan(request)
+        argv = plan["argv"]
+        self.assertEqual(argv[argv.index("--agent") + 1], "pi")
+        self.assertEqual(argv[argv.index("--model") + 1], "example-pi-model")
+        # Trae launch settings must not be invented for Pi.
+        self.assertNotIn("--effort", argv)
+        self.assertNotIn("--backend-variant", argv)
+        self.assertEqual(argv[-1], "--json")
+        self.assertEqual(plan["resolved_profile"]["agent"], "pi")
+        self.assertEqual(plan["resolved_profile"]["config"], file_ref(PROFILES))
+        self.assertEqual(request, before)
+
+    def test_pi_profiles_reject_trae_launch_settings_and_unknown_agents(self):
+        original = json.loads(PROFILES.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory).resolve() / "profiles.json"
+            for changes, error in (({"effort": "high"}, "invalid_pi_profile_settings"),
+                                   ({"effort": "max"}, "invalid_pi_profile_settings"),
+                                   ({"backend_variant": "max"}, "invalid_pi_profile_settings"),
+                                   ({"backend_variant": "standard"}, "invalid_pi_profile_settings"),
+                                   ({"agent": "codex"}, "invalid_worker_profile_settings"),
+                                   ({"blocked_reason": "pi_unverified"}, "worker_profile_blocked")):
+                changed = copy.deepcopy(original)
+                changed["profiles"]["example-pi-model"].update(changes)
+                profile_path.write_text(json.dumps(changed))
+                with patch("coordinator_worker_profiles.PROFILES", profile_path):
+                    with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, error):
+                        build_plan(dict(self.request(), model="example-pi-model",
+                                        profiles_sha256=file_ref(profile_path)["sha256"]))
+
     def test_even_matching_or_null_launch_overrides_are_rejected(self):
         for field, value in (("agent", "trae"), ("effort", "high"), ("effort", "xhigh"),
                              ("backend_variant", "max"), ("backend_variant", "standard")):

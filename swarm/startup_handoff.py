@@ -164,12 +164,17 @@ def candidate_template(action, plan, contract, inputs):
                     notes="ORIGINAL_OPERATOR_REVIEW_NOTES")
     if action == "continuation":
         admitted = admission(inputs[0], confirmed(plan, root / "admission.json"))
-        return dict(schema_version=1, contract=admitted["contract"], dispatch_gate=admitted["dispatch_gate"],
+        result = dict(schema_version=1, contract=admitted["contract"], dispatch_gate=admitted["dispatch_gate"],
                     scheduler=plan["sender"], output_dir=str(Path(plan["continuation_publication"]).parent),
                     acceptance={"path": "ACCEPTANCE_PATH", "sha256": "RAW_SHA256"},
                     deadline=plan["runtime"]["deadline"] if "runtime" in plan else "AUTHORIZED_DEADLINE",
                     source={"path": "DOMAIN_SOURCE_PATH", "sha256": "RAW_SHA256"},
                     receipt={"path": "DOMAIN_RECEIPT_PATH", "sha256": "RAW_SHA256"})
+        if "domain_binding" in contract:
+            result.update(schema_version=2, domain_binding=contract["domain_binding"])
+            task = parse(pinned(contract["domain_binding"]["contract"]))
+            result.update(acceptance=task["acceptance"], deadline=task["policy"]["deadline"])
+        return result
     return None
 
 

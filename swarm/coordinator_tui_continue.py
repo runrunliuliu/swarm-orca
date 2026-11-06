@@ -339,6 +339,7 @@ def validate_config(config, *, require_executing=True):
                 | ({"startup_lifecycle"} if config["schema_version"] == 2 and "startup_lifecycle" in config else set())
                 | ({"turn_protocol"} if config["schema_version"] == 2 and "turn_protocol" in config else set())
                 | ({"authority_binding"} if config["schema_version"] == 2 and "authority_binding" in config else set())
+                | ({"domain_binding"} if config["schema_version"] == 2 and "domain_binding" in config else set())
                 | (set(config) & {"execution", "startup_evidence"} if config["schema_version"] == 2 else set()),
             "tui_continuation_config_invalid")
     require("turn_protocol" not in config or config["turn_protocol"] == WORKFLOW_PROTOCOL,
@@ -366,9 +367,11 @@ def validate_config(config, *, require_executing=True):
         binding = read_json(binding_path)
         require(config.get("startup_lifecycle") == binding.get("lifecycle") and "execution" in config,
                 "startup_lifecycle_required")
+    validate(contract)
+    from coordinator_domain import validate_config_binding
+    validate_config_binding(config, contract)
     acceptance = parse(pinned(config["acceptance"]))
     require(isinstance(acceptance, dict) and set(acceptance) == {"requirements"}, "tui_acceptance_invalid")
-    validate(contract)
     if "authority_binding" in config:
         validate_binding(config["authority_binding"], contract, acceptance)
     require(contract["adapter"] == TUI_ADAPTER and contract["run"] is not None,
@@ -901,7 +904,7 @@ def step(config_ref, checkpoint_ref, *, mode, result_ref=None, action_seconds=60
             evidence = fence(contract, call)
             pinned(checkpoint_ref)
             load(config_ref)
-            validate_domain(record, contract, config)
+            validate_domain(record, contract, config, current=True)
             require(read_json(config["checkpoint_head"]) == checkpoint_ref, "tui_checkpoint_superseded")
             timing = freshness(contract, evidence, config["deadline"])
             require(timestamp(evidence["observed_at"]) > timestamp(entry["delivery"]["enqueued_at"]),
