@@ -1,6 +1,7 @@
-// Both formats are pinned to raw Linux captures (0.209.1 and 0.212.1).
+// Formats are pinned to raw Linux captures (0.209.1, 0.212.1 and 0.213.1).
 const CONTEXT_FOOTER = / · Context \d+% left · /i
 const MODEL_PATH_FOOTER = /^\S[^\n]* · (?:\/|~\/|[a-z]:[\\/])/i
+const TRAILING_CONTEXT_FOOTER = / · Context \d+% left$/i
 
 /** Fresh-start evidence only: the composer also remains visible during business turns. */
 export function hasTraeStartupComposer(lines: readonly string[]): boolean {
@@ -15,7 +16,8 @@ export function hasTraeStartupComposer(lines: readonly string[]): boolean {
       /^─{4,}$/.test(trimmed[index - 1] ?? '') &&
       /^─{4,}$/.test(trimmed[index + 1] ?? '') &&
       (CONTEXT_FOOTER.test(footer) ||
-        (MODEL_PATH_FOOTER.test(footer) && trimmed[index + 3] === '? for shortcuts'))
+        (MODEL_PATH_FOOTER.test(footer) &&
+          (TRAILING_CONTEXT_FOOTER.test(footer) || trimmed[index + 3] === '? for shortcuts')))
     )
   })
 }

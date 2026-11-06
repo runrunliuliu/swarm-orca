@@ -29,7 +29,8 @@ export function classifyRuntimeLongPoll(request: RpcRequest): RuntimeLongPollCla
   if (request.method === 'browser.clientHost.attach') {
     return 'browser-host'
   }
-  if (request.method === 'terminal.wait') {
+  // Startup readiness can outlast the socket idle timeout, just like ordinary waits.
+  if (request.method === 'terminal.wait' || request.method === 'terminal.waitForStartup') {
     return 'wait'
   }
   // Agent-prompt submission waits for the PTY's lifecycle transition (up to
