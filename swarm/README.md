@@ -2,6 +2,9 @@
 
 本目录包含原生 Swarm 的启动、续跑、监控和证据辅助工具，以及独立的固定 DAG Supervisor MVP。
 它们不是同一套执行器；先按 Run 类型选择入口，再读取对应操作文档。
+
+独立巡检工具：[Release radar](release_radar/README.md) 抓取同类产品更新，准备证据化分析包和
+GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自动发布。
 源码、示例配置和离线测试不等于已部署或已通过实机验收。
 
 ## 先找对入口
