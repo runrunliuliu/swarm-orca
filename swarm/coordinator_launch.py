@@ -200,6 +200,9 @@ def main(argv=None):
     if argv[:1] == ["worker-plan"]:
         from coordinator_worker_plan import cli_main
         return cli_main(argv[1:])
+    if argv[:1] == ["first-dispatch-prepare"]:
+        from coordinator_first_dispatch import prepare_main
+        return prepare_main(argv[1:])
     if argv[:1] == ["first-dispatch"]:
         from coordinator_first_dispatch import cli_main
         return cli_main(argv[1:])

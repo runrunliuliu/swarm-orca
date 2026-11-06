@@ -31,7 +31,7 @@ SWARM_WORKER_PROFILES=/canonical/private/worker-model-profiles.json \
 固定到交接。显式空值、不存在、相对/符号链接路径、hash 不符或不可用模型均拒绝，
 不回退公开配置。仅在变量未设置时使用相邻 `worker-model-profiles.json`。
 
-所有调用 Worker planner、first-dispatch、首派接受回执核验及生命周期链的进程，
+所有调用 Worker planner、`first-dispatch-prepare`、first-dispatch、首派接受回执核验及生命周期链的进程，
 必须使用同一已审查的路径/hash；首派会重新加载并比对 pin 和解析结果。
 生成的 argv 不自动携带该环境设置，父 shell 的设置也不会自动传到远端或新 Agent。
 启动操作者须在目标执行上下文明确交付并核验，不能仅在自己的终端 export 后假定完成。

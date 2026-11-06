@@ -82,7 +82,14 @@ CLI 路径保留原样，不回退到另一 runtime，也不允许在请求中�
 
 ### v2 启动门 Run 的第一个 Worker
 
-首派请求必须在以上字段外加入：
+新链先将上述普通 Worker 请求独立固定，不在其中放短期 gate；再按
+[受检首派发入口](coordinator-startup.md#受检首派发入口与过期刷新)建立 immutable package，
+运行 `first-dispatch-prepare` 取得可审查 READY。只有 package/READY 冻结并且接收路径就绪后，
+Operator 才生成 fresh gate；Coordinator 用 package、READY、gate 三组 pin 执行现有
+`first-dispatch --execute`。这样模型规划和独立审查不占用 gate 窗口，gate refresh 也不改
+Worker 请求、state root、slot 或业务参数。
+
+历史请求仍可在以上字段外加入：
 
 ```json
 {
@@ -104,7 +111,7 @@ CLI 路径保留原样，不回退到另一 runtime，也不允许在请求中�
 门过期时拒绝派发，Operator 在原 Run 重新检查并给出新 pin，不篡改或延长旧回执。
 缺省 native timeout 为 60 秒，外加 15 秒传输余量，必须完整落在两个 gate 的有效期内；
 显式 `timeout_ms` 也受同样约束。过大的 timeout 不能靠放宽 TTL 解决。
-有 intent 或结果不明必须对账，不能换目录/请求绕过。完整规则和证据文件见
+有 intent 或结果不明必须对账，不能换目录/请求绕过。完整规则、package schema、命令和证据文件见
 [受检首派发入口](coordinator-startup.md#受检首派发入口与过期刷新)。
 
 确认首派成功后，后续 Worker 请求不带 `first_dispatch`，沿用原生派发实时检查。

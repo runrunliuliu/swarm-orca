@@ -246,8 +246,8 @@ def phase_contract(phase):
             "placement uses exact id: and forbids name/repo/base_branch/display_name/comment/setup; "
             "task_title with spec names a Task, not a worktree. Planning is offline, not authorization "
             "or a dispatch receipt; native identity/capacity/gates and unknown-outcome rules still apply. "
-            "For the first Worker of a startup-gated v2 Run, the request MUST include first_dispatch "
-            "with contract and operator_gate pins and one fixed private state_root for this Run. "
+            "For the first Worker of a startup-gated v2 Run, one fixed private state_root is required; "
+            "the legacy chain embeds first_dispatch with contract and operator_gate pins in the request. "
             "Execute the returned first-dispatch helper argv, never a raw worker-start: it rechecks "
             "the Coordinator gate and starts once in the same tool invocation. An expired or short "
             "Operator gate needs an explicit Operator recheck against the original session receipt; "
@@ -255,6 +255,13 @@ def phase_contract(phase):
             "as Operator from the Coordinator context, restart, or change TTL. A dispatch intent or "
             "unknown result requires reconciliation, not another state directory or retry. After a "
             "confirmed first dispatch, later waves omit first_dispatch and use normal live checks. "
+            "Prefer the prepared chain: fix the contract, a plain Worker request without first_dispatch "
+            "and one private state_root in an immutable package, run first-dispatch-prepare for a "
+            "reviewable READY, then let the Operator issue the fresh gate and execute exactly one "
+            "first-dispatch --package/--ready/--operator-gate call. Planning and review must finish "
+            "before the gate; a 180-second receipt must not cover them. Package slot, READY and intent "
+            "are a local workflow fence, not a server-side exactly-once guarantee; schema: "
+            + str(Path(__file__).with_name("coordinator-startup.md").resolve()) + ". "
         )
     return OWNERSHIP + PHASES[phase] + worker_contract
 

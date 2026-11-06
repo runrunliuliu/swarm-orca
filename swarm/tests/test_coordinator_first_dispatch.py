@@ -50,6 +50,30 @@ class FirstDispatchTests(unittest.TestCase):
     def ref(self):
         return self.s.ref("worker-request.json", self.request)
 
+    def slot(self):
+        return {"runtime": self.s.contract["runtime"], "run": "run_test", "generation": 1}
+
+    def package(self, *, prefix="first-dispatch", slot=None, package_extra=None, worker=None):
+        if worker is None:
+            worker = copy.deepcopy(self.request)
+            del worker["first_dispatch"]
+        worker_ref = self.s.ref(prefix + "-worker.json", worker)
+        package = {
+            "schema_version": 1,
+            "kind": first.PACKAGE_KIND,
+            "contract": self.contract_ref,
+            "worker": worker_ref,
+            "state_root": str(self.state),
+            "slot": self.slot() if slot is None else slot,
+        }
+        package.update(package_extra or {})
+        return self.s.ref(prefix + "-package.json", package), worker_ref
+
+    def prepared(self, *, prefix="first-dispatch", **options):
+        package_ref, worker_ref = self.package(prefix=prefix, **options)
+        ready_ref = self.s.ref(prefix + "-ready.json", first.prepare_package(package_ref))
+        return package_ref, ready_ref, worker_ref
+
     def call(self, cli, runtime, args, *, timeout_seconds):
         self.calls.append((cli, runtime, args, timeout_seconds))
         self.assertTrue((self.state / "dispatch-intent.json").is_file())
@@ -89,6 +113,232 @@ class FirstDispatchTests(unittest.TestCase):
         gate = json.loads(pinned(result["gate"]))
         self.assertEqual(gate["previous_sha256"], self.operator["sha256"])
         self.assertLess(timestamp(result["received_at"]), timestamp(gate["valid_until"]))
+        # Legacy receipts keep their shape and gain only additive evidence.
+        self.assertEqual(result["request"], self.ref())
+        self.assertNotIn("package", result)
+        self.assertEqual(result["outcome"], "accepted")
+        self.assertIsNone(result["timeline"]["prepare_seconds"])
+
+    def test_prepare_package_is_deterministic_and_has_no_side_effects(self):
+        before = sorted(self.state.iterdir())
+        package_ref, ready_ref, worker_ref = self.prepared()
+        expected = json.loads(pinned(ready_ref))
+        self.assertEqual(first.prepare_package(package_ref), expected)
+        self.assertEqual(first.prepare_package(package_ref), expected)
+        self.assertEqual(expected["package"], package_ref)
+        self.assertEqual(expected["worker"], worker_ref)
+        self.assertEqual(expected["slot"], {
+            "runtime": self.s.contract["runtime"], "run": "run_test", "generation": 1})
+        self.assertFalse(expected["effectsApplied"])
+        self.assertEqual(sorted(self.state.iterdir()), before)
+        self.assertEqual(self.calls, [])
+
+    def test_prepared_package_dispatches_with_fresh_gate_without_replanning(self):
+        package_ref, ready_ref, worker_ref = self.prepared()
+        result = first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["outcome"], "accepted")
+        self.assertEqual(result["package"], package_ref)
+        self.assertEqual(result["ready"], ready_ref)
+        self.assertEqual(result["worker"], worker_ref)
+        self.assertEqual(len(self.calls), 1)
+        intent = json.loads((self.state / "dispatch-intent.json").read_text())
+        self.assertEqual(intent["package"], package_ref)
+        self.assertEqual(intent["ready"], ready_ref)
+        self.assertEqual(intent["slot"], {
+            "runtime": self.s.contract["runtime"], "run": "run_test", "generation": 1})
+        self.assertEqual(result["operator_gate"], self.operator)
+        self.assertEqual(intent["operator_gate"], self.operator)
+        accepted = first.verify_accepted(file_ref(self.state / "dispatched.json"),
+                                         contract_ref=self.contract_ref)
+        self.assertEqual(accepted["package"], package_ref)
+        self.assertEqual(accepted["outcome"], "accepted")
+        timeline = accepted["timeline"]
+        self.assertEqual(timeline["gate_completed_at"],
+                         json.loads(pinned(accepted["gate"]))["completed_at"])
+        self.assertEqual(timeline["requested_at"], accepted["requested_at"])
+        self.assertEqual(timeline["received_at"], accepted["received_at"])
+        self.assertEqual(timeline["valid_until"], accepted["valid_until"])
+        self.assertGreater(timeline["window_seconds_after_check"], 16)
+        self.assertGreaterEqual(timeline["native_seconds"], 0)
+        # Preparing is clock-free, so its duration stays unknown, never zero.
+        self.assertIsNone(timeline["prepare_seconds"])
+        self.assertEqual(timeline["unknown"], ["prepare_seconds"])
+
+    def test_prepared_ready_tamper_is_rejected_with_matching_pin(self):
+        package_ref, ready_ref, _ = self.prepared()
+        for key, value in (("timeout_seconds", 900.0),
+                           ("slot", dict(self.slot(), generation=2)),
+                           ("state_root", str(self.s.fixture.bootstrap))):
+            with self.subTest(key=key):
+                ready = json.loads(pinned(ready_ref))
+                ready[key] = value
+                # The forged READY carries its own correct pin: only a full
+                # recalculation from the package can reject it.
+                forged = self.s.ref("forged-ready.json", ready)
+                with patch("coordinator_first_dispatch.run_gate") as gate:
+                    with self.assertRaisesRegex(ValueError, "ready_binding_changed"):
+                        first.dispatch_package(package_ref, forged, self.operator, call=self.call)
+                    gate.assert_not_called()
+                self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
+    def test_prepared_package_slot_mismatch_is_rejected(self):
+        for key, value in (("run", "run_other"), ("generation", 2), ("runtime", "runtime_other")):
+            with self.subTest(key=key):
+                package_ref, _ = self.package(slot=dict(self.slot(), **{key: value}))
+                with patch("coordinator_first_dispatch.run_gate") as gate:
+                    with self.assertRaisesRegex(ValueError, "slot_binding_mismatch"):
+                        first.prepare_package(package_ref)
+                    gate.assert_not_called()
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
+    def test_prepared_package_rejects_embedded_gate_and_unknown_fields(self):
+        package_ref, _ = self.package(prefix="embedded", worker=copy.deepcopy(self.request))
+        with self.assertRaisesRegex(ValueError, "prepared_worker_must_not_embed_gate"):
+            first.prepare_package(package_ref)
+        package_ref, _ = self.package(prefix="extra", package_extra={"operator_gate": self.operator})
+        with self.assertRaisesRegex(ValueError, "invalid_first_dispatch_package"):
+            first.prepare_package(package_ref)
+        worker = copy.deepcopy(self.request)
+        del worker["first_dispatch"]
+        worker["run"] = "run_other"
+        package_ref, _ = self.package(prefix="rebound", worker=worker)
+        with self.assertRaisesRegex(ValueError, "request_binding_mismatch"):
+            first.prepare_package(package_ref)
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
+    def test_prepared_cli_requires_all_pins_and_rejects_mixed_chains(self):
+        package_ref, ready_ref, _ = self.prepared()
+        legacy = self.ref()
+        def run(args):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                return main(args), json.loads(output.getvalue())
+        prepared = ["--package", package_ref["path"], "--package-sha256", package_ref["sha256"],
+                    "--ready", ready_ref["path"], "--ready-sha256", ready_ref["sha256"],
+                    "--operator-gate", self.operator["path"],
+                    "--operator-gate-sha256", self.operator["sha256"]]
+        code, payload = run(["first-dispatch", "--request", legacy["path"],
+                             "--request-sha256", legacy["sha256"],
+                             "--ready", ready_ref["path"], "--execute"])
+        self.assertEqual((code, payload["error"]),
+                         (2, "invalid_legacy_first_dispatch_arguments"))
+        self.assertEqual(payload["outcome"], "not_attempted")
+        for args, error in (
+                (["--package", package_ref["path"], "--package-sha256", package_ref["sha256"]],
+                 "prepared_first_dispatch_arguments_required"),
+                ([*prepared, "--request-sha256", legacy["sha256"]],
+                 "prepared_first_dispatch_arguments_required"),
+                ([*prepared, "--operator-gate-sha256", ""],
+                 "prepared_first_dispatch_arguments_required")):
+            with self.subTest(error=error, args=args[:2]):
+                self.assertEqual(run(["first-dispatch", *args, "--execute"]),
+                                 (2, dict(payload, error=error)))
+        with patch("coordinator_first_dispatch.dispatch_package",
+                   return_value={"ok": True}) as dispatched:
+            self.assertEqual(run(["first-dispatch", *prepared, "--execute"]),
+                             (0, {"ok": True}))
+        dispatched.assert_called_once_with(
+            {"path": package_ref["path"], "sha256": package_ref["sha256"]},
+            {"path": ready_ref["path"], "sha256": ready_ref["sha256"]},
+            {"path": self.operator["path"], "sha256": self.operator["sha256"]})
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
+    def test_same_state_root_second_package_requires_reconciliation(self):
+        package_ref, ready_ref, _ = self.prepared()
+        self.assertTrue(first.dispatch_package(package_ref, ready_ref,
+                                               self.operator, call=self.call)["ok"])
+        worker = copy.deepcopy(self.request)
+        del worker["first_dispatch"]
+        worker["task"] = "task_second"
+        second, second_ready, _ = self.prepared(prefix="second", worker=worker)
+        for package, ready in ((package_ref, ready_ref), (second, second_ready)):
+            with self.subTest(package=package["path"]):
+                with self.assertRaisesRegex(ValueError, "requires_reconciliation"):
+                    first.dispatch_package(package, ready, self.operator, call=self.call)
+        self.assertEqual(len(self.calls), 1)
+        intent = json.loads((self.state / "dispatch-intent.json").read_text())
+        self.assertEqual(intent["package"], package_ref)
+
+    def test_prepared_inputs_changed_during_gate_stops_before_intent(self):
+        replacement = self.s.fixture.bootstrap / "replacement-profiles.json"
+        replacement.write_bytes(PROFILES.read_bytes())
+        package_ref, ready_ref, _ = self.prepared()
+        original = first.run_gate
+        def changing_gate(*args, **kwargs):
+            receipt = original(*args, **kwargs)
+            os.environ["SWARM_WORKER_PROFILES"] = str(replacement)
+            return receipt
+        with patch("coordinator_first_dispatch.run_gate", side_effect=changing_gate):
+            with self.assertRaisesRegex(ValueError, "first_dispatch_inputs_changed"):
+                first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
+    def test_prepared_acceptance_rejects_rebound_operator_gate(self):
+        package_ref, ready_ref, _ = self.prepared()
+        first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        intent_path = self.state / "dispatch-intent.json"
+        intent = json.loads(intent_path.read_text())
+        rebound = self.s.ref("other-operator.json", json.loads(pinned(self.operator)))
+        # Same bytes at another path: content hashing alone cannot tell the
+        # rebound receipt apart, so intent and receipt must agree on the pin.
+        self.assertNotEqual(rebound, intent["operator_gate"])
+        intent["operator_gate"] = rebound
+        intent_path.write_text(json.dumps(intent))
+        with self.assertRaisesRegex(ValueError, "acceptance_binding_changed"):
+            first.verify_accepted(file_ref(self.state / "dispatched.json"),
+                                  contract_ref=self.contract_ref)
+
+    def test_acceptance_rejects_drifted_timeline(self):
+        package_ref, ready_ref, _ = self.prepared()
+        first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        target = self.state / "dispatched.json"
+        receipt = json.loads(target.read_text())
+        receipt["timeline"]["prepare_seconds"] = 0.0
+        target.write_text(json.dumps(receipt))
+        with self.assertRaisesRegex(ValueError, "acceptance_timeline_changed"):
+            first.verify_accepted(file_ref(target), contract_ref=self.contract_ref)
+
+    def test_intent_publish_failure_after_link_blocks_redispatch(self):
+        package_ref, ready_ref, _ = self.prepared()
+        original = first.publish_new
+        def failing(target, value):
+            original(target, value)
+            if target.name == "dispatch-intent.json":
+                raise OSError("simulated directory fsync failure")
+        with patch("coordinator_first_dispatch.publish_new", side_effect=failing):
+            with self.assertRaisesRegex(ValueError, "requires_reconciliation") as stopped:
+                first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        self.assertEqual(stopped.exception.details["outcome"], "outcome_unknown")
+        self.assertEqual(stopped.exception.details["cause"],
+                         "first_dispatch_intent_outcome_unknown")
+        self.assertTrue((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+        with self.assertRaisesRegex(ValueError, "requires_reconciliation"):
+            first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        self.assertEqual(self.calls, [])
+
+    def test_prepared_package_rejects_changed_worker_and_ready(self):
+        package_ref, ready_ref, worker_ref = self.prepared()
+        Path(worker_ref["path"]).write_text("{}")
+        with self.assertRaisesRegex(ValueError, "file_pin_changed"):
+            first.dispatch_package(package_ref, ready_ref, self.operator, call=self.call)
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
+
+    def test_prepare_cli_outputs_reviewable_ready_without_execution(self):
+        package_ref, _, _ = self.prepared()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main(["first-dispatch-prepare", "--package", package_ref["path"],
+                                   "--package-sha256", package_ref["sha256"]]), 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result, first.prepare_package(package_ref))
+        self.assertFalse((self.state / "dispatch-intent.json").exists())
+        self.assertEqual(self.calls, [])
 
     def test_expired_operator_stops_without_intent_or_worker_and_refresh_reuses_run(self):
         gate = json.loads(pinned(self.operator))
@@ -296,8 +546,10 @@ class FirstDispatchTests(unittest.TestCase):
                     clock.side_effect = None
                     clock.return_value = (timestamp(now()) + timedelta(seconds=500)).isoformat()
             with patch("coordinator_first_dispatch.publish_new", side_effect=delayed):
-                with self.assertRaisesRegex(ValueError, "expired_before_start"):
+                with self.assertRaisesRegex(ValueError, "requires_reconciliation") as stopped:
                     self.execute()
+        self.assertIn("expired_before_start", stopped.exception.details["cause"])
+        self.assertEqual(stopped.exception.details["outcome"], "outcome_unknown")
         self.assertTrue((self.state / "dispatch-intent.json").exists())
         self.assertEqual(self.calls, [])
 

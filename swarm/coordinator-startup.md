@@ -90,16 +90,67 @@ Coordinator 的调用需原生 `ORCA_TERMINAL_HANDLE` 与核验目标相符，�
 
 ### 受检首派发入口与过期刷新
 
-在现有 Worker 请求中加入 `first_dispatch`（见 [Worker 参数计划](coordinator-worker-plan.md)），
-然后执行 `worker-plan` 返回的 helper argv。必须先完成授权/预算/文件工具/工作区所有权审查。
-该入口复用 `startup-gate` 和参数生成器，不另建 Coordinator、Run 或身份检查器：
+新链优先使用**准备包 → READY → fresh gate → 执行**，避免把模型规划、材料修订和独立审查
+放入 180 秒窗口。旧链仍可在 Worker 请求中加入 `first_dispatch`（见
+[Worker 参数计划](coordinator-worker-plan.md)）并执行 `worker-plan` 返回的 helper argv；不自动迁移。
+两条路径都必须先完成授权/预算/文件工具/工作区所有权审查，并复用同一个
+`coordinator_first_dispatch.py` 执行器、`startup-gate` 和参数生成器，不另建身份检查器：
 
-1. 在原 Coordinator 上下文实时重跑 Coordinator 的首派门，引用精确 Operator 回执。
-2. 独占保存新的 Coordinator gate；校验剩余窗口覆盖 native timeout 和 15 秒传输余量。
-3. 在固定私有 `state_root` 留下 `dispatch-intent.json`，最后再次校验时间，再调用原生派发一次。
-4. 保存原生 `dispatch-response.json`，只有明确 `ready/input_accepted` 且在门内返回才保存
+1. 无 fresh gate 时先固定普通 Worker 请求（不得含 `first_dispatch`）及 package。package 精确包含
+   `schema_version:1`、`kind:"coordinator_first_dispatch_package"`、派发契约 pin、Worker 请求 pin、
+   原始固定 `state_root`，以及从契约逐字派生的 `slot:{runtime,run,generation}`。
+2. `first-dispatch-prepare` 只读校验 package、契约、Worker 参数、CLI/profile/file pins、固定目录和
+   slot，输出确定性 READY。它不创建文件、锁、intent、Task、Dispatch 或 Worker；操作者独占保存
+   stdout、审查最终字节并固定 SHA256。READY 不授予执行权限，也不替代独立审查；它也不检查
+   `state_root` 内是否已有派发证据，该判定只在执行入口完成。
+3. package 和 READY 冻结且接收路径就绪后，原 Operator 才生成 fresh first-dispatch gate。刷新只替换
+   Operator gate envelope；不得编辑 package、READY、Worker 请求、slot 或 state root。
+4. 原 Coordinator 在一次 `first-dispatch --execute` 调用中 pin package、READY 和 fresh gate，实时重跑
+   Coordinator 首派门，重查 owner/generation、STOP、完整清单及动态授权边界；变化时停止，不在窗口内
+   返工材料。
+5. 独占保存新的 Coordinator gate；校验剩余窗口覆盖 native timeout 和 15 秒传输余量。在固定私有
+   `state_root` 留下 `dispatch-intent.json`，最后再次校验时间，再使用唯一原生 request ID 调用派发一次。
+6. 保存原生 `dispatch-response.json`，只有明确 `ready/input_accepted` 且在门内返回才保存
    `dispatched.json`。这证明请求被接受，不代表 Worker 完成任务。其中 `gate` 可供审查后建立
    continuation 配置；已绑定的旧配置/历史 gate 不覆盖，不能用旧 gate 代替本次派发证据。
+
+准备包示例（所有 `{path,sha256}` 都是已审查的原始字节 pin）：
+
+```json
+{
+  "schema_version": 1,
+  "kind": "coordinator_first_dispatch_package",
+  "contract": {"path": "/absolute/dispatch-contract.json", "sha256": "..."},
+  "worker": {"path": "/absolute/worker-request.json", "sha256": "..."},
+  "state_root": "/absolute/private/first-dispatch",
+  "slot": {"runtime": "runtime-id", "run": "run-id", "generation": 1}
+}
+```
+
+```bash
+python3 -B coordinator_launch.py first-dispatch-prepare \
+  --package /absolute/first-dispatch-package.json --package-sha256 PACKAGE_SHA256 \
+  > /absolute/new-ready.json
+
+# 仅在原 Coordinator 的真实原生上下文执行；Operator gate 必须在 READY 审查后新建：
+python3 -B coordinator_launch.py first-dispatch \
+  --package /absolute/first-dispatch-package.json --package-sha256 PACKAGE_SHA256 \
+  --ready /absolute/new-ready.json --ready-sha256 READY_SHA256 \
+  --operator-gate /absolute/fresh-operator-gate.json --operator-gate-sha256 GATE_SHA256 \
+  --execute
+```
+
+`slot` 把 package、Run/generation 和 intent 绑定到同一业务操作身份，但仍只是本地工作流 fence；
+它不是服务端分布式锁。不同状态目录、直接原生调用或丢失回包不能仅凭 package 自证 exactly-once。
+出现 intent 后结果统一按 `outcome_unknown` 对账；成功回执为 `outcome:accepted`，intent 前拒绝为
+`not_attempted`。不得用 lease/PID 超时、`request-show=absent` 或空清单自动取得重派资格。
+intent 写入本身若在原子链接后失败，同样按 `outcome_unknown` 对账，不降级为 `not_attempted`。
+
+成功回执的 `timeline` 只记录实际观察到的时钟读数（Coordinator gate 完成时间、检查时间、请求/
+回包时间、`valid_until`）及其导出的窗口与原生耗时；准备阶段是确定性且无副作用的，因此
+`prepare_seconds` 明确为 `null` 并列入 `unknown`，不把未知时间写成 0。prepared 回执同时 pin
+本次使用的 fresh Operator gate，验收要求 intent 与回执在该 pin 上一致：字节相同的另一份回执
+不能替代原证据。
 
 Operator 回执超过 180 秒，或不足以覆盖动作窗口时，**不派发**：Operator 用原 dispatch
 contract 和原 session receipt 重新执行 `startup-gate --phase first-dispatch --actor operator`，
