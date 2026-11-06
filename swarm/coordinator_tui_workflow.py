@@ -229,7 +229,7 @@ def operator_review_finish(config_ref, result_ref, next_ref, processed_ref, rece
                     and saved.get("delivery") == delivery
                     and all(saved.get(k) == v for k, v in scope.items()), "tui_workflow_receipt_changed")
         journal["finish"] = scope
-        record, route = validate_checkpoint(next_ref, config, contract)
+        record, route = validate_checkpoint(next_ref, config, contract, current=True)
         source = parse(pinned(record["domain_check"]["source"]))
         if not ack_before:
             require(timestamp(checked["freshness"]["context_observed_at"])
@@ -254,7 +254,7 @@ def operator_review_finish(config_ref, result_ref, next_ref, processed_ref, rece
         replace_json(target, journal)
         check(config_ref, call=call)
         operator_review_processed_batch(processed_ref, result_ref, delivery, request, config, contract, root)
-        validate_checkpoint(next_ref, config, contract)
+        validate_checkpoint(next_ref, config, contract, current=True)
         ack = mutation(journal, target, "ack", ["orchestration", "check", "--run", contract["run"]["id"],
                        "--ack", delivery["deliveryId"], "--peek"], contract, call)
         ack_confirmed(ack, delivery["deliveryId"], contract["run"]["id"])
@@ -264,7 +264,7 @@ def operator_review_finish(config_ref, result_ref, next_ref, processed_ref, rece
                 return dict(state="retryable", retryable=True, execute_action=False,
                             next_step="retry_same_operator_review_finish_without_replay", retry_after_seconds=1)
             check(config_ref, call=call)
-            validate_checkpoint(next_ref, config, contract)
+            validate_checkpoint(next_ref, config, contract, current=True)
             require(read_json(config["checkpoint_head"]) in (request["checkpoint"], next_ref),
                     "tui_checkpoint_superseded")
             replace_json(Path(config["checkpoint_head"]), next_ref)
@@ -441,7 +441,7 @@ def finish(config_ref, result_ref, next_ref, processed_ref, receipt_path, *, rec
             if ack is not None:
                 ack_confirmed(ack, delivery["deliveryId"], contract["run"]["id"])
                 ack_before = True
-        record, route = validate_checkpoint(next_ref, config, contract)
+        record, route = validate_checkpoint(next_ref, config, contract, current=True)
         if submission and os.path.lexists(receipt):
             require(ack_before and saved.get("schema_version") == 2
                     and saved.get("ack") == ack and saved.get("request_id") == entry["request_id"],
@@ -482,7 +482,7 @@ def finish(config_ref, result_ref, next_ref, processed_ref, receipt_path, *, rec
         check(config_ref, call=call)
         recovery_boundary(recovery_ref, config_ref, action_entry(read_outbox(root), checkpoint), call)
         processed_batch(processed_ref, result_ref, delivery, entry, config, contract, root)
-        validate_checkpoint(next_ref, config, contract)
+        validate_checkpoint(next_ref, config, contract, current=True)
         ack = mutation(journal, target, "ack", ["orchestration", "check", "--run", contract["run"]["id"],
                        "--ack", delivery["deliveryId"], "--peek"], contract, call)
         ack_confirmed(ack, delivery["deliveryId"], contract["run"]["id"])
@@ -493,7 +493,7 @@ def finish(config_ref, result_ref, next_ref, processed_ref, receipt_path, *, rec
                 return dict(state="retryable", retryable=True, execute_action=False,
                             next_step="retry_same_finish_without_action_replay", retry_after_seconds=1)
             check(config_ref, call=call)
-            validate_checkpoint(next_ref, config, contract)
+            validate_checkpoint(next_ref, config, contract, current=True)
             require(read_json(config["checkpoint_head"]) in (checkpoint, next_ref), "tui_checkpoint_superseded")
             if submission:
                 # A stop can arrive during native I/O. It must not be erased or

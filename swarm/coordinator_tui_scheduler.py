@@ -657,7 +657,7 @@ def schedule(monitor, snapshot, call, *, observe_turn=completed):
         def pre_send():
             monitor.revalidate()
             load(ref)
-            validate_checkpoint(head, config, contract)
+            validate_checkpoint(head, config, contract, current=True)
             fence(monitor, call)
             if turn_changed(contract, call, observe_fenced, ended):
                 raise ReobserveBeforeSend("tui_turn_changed_before_send")

@@ -8,25 +8,23 @@ from coordinator_tui_errors import require
 from coordinator_loop import checkpoint_route
 from coordinator_tui_dependencies import wait_spec
 from coordinator_authority_bundle import ADAPTER, validate_binding, validate_progress
+from coordinator_domain import FIELDS, validate_domain
 
 
-FIELDS = ("requirements", "paths", "barriers", "decision", "next_action")
-
-
-def validate_checkpoint(ref, config, contract):
+def validate_checkpoint(ref, config, contract, *, current=False):
     require(any(path(ref["path"]).is_relative_to(Path(root))
                 for root in contract["observation"]["roots"]), "tui_checkpoint_outside_roots")
     record = parse(pinned(ref))
-    return validate_record(record, config, contract)
+    return validate_record(record, config, contract, current=current)
 
 
-def validate_record(record, config, contract):
+def validate_record(record, config, contract, *, current=False):
     """Validate the same projection before publication or after loading it."""
     require(set(record) == {"binding", "requirements", "checkpoint", "domain_check"},
             "tui_checkpoint_projection_invalid")
     require(canonical(record["binding"]) == canonical({"runtime": contract["runtime"], **contract["run"],
             "terminal": contract["coordinator"]["terminal"]}), "tui_checkpoint_binding_changed")
-    validate_domain(record, contract, config)
+    validate_domain(record, contract, config, current=current)
     acceptance = parse(pinned(config["acceptance"]))
     require(canonical(record["requirements"]) == canonical(acceptance["requirements"]),
             "tui_original_acceptance_changed")
@@ -36,7 +34,7 @@ def validate_record(record, config, contract):
     return record, route
 
 
-def validate_domain(record, contract, config=None):
+def validate_rsi_domain(record, contract, config=None):
     domain = record["domain_check"]
     binding = (config or {}).get("authority_binding")
     if config is not None and "authority_binding" in config:

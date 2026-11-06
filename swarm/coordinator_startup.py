@@ -60,6 +60,8 @@ def identity(contract):
     # Preserve v1 identity hashes; v2 timing policy cannot change between phases.
     if contract["schema_version"] == 2:
         result.update(schema_version=2, freshness=contract["freshness"])
+        if "domain_binding" in contract:
+            result["domain_binding"] = contract["domain_binding"]
         if "startup_anchor" in contract["observation"]:
             result["startup_anchor"] = contract["observation"]["startup_anchor"]
         if contract["adapter"] == TUI_ADAPTER:
@@ -75,7 +77,8 @@ def validate(contract):
         "schema_version", "adapter", "cli", "runtime", "workspace", "operator",
         "coordinator", "runtime_config", "role_skill", "handoff", "skill_read_evidence",
         "observation", "run"}
-    require(set(contract) == fields | ({"freshness"} if version == 2 else set()),
+    require(set(contract) == fields | ({"freshness"} if version == 2 else set())
+            | ({"domain_binding"} if version == 2 and "domain_binding" in contract else set()),
             "invalid_startup_contract")
     if version == 2:
         freshness = contract["freshness"]
@@ -106,6 +109,8 @@ def validate(contract):
             "role_skill_outside_workspace")
     for key in ("cli", "runtime_config", "role_skill", "handoff", "skill_read_evidence"):
         pinned(contract[key])
+    from coordinator_domain import validate_handoff
+    validate_handoff(contract)
     observation = contract["observation"]
     if tui:
         require(read_trae_execution(contract["runtime_config"]["path"]) == TUI_EXECUTION,
@@ -132,6 +137,10 @@ def validate(contract):
     require(run is None or (isinstance(run, dict) and set(run) == {"id", "generation"}
             and isinstance(run["id"], str) and run["id"].startswith("run_")
             and type(run["generation"]) is int and run["generation"] > 0), "invalid_run")
+    if "domain_binding" in contract:
+        require(tui, "software_requires_strict_tui")
+        from software_development import validate_binding
+        validate_binding(contract["domain_binding"], contract)
 
 
 def check_actor_context(contract, actor):

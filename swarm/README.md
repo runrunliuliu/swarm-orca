@@ -91,3 +91,11 @@ tests/run_offline.sh -v
 
 本目录保留脚本、相邻协议及公开示例；`docs/` 存放通用手册和测试标准。
 真实配置显式选择；历史、状态、产物与凭据不进入公开版本控制，详见[部署边界](configuration.md)。
+
+## Software development domain
+
+Explicit strict TUI tasks can use the [software-development skill](skills/software-development/SKILL.md)
+and [versioned domain schema](docs/design/software-development-schema.md). The domain checker
+reuses the existing continuation chain; it does not launch Agents or authenticate execution.
+See the [implementation plan](docs/design/software-development-domain-adapter.md) for live
+acceptance boundaries. Existing RSI Runs keep their original configuration and pins.

@@ -87,6 +87,7 @@ repository reading entry points, not a claim that every harness automatically li
 | Orca worktrees, terminals, repositories or handoff | [orca-cli](orca/skills/orca-cli/SKILL.md) |
 | Native messages, tasks, Dispatches and lifecycle | [orchestration](orca/skills/orchestration/SKILL.md) |
 | Supervised Swarm preparation, Coordinator loop, recovery and accounting | [swarm-orchestration](swarm/skills/swarm-orchestration/SKILL.md) |
+| Strict software-development-v1 scope, progress and evidence | [software-development](swarm/skills/software-development/SKILL.md) |
 | Review, merge, optional deployment and safe worktree cleanup | [worktree-delivery](swarm/skills/worktree-delivery/SKILL.md) |
 
 The first two entries load version-matched guides from the selected executable; they do not duplicate

@@ -19,6 +19,7 @@ from coordinator_tui_errors import failure, require
 from trae_coordinator import native
 from operator_sender import preflight as sender_preflight
 from coordinator_authority_bundle import ADAPTER
+from coordinator_domain import selection
 
 
 def validate_inputs(data, *, pre_execution=False):
@@ -33,9 +34,11 @@ def validate_inputs(data, *, pre_execution=False):
     require(isinstance(data, dict) and set(data) == {
         "schema_version", "contract", "dispatch_gate", "acceptance", "deadline",
         "scheduler", "output_dir", "source", "receipt"} | (set(data) & {
-            "startup_lifecycle", "turn_protocol", "authority_binding", "completion", "execution", "startup_evidence"})
-        and type(data["schema_version"]) is int and data["schema_version"] == 1,
+            "startup_lifecycle", "turn_protocol", "authority_binding", "completion", "execution", "startup_evidence", "domain_binding"})
+        and type(data["schema_version"]) is int and data["schema_version"] in (1, 2),
         "tui_prepare_inputs_invalid")
+    require((data["schema_version"] == 2) == ("domain_binding" in data),
+            "tui_prepare_domain_version_required")
     require(("authority_binding" in data) == ("completion" in data), "tui_prepare_authority_pair_required")
     output = Path(data["output_dir"])
     # Existing private parent, exact child, no symlink or implicit directory tree.
@@ -50,7 +53,7 @@ def validate_inputs(data, *, pre_execution=False):
     config = {key: data[key] for key in ("contract", "dispatch_gate", "acceptance", "deadline", "scheduler")}
     if "startup_lifecycle" in data:
         config["startup_lifecycle"] = data["startup_lifecycle"]
-    for key in ("execution", "startup_evidence"):
+    for key in ("execution", "startup_evidence", "domain_binding"):
         if key in data:
             config[key] = data[key]
     if "turn_protocol" in data:
@@ -69,13 +72,17 @@ def prepare(inputs_ref, *, call=native):
     data = parse(pinned(inputs_ref))
     output, config, contract = validate_inputs(data)
 
-
     def projection():
         # Check scope before reading domain files, including the first read.
         for key in ("source", "receipt"):
             require(any(path(data[key]["path"]).is_relative_to(Path(r))
                         for r in contract["observation"]["roots"]), "tui_domain_evidence_outside_roots")
-        source = parse(pinned(data["source"]))
+        if "domain_binding" in config:
+            from software_development import scoped_json
+            task = scoped_json(config["domain_binding"]["contract"], contract["observation"]["roots"])
+            source = scoped_json(data["source"], task["scope"]["read_roots"], task["scope"]["exclude_paths"])
+        else:
+            source = parse(pinned(data["source"]))
         require(isinstance(source, dict) and all(k in source for k in FIELDS),
                 "tui_domain_checkpoint_identity_mismatch")
         acceptance = parse(pinned(data["acceptance"]))
@@ -83,11 +90,11 @@ def prepare(inputs_ref, *, call=native):
                                "terminal": contract["coordinator"]["terminal"]},
                       requirements=acceptance["requirements"],
                       checkpoint={k: source[k] for k in FIELDS},
-                      domain_check=dict(adapter="rsi-authorized-progress-v1",
+                      domain_check=dict(adapter=selection(config, contract),
                                         source=data["source"], receipt=data["receipt"]))
         if "authority_binding" in config:
             record["domain_check"].update(adapter=ADAPTER, completion=data["completion"])
-        validate_record(record, config, contract)
+        validate_record(record, config, contract, current=True)
         return record, source
 
     def revalidate():
@@ -121,7 +128,7 @@ def prepare(inputs_ref, *, call=native):
     config_ref = file_ref(output / "continuation.json")
     load(config_ref)
     _, timing = revalidate()
-    validate_checkpoint(checkpoint_ref, config, contract)
+    validate_checkpoint(checkpoint_ref, config, contract, current=True)
     # Bind the new journal before advertising it; no outbox entries are invented.
     publish_new(output / "state" / "tui-continuation-binding.json", config_ref)
     publication = output / "continuation-ref.json"
@@ -150,6 +157,8 @@ def prepare(inputs_ref, *, call=native):
             "operator": ["deploy_monitor_with_same_sender_state", "observe_monitor_ready", "audit_first_scheduler_checkpoint"],
             "monitor_scheduler": ["observe_real_turn_end", "schedule_next_checkpoint"]}}
     readiness["startup_lifecycle"] = config.get("startup_lifecycle")
+    if "domain_binding" in config:
+        readiness["domain_binding"] = config["domain_binding"]
     if "authority_binding" in config:
         readiness["authority_binding"] = config["authority_binding"]
     if "turn_protocol" in config:
