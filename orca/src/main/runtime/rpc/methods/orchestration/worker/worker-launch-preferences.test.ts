@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { getAgentSessionOptionCatalog } from '../../../../../../shared/agent-session-option-catalog'
+import { resolveAgentSessionOptionLaunch } from '../../../../../../shared/agent-session-option-launch'
 import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../../../../shared/protocol-version'
 import {
   assertWorkerLaunchPreferencesCreateTerminal,
@@ -83,6 +84,54 @@ describe('orchestration worker launch preferences', () => {
     expect(() =>
       resolveWorkerLaunchPreferences({ agent: 'opencode', model: 'meta/muse-spark-1.3' })
     ).toThrow('does not support launch-time model selection')
+  })
+
+  it('passes a provider-qualified Pi model to the Pi launcher without a fallback', () => {
+    const model = 'platform/example-model-id'
+    expect(resolveWorkerLaunchPreferences({ agent: 'pi', model })).toEqual({
+      preferences: { model },
+      receipt: {
+        requested: { agent: 'pi', model, effort: null },
+        effective: { agent: 'pi', model, effort: null }
+      }
+    })
+    // The launch command is the only place the model actually reaches `pi`; an empty
+    // catalog row here would silently start the account's default model instead.
+    expect(resolveAgentSessionOptionLaunch('pi', { model }, [], false)).toEqual({
+      args: ['--model', model],
+      appliedValues: { model }
+    })
+  })
+
+  it('refuses to rewrite Trae effort or Max into Pi thinking', () => {
+    for (const [field, value] of [
+      ['effort', 'high'],
+      ['effort', 'max'],
+      ['backendVariant', 'max'],
+      ['backendVariant', 'standard']
+    ] as const) {
+      expect(() =>
+        resolveWorkerLaunchPreferences({
+          agent: 'pi',
+          model: 'platform/example-model-id',
+          [field]: value
+        })
+      ).toThrow(
+        field === 'effort'
+          ? `does not support effort ${value}`
+          : `does not support backendVariant ${value}`
+      )
+    }
+  })
+
+  it('does not invent a Pi model when none is requested', () => {
+    expect(resolveWorkerLaunchPreferences({ agent: 'pi' })).toEqual({
+      preferences: undefined,
+      receipt: {
+        requested: { agent: 'pi', model: null, effort: null },
+        effective: { agent: 'pi', model: null, effort: null }
+      }
+    })
   })
 
   it('does not invent an effort when only a model is requested', () => {

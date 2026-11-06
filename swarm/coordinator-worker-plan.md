@@ -34,6 +34,19 @@ Trae 0.211.1 严格配置回读已确认 Standard 覆盖先前 Max；这不是�
 保留原请求和回执；有 intent/未知结果的旧尝试先对账，迁移不等于允许重试。
 这是 Swarm helper 的代码约束，不是 Orca 原生 CLI/RPC 的全局策略，也不改动固定 DAG Supervisor。
 
+### Pi Worker 固定参数
+
+Pi profile 的 `agent` 为 `pi`，且 `effort` 与 `backend_variant` 必须为 `null`；计划只生成
+`--agent pi --model <已固定选择器>`。模型值必须是一个 provider 限定选择器
+`<provider>/<model-id>`（Pi 的 `--model` 直接接受该形式，不需要另传 `--provider`），
+不要填裸别名或显示名，否则可能解析到其他 provider 的同名模型。
+
+Trae 的 effort 与 Max 不映射成 Pi 的 `--thinking`：配置中该项非空时以
+`invalid_pi_profile_settings` 拒绝，原生 CLI 同样拒绝 Pi 的 `--effort` 与 `--backend-variant`。
+因此该 profile 路径不会改写启动参数，也不会在计划内部退回其他模型；其余约束不变（模型须来自
+已 pin 配置、blocked 条目拒绝、无默认模型或降级）；`resolved_profile` 照实回显
+`effort`/`backend_variant` 为 `null`，实际会话模型仍须按原生回执和真实会话核验。
+
 ## 已有工作区
 
 Coordinator 在原授权归档目录保存请求，审查后固定文件的 SHA256：

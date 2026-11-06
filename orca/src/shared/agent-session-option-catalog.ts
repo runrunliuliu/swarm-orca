@@ -13,6 +13,7 @@ import {
 import { GROK_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-grok'
 import { MUSE_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-muse'
 import { OMP_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-omp'
+import { PI_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-pi'
 import { TRAE_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-trae'
 import type {
   AgentSessionOptionCatalog,
@@ -43,6 +44,7 @@ const CATALOGS: AgentSessionOptionCatalogMap = {
   grok: GROK_SESSION_OPTION_CATALOG,
   muse: MUSE_SESSION_OPTION_CATALOG,
   omp: OMP_SESSION_OPTION_CATALOG,
+  pi: PI_SESSION_OPTION_CATALOG,
   trae: TRAE_SESSION_OPTION_CATALOG
 }
 

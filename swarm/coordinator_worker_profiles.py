@@ -59,22 +59,30 @@ def resolve(model, sha256):
                 and isinstance(profile, dict)
                 and set(profile) == {"agent", "effort", "backend_variant", "blocked_reason"},
                 "invalid_worker_profile")
-        require(profile["agent"] == "trae"
-                and profile["effort"] in (None, "high", "xhigh")
-                and profile["backend_variant"] in ("max", "standard")
+        require(profile["agent"] in ("trae", "pi")
                 and (profile["blocked_reason"] is None
                      or isinstance(profile["blocked_reason"], str) and profile["blocked_reason"].strip()),
                 "invalid_worker_profile_settings")
+        if profile["agent"] == "trae":
+            require(profile["effort"] in (None, "high", "xhigh")
+                    and profile["backend_variant"] in ("max", "standard"),
+                    "invalid_worker_profile_settings")
+        else:
+            # A Pi profile is one provider-qualified --model selector. Trae effort and Max
+            # are not Pi thinking levels, so carrying either here is rejected, not converted.
+            require(profile["effort"] is None and profile["backend_variant"] is None,
+                    "invalid_pi_profile_settings")
     require(model in config["profiles"], "worker_model_not_in_fixed_profiles")
     profile = config["profiles"][model]
     require(profile["blocked_reason"] is None,
             "worker_profile_blocked:" + model + ":" + str(profile["blocked_reason"]))
-    # Keep Standard scoped to the verified GPT-5.4 adapter.
-    require((model == "gpt-5.4" and profile["backend_variant"] == "standard")
-            or (model != "gpt-5.4" and profile["backend_variant"] == "max"),
-            "worker_backend_adapter_unverified")
-    settings = {"agent": profile["agent"], "model": model,
-                "backend_variant": profile["backend_variant"]}
-    if profile["effort"] is not None:
-        settings["effort"] = profile["effort"]
+    if profile["agent"] == "trae":
+        # Keep Standard scoped to the verified GPT-5.4 adapter.
+        require((model == "gpt-5.4" and profile["backend_variant"] == "standard")
+                or (model != "gpt-5.4" and profile["backend_variant"] == "max"),
+                "worker_backend_adapter_unverified")
+    settings = {"agent": profile["agent"], "model": model}
+    for key in ("effort", "backend_variant"):
+        if profile[key] is not None:
+            settings[key] = profile[key]
     return settings, {"config": ref, "model": model, **profile}
