@@ -45,6 +45,7 @@ import {
 } from '../selectors'
 import { terminalCloseHandler } from './terminal-close'
 import { terminalSendHandler } from './terminal-send'
+import { terminalWaitStartupHandler } from './terminal-wait-startup'
 
 // Why: terminal wait legitimately needs to outlive the CLI's default RPC
 // timeout. Even without an explicit server timeout, the client must allow
@@ -115,6 +116,7 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
     printResult(result, json, formatTerminalRead)
   },
   'terminal send': terminalSendHandler,
+  'terminal wait-startup': terminalWaitStartupHandler,
   'terminal wait': async ({ flags, client, cwd, json }) => {
     const timeoutMs = getOptionalPositiveIntegerFlag(flags, 'timeout-ms')
     const result = await client.call<{ wait: RuntimeTerminalWait }>(

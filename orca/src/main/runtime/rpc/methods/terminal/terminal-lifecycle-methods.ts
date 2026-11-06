@@ -15,7 +15,8 @@ import {
   TerminalSplit,
   TerminalStop,
   TerminalStopExact,
-  TerminalWait
+  TerminalWait,
+  TerminalStartupWait
 } from './unary-schemas'
 import { TerminalResizeForClient } from './stream-schemas'
 
@@ -27,6 +28,17 @@ export const TERMINAL_LIFECYCLE_METHODS = [
       wait: await runtime.waitForTerminal(params.terminal, {
         condition: params.for,
         timeoutMs: params.timeoutMs,
+        signal
+      })
+    })
+  }),
+  defineMethod({
+    name: 'terminal.waitForStartup',
+    params: TerminalStartupWait,
+    handler: async (params, { runtime, signal }) => ({
+      startup: await runtime.waitForTerminalStartup(params.terminal, {
+        timeoutMs: params.timeoutMs,
+        expectedIncarnationId: params.expectedIncarnationId,
         signal
       })
     })

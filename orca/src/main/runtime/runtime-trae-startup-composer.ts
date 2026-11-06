@@ -7,17 +7,27 @@ import { hasTraeStartupComposer } from './trae-terminal-readiness'
 /** A pre-submit gate for a fresh Trae only, not evidence that an existing agent is idle. */
 export async function waitForTraeStartupComposer(
   readScreen: () => Promise<RuntimeTerminalRead>,
-  timeoutMs: number
+  timeoutMs: number,
+  options: { signal?: AbortSignal; assertFresh?: () => void } = {}
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
+    if (options.signal?.aborted) {
+      throw new Error('request_aborted')
+    }
+    options.assertFresh?.()
     const read = await settleBeforeDeadline<RuntimeTerminalRead | null>(
       readScreen,
       null,
       deadline,
       new Error('timeout'),
-      (error) => error instanceof Error && error.message === 'terminal_handle_stale'
+      (error) => error instanceof Error && error.message === 'terminal_handle_stale',
+      options.signal
     )
+    if (options.signal?.aborted) {
+      throw new Error('request_aborted')
+    }
+    options.assertFresh?.()
     // Only the current screen can prove that a startup dialog still owns input.
     const blockedReason =
       read?.source === 'screen' ? detectTerminalWaitBlockedReason(read.tail.join('\n')) : null

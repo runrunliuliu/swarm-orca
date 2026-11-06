@@ -234,6 +234,15 @@ and must not locally override it. The regression uses raw Linux PTY bytes throug
 and SSH-bound runtime panes, including desktop/headless mailbox races. These are in-process
 regressions, not a cross-version live deployment test.
 
+### Explicit Trae startup wait
+
+`terminal.waitForStartup` is a separate unary RPC used by `terminal wait-startup`.
+It does not widen the existing `terminal.wait` enum or change its idle evidence.
+Old hosts reject the unknown method; new clients must not fall back to ordinary waits or
+interpret a missing/mismatched `startup.ready` result as success. Old clients against new
+hosts retain the existing behavior. Startup success describes only a fresh Trae composer's
+current screen, never a business-turn completion or a lease to send. No status is published.
+
 ## Worked example: the `turn` journal item and its transitional downgrade
 
 The structured chat journal records a turn as a first-class item,

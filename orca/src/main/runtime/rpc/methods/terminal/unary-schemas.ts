@@ -19,5 +19,6 @@ export {
   TerminalStop,
   TerminalStopExact,
   TerminalViewport,
-  TerminalWait
+  TerminalWait,
+  TerminalStartupWait
 } from '../../../../../shared/rpc-contract/terminal-unary-params'

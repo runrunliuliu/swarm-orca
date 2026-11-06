@@ -512,6 +512,7 @@ import {
   TerminalSend,
   TerminalSetViewerColors,
   TerminalSplit,
+  TerminalStartupWait,
   TerminalStopExact,
   TerminalWait
 } from './terminal-unary-params'
@@ -1168,6 +1169,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'terminal.unsubscribe': TerminalUnsubscribe,
   'terminal.updateViewport': TerminalUpdateViewport,
   'terminal.wait': TerminalWait,
+  'terminal.waitForStartup': TerminalStartupWait,
   'ui.get': null,
   'ui.recordFeatureInteraction': FeatureInteractionIdParam,
   'ui.set': UiUpdate,

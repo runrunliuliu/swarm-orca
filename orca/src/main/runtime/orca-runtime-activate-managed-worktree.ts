@@ -182,24 +182,29 @@ export class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntimeWithListM
   async waitForFreshWorkerComposer(
     handle: string,
     agent: TuiAgent,
-    timeoutMs: number
+    timeoutMs: number,
+    options: { signal?: AbortSignal; assertFresh?: () => void } = {}
   ): Promise<void> {
     const initialPtyId =
       this.getLivePtyForHandle(handle)?.pty.ptyId ?? this.getLiveLeafForHandle(handle).leaf.ptyId
     let ptyId = initialPtyId
     if (agent === 'trae') {
       const initialIncarnationId = this.ptysById.get(initialPtyId)?.incarnationId
-      await waitForTraeStartupComposer(async () => {
-        this.assertLiveTerminalHandleTargetsPty(handle, initialPtyId)
-        const read = await this.readTerminal(handle, { screen: true })
-        // A stale read must not become either readiness or a blocker for its replacement.
-        this.assertLiveTerminalHandleTargetsPty(handle, initialPtyId)
-        const currentPty = this.ptysById.get(initialPtyId)
-        if (!currentPty?.connected || currentPty.incarnationId !== initialIncarnationId) {
-          throw new Error('terminal_handle_stale')
-        }
-        return read
-      }, timeoutMs)
+      await waitForTraeStartupComposer(
+        async () => {
+          this.assertLiveTerminalHandleTargetsPty(handle, initialPtyId)
+          const read = await this.readTerminal(handle, { screen: true })
+          // A stale read must not become either readiness or a blocker for its replacement.
+          this.assertLiveTerminalHandleTargetsPty(handle, initialPtyId)
+          const currentPty = this.ptysById.get(initialPtyId)
+          if (!currentPty?.connected || currentPty.incarnationId !== initialIncarnationId) {
+            throw new Error('terminal_handle_stale')
+          }
+          return read
+        },
+        timeoutMs,
+        options
+      )
     } else {
       ptyId = await waitForWorktreeStartupDraft(
         { ...this.getWorktreeStartupReadinessHost(), getPtyId: () => initialPtyId },
@@ -215,6 +220,61 @@ export class OrcaRuntimeWithActivateManagedWorktree extends OrcaRuntimeWithListM
     if (!this.ptysById.get(ptyId)?.connected) {
       throw new Error('terminal_handle_stale')
     }
+  }
+
+  /** Caller must own a fresh launch with no submitted task; this is not an idle lease. */
+  async waitForTerminalStartup(
+    handle: string,
+    options: { timeoutMs: number; expectedIncarnationId?: string; signal?: AbortSignal }
+  ): Promise<{ handle: string; agent: 'trae'; ready: true; incarnationId: string }> {
+    const initialPtyId =
+      this.getLivePtyForHandle(handle)?.pty.ptyId ?? this.getLiveLeafForHandle(handle).leaf.ptyId
+    const pty = this.ptysById.get(initialPtyId)
+    if (!pty?.connected || !pty.incarnationId) {
+      throw new Error('terminal_handle_stale')
+    }
+    if (pty.launchAgent !== 'trae') {
+      throw new Error('terminal_startup_agent_unsupported')
+    }
+    const { ptyId, incarnationId } = pty
+    const generation = this.getPtyLifecycleGeneration(ptyId)
+    const input = this.terminalRunFacts.readInputFence(ptyId, incarnationId)
+    if (!input?.complete) {
+      throw new Error('terminal_not_fresh')
+    }
+    const inputSequence = input.sequence
+    const assertFresh = (): void => {
+      this.assertLiveTerminalHandleTargetsPty(handle, ptyId)
+      const current = this.ptysById.get(ptyId)
+      if (
+        !current?.connected ||
+        current.incarnationId !== incarnationId ||
+        current.launchAgent !== 'trae' ||
+        this.getPtyLifecycleGeneration(ptyId) !== generation ||
+        (options.expectedIncarnationId && options.expectedIncarnationId !== incarnationId)
+      ) {
+        throw new Error('terminal_handle_stale')
+      }
+      const lifecycle = this.agentPromptLifecycleByPtyId.get(ptyId)
+      const explicit = this.getFreshExplicitAgentStatusForPty(handle, ptyId)
+      if (
+        (lifecycle?.workingSequence ?? 0) > 0 ||
+        this.terminalRunFacts.readInputFence(ptyId, incarnationId)?.sequence !== inputSequence ||
+        (explicit && explicit.status !== 'idle') ||
+        this.agentPromptSubmissionTailByPtyId.has(`${ptyId}\u0000${generation}`)
+      ) {
+        throw new Error('terminal_not_fresh')
+      }
+    }
+    await this.waitForFreshWorkerComposer(handle, 'trae', options.timeoutMs, {
+      signal: options.signal,
+      assertFresh
+    })
+    assertFresh()
+    if (options.signal?.aborted) {
+      throw new Error('request_aborted')
+    }
+    return { handle, agent: 'trae', ready: true, incarnationId }
   }
 
   protected sendStartupFollowupWhenReady(handle: string, followup: WorktreeStartupFollowup): void {

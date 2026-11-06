@@ -90,6 +90,97 @@ describe('orca cli worktree awareness', () => {
     })
   })
 
+  it('routes startup wait explicitly with a transport deadline and identity fence', async () => {
+    queueFixtures(
+      callMock,
+      okFixture('startup', {
+        startup: { handle: 'term_1', agent: 'trae', ready: true, incarnationId: 'inc-1' }
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    await main(
+      [
+        'terminal',
+        'wait-startup',
+        '--terminal',
+        'term_1',
+        '--expected-incarnation-id',
+        'inc-1',
+        '--timeout-ms',
+        '90000',
+        '--json'
+      ],
+      '/tmp'
+    )
+    expect(callMock).toHaveBeenCalledExactlyOnceWith(
+      'terminal.waitForStartup',
+      {
+        terminal: 'term_1',
+        expectedIncarnationId: 'inc-1',
+        timeoutMs: 90000
+      },
+      { timeoutMs: 95000 }
+    )
+  })
+
+  it.each([
+    {},
+    { startup: { handle: 'term_1', agent: 'trae', ready: false, incarnationId: 'inc-1' } },
+    { startup: { handle: 'other', agent: 'trae', ready: true, incarnationId: 'inc-1' } },
+    { startup: { handle: 'term_1', agent: 'trae', ready: true, incarnationId: 'old' } }
+  ])('refuses an unconfirmed startup response %j without fallback', async (reply) => {
+    const priorExitCode = process.exitCode
+    queueFixtures(callMock, okFixture('startup', reply))
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await main(
+        [
+          'terminal',
+          'wait-startup',
+          '--terminal',
+          'term_1',
+          '--expected-incarnation-id',
+          'inc-1',
+          '--json'
+        ],
+        '/tmp'
+      )
+      expect(process.exitCode).toBe(1)
+      expect(callMock).toHaveBeenCalledOnce()
+    } finally {
+      process.exitCode = priorExitCode
+    }
+  })
+
+  it('does not fall back when an older runtime rejects startup wait', async () => {
+    const priorExitCode = process.exitCode
+    callMock.mockRejectedValueOnce(new Error('method_not_found'))
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await main(['terminal', 'wait-startup', '--terminal', 'term_1', '--json'], '/tmp')
+      expect(process.exitCode).toBe(1)
+      expect(callMock).toHaveBeenCalledOnce()
+    } finally {
+      process.exitCode = priorExitCode
+    }
+  })
+
+  it('requires an explicit startup terminal even inside a terminal', async () => {
+    const priorExitCode = process.exitCode
+    process.env.ORCA_TERMINAL_HANDLE = 'term_implicit'
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await main(['terminal', 'wait-startup', '--json'], '/tmp')
+      expect(process.exitCode).toBe(1)
+      expect(callMock).not.toHaveBeenCalled()
+    } finally {
+      process.exitCode = priorExitCode
+    }
+  })
+
   it('prints terminal.read fallback screen lines in json mode', async () => {
     queueFixtures(
       callMock,

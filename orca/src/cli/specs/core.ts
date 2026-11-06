@@ -238,6 +238,13 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'for', 'timeout-ms']
   },
   {
+    path: ['terminal', 'wait-startup'],
+    summary: 'Wait for a fresh Trae composer before its first task (not business idle)',
+    usage:
+      'orca terminal wait-startup --terminal <handle> [--expected-incarnation-id <id>] [--timeout-ms <ms>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'expected-incarnation-id', 'timeout-ms']
+  },
+  {
     path: ['terminal', 'stop'],
     hidden: true,
     summary: 'Deprecated compatibility command for stopping terminal processes',

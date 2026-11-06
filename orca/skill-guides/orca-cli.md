@@ -55,6 +55,21 @@ ORCA terminal send --terminal <handle> --text "<task brief>" --enter --json
 
 Send only when the wait result reports `satisfied: true`. A timed-out `terminal wait` still prints a normal result, so read `wait.satisfied`, not the fact that something printed. On `satisfied: false`, re-run the wait once with a larger `--timeout-ms`. If it is still unsatisfied, report the handoff as not started and do not send. A prompt typed into a TUI that is still starting is lost.
 
+For a newly launched **Trae** with no task yet submitted, use its separate startup gate:
+
+```text
+ORCA terminal wait-startup --terminal <handle> --expected-incarnation-id <incarnationId> --timeout-ms 60000 --json
+```
+
+Require `startup.ready: true` and the matching handle/incarnation before the first send.
+This checks the current composer, not business idle, and never synthesizes a done hook.
+The caller must establish that this is a fresh launch with no prior task (not a resumed or
+adopted session). Known work, concurrent prompt submission/input, identity replacement and
+current blocking dialogs refuse readiness; missing history is not proof of no prior task.
+The result is a snapshot, not a lock against another sender. After the first task, continue
+using ordinary `terminal wait --for tui-idle`. An older host may reject this new command or
+RPC; report startup as unverified, do not fall back to screen guessing or send anyway.
+
 Existing-terminal handoff:
 
 ```text
