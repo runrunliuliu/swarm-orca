@@ -15,9 +15,12 @@ not discovered by fuzzy matching.
 The `codex-local` adapter supports a **local Codex Coordinator on Linux**. The explicit
 `runtime_state.profile` must be the selected CLI's Orca profile, and
 `runtime_state.log_root` must be that Coordinator's canonical Codex session root.
-Remote execution and other providers need their own verified adapter; this mode
-does not silently substitute one. This check is separate from launch planning;
-it does not supply an Operator startup gate or a cross-turn Codex driver.
+Remote execution and other Coordinator providers need their own verified adapter; this mode
+does not silently substitute one. Pi has no `native-preflight` Coordinator adapter:
+`agent=pi` is only a Worker launch shape ([Worker 参数计划](coordinator-worker-plan.md)),
+and v2 rejects it with `unsupported_session_adapter`. This check is separate from
+launch planning and from the Operator startup gate; Pi Operator support is handled by
+the explicit `operator_session.py` runtime-state observer, not by `native-preflight`.
 
 ```bash
 python3 coordinator_launch.py native-preflight \

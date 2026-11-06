@@ -1,4 +1,4 @@
-"""Opt-in Codex/Trae TUI runtime-state accounting; no /proc, secrets or lifecycle writes.
+"""Opt-in Codex/Trae/Pi TUI runtime-state accounting; no /proc, secrets or lifecycle writes.
 
 The runtime's persistent hook mapping is attribution evidence, not process attestation.
 Only local 1.4.219 runtimes and same-user ordinary files are supported.
@@ -60,7 +60,7 @@ def read_state(path):
 
 
 def configuration(options):
-    require(isinstance(options, dict) and options.get("provider") in ("codex", "trae") and
+    require(isinstance(options, dict) and options.get("provider") in ("codex", "trae", "pi") and
             options.get("format") == "runtime-state", "runtime_state_explicit_mode_required")
     require(options.get("final", False) is False, "runtime_state_cannot_finalize")
     require(options.get("host") == socket.gethostname(), "runtime_state_wrong_execution_host")

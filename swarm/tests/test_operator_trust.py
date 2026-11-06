@@ -88,6 +88,26 @@ class OperatorTrustTests(unittest.TestCase):
             self.run_registration()
         self.assertEqual(self.target.read_bytes(), self.original)
 
+    def test_pi_operator_trust_receipt_is_read_only_native_preflight(self):
+        self.source["agent"] = "pi"
+        self.source["policy"] = {k: self.policy[k] for k in (
+            "enabled", "hostname", "username", "launch_context_confirmed")}
+        with patch.object(subject.trae_trust, "register", side_effect=AssertionError("trae grant")):
+            result = self.run_registration()
+            self.assertTrue(self.run_registration()["reused_receipt"])
+        self.assertEqual(result["registration"], {"workspace": str(self.workspace), "changed": False,
+                                                   "native_trust": "not_required", "agent": "pi"})
+        self.assertEqual(self.target.read_bytes(), self.original)
+        self.assertFalse(result["execution_authorized"])
+        self.assertTrue(all(c[0] in ("status", "repo", "worktree") for c in self.calls))
+
+    def test_agent_outside_the_reviewed_set_refuses_before_any_native_call(self):
+        self.source["agent"] = "codex"
+        with self.assertRaisesRegex(ValueError, "operator_trust_role_invalid"):
+            self.run_registration()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.target.read_bytes(), self.original)
+
     def test_refs_are_required_and_pinned(self):
         for key in ("authority_refs", "content_review_refs"):
             old = self.source[key]

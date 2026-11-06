@@ -32,6 +32,12 @@
       "backend_variant": null,
       "blocked_reason": null
     },
+    "codex-ark/example-ark-model": {
+      "agent": "codex-ark",
+      "effort": null,
+      "backend_variant": null,
+      "blocked_reason": null
+    },
     "example-blocked-model": {
       "agent": "trae",
       "effort": null,

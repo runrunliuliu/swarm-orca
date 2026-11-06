@@ -101,8 +101,7 @@ def validate(contract):
     workspace = path(contract["workspace"]["path"], directory=True)
     operator, coordinator = contract["operator"], contract["coordinator"]
     require(operator["terminal"] != coordinator["terminal"], "independent_terminal_required")
-    require((operator["provider"], operator["session"]) != ("trae", coordinator["session"]),
-            "independent_session_required")
+    require(operator["session"] != coordinator["session"], "independent_session_required")
     # Scope before reading; a skill from a neighbouring checkout is not the role.
     skill = path(contract["role_skill"]["path"])
     require(skill.is_relative_to(workspace) and skill.name == "SKILL.md",

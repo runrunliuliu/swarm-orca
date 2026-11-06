@@ -47,6 +47,31 @@ Trae 的 effort 与 Max 不映射成 Pi 的 `--thinking`：配置中该项非空
 已 pin 配置、blocked 条目拒绝、无默认模型或降级）；`resolved_profile` 照实回显
 `effort`/`backend_variant` 为 `null`，实际会话模型仍须按原生回执和真实会话核验。
 
+### Codex Ark Worker 固定参数
+
+Orca 当前没有 `codex-ark` 的 worker launch-preference catalog，`orchestration worker-start`
+会以 `Agent codex-ark does not support launch-time model selection` 拒绝 `--model`；
+`--effort` 与 `--backend-variant` 因要求 `--model` 而同样不可用。Ark 的模型、catalog、
+认证与 reasoning effort 由 wrapper 自己的 `CODEX_HOME` 配置拥有，不由 Orca 选择。
+
+因此 codex-ark profile 固定为 `agent=codex-ark`、`effort=null`、`backend_variant=null`，
+计划只生成 `--agent codex-ark`，不生成 `--model`/`--effort`/`--backend-variant`。
+profile 键必须写成 `codex-ark/<模型 ID>`：它是**声明的**模型身份，也避免该字符串被当作
+其他 Agent 的模型 ID 复用；键不符合时以 `invalid_codex_ark_profile_key` 拒绝。
+计划 `resolved_profile.model_source` 为 `agent_config`（模型只在 Agent 配置里）或
+`worker_argv`（模型经命令行固定），调用方据此区分“声明”与“argv 强制”。
+
+这项路径不读取 wrapper 配置、不查询 runtime，所以模型身份必须由 Operator 另外核验：固定
+wrapper 的 `config.toml` 与 catalog 原始字节 SHA，派发前在目标主机执行
+`codex-ark --ark-status` 核对 provider 与模型集合，再把同一份 pin 纳入交接和回执。
+该包装路径不改变 pin/hash 机制：配置丢失、hash 变化、未知模型、未适配组合与非空
+`effort`/`backend_variant` 仍在生成命令前拒绝，`blocked_reason` 仍以
+`worker_profile_blocked` 显式失败，没有默认模型或降级。
+
+`--writable-roots`/`write_isolation` 仍只接受 fresh local Trae；codex-ark 复用该参数会被拒绝。
+codex-ark 的受监督 Worker 原生生命周期（启动握手、真实模型/effort 回读、`worker_done`
+结算与释放）尚未验收，见 [Worker 白名单](worker-model-candidates.md)。
+
 ## 已有工作区
 
 Coordinator 在原授权归档目录保存请求，审查后固定文件的 SHA256：

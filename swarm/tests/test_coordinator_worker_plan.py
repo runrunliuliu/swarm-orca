@@ -286,6 +286,48 @@ class WorkerPlanTests(unittest.TestCase):
                         build_plan(dict(self.request(), model="example-pi-model",
                                         profiles_sha256=file_ref(profile_path)["sha256"]))
 
+    def test_codex_ark_profile_pins_only_the_agent_and_never_invents_a_model_flag(self):
+        # Orca has no worker launch-preference catalog for codex-ark: --model/--effort/
+        # --backend-variant are refused, so the wrapper config owns the model and only the
+        # agent is passed. The declared identity stays visible in resolved_profile.
+        request = dict(self.request(), model="codex-ark/example-ark-model")
+        before = copy.deepcopy(request)
+        plan = build_plan(request)
+        argv = plan["argv"]
+        self.assertEqual(argv[argv.index("--agent") + 1], "codex-ark")
+        for flag in ("--model", "--effort", "--backend-variant"):
+            self.assertNotIn(flag, argv)
+        self.assertEqual(argv[-1], "--json")
+        self.assertEqual(plan["resolved_profile"]["agent"], "codex-ark")
+        self.assertEqual(plan["resolved_profile"]["model"], "codex-ark/example-ark-model")
+        self.assertEqual(plan["resolved_profile"]["model_source"], "agent_config")
+        self.assertEqual(plan["resolved_profile"]["config"], file_ref(PROFILES))
+        self.assertEqual(request, before)
+
+    def test_codex_ark_profile_rejects_launch_settings_unscoped_keys_and_blocks(self):
+        original = json.loads(PROFILES.read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            profile_path = Path(directory).resolve() / "profiles.json"
+            variants = []
+            for changes, error in (({"effort": "high"}, "invalid_codex_ark_profile_settings"),
+                                   ({"backend_variant": "max"}, "invalid_codex_ark_profile_settings"),
+                                   ({"blocked_reason": "ark_worker_unverified"},
+                                    "worker_profile_blocked")):
+                changed = copy.deepcopy(original)
+                changed["profiles"]["codex-ark/example-ark-model"].update(changes)
+                variants.append((changed, error))
+            # A declared Ark model identity must not double as another agent's model id.
+            unscoped = copy.deepcopy(original)
+            unscoped["profiles"]["example-ark-model"] = unscoped["profiles"].pop(
+                "codex-ark/example-ark-model")
+            variants.append((unscoped, "invalid_codex_ark_profile_key"))
+            for catalog, error in variants:
+                profile_path.write_text(json.dumps(catalog))
+                with patch("coordinator_worker_profiles.PROFILES", profile_path):
+                    with self.subTest(error=error), self.assertRaisesRegex(ValueError, error):
+                        build_plan(dict(self.request(), model="codex-ark/example-ark-model",
+                                        profiles_sha256=file_ref(profile_path)["sha256"]))
+
     def test_even_matching_or_null_launch_overrides_are_rejected(self):
         for field, value in (("agent", "trae"), ("effort", "high"), ("effort", "xhigh"),
                              ("backend_variant", "max"), ("backend_variant", "standard")):

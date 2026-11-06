@@ -31,6 +31,12 @@ SWARM_WORKER_PROFILES=/canonical/private/worker-model-profiles.json \
 固定到交接。显式空值、不存在、相对/符号链接路径、hash 不符或不可用模型均拒绝，
 不回退公开配置。仅在变量未设置时使用相邻 `worker-model-profiles.json`。
 
+白名单的 `agent` 是闭集，不是自由字段：`trae` 由 argv 固定 effort/Max；`pi` 只接一个
+provider 限定 `--model` 选择器且拒绝 effort/backend；`codex-ark` 的模型由 wrapper 配置拥有，
+计划只传 `--agent codex-ark`，`resolved_profile.model_source` 因此会是 `agent_config` 而不是
+`worker_argv`。后两种声明的模型仍须由 Operator 另行核验，见
+[Worker 参数计划](coordinator-worker-plan.md)。
+
 所有调用 Worker planner、`first-dispatch-prepare`、first-dispatch、首派接受回执核验及生命周期链的进程，
 必须使用同一已审查的路径/hash；首派会重新加载并比对 pin 和解析结果。
 生成的 argv 不自动携带该环境设置，父 shell 的设置也不会自动传到远端或新 Agent。

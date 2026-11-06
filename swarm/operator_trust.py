@@ -1,4 +1,4 @@
-"""Explicit exact-workspace Trae trust preparation; never launch or approve a Run."""
+"""Explicit exact-workspace Operator trust preparation; never launch or approve a Run."""
 
 import argparse
 import errno
@@ -14,6 +14,11 @@ from supervisor.orca import Orca
 from supervisor import trae_trust
 
 
+SUPPORTED_ROLES = ("operator", "coordinator", "reviewer", "worker")
+TRAE_POLICY_KEYS = {"enabled", "hostname", "username", "trae_home", "launch_context_confirmed"}
+PI_POLICY_KEYS = {"enabled", "hostname", "username", "launch_context_confirmed"}
+
+
 def register(ref, *, env=None, native_factory=Orca):
     source = parse(pinned(ref))
     require(isinstance(source, dict) and set(source) == {
@@ -21,8 +26,8 @@ def register(ref, *, env=None, native_factory=Orca):
         "policy", "authority_refs", "content_review_refs", "directory"}
         and type(source["schema_version"]) is int and source["schema_version"] == 1,
         "operator_trust_input_invalid")
-    require(source["agent"] == "trae" and source["role"] in (
-        "operator", "coordinator", "reviewer", "worker"), "operator_trust_role_invalid")
+    require(source["agent"] in ("trae", "pi") and source["role"] in SUPPORTED_ROLES,
+            "operator_trust_role_invalid")
     runtime = source["runtime"]
     require(isinstance(runtime, dict) and set(runtime) == {
         "cli", "runtime_id", "version", "repo_id"}
@@ -37,9 +42,13 @@ def register(ref, *, env=None, native_factory=Orca):
     require(isinstance(source["head"], str) and re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", source["head"]),
             "operator_trust_head_invalid")
     policy = source["policy"]
-    require(isinstance(policy, dict) and set(policy) == {
-        "enabled", "hostname", "username", "trae_home", "launch_context_confirmed"},
-        "operator_trust_policy_invalid")
+    if source["agent"] == "trae":
+        require(isinstance(policy, dict) and set(policy) == TRAE_POLICY_KEYS,
+            "operator_trust_policy_invalid")
+    else:
+        require(isinstance(policy, dict) and set(policy) == PI_POLICY_KEYS and
+                policy.get("enabled") is True and policy.get("launch_context_confirmed") is True,
+                "operator_trust_policy_invalid")
     refs = [ref]
     for key in ("authority_refs", "content_review_refs"):
         require(isinstance(source[key], list) and source[key], "operator_trust_review_refs_required")
@@ -49,10 +58,13 @@ def register(ref, *, env=None, native_factory=Orca):
     launch_env = dict(os.environ if env is None else env)
     # Never let explicit -C inspect an environment-selected Git index/config/repo.
     require(not any(key.startswith("GIT_") for key in launch_env), "operator_trust_git_override")
-    config_dir, _ = trae_trust.context(policy, launch_env)
+    config_dir = None
+    if source["agent"] == "trae":
+        config_dir, _ = trae_trust.context(policy, launch_env)
     directory = path(source["directory"], directory=True)
+    protected = (target,) if config_dir is None else (target, config_dir)
     require(not any(directory == root or directory.is_relative_to(root)
-                    or root.is_relative_to(directory) for root in (target, config_dir)),
+                    or root.is_relative_to(directory) for root in protected),
             "operator_trust_receipt_overlap")
     require(all(not Path(item["path"]).is_relative_to(directory) for item in refs),
             "operator_trust_input_in_output")
@@ -67,7 +79,8 @@ def register(ref, *, env=None, native_factory=Orca):
         native.verify_runtime()
         observed = native.preflight(workspace, for_trust=True, expected_head=source["head"])
         require(observed == target, "operator_trust_workspace_changed")
-        trae_trust.check_context(policy, launch_env)
+        if source["agent"] == "trae":
+            trae_trust.check_context(policy, launch_env)
         # Native/Git checks can take time; reject evidence drift observed during
         # them before granting trust, not only during the post-write check.
         for item in refs:
@@ -80,18 +93,22 @@ def register(ref, *, env=None, native_factory=Orca):
             previous = read_json(receipt)
             expected = {"schema_version": 1, "kind": "operator_workspace_trusted",
                         "input": ref, "runtime": runtime, "workspace": workspace,
-                        "head": source["head"], "role": source["role"],
+                        "head": source["head"], "agent": source["agent"], "role": source["role"],
                         "status": "trusted_not_started", "execution_authorized": False,
                         "requires_launch_readiness_and_independent_audit": True}
             require(all(previous.get(key) == value for key, value in expected.items())
                     and isinstance(previous.get("registration"), dict)
                     and previous["registration"].get("workspace") == str(target),
                     "operator_trust_receipt_mismatch")
-            # Read-only revalidation, not a second grant if trust was revoked.
-            projects = trae_trust.parse(trae_trust.snapshot(config_dir / "traecli.toml")[0]).get("projects", {})
-            require(isinstance(projects, dict) and isinstance(projects.get(str(target)), dict)
-                    and projects[str(target)].get("trust_level") == "trusted",
-                    "operator_trust_revoked_or_missing")
+            if source["agent"] == "trae":
+                # Read-only revalidation, not a second grant if trust was revoked.
+                projects = trae_trust.parse(trae_trust.snapshot(config_dir / "traecli.toml")[0]).get("projects", {})
+                require(isinstance(projects, dict) and isinstance(projects.get(str(target)), dict)
+                        and projects[str(target)].get("trust_level") == "trusted",
+                        "operator_trust_revoked_or_missing")
+            else:
+                require(previous["registration"].get("native_trust") == "not_required",
+                        "operator_trust_receipt_mismatch")
             verify()
             return {"ok": True, "receipt": file_ref(receipt), "reused_receipt": True,
                     "status": "trusted_not_started", "execution_authorized": False}
@@ -99,11 +116,13 @@ def register(ref, *, env=None, native_factory=Orca):
                 "operator_trust_incomplete_attempt_preserve_and_reconcile")
         publish_new(directory / "trust-intent.json", {"input": ref, "started_at": now()})
         verify()
-        result = trae_trust.register(policy, target, launch_env)
+        result = (trae_trust.register(policy, target, launch_env) if source["agent"] == "trae" else
+                  {"workspace": str(target), "changed": False, "native_trust": "not_required",
+                   "agent": "pi"})
         verify()
         publish_new(receipt, {
             "schema_version": 1, "kind": "operator_workspace_trusted", "input": ref,
-            "runtime": runtime, "workspace": workspace, "head": source["head"],
+            "runtime": runtime, "workspace": workspace, "head": source["head"], "agent": source["agent"],
             "role": source["role"], "registered_at": now(), "registration": result,
             "status": "trusted_not_started", "execution_authorized": False,
             "requires_launch_readiness_and_independent_audit": True})

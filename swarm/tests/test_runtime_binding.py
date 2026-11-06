@@ -164,6 +164,16 @@ class RuntimeBindingTests(RuntimeBindingFixture, unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(SafetyError):
                 binding.configuration({**self.options, key: value})
 
+    def test_pi_runtime_state_uses_generic_cli_session_binding(self):
+        self.options["provider"] = "pi"
+        self.native.terminal["agentIdentity"] = "pi"
+        self.entry.update(source="pi", payload={"agentType": "pi", "prompt": "SECRET prompt"})
+        self.write_states()
+        result = self.capture()
+        self.assertEqual(result["identity"]["session_id"], "session-1")
+        self.assertEqual(result["identity"]["terminal"]["agentIdentity"], "pi")
+        self.assertNotIn("launch_token_hash", result["identity"])
+
     def test_wrong_runtime_route_pid_and_terminal_identity(self):
         cases = [(self.runtime, "runtimeId", "other"), (self.runtime, "pid", 456),
                  (self.native.status["target"], "kind", "remote"), (self.native.status["app"], "running", False),

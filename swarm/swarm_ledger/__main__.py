@@ -65,7 +65,7 @@ def parser():
     s.add_argument("--ended-at", required=True)
     s.add_argument("--outcome", required=True, choices=("succeeded", "failed", "cancelled"))
     s.add_argument("--source", required=True)
-    s = sub.add_parser("runtime-preflight", help="check local Codex/Trae runtime-state binding; no Run or usage import")
+    s = sub.add_parser("runtime-preflight", help="check local Codex/Trae/Pi runtime-state binding; no Run or usage import")
     for flag in ("runtime-id", "cli", "binding"):
         s.add_argument("--" + flag, required=True)
     sub.add_parser("export").add_argument("--output", required=True)
@@ -116,7 +116,7 @@ def main(argv=None):
                     require(isinstance(bindings, list), "bindings must be an array")
                     for binding in bindings:
                         require(isinstance(binding, dict), "binding must be an object")
-                        require(binding.get("provider") in ("codex", "trae"), "unsupported usage binding provider")
+                        require(binding.get("provider") in ("codex", "trae", "pi"), "unsupported usage binding provider")
                         require(type(binding.get("final", False)) is bool, "binding.final must be boolean")
                     with ledger.transaction():
                         value = ledger.sync(runtime, run_row, workers,
@@ -136,6 +136,8 @@ def main(argv=None):
                                         require(not binding.get("final") or binding.get("until"), "final binding needs fixed until")
                                         sample = scan(binding["file"], binding["session_id"], binding["since"],
                                                       binding.get("until") or ledger.now())
+                                elif binding["provider"] == "pi":
+                                    require(False, "unsupported Pi binding format")
                                 elif binding.get("format") == "jsonl":
                                     sample = trae_jsonl_sample(ledger, runtime, run, binding)
                                 else:

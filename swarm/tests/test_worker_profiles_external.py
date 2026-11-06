@@ -71,6 +71,20 @@ class ExternalWorkerProfilesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "worker_profile_blocked"):
             build_plan(self.request())
 
+    def test_external_policy_can_pin_a_codex_ark_worker_without_a_model_flag(self):
+        # The private deployment file is the only place a real Ark model identity is named;
+        # the plan still pins the exact bytes and never passes a model override.
+        self.config["profiles"]["codex-ark/deployment-ark-model"] = {
+            "agent": "codex-ark", "effort": None, "backend_variant": None,
+            "blocked_reason": None}
+        self.policy.write_text(json.dumps(self.config))
+        request = dict(self.request(), model="codex-ark/deployment-ark-model")
+        plan = build_plan(request)
+        self.assertEqual(plan["argv"][plan["argv"].index("--agent") + 1], "codex-ark")
+        self.assertNotIn("--model", plan["argv"])
+        self.assertEqual(plan["resolved_profile"]["config"], file_ref(self.policy))
+        self.assertEqual(plan["resolved_profile"]["model_source"], "agent_config")
+
     def test_request_cannot_select_policy_or_override_settings(self):
         for key in ("profiles_path", "profiles_config", "env", "effort", "backend_variant"):
             request = self.request()

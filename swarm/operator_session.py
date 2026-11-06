@@ -1,4 +1,4 @@
-"""Pinned-input Operator facade for the existing Trae TUI observation adapter.
+"""Pinned-input Operator facade for reviewed runtime-state Operator adapters.
 
 No raw hook JSON, credential fields, TUI transcript or live-authority claim is
 returned. The immutable full observation remains consumable by existing gates.
@@ -27,12 +27,12 @@ def observe_identity(*, cli, runtime, operator, workspace, profile, log_root,
                      max_age_seconds, previous=None):
     """Observe the Operator, without imposing Coordinator settings or borrowing its caller.
 
-    This TUI path shares the explicitly selected Trae log root. Other providers
-    need their own explicit adapter/root; never guess one from the local HOME.
+    This TUI path shares the explicitly selected provider log root. Providers
+    need their own explicit root; never guess one from the local HOME.
     The capture validates root session_meta as well as the native pane mapping.
     """
-    require(operator["provider"] == "trae", "operator_session_provider_unsupported")
-    options = dict(provider="trae", format="runtime-state", host=socket.gethostname(),
+    require(operator["provider"] in ("trae", "pi"), "operator_session_provider_unsupported")
+    options = dict(provider=operator["provider"], format="runtime-state", host=socket.gethostname(),
                    terminal_handle=operator["terminal"], worktree_id=workspace,
                    profile=profile, log_root=log_root, max_hook_age_seconds=max_age_seconds)
     try:

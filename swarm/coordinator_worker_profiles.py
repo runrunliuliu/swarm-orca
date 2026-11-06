@@ -13,6 +13,16 @@ from coordinator_io import FilePinChanged, digest, parse, pinned, read_bytes, re
 
 PROFILES = Path(__file__).resolve().with_name("worker-model-profiles.json")
 
+# Closed set. A new agent is supported only when its fixed launch shape is reviewed here;
+# this is not a free-form agent field.
+AGENTS = ("trae", "pi", "codex-ark")
+
+# Agents that own the model outside the Orca CLI. Orca has no launch-preference catalog
+# for them, so --model/--effort/--backend-variant are refused before a terminal exists.
+# The profile therefore declares the model identity and pins only the agent; the plan
+# must not invent a model flag, and the Operator must verify the agent config separately.
+AGENT_CONFIG_MODELS = frozenset({"codex-ark"})
+
 
 def source():
     """Return the policy path the caller must pin; an override never falls back."""
@@ -59,7 +69,7 @@ def resolve(model, sha256):
                 and isinstance(profile, dict)
                 and set(profile) == {"agent", "effort", "backend_variant", "blocked_reason"},
                 "invalid_worker_profile")
-        require(profile["agent"] in ("trae", "pi")
+        require(profile["agent"] in AGENTS
                 and (profile["blocked_reason"] is None
                      or isinstance(profile["blocked_reason"], str) and profile["blocked_reason"].strip()),
                 "invalid_worker_profile_settings")
@@ -67,11 +77,19 @@ def resolve(model, sha256):
             require(profile["effort"] in (None, "high", "xhigh")
                     and profile["backend_variant"] in ("max", "standard"),
                     "invalid_worker_profile_settings")
-        else:
+        elif profile["agent"] == "pi":
             # A Pi profile is one provider-qualified --model selector. Trae effort and Max
             # are not Pi thinking levels, so carrying either here is rejected, not converted.
             require(profile["effort"] is None and profile["backend_variant"] is None,
                     "invalid_pi_profile_settings")
+        else:
+            # Codex Ark keeps its model, catalog, authentication and effort in the wrapper
+            # config, so no launch override is expressible. The key is scoped to the agent to
+            # keep a declared model identity from being reused as another agent's model id.
+            require(name.startswith("codex-ark/") and bool(name[len("codex-ark/"):].strip()),
+                    "invalid_codex_ark_profile_key")
+            require(profile["effort"] is None and profile["backend_variant"] is None,
+                    "invalid_codex_ark_profile_settings")
     require(model in config["profiles"], "worker_model_not_in_fixed_profiles")
     profile = config["profiles"][model]
     require(profile["blocked_reason"] is None,
@@ -81,8 +99,14 @@ def resolve(model, sha256):
         require((model == "gpt-5.4" and profile["backend_variant"] == "standard")
                 or (model != "gpt-5.4" and profile["backend_variant"] == "max"),
                 "worker_backend_adapter_unverified")
-    settings = {"agent": profile["agent"], "model": model}
+    agent_config_model = profile["agent"] in AGENT_CONFIG_MODELS
+    settings = {"agent": profile["agent"]}
+    if not agent_config_model:
+        settings["model"] = model
     for key in ("effort", "backend_variant"):
         if profile[key] is not None:
             settings[key] = profile[key]
-    return settings, {"config": ref, "model": model, **profile}
+    # model_source records that this model is declared, not enforced by the plan's argv.
+    return settings, {"config": ref, "model": model,
+                      "model_source": "agent_config" if agent_config_model else "worker_argv",
+                      **profile}

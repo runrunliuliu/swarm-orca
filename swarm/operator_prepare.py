@@ -2,7 +2,8 @@
 
 prepare publishes local evidence only, ending at awaiting_external_audit.
 native-plan delegates the existing strict Coordinator planner, not a second launcher.
-observe-session delegates the existing Trae TUI reader after a session exists.
+observe-session delegates the existing Trae TUI Coordinator reader after a session exists;
+observe-operator delegates the reviewed Operator runtime-state reader.
 """
 
 import argparse

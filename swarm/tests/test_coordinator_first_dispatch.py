@@ -649,6 +649,19 @@ class FirstDispatchTests(unittest.TestCase):
         self.assertNotIn("--effort", native)
         self.assertNotIn("--backend-variant", native)
 
+    def test_codex_ark_request_keeps_the_gate_and_passes_no_launch_override(self):
+        self.request["model"] = "codex-ark/example-ark-model"
+        ref = self.ref()
+        plan = build_plan(self.request, request_ref=ref)
+        self.assertIn("first-dispatch", plan["argv"])
+        self.assertEqual(plan["resolved_profile"]["agent"], "codex-ark")
+        self.assertEqual(plan["resolved_profile"]["model_source"], "agent_config")
+        del self.request["first_dispatch"]
+        native = build_plan(self.request)["argv"]
+        self.assertEqual(native[native.index("--agent") + 1], "codex-ark")
+        for flag in ("--model", "--effort", "--backend-variant"):
+            self.assertNotIn(flag, native)
+
     def test_cli_requires_execute_and_reports_stale_gate(self):
         ref = self.ref()
         args = ["first-dispatch", "--request", ref["path"], "--request-sha256", ref["sha256"]]

@@ -22,6 +22,26 @@ input v4 → request v5，固定 `contract_fields`，从已审查的 `task_sourc
 [重新核验 Operator 自身会话及未读消息](coordinator-startup.md#契约与调用)，
 复用现有 runtime/log 读取器，未处理消息不会被准备脚本自动消费。
 
+## Agent / adapter 支持范围
+
+Operator strict gate 只接受已实现并显式选择的本地 runtime-state 适配器。Operator 侧
+Agent 不是可自由替换的配置项，也不能用 Worker 侧 profile 表达。
+
+| 位置 | 当前实现 | 边界 |
+| --- | --- | --- |
+| Coordinator exec | Trae（`trae_coordinator.py`） | 既有路径 |
+| Coordinator TUI / strict | Trae（`trae_tui.py`） | 既有路径，`strict_plan` 固定 `--agent trae` |
+| Coordinator Codex | `native-preflight` 的 `codex-local` adapter（schema v2） | 仅用于已有 Codex Coordinator 的只读预检；不是 Operator 适配器，也没有 Pi 等价物 |
+| Operator（外层 gate 角色） | Trae TUI / Pi runtime-state | `operator_session.py` 接受 `provider: trae` 或 `provider: pi`；Pi 复用 runtime-state 的 terminal/incarnation/provider session/transcript/TTL/pin 校验，不回退 Trae |
+| Worker | 由固定 [Worker 白名单](worker-model-candidates.md) 决定（Trae / Pi / codex-ark） | 与 Coordinator、Operator 配置分离 |
+
+Pi Operator 是一个额外候选，不是强制替代 Trae。它要求契约中显式写入 `provider: pi`、
+准确的 `profile`、`log_root`、terminal、incarnation 和 provider session；观察器只读取对应
+Pi hook/transcript，不猜另一个日志根、不回退 Trae。Pi 没有 Trae TOML trust 写入步骤；
+`operator_trust.register` 对 `agent: pi` 只做 runtime/workspace/head/ref 的只读核验，并发布
+`native_trust: not_required` 的 `trusted_not_started` receipt。Coordinator TUI / strict launch
+plan 仍固定 Trae；Worker 侧 `agent=pi` 仍是单独配置，不能自动当作 Operator 适配器。
+
 ## 1. 启动会话前冻结明确的输入
 
 外层先在原授权范围内准备好目标 worktree、报告仓库、基线、原始授权引用及一个空的

@@ -38,9 +38,9 @@ class OperatorSessionTests(unittest.TestCase):
     def save(self):
         self.ref = self.tui.ref("operator-observe.json", self.source)
 
-    def operator_input(self, *, expected=None, output=None):
+    def operator_input(self, *, expected=None, output=None, provider="trae"):
         data = dict(schema_version=1, cli=sys.executable, runtime="runtime_test",
-            operator={"provider": "trae", "terminal": "term_test", "incarnation": "inc_test",
+            operator={"provider": provider, "terminal": "term_test", "incarnation": "inc_test",
                       "session": tui_tests.legacy.SID},
             workspace="workspace_test", profile=str(self.tui.profile), log_root=str(self.f.root),
             context_max_age_seconds=1800,
@@ -165,6 +165,20 @@ class OperatorSessionTests(unittest.TestCase):
         self.assertFalse((self.directory / "operator-readonly.json").exists())
         self.assertEqual(result["session"]["session"], tui_tests.legacy.SID)
         self.assertEqual(result["effective"], {"effort": "xhigh"})
+
+    def test_pi_operator_identity_reuses_runtime_state_without_trae_launch_commitment(self):
+        self.tui.term["agentIdentity"] = "pi"
+        self.tui.entry.update(source="pi", payload={"agentType": "pi"})
+        self.tui.write_state()
+        op_ref = self.operator_input(provider="pi", expected={"cwd": str(self.f.cwd)},
+                                     output=self.directory / "pi-operator.json")
+        with patch("trae_tui.native", side_effect=self.tui.query):
+            result = observe_operator(op_ref)
+        self.assertEqual(result["session"]["provider"], "pi")
+        self.assertEqual(result["session"]["session"], tui_tests.legacy.SID)
+        self.assertEqual(result["effective"], {"cwd": str(self.f.cwd)})
+        raw = parse(pinned(result["observation"]))
+        self.assertNotIn("launch_token_hash", raw["identity"])
 
     def test_operator_identity_read_only_verifier_accepts_existing_observation_pin(self):
         output = self.directory / "operator-existing-observation.json"

@@ -135,9 +135,12 @@ def build_plan(request, *, request_ref=None):
     if "timeout_ms" in request:
         require(type(request["timeout_ms"]) is int and request["timeout_ms"] > 0,
                 "timeout_ms must be a positive integer")
+    # An agent-config-owned model is declared, not passed: the runtime would refuse the flag.
+    model_flag = not (resolved_profile and resolved_profile["model_source"] == "agent_config")
     options = [(key, text(request[key], key)) for key in
                ("run", "task", "spec", "task_title", "parent", "on", "agent", "terminal",
-                "model", "effort", "backend_variant", "retry_of") if key in request]
+                "model", "effort", "backend_variant", "retry_of")
+               if key in request and (key != "model" or model_flag)]
     options += placement
     for key in ("deps", "writable_roots"):
         if key in request:
