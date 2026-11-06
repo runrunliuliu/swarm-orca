@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { X, Minimize2, Pin } from 'lucide-react'
 import { stripLeadingAgentTitleDecoration } from '../../../../shared/agent-title-decoration'
+import { composeTerminalTitleWithActivity } from '../../../../shared/terminal-activity-summary'
+import { resolveTerminalTabActivitySummary } from '@/lib/terminal-activity-summary'
 import { useTabAgent } from '@/lib/use-tab-agent'
 import { isImeCompositionKeyDown } from '@/lib/ime-composition-keyboard-event'
 import { Input } from '@/components/ui/input'
@@ -117,9 +119,31 @@ export default function SortableTab({
   // Why: use hook status + title evidence so the icon reflects the harness running now, not just the launch command.
   const tabAgent = useTabAgent(tab)
 
+  // Why: harness titles are often just the agent name (`Codex`, `⠋ Trae`). Ask the pane status rows
+  // what the agent is actually doing so every terminal tab answers "working on what?" like Codex Ark
+  // and Trae TUI print in their own title. Selector returns a primitive (per-snapshot bucketing).
+  const activitySummary = useAppStore((s) =>
+    resolveTerminalTabActivitySummary({
+      tabId: tab.id,
+      agentStatusByPaneKey: s.agentStatusByPaneKey,
+      agentStatusEpoch: s.agentStatusEpoch
+    })
+  )
+
   // Why: with a provider icon shown, strip the agent's own leading glyph so the tab doesn't show two icons for one agent.
-  const displayTitle =
+  const titleText =
     tab.customTitle ?? (tabAgent ? stripLeadingAgentTitleDecoration(tab.title) : tab.title)
+  // Why: a rename stays the user's word; only an unnamed title is replaced by the live activity line.
+  const displayTitle = tab.customTitle
+    ? titleText
+    : composeTerminalTitleWithActivity(titleText, activitySummary, {
+        agentIdentityRequired: Boolean(tabAgent)
+      })
+  // Why: the label may now be the activity line, so the tooltip keeps the agent's own title visible.
+  const tooltipTitle =
+    activitySummary && displayTitle !== titleText
+      ? `${titleText} · ${activitySummary}`
+      : displayTitle
 
   const { attributes, listeners, setNodeRef } = useSortable({
     id: tab.id,
@@ -294,7 +318,7 @@ export default function SortableTab({
             sideOffset={6}
             className="max-w-80 whitespace-normal break-words text-left"
           >
-            {displayTitle}
+            {tooltipTitle}
           </TooltipContent>
         </Tooltip>
       )}

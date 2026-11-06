@@ -73,6 +73,8 @@ export type BuildSearchableWorkspaceTabsOptions = WorkspaceTabAgentMetadataState
   generatedTitlesEnabled: boolean
   terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
   paneForegroundAgentByPaneKey?: Record<string, PaneForegroundAgentEntry>
+  /** Live per-tab activity line (see lib/terminal-activity-summary); absent means title only. */
+  activitySummaryByTabId?: ReadonlyMap<string, string>
 }
 
 export const buildSearchableWorkspaceTabs = buildSearchableWorkspaceTabEntries

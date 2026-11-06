@@ -145,6 +145,62 @@ describe('tab title resolution', () => {
     ).toBe('Orca generated')
   })
 
+  it('shows the live activity line when the title names no work', () => {
+    expect(
+      resolveTerminalTabTitle(
+        { customTitle: null, generatedTitle: null, title: '⠋ Codex' },
+        false,
+        'Terminal',
+        'Edit: a.ts'
+      )
+    ).toBe('Edit: a.ts')
+    expect(
+      resolveTerminalTabTitle(
+        { customTitle: null, generatedTitle: null, title: '' },
+        false,
+        'Terminal',
+        'Bash: pnpm test'
+      )
+    ).toBe('Bash: pnpm test')
+  })
+
+  it('keeps a rename, a generated title, or a descriptive title ahead of the activity line', () => {
+    expect(
+      resolveTerminalTabTitle(
+        { customTitle: 'Payments', generatedTitle: null, title: '⠋ Codex' },
+        false,
+        'Terminal',
+        'Edit: a.ts'
+      )
+    ).toBe('Payments')
+    expect(
+      resolveTerminalTabTitle(
+        { customTitle: null, generatedTitle: 'Refactor auth', title: '⠋ Codex' },
+        true,
+        'Terminal',
+        'Edit: a.ts'
+      )
+    ).toBe('Refactor auth')
+    expect(
+      resolveTerminalTabTitle(
+        { customTitle: null, generatedTitle: null, title: '⠋ Codex — refactoring' },
+        false,
+        'Terminal',
+        'Edit: a.ts'
+      )
+    ).toBe('⠋ Codex — refactoring')
+  })
+
+  it('leaves resolution untouched when no activity line is supplied', () => {
+    expect(
+      resolveTerminalTabTitle(
+        { customTitle: null, generatedTitle: null, title: '⠋ Codex' },
+        false,
+        'Terminal'
+      )
+    ).toBe('⠋ Codex')
+  })
+
   it('uses the same priority for unified tab labels', () => {
     expect(
       resolveUnifiedTabLabel(
@@ -152,6 +208,14 @@ describe('tab title resolution', () => {
         true
       )
     ).toBe('Fix flaky tests')
+    expect(
+      resolveUnifiedTabLabel(
+        { customLabel: null, generatedLabel: null, label: 'Codex' },
+        false,
+        'Terminal',
+        'Edit: a.ts'
+      )
+    ).toBe('Edit: a.ts')
   })
 
   it('uses quick command labels before generated unified labels', () => {

@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { getAgentDotState } from './worktree-card-agent-summary'
 import { getAgentRowPrimaryText } from '@/lib/agent-row-primary-text'
 import { formatAgentToolPreview } from '@/lib/agent-row-tool-preview'
+import { shortenTerminalActivityText } from '../../../../shared/terminal-activity-summary'
 import { agentNoUpdateLabel } from '@/lib/agent-row-decay-state'
 import { useAgentRowConversationName } from '@/components/dashboard/use-agent-row-conversation-name'
 import { lastEnteredDoneAt } from '@/components/dashboard/agent-finished-timestamp'
@@ -47,12 +48,14 @@ export function getCompactAgentSecondary(
   }
   const toolPreview = formatAgentToolPreview(agent.entry, agent.state)
   if (toolPreview) {
-    return toolPreview
+    return shortenTerminalActivityText(toolPreview)
   }
   const lastAssistantMessage =
     lastAssistantMessageOverride ?? agent.entry.lastAssistantMessage?.trim()
   if (lastAssistantMessage) {
-    return lastAssistantMessage
+    // Why: same one-line budget the tab label uses, so a long assistant reply cannot
+    // push the sidebar row into two lines.
+    return shortenTerminalActivityText(lastAssistantMessage)
   }
   // Why: child rows without descriptions use their role as primary text; repeating its formatted label adds no information.
   if (agent.rowSource === 'subagent' && agent.entry.prompt?.trim() === agent.agentType.trim()) {

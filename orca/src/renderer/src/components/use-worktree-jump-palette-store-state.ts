@@ -5,6 +5,7 @@ import { useAppStore } from '@/store'
 import { usePluginCommands } from '@/store/plugin-panels'
 import { useSettingsNavigationMetadata } from '@/hooks/useSettingsNavigationMetadata'
 import { dedupePaletteWorktrees } from '@/lib/palette-repo-resolution'
+import { getTerminalActivitySummariesByTabId } from '@/lib/terminal-activity-summary'
 import {
   selectPaletteIndexStatusSnapshot,
   selectPaletteStatusInputs
@@ -74,6 +75,12 @@ export function useWorktreeJumpPaletteStoreState({
     unreadTerminalTabs,
     unreadAgentCompletionPanes
   } = paletteIndexStatus
+  // Why: same open-time freeze as the status snapshot — a palette row must not rewrite its second
+  // line while the user is reading it, and the frozen status map is already the cache key.
+  const activitySummaryByTabId = useMemo(
+    () => getTerminalActivitySummariesByTabId({ agentStatusByPaneKey }),
+    [agentStatusByPaneKey]
+  )
   const openFiles = useAppStore((state) => state.openFiles)
   const activeGroupIdByWorktree = useAppStore((state) => state.activeGroupIdByWorktree)
   const groupsByWorktree = useAppStore((state) => state.groupsByWorktree)
@@ -159,6 +166,7 @@ export function useWorktreeJumpPaletteStoreState({
     runtimePaneTitlesByTabId,
     unreadTerminalTabs,
     unreadAgentCompletionPanes,
+    activitySummaryByTabId,
     openFiles,
     activeGroupIdByWorktree,
     groupsByWorktree,

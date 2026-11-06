@@ -1,7 +1,3 @@
-import {
-  resolveTerminalTabTitle,
-  resolveUnifiedTabLabel
-} from '../../../shared/tab-title-resolution'
 import type { Tab } from '../../../shared/tab-types'
 import { getEditorDisplayLabel } from '@/components/editor/editor-labels'
 import { buildPaletteTabDocument } from './palette-match/tab-document'
@@ -35,6 +31,7 @@ import {
 import type { OpenFile } from '@/store/slices/editor'
 import type { TerminalTab } from '../../../shared/terminal-tab-types'
 import { isWorkspaceTabContentType } from './workspace-tab-palette-content-type'
+import { resolveTerminalPaletteTitles } from './workspace-tab-palette-terminal-title'
 
 function getActiveUnifiedTabId({
   worktreeId,
@@ -120,7 +117,8 @@ export function buildSearchableWorkspaceTabEntries({
   activeTabTypeByWorktree,
   generatedTitlesEnabled,
   terminalLayoutsByTabId,
-  paneForegroundAgentByPaneKey
+  paneForegroundAgentByPaneKey,
+  activitySummaryByTabId
 }: BuildSearchableWorkspaceTabsOptions): SearchableWorkspaceTab[] {
   const entries: SearchableWorkspaceTab[] = []
   const seenTabIdentities = new Set<string>()
@@ -215,31 +213,24 @@ export function buildSearchableWorkspaceTabEntries({
         if (terminalTab === null) {
           continue
         }
-        const terminalTitle = terminalTab
-          ? resolveTerminalTabTitle(terminalTab, generatedTitlesEnabled, 'Terminal')
-          : 'Terminal'
-        const title = resolveUnifiedTabLabel(
-          {
-            ...tab,
-            customLabel: tab.customLabel ?? terminalTab?.customTitle ?? null,
-            quickCommandLabel: tab.quickCommandLabel ?? terminalTab?.quickCommandLabel,
-            generatedLabel: tab.generatedLabel ?? terminalTab?.generatedTitle
-          },
+        const { title, secondaryText, secondaryTexts } = resolveTerminalPaletteTitles({
+          tab,
+          terminalTab,
           generatedTitlesEnabled,
-          terminalTitle
-        )
+          activitySummaryByTabId
+        })
         seenTabIdentities.add(tabIdentity)
         entries.push({
           ...baseEntry,
           title,
-          secondaryText: '',
+          secondaryText,
           titleSearchText: title,
-          secondarySearchTexts: [],
+          secondarySearchTexts: secondaryTexts,
           typeSearchAliases: ['terminal tab', 'terminal'],
           document: buildPaletteTabDocument({
             id: tab.id,
             title,
-            secondaryTexts: [],
+            secondaryTexts,
             worktreeName,
             branch,
             repoName,
