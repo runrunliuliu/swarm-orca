@@ -74,6 +74,13 @@ export type WorktreeCreateTiming = {
 export const SPARSE_TASK_CHECKOUT_MODE = 'task-workspace-v1' as const
 export type SparseTaskCheckoutMode = typeof SPARSE_TASK_CHECKOUT_MODE
 
+// M0 request limits. They live in the shared contract because a client has to be able to refuse an
+// over-limit request before sending it, and the host enforces the same numbers before any Git work.
+export const SPARSE_TASK_MAX_DIRECTORY_COUNT = 128
+export const SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES = 16 * 1024
+export const SPARSE_TASK_MAX_REQUIRED_PATH_COUNT = 256
+export const SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES = 32 * 1024
+
 export type CreateSparseCheckoutRequest = {
   directories: string[]
   /** Set when the directories came from a saved preset and the user did not
@@ -86,7 +93,6 @@ export type CreateSparseCheckoutRequest = {
    *  that cannot verify them refuses the create instead of silently dropping the requirement. */
   requiredPaths?: string[]
 }
-
 /**
  * What a task sparse create read back from the worktree it just made. Only the negotiated path
  * returns one, and only after HEAD and the effective cone were checked against the pinned request;
@@ -105,6 +111,8 @@ export type SparseTaskWorkspaceReceipt = {
   requestedSparseCone: string[]
   /** Cone read back from the created worktree's sparse-checkout state. */
   effectiveSparseCone: string[]
+  /** Declared required paths, strictly parsed and verified present in the created worktree. */
+  requiredPaths: string[]
 }
 
 /** A reusable per-repo sparse directory list. Saved by the user from the
