@@ -1,8 +1,9 @@
 # 以任务为中心的跨 Project 工作区模式
 
 状态：设计理念，未实现为统一的自动创建、跨入口续接或运行时强制隔离功能。
-只有“任务稀疏工作区创建契约”的 M0–M2 已合入主分支（固定基线、创建回执、树级与必需路径校验）；
-逻辑任务身份、跨入口路由、启动门禁、可恢复创建与任务绑定持久化均未实现。
+只有“任务稀疏工作区创建契约”的 M0–M2 已合入主分支（固定基线、创建回执、树级与必需路径校验），
+M4 只做了不删除失败现场与只读对账的止血部分；
+逻辑任务身份、跨入口路由、启动门禁、完整可恢复创建与任务绑定持久化均未实现。
 逐项对照见下文“当前实现状态”。
 本文不改变既有 Run、会话、授权和固定引用，不构成启动 Agent、合并、部署或清理的授权。
 
@@ -99,7 +100,7 @@
 
 ## 当前实现状态
 
-核对日 2026-11-07，`swarm-orca` main @ `be2d8c14`。本节只记录“代码里有什么”，
+核对日 2026-11-07，`swarm-orca` main @ `be2d8c14`（M4 止血在分支 `sparse-task-m4`，未合并）。本节只记录“代码里有什么”，
 不是验收结论；没有跑过的用例和没有授权过的原生闭环一律记为未验证。
 阶段划分与退出条件见 [Sparse 任务工作区开发计划](sparse-task-workspace-development-plan.md)
 和 [M0 契约冻结](sparse-task-workspace-m0-contract.md)。
@@ -130,7 +131,7 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 一任务多仓库绑定 | 不存在。`software-development-v1` 任务记录只有单值 `repository: {root, worktree, branch, base_commit}` |
 | 跨入口 / 跨 runtime 续接 | 不存在。入口与任务无关联，也没有“同任务复用原绑定”的运行时校验 |
 | 就绪门禁与副作用分离（M3） | 未实现。setup 决策没有 task 模式分支，任务工作区仍可与 `--setup run` 组合；未就绪工作区不会被 Agent/终端启动入口拒绝 |
-| 可恢复创建（M4） | 未实现。无客户端请求 ID、无持久回执、无 `create-status`；`needs_reconciliation` / 三态对账只存在于设计稿。响应丢失后仍可能回滚删目录并留孤儿分支 |
+| 可恢复创建（M4） | 仅止血。任务模式失败后不再删除/回滚，并在失败路径上做只读判定（`absent`/`live`/`partial`/`unverifiable`）与 `[sparse_task_create_needs_reconciliation]` 标记；仍无客户端请求 ID、无持久回执、无 `create-status`、无重启后对账。响应丢失后不会删除，但残留需要人工按[对账手册](sparse-task-workspace-reconciliation.md)处理 |
 | 任务绑定与交接（M5） | 未实现。worktree 元数据只存 `sparseDirectories`；`pinnedSha`、`actualHead`、`requiredPaths` 仅存在于单次创建回执，返回给调用方后不进任务/交接记录，交接无法被独立复核 |
 | 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |
 | Swarm 侧接入 | 未接入任务模式。`swarm` 仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`，因此拿不到本契约的 pin 与回执 |
@@ -148,7 +149,8 @@ legacy sparse 的行为、默认值和回滚策略不变。
   `sparse-task-required-paths.test.ts` 等定向用例存在。
 - 只有本地创建路径受契约覆盖；WSL 与跨宿主的必需路径探针未接入，假缺失按 fail-closed 处理。
 - Git 只在 2.39.5 实测；pinned tree 探针用 fatal UTF-8 解码，非 UTF-8 路径仓库会失败关闭。
-- task 模式保留现场后没有恢复协议，遗留目录、分支和部分索引需人工对账（归 M4）。
+- task 模式保留现场后仍没有恢复协议：只读判定与标记已实现，清理、重建与收养仍需人工按
+  [对账手册](sparse-task-workspace-reconciliation.md)处置，且写操作需单独授权（完整 M4 未做）。
 
 ## 分层落地方向与当前边界
 

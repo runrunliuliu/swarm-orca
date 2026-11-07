@@ -124,3 +124,26 @@
 
 - Orca `worktree create` 在约 31k 文件、网络存储的仓库上稳定失败：RPC 约 60–90 秒返回 `runtime_unavailable`，而完整检出需约 3.5 分钟；随后自动回滚删除仍在写入的目录，并留下孤儿分支。这正是 M4「响应丢失即回滚 / 保留 `needs_reconciliation`」要解决的场景。
 - 用 `git worktree add` 手工创建的工作区在原生 `worktree list` 可见，但缺 `createdAt` / `lastActivityAt`，项目区不一定显示。外部创建的工作区应被正常收养或明确报错，不能停在半注册状态，列入 M4 待定项。
+
+## 8. M4 最小止血交付状态（分支 `sparse-task-m4`，未合并、未部署）
+
+只做了讨论中确认的「止血」部分，不是完整 M4。
+
+已实现：
+
+- 任务模式创建失败后**不删除、不回滚**（沿用 M2 的 `retainPartialWorktreeOnFailure`），
+  新增失败后的只读判定：`absent` / `live` / `partial` / `unverifiable`，
+  `partial` 包含「登记在、目录无」的幽灵登记；判定不改 cone、不修复、不清理。
+- 失败带稳定标记 `[sparse_task_create_needs_reconciliation]` 与坐标（路径、分支、pinned SHA、
+  HEAD、目录存在性、幽灵登记、缺失必需路径），内层 `[sparse_task_*]` 码保留。
+- 只有**确实留有资源**时才加标记：创建在副作用前被拒绝的错误保持原样，可安全重试。
+- 代码位置：`orca/src/main/ipc/sparse-task-create-reconciliation.ts`，在
+  `createSparseTaskWorkspace` 的失败路径上调用（两条本地创建入口共用）。
+- 操作侧说明：[创建失败的只读对账运行手册](sparse-task-workspace-reconciliation.md)。
+
+仍未实现：客户端请求 ID 与先于副作用的持久回执、阶段化状态与 `create-status`、重启后三态对账、
+自动收养外部工作区、任何自动清理。这些仍按 M4 原条目推进。
+
+现场残留（已清理，2026-11-07）：`swarm-orca` 的 `git worktree list` 曾残留一个 `prunable` 登记
+`.orca-preparing/3131242-…`（目录已不存在、无孤儿分支）；按授权只执行了 `git worktree prune`，
+未动分支、未动 `release-radar`，父仓库无对应登记。
