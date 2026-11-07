@@ -1,5 +1,8 @@
 import type { AgentLaunchPreferences } from '../../shared/agent-session-host-authority'
-import type { CreateWorktreeArgs } from '../../shared/worktree/create-types'
+import type {
+  CreateSparseCheckoutRequest,
+  CreateWorktreeArgs
+} from '../../shared/worktree/create-types'
 import type {
   AutomationWorkspaceProvenance,
   CliWorkspaceProvenance,
@@ -40,7 +43,7 @@ export type RuntimeManagedWorktreeCreateArgs = {
   telemetrySource?: WorkspaceCreateTelemetrySource
   workspaceStatus?: string
   manualOrder?: number
-  sparseCheckout?: { directories: string[]; presetId?: string }
+  sparseCheckout?: CreateSparseCheckoutRequest
   pushTarget?: GitPushTarget
   runHooks?: boolean
   activate?: boolean

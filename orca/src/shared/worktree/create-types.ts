@@ -69,12 +69,52 @@ export type WorktreeCreateTiming = {
   preparedCheckout?: PreparedCheckoutOutcome
 }
 
+/** The only payload value that turns on the task sparse contract. Absent keeps legacy sparse
+ *  creation: same trimming/dedupe, no pinned base, no receipt, and no readback gate. */
+export const SPARSE_TASK_CHECKOUT_MODE = 'task-workspace-v1' as const
+export type SparseTaskCheckoutMode = typeof SPARSE_TASK_CHECKOUT_MODE
+
+// M0 request limits. Shared because a client must be able to refuse an over-limit request before
+// sending it; the host enforces the same numbers before any Git work. Only the task-workspace
+// request path applies them — a legacy sparse payload keeps its historical behavior.
+export const SPARSE_TASK_MAX_DIRECTORY_COUNT = 128
+export const SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES = 16 * 1024
+export const SPARSE_TASK_MAX_REQUIRED_PATH_COUNT = 256
+export const SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES = 32 * 1024
+
+
 export type CreateSparseCheckoutRequest = {
   directories: string[]
   /** Set when the directories came from a saved preset and the user did not
    *  modify them — recorded on WorktreeMeta so the worktree can show "from
    *  preset X" later. Cleared if the user edited the textarea. */
   presetId?: string
+  /** Opts into the task sparse contract (pinned base + readback receipt). */
+  mode?: SparseTaskCheckoutMode
+  /** Repo-relative paths a task workspace must have before start-up. Parsed on the wire so a host
+   *  that cannot verify them refuses the create instead of silently dropping the requirement. */
+  requiredPaths?: string[]
+}
+/**
+ * What a task sparse create read back from the worktree it just made. Only the negotiated path
+ * returns one, and only after HEAD and the effective cone were checked against the pinned request;
+ * a legacy sparse create keeps returning exactly what it returned before.
+ */
+export type SparseTaskWorkspaceReceipt = {
+  /** Whether the base came from the caller's `baseBranch` or from the creator's default. */
+  baseSource: 'request' | 'default'
+  /** The ref that was resolved before creation, so the caller can tell which ref the pin came from. */
+  resolvedRef: string
+  /** Full commit SHA the worktree was created at, not the (movable) base ref. */
+  pinnedSha: string
+  /** HEAD read back from the created worktree; the create fails unless this equals `pinnedSha`. */
+  actualHead: string
+  /** Requested cone, in first-seen order, deduplicated. */
+  requestedSparseCone: string[]
+  /** Cone read back from the created worktree's sparse-checkout state. */
+  effectiveSparseCone: string[]
+  /** Declared required paths, strictly parsed and verified present in the created worktree. */
+  requiredPaths: string[]
 }
 
 /** A reusable per-repo sparse directory list. Saved by the user from the
@@ -184,6 +224,9 @@ export type CreateWorktreeResult = {
   }
   defaultTabs?: WorktreeDefaultTabsLaunch
   warning?: string
+  /** Present only for the task sparse contract (`sparseCheckout.mode`); see
+   *  `SparseTaskWorkspaceReceipt` for what was verified before this was returned. */
+  sparseCheckoutReceipt?: SparseTaskWorkspaceReceipt
   baseFallback?: WorktreeCreateBaseFallback
   initialBaseStatus?: WorktreeBaseStatusEvent
   localBaseRefRefresh?: LocalBaseRefRefreshResult

@@ -161,8 +161,15 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
           : {})
       }
     }
-    const { worktree, worktreePath, includeCopyWarning, created, addResult, metadataResult } =
-      await createRuntimeLocalManagedWorktree({
+    const {
+      worktree,
+      worktreePath,
+      includeCopyWarning,
+      created,
+      addResult,
+      metadataResult,
+      sparseCheckoutReceipt
+    } = await createRuntimeLocalManagedWorktree({
         request: args,
         repo,
         store: this.requireStore(),
@@ -297,6 +304,7 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
         : {}),
       ...(defaultTabs ? { defaultTabs } : {}),
       ...(warning ? { warning } : {}),
+      ...(sparseCheckoutReceipt ? { sparseCheckoutReceipt } : {}),
       ...(addResult.localBaseRefRefresh
         ? { localBaseRefRefresh: addResult.localBaseRefRefresh }
         : {}),

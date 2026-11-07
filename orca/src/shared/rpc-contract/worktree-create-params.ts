@@ -16,6 +16,7 @@ import {
   AutomationWorkspaceProvenanceRequest,
   CliWorkspaceProvenanceRequest,
   OptionalTuiAgent,
+  WorktreeSparseCheckoutParams,
   assertLinkedWorkItemSourceContextMatch
 } from './worktree-params'
 
@@ -56,12 +57,7 @@ export const WorktreeCreate = z
       .optional(),
     workspaceStatus: OptionalString,
     manualOrder: OptionalFiniteNumber,
-    sparseCheckout: z
-      .object({
-        directories: z.array(z.string()),
-        presetId: OptionalString
-      })
-      .optional(),
+    sparseCheckout: WorktreeSparseCheckoutParams.optional(),
     pushTarget: z
       .object({
         remoteName: z.string(),

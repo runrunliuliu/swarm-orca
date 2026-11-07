@@ -124,6 +124,11 @@ export const TERMINAL_QUICK_COMMANDS_RUNTIME_CAPABILITY = 'terminal.quick-comman
 // status.worktreeCreateIdempotency carries the optional host retention policy.
 export const WORKTREE_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY =
   'worktree.create-idempotency.v1' as const
+// Why: only a host advertising this pins the base to a full SHA, reads HEAD/cone back, and returns
+// `sparseCheckoutReceipt`. An older host strips `sparseCheckout.mode` and answers with a legacy
+// sparse success, which a caller must not read as a task workspace.
+export const WORKTREE_SPARSE_TASK_WORKSPACE_RUNTIME_CAPABILITY =
+  'worktree.sparse-task-workspace.v1' as const
 // Scope of the claim: a hook that RUNS and fails cannot delete the checkout. It does not promise
 // the hook was found — an SSH host whose orca.yaml cannot be read answers "no hook" and the removal
 // proceeds, because a failed read is indistinguishable from an absent file across the relay
@@ -384,6 +389,7 @@ export const RUNTIME_CAPABILITIES = [
   TERMINAL_PAIRED_PARKING_RUNTIME_CAPABILITY,
   TERMINAL_QUICK_COMMANDS_RUNTIME_CAPABILITY,
   WORKTREE_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
+  WORKTREE_SPARSE_TASK_WORKSPACE_RUNTIME_CAPABILITY,
   WORKTREE_ARCHIVE_FAILURE_BLOCKING_RUNTIME_CAPABILITY,
   TERMINAL_CREATE_IDEMPOTENCY_RUNTIME_CAPABILITY,
   TERMINAL_CREATE_SHELL_SELECTION_RUNTIME_CAPABILITY,
