@@ -22,6 +22,7 @@ import type {
   WorktreeCreateBaseFallback
 } from '../../shared/worktree/create-types'
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
+import { createSparseTaskWorkspaceBinding } from '../../shared/worktree/sparse-task-binding'
 import type {
   AutomationWorkspaceProvenance,
   CliWorkspaceProvenance,
@@ -2955,6 +2956,11 @@ async function performLocalWorktreeCreate(
           sparseBaseRef: metadataBaseRef,
           sparsePresetId
         }
+      : {}),
+    // Why in this same write: a workspace that reports success must already carry the facts a start
+    // gate needs. Written separately, a failure here would publish a workspace nobody can gate.
+    ...(sparseCheckoutReceipt
+      ? { sparseTaskBinding: createSparseTaskWorkspaceBinding(sparseCheckoutReceipt, now) }
       : {}),
     ...(isTuiAgent(args.createdWithAgent) ? { createdWithAgent: args.createdWithAgent } : {}),
     ...(args.pendingFirstAgentMessageRename === true && isTuiAgent(args.createdWithAgent)

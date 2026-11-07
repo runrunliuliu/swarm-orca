@@ -12,6 +12,7 @@ import type {
 import type { TuiAgent } from '../tui-agent'
 import type { OrcaWorkspaceLayout } from '../global-settings-types'
 import type { DiffComment, MobileDiffReviewState } from '../diff-comment-types'
+import type { SparseTaskWorkspaceBinding } from './sparse-task-binding'
 
 // ─── Worktree metadata (persisted user-authored fields only) ─────────
 export type WorktreeMeta = {
@@ -67,6 +68,9 @@ export type WorktreeMeta = {
   firstAgentMessageRenameError?: string | null
   sparseDirectories?: string[]
   sparseBaseRef?: string
+  /** M5: the task sparse create this workspace came from. Absent for legacy and legacy sparse
+   *  creates, so a reader can never mistake a plain workspace for a task workspace. */
+  sparseTaskBinding?: SparseTaskWorkspaceBinding
   sparsePresetId?: string
   /** Intended create base for stale-base probes. Persisted metadata, not UI drift state. */
   baseRef?: string

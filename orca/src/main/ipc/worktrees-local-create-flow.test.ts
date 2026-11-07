@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolve } from 'node:path'
 import type { CreateWorktreeResult } from '../../shared/worktree/create-types'
+import { parseSparseTaskWorkspaceBinding } from '../../shared/worktree/sparse-task-binding'
 import { resolveRegisteredWorktreePath } from './registered-worktree-roots-cache'
 import { computeWorkspaceRootAsync } from './worktree-logic'
 import type * as WorktreeLogic from './worktree-logic'
@@ -853,5 +854,16 @@ describe('registerWorktreeHandlers', () => {
       ['ls-tree', '-z', '--full-tree', pinnedSha, '--', ':(literal)swarm'],
       expect.anything()
     )
+
+    // M5: the publishing write must carry a readable binding, else the start gate has nothing to
+    // read and a retry cannot tell this create from a plain one.
+    const persisted = store.setWorktreeMeta.mock.calls.at(-1)?.[1] as
+      | { sparseTaskBinding?: unknown }
+      | undefined
+    expect(parseSparseTaskWorkspaceBinding(persisted?.sparseTaskBinding)).toMatchObject({
+      pinnedSha,
+      requestedSparseCone: ['swarm'],
+      requiredPaths: []
+    })
   })
 })
