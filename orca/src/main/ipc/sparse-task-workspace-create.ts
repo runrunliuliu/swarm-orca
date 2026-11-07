@@ -3,11 +3,10 @@ import {
   type CreateSparseCheckoutRequest,
   type SparseTaskWorkspaceReceipt
 } from '../../shared/worktree/create-types'
-import { gitExecFileAsync, gitExecFileAsyncBuffer } from '../git/runner'
-import {
-  gitExecOptions,
-  type AddWorktreeResult,
-  type GitWorktreeExecOptions
+import { gitExecFileAsyncBuffer } from '../git/runner'
+import type {
+  AddWorktreeResult,
+  GitWorktreeExecOptions
 } from '../git/worktree-operation-options'
 import { resolvePinnedWorktreeBase } from '../git/worktree-add'
 import {
@@ -28,10 +27,23 @@ import {
 } from '../git/sparse-task-tree-validation'
 import { SparseTaskValidationError } from '../git/sparse-task-input-validation'
 import {
+  readSparseTaskEffectiveCone,
+  sparseConeCovers
+} from '../git/sparse-task-sparse-state'
+import { SparseTaskWorkspaceError } from '../git/sparse-task-workspace-error'
+import {
   readCreatedWorktreeHead,
   resolveCreatedWorktree,
   type CreatedWorktreeResolution
 } from './created-worktree-reconciliation'
+import {
+  inspectSparseTaskCreate,
+  markSparseTaskCreateNeedsReconciliation
+} from './sparse-task-create-reconciliation'
+
+// Why re-exported: this module's callers and tests reach the cone rule through the create contract,
+// and moving the implementation must not move the seam.
+export { sparseConeCovers }
 
 /**
  * The task sparse create contract on the calling side: decide whether a request opted in, refuse
@@ -42,22 +54,6 @@ import {
  * three codes below are this module's own; the M2 rule modules throw `SparseTaskValidationError`
  * with the same bracketed convention.
  */
-
-/** M0 stable codes owned by the create path (the M2 rules carry their own). */
-type SparseTaskWorkspaceErrorCode =
-  | 'sparse_task_capability_required'
-  | 'sparse_task_head_mismatch'
-  | 'sparse_task_effective_cone_mismatch'
-
-class SparseTaskWorkspaceError extends Error {
-  readonly code: SparseTaskWorkspaceErrorCode
-
-  constructor(code: SparseTaskWorkspaceErrorCode, detail: string) {
-    super(`[${code}] ${detail}`)
-    this.name = 'SparseTaskWorkspaceError'
-    this.code = code
-  }
-}
 
 export type SparseTaskWorkspaceRequest = {
   /** Strictly parsed request cone, deduplicated in first-seen order. */
@@ -187,47 +183,6 @@ export async function verifySparseTaskWorkspacePinnedTree(args: {
 }
 
 /**
- * Cone mode collapses a requested child into an ancestor entry and never lists descendants, so a
- * request is satisfied when some effective entry is it or one of its ancestors.
- */
-export function sparseConeCovers(
-  effectiveSparseCone: readonly string[],
-  directory: string
-): boolean {
-  return effectiveSparseCone.some(
-    (entry) => entry === directory || directory.startsWith(`${entry}/`)
-  )
-}
-
-/**
- * Read back the cone Git actually applied.
- *
- * Why not the pattern file or `core.sparseCheckout`: both say sparse was configured, not which
- * directories are selected. Failing to read the list is treated as a mismatch because an unread
- * state cannot prove the cone took effect.
- */
-async function readWorktreeSparseCone(
-  worktreePath: string,
-  options: GitWorktreeExecOptions = {}
-): Promise<string[]> {
-  try {
-    const { stdout } = await gitExecFileAsync(
-      ['sparse-checkout', 'list'],
-      gitExecOptions(worktreePath, options)
-    )
-    return stdout
-      .split(/\r?\n/)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0 && !entry.startsWith('#'))
-  } catch (error) {
-    throw new SparseTaskWorkspaceError(
-      'sparse_task_effective_cone_mismatch',
-      `Could not read back the sparse cone of ${worktreePath}: ${error instanceof Error ? error.message : String(error)}`
-    )
-  }
-}
-
-/**
  * Verify the created worktree and build its receipt. Throws rather than returning a partial receipt.
  *
  * Order matters and is the M2 contract: HEAD must be the pin, the effective cone must still cover
@@ -250,7 +205,7 @@ export async function buildSparseTaskWorkspaceReceipt(args: {
       `The worktree at ${args.worktreePath} (branch ${args.branch}) is at ${actualHead}, not the pinned ${args.pin.pinnedSha}.`
     )
   }
-  const effectiveSparseCone = await readWorktreeSparseCone(args.worktreePath, args.options)
+  const effectiveSparseCone = await readSparseTaskEffectiveCone(args.worktreePath, args.options)
   const uncovered = args.requestedSparseCone.filter(
     (directory) => !sparseConeCovers(effectiveSparseCone, directory)
   )
@@ -317,22 +272,43 @@ export async function createSparseTaskWorkspace(args: {
       options: args.options
     })
   )
-  const addResult = (await args.addWorktreeAtPin(pin)) ?? {}
-  await args.worktreeCreated?.(addResult)
-  const resolution = await phase('list_created_worktree', () =>
-    resolveCreatedWorktree(args.repoPath, args.worktreePath, args.branch, args.options)
-  )
-  // Why before any metadata: a workspace whose HEAD or cone does not match the pin, or that is
-  // missing a declared required path, must not be published as ready.
-  const receipt = await phase('verify_sparse_task_workspace', () =>
-    buildSparseTaskWorkspaceReceipt({
-      worktreePath: resolution.created.path,
+  // Why the try starts here: `git worktree add` is the first side effect, and every failure after
+  // it can leave a directory, a branch or a registration behind even when the caller sees an error.
+  try {
+    const addResult = (await args.addWorktreeAtPin(pin)) ?? {}
+    await args.worktreeCreated?.(addResult)
+    const resolution = await phase('list_created_worktree', () =>
+      resolveCreatedWorktree(args.repoPath, args.worktreePath, args.branch, args.options)
+    )
+    // Why before any metadata: a workspace whose HEAD or cone does not match the pin, or that is
+    // missing a declared required path, must not be published as ready.
+    const receipt = await phase('verify_sparse_task_workspace', () =>
+      buildSparseTaskWorkspaceReceipt({
+        worktreePath: resolution.created.path,
+        branch: args.branch,
+        pin,
+        requestedSparseCone: directories,
+        requiredPaths,
+        options: args.options
+      })
+    )
+    return { resolution, addResult, receipt }
+  } catch (error) {
+    // Why inspect instead of assuming: the create may have been aborted or answered too late, so
+    // the error alone cannot say whether a workspace exists. Only real leftovers get a marker; a
+    // clean refusal keeps its original error and stays retryable.
+    const inspection = await inspectSparseTaskCreate({
+      repoPath: args.repoPath,
+      worktreePath: args.worktreePath,
       branch: args.branch,
       pin,
       requestedSparseCone: directories,
       requiredPaths,
       options: args.options
-    })
-  )
-  return { resolution, addResult, receipt }
+    }).catch(() => undefined)
+    if (!inspection || inspection.state === 'absent') {
+      throw error
+    }
+    throw markSparseTaskCreateNeedsReconciliation({ error, inspection })
+  }
 }

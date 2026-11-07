@@ -12,12 +12,17 @@ import {
   assertSparseTaskWorkspaceCreatePath,
   assertSparseTaskWorkspaceNewBranch,
   buildSparseTaskWorkspaceReceipt,
+  createSparseTaskWorkspace,
   pinSparseTaskWorkspaceBase,
   resolveSparseTaskWorkspaceRequest,
   sparseConeCovers,
   verifySparseTaskWorkspacePinnedTree,
   type SparseTaskWorkspaceRequest
 } from './sparse-task-workspace-create'
+import {
+  inspectSparseTaskCreate,
+  isSparseTaskCreateNeedsReconciliation
+} from './sparse-task-create-reconciliation'
 
 const tempRoots: string[] = []
 
@@ -371,5 +376,170 @@ describe('buildSparseTaskWorkspaceReceipt', () => {
         requiredPaths: []
       })
     ).rejects.toThrow(/\[sparse_task_effective_cone_mismatch\]/)
+  })
+})
+
+// M4 (minimum): a task create that ends without a receipt must say what it left behind, and must
+// never delete it. Real Git throughout, because the adjudication is about what Git still records.
+describe('inspectSparseTaskCreate', () => {
+  const pinPath = async (repoPath: string) =>
+    pinSparseTaskWorkspaceBase({ repoPath, baseBranch: 'main', baseSource: 'request' })
+
+  it('reports absent when nothing was created', async () => {
+    const repoPath = await createRepo()
+    const pin = await pinPath(repoPath)
+    const worktreePath = join(dirname(repoPath), 'wt-never-created')
+
+    const inspection = await inspectSparseTaskCreate({
+      repoPath,
+      worktreePath,
+      branch: 'never-created',
+      pin,
+      requestedSparseCone: ['swarm'],
+      requiredPaths: []
+    })
+
+    expect(inspection).toMatchObject({
+      state: 'absent',
+      registered: false,
+      ghostRegistration: false,
+      directoryExists: false
+    })
+  })
+
+  it('reports live for the workspace a successful create left behind', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath, pin } = await createSparseTaskWorktree(repoPath, ['swarm'])
+
+    const inspection = await inspectSparseTaskCreate({
+      repoPath,
+      worktreePath,
+      branch: 'task-sparse',
+      pin,
+      requestedSparseCone: ['swarm'],
+      requiredPaths: ['AGENTS.md', 'swarm/notes.md']
+    })
+
+    expect(inspection).toMatchObject({
+      state: 'live',
+      registered: true,
+      directoryExists: true,
+      headMatchesPin: true,
+      effectiveSparseCone: ['swarm'],
+      reasons: []
+    })
+    expect(inspection.head?.toLowerCase()).toBe(pin.pinnedSha.toLowerCase())
+  })
+
+  it('reports a ghost registration when only the Git registration remains', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath, pin } = await createSparseTaskWorktree(repoPath, ['swarm'])
+    await rm(worktreePath, { recursive: true, force: true })
+
+    const inspection = await inspectSparseTaskCreate({
+      repoPath,
+      worktreePath,
+      branch: 'task-sparse',
+      pin,
+      requestedSparseCone: ['swarm'],
+      requiredPaths: []
+    })
+
+    // Why this is the interesting state: Git still lists it, so the name is taken, but there is no
+    // directory to inspect — exactly the residue a killed writer leaves behind.
+    expect(inspection).toMatchObject({
+      state: 'partial',
+      registered: true,
+      ghostRegistration: true,
+      directoryExists: false
+    })
+    expect(inspection.reasons).toContain('registered but the directory is missing')
+  })
+
+  it('reports partial, with the paths it could not prove, without changing the workspace', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath, pin } = await createSparseTaskWorktree(repoPath, ['swarm'])
+
+    const inspection = await inspectSparseTaskCreate({
+      repoPath,
+      worktreePath,
+      branch: 'task-sparse',
+      pin,
+      requestedSparseCone: ['swarm'],
+      requiredPaths: ['AGENTS.md', 'orca/src/main.ts']
+    })
+
+    expect(inspection).toMatchObject({ state: 'partial', missingRequiredPaths: ['orca/src/main.ts'] })
+    // Why: the inspection is read-only — no cone widening, no checkout repair.
+    expect(git(worktreePath, ['sparse-checkout', 'list'])).toBe('swarm')
+    await expect(stat(join(worktreePath, 'orca', 'src', 'main.ts'))).rejects.toThrow()
+  })
+})
+
+describe('createSparseTaskWorkspace reconciliation marker', () => {
+  const addTaskWorktree =
+    (repoPath: string, worktreePath: string, branch: string, directories: string[]) =>
+    (pin: Awaited<ReturnType<typeof pinSparseTaskWorkspaceBase>>) =>
+      addSparseWorktree(repoPath, worktreePath, branch, directories, 'main', false, {
+        pinnedBaseOid: pin.pinnedSha,
+        retainPartialWorktreeOnFailure: true
+      })
+
+  it('marks a post-side-effect failure and keeps the workspace instead of deleting it', async () => {
+    const repoPath = await createRepo()
+    const worktreePath = join(dirname(repoPath), 'wt-marker')
+
+    const error = await createSparseTaskWorkspace({
+      repoPath,
+      worktreePath,
+      branch: 'task-marker',
+      baseBranch: 'main',
+      baseSource: 'request',
+      request: { directories: ['swarm'], requiredPaths: ['AGENTS.md', 'orca/src/main.ts'] },
+      options: {},
+      addWorktreeAtPin: addTaskWorktree(repoPath, worktreePath, 'task-marker', ['swarm'])
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown
+    )
+
+    expect(error).toBeInstanceOf(Error)
+    const text = (error as Error).message
+    expect(isSparseTaskCreateNeedsReconciliation(error)).toBe(true)
+    expect(text).toContain('[sparse_task_create_needs_reconciliation]')
+    // The inner gate stays visible: the marker must not hide who refused the create.
+    expect(text).toContain('[sparse_task_required_path_missing]')
+    expect(text).toContain('observed partial')
+    expect(text).toContain(`branch task-marker`)
+    // Why the workspace survives: evidence for a human, and a later retry must not silently inherit
+    // a half-built directory either.
+    expect((await stat(join(worktreePath, 'swarm', 'notes.md'))).isFile()).toBe(true)
+    expect(git(repoPath, ['worktree', 'list'])).toContain(worktreePath)
+  })
+
+  it('leaves a refusal that ran before any side effect unmarked and retryable', async () => {
+    const repoPath = await createRepo()
+    const worktreePath = join(dirname(repoPath), 'wt-refused')
+
+    const error = await createSparseTaskWorkspace({
+      repoPath,
+      worktreePath,
+      branch: 'task-refused',
+      baseBranch: 'main',
+      baseSource: 'request',
+      request: { directories: ['no-such-directory'], requiredPaths: [] },
+      options: {},
+      addWorktreeAtPin: addTaskWorktree(repoPath, worktreePath, 'task-refused', [
+        'no-such-directory'
+      ])
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown
+    )
+
+    expect((error as Error).message).toContain('[sparse_task_directory_missing]')
+    expect(isSparseTaskCreateNeedsReconciliation(error)).toBe(false)
+    await expect(stat(worktreePath)).rejects.toThrow()
+    expect(git(repoPath, ['worktree', 'list'])).not.toContain(worktreePath)
   })
 })
