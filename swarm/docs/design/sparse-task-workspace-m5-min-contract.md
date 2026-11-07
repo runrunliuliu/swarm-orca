@@ -26,7 +26,7 @@
 ```text
 schemaVersion: 1
 mode: 'task-workspace-v1'
-pinnedSha: string            # 完整 commit，小写；任务基线
+pinnedSha: string            # 完整 commit id，小写；sha1 仓库 40 位、sha256 仓库 64 位
 baseSource: 'request' | 'default'
 resolvedRef: string          # 创建前解析出的 ref，说明 pin 来自哪里
 requestedSparseCone: string[] # 严格解析后的请求 cone，首次出现顺序、去重

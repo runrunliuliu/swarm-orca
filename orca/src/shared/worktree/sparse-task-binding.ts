@@ -105,7 +105,9 @@ function isStringArray(value: unknown): value is string[] {
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const actual = Object.keys(value)
-  return actual.length === keys.length && keys.every((key) => key in value)
+  // Why own properties: `'toString' in value` is true for every object, so an inherited name would
+  // otherwise pass for a stored field and let a missing field read as present.
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
 }
 
 /**

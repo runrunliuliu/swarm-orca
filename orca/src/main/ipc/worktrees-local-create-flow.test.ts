@@ -402,6 +402,8 @@ describe('registerWorktreeHandlers', () => {
       'repo-1::/workspace/rocket',
       expect.objectContaining({ displayName: '🚀' })
     )
+    // M5: a legacy create must never look like a task workspace to a later reader.
+    expect(store.setWorktreeMeta.mock.calls.at(-1)?.[1]).not.toHaveProperty('sparseTaskBinding')
   })
 
   it('uses a repo-specific worktree base path when creating local worktrees', async () => {
@@ -855,15 +857,11 @@ describe('registerWorktreeHandlers', () => {
       expect.anything()
     )
 
-    // M5: the publishing write must carry a readable binding, else the start gate has nothing to
-    // read and a retry cannot tell this create from a plain one.
-    const persisted = store.setWorktreeMeta.mock.calls.at(-1)?.[1] as
-      | { sparseTaskBinding?: unknown }
-      | undefined
+    // M5: the publishing write must carry a readable binding or the start gate has nothing to read.
+    const persisted = store.setWorktreeMeta.mock.calls.at(-1)?.[1] as { sparseTaskBinding?: unknown }
     expect(parseSparseTaskWorkspaceBinding(persisted?.sparseTaskBinding)).toMatchObject({
-      pinnedSha,
-      requestedSparseCone: ['swarm'],
-      requiredPaths: []
+      pinnedSha, requestedSparseCone: ['swarm'], requiredPaths: []
     })
   })
+
 })

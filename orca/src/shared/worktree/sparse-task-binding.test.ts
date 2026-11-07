@@ -118,6 +118,19 @@ describe('parseSparseTaskWorkspaceBinding', () => {
     expect(parseSparseTaskWorkspaceBinding(withDigest({ requestedSparseCone: 'swarm' }))).toBeNull()
     expect(parseSparseTaskWorkspaceBinding(withDigest({ requiredPaths: [1] }))).toBeNull()
     expect(parseSparseTaskWorkspaceBinding(withDigest({ createdAt: Number.NaN }))).toBeNull()
+    // Why inherited names must not count as stored fields: every object inherits `toString`.
+    expect(
+      parseSparseTaskWorkspaceBinding({
+        schemaVersion: valid.schemaVersion,
+        mode: valid.mode,
+        pinnedSha: valid.pinnedSha,
+        baseSource: valid.baseSource,
+        resolvedRef: valid.resolvedRef,
+        requestedSparseCone: valid.requestedSparseCone,
+        createdAt: valid.createdAt,
+        bindingDigest: valid.bindingDigest
+      })
+    ).toBeNull()
   })
 })
 
