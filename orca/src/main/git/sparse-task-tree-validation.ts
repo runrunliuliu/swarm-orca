@@ -56,9 +56,11 @@ export function assertSparseTaskPinnedSha(pinnedSha: string): string {
  * `git ls-tree -z --full-tree <pinnedSha> -- :(literal)<path>…`
  *
  * `--full-tree` because the read may run from a subdirectory; `-z` because Git otherwise
- * C-quotes paths and we would compare against the wrong string; `:(literal)` because a directory
- * named `a*` must not be matched by the pathspec as a glob. Nothing here is executed by this
- * module — wiring passes the argv to the existing host-aware Git runner.
+ * C-quotes paths and we would compare against the wrong string. `:(literal)` states the intent:
+ * verified on Git 2.39.5 that `ls-tree` refuses `:(glob)` outright and does not wildcard a bare
+ * pathspec, so a directory named `a*` resolves to itself here. A host whose Git rejects the magic
+ * fails the probe closed (`sparse_task_tree_probe_invalid`) instead of resolving another tree.
+ * Nothing here is executed by this module — wiring passes the argv to the host-aware Git runner.
  */
 export function buildSparseTaskTreeProbeArgs(input: {
   pinnedSha: string

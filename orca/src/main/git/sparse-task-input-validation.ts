@@ -8,14 +8,14 @@ export {
   SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES,
   SPARSE_TASK_MAX_REQUIRED_PATH_COUNT,
   SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES
-} from '../../shared/worktree/create-types'
+} from '../../shared/worktree/sparse-task-limits'
 
 import {
   SPARSE_TASK_MAX_DIRECTORY_COUNT,
   SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES,
   SPARSE_TASK_MAX_REQUIRED_PATH_COUNT,
   SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES
-} from '../../shared/worktree/create-types'
+} from '../../shared/worktree/sparse-task-limits'
 
 /** Codes from the M0 contract, plus two M2 registrations (`sparse_task_tree_probe_invalid`,
  *  `sparse_task_pinned_sha_invalid`) that describe "cannot prove" rather than "absent/unusable" and

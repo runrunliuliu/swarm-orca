@@ -62,6 +62,21 @@ M2 限制：任务 sparse 选择最多 128 个目录；目录 UTF-8 编码总量
 | `sparse_task_head_mismatch` | 创建后 `actualHead !== pinnedSha` | 不返回成功；M4 前不声明可恢复清理语义 |
 | `sparse_task_effective_cone_mismatch` | 创建后实际 cone 与请求 cone 不一致 | 不返回成功 |
 | `sparse_task_required_path_missing` | 创建后必需路径不存在 | 不返回成功，不扩 cone、不回退全量 |
+| `sparse_task_tree_probe_invalid` | pinned tree 探针无法给出可证明的答案：`ls-tree` 输出超限或不可解析、同一路径重复出现、或探针本身失败 | Git 副作用前（只读探针） |
+| `sparse_task_pinned_sha_invalid` | 固定的 base 不是完整 commit id（防御性：正常接线时 pin 来自 `rev-parse`） | 分支/worktree 创建前 |
+
+### M2 登记与既有码的对应关系
+
+上表最后两条不在 M0 冻结稿内，于 M2 实施时登记，理由是它们描述“无法证明”，
+与”目录不存在/不是 tree”不是同一件事，映射到既有码会谎报失败原因；两者都 fail-closed、
+不可重试，且不会在已有副作用之后触发。其余新码仍严格沿用既有词表：
+
+- `requiredPaths` 数量或编码超限 → `sparse_task_required_path_invalid`（本表原文即“格式非法或超限”，
+  因此不新增 `*_limit_exceeded`）。
+- 必需路径“无法确认”（权限、I/O、传输错误）而非确定不存在 → 仍用 `sparse_task_required_path_missing`，
+  message 区分 “could not verify”；M0 未定义独立的不可验证码。
+- pinned tree 探针的条目上限（`128 × 4`）与字节上限（64 KiB）属实现边界，超限同样报
+  `sparse_task_tree_probe_invalid`，不属于新的请求侧限制。
 
 ## 兼容矩阵
 

@@ -144,14 +144,14 @@ import { resolveWorktreeIncludePaths } from '../git/worktree-include-file'
 import { resolveWorktreeSharedDirectories } from '../git/worktree-shared-directories'
 import { normalizeSparseDirectories } from './sparse-checkout-directories'
 import {
-  assertSparseTaskRequiredPathsSupported,
   assertSparseTaskWorkspaceCreatePath,
   assertSparseTaskWorkspaceNewBranch,
   buildSparseTaskWorkspaceReceipt,
+  pinSparseTaskWorkspaceBase,
   resolveSparseTaskWorkspaceRequest,
+  verifySparseTaskWorkspacePinnedTree,
   type SparseTaskWorkspacePin
-} from './sparse-task-workspace-receipt'
-import { resolvePinnedWorktreeBase } from '../git/worktree-add'
+} from './sparse-task-workspace-create'
 import { joinWorktreeRelativePath } from '../runtime/runtime-relative-paths'
 import type { IFilesystemProvider } from '../providers/types'
 import {
@@ -1849,7 +1849,6 @@ export async function createRemoteWorktree(
   // readback, so a task request is refused before roots are registered or anything is created.
   const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.sparseCheckout)
   assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'ssh')
-  assertSparseTaskRequiredPathsSupported(sparseTaskRequest)
   let effectiveRequestedName = args.name
   const sanitizedName = sanitizeWorktreeName(args.name)
   let effectiveSanitizedName = sanitizedName
@@ -2348,7 +2347,6 @@ async function performLocalWorktreeCreate(
   // legacy sparse result can never stand in for a pinned one.
   const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.sparseCheckout)
   assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'local')
-  assertSparseTaskRequiredPathsSupported(sparseTaskRequest)
 
   const requestedName = args.name
   const sanitizedName = sanitizeWorktreeName(args.name)
@@ -2476,9 +2474,13 @@ async function performLocalWorktreeCreate(
   if (primarySetupScript) {
     shouldRunSetupForCreate(repo, args.setupDecision)
   }
-  const sparseDirectories = args.sparseCheckout
-    ? normalizeSparseDirectories(args.sparseCheckout.directories)
-    : []
+  // Why the strict cone for a task request, legacy normalization for everything else: the two rules
+  // must never be mixed, and a legacy payload keeps its historical trim/dedupe behavior.
+  const sparseDirectories = sparseTaskRequest
+    ? sparseTaskRequest.directories
+    : args.sparseCheckout
+      ? normalizeSparseDirectories(args.sparseCheckout.directories)
+      : []
   if (args.sparseCheckout && sparseDirectories.length === 0) {
     throw new Error('Sparse checkout requires at least one repo-relative directory.')
   }
@@ -2714,13 +2716,27 @@ async function performLocalWorktreeCreate(
   // Why resolve the base once and create at that commit: a ref can move between the caller's
   // inspection and `git worktree add`, which would land the workspace somewhere unverified.
   const sparseTaskPin: SparseTaskWorkspacePin | undefined = sparseTaskRequest
-    ? {
-        baseSource: args.baseBranch ? 'request' : 'default',
-        ...(await timing.time('pin_base', () =>
-          resolvePinnedWorktreeBase(repo.path, baseBranch, localWorktreeGitOptions)
-        ))
-      }
+    ? await timing.time('pin_base', () =>
+        pinSparseTaskWorkspaceBase({
+          repoPath: repo.path,
+          baseBranch,
+          baseSource: args.baseBranch ? 'request' : 'default',
+          options: localWorktreeGitOptions
+        })
+      )
     : undefined
+  if (sparseTaskPin) {
+    // Why here: every requested directory must be a tree in the pinned commit before the worktree
+    // exists, proved by reading the repository at that commit and never the future worktree.
+    await timing.time('verify_sparse_task_pinned_tree', () =>
+      verifySparseTaskWorkspacePinnedTree({
+        repoPath: repo.path,
+        pin: sparseTaskPin,
+        requestedSparseCone: sparseDirectories,
+        options: localWorktreeGitOptions
+      })
+    )
+  }
   const pinnedBaseOption = sparseTaskPin ? { pinnedBaseOid: sparseTaskPin.pinnedSha } : {}
   emitCreateWorktreeProgress(mainWindow, 'creating', args.creationId)
 
@@ -2893,6 +2909,7 @@ async function performLocalWorktreeCreate(
           branch: branchName,
           pin: sparseTaskPin,
           requestedSparseCone: sparseDirectories,
+          requiredPaths: sparseTaskRequest?.requiredPaths ?? [],
           options: localWorktreeGitOptions
         })
       )
