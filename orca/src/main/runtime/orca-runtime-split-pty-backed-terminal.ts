@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { assertTaskWorkspaceLaunchableFor } from '../ipc/sparse-task-start-gate'
 import { OrcaRuntimeWithSplitTerminal } from './orca-runtime-split-terminal'
 import type { RuntimePtyWorktreeRecord } from './runtime-terminal-state-records'
 import type { TerminalPaneSplitSource } from '../../shared/feature-education-telemetry'
@@ -36,6 +37,7 @@ export class OrcaRuntimeWithSplitPtyBackedTerminal extends OrcaRuntimeWithSplitT
     }
     const direction = opts.direction ?? 'horizontal'
     const workspace = await this.resolveTerminalWorkspaceLaunchScope(`id:${pty.worktreeId}`)
+    await assertTaskWorkspaceLaunchableFor({ store: this.store, workspace }) // M3 launch gate
     const sourceAuthority = this.resolveTerminalSplitSourceAuthority(
       workspace.id,
       parentTabId,

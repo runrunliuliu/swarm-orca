@@ -32,3 +32,6 @@ export const BACKGROUND_TERMINAL_SPAWN_FLAGS = {
   initiallyHidden: true,
   persistHostSessionBinding: true
 } as const
+
+// M3 launch gate, re-exported here so the split createTerminal file keeps one import surface.
+export { assertTaskWorkspaceLaunchableFor } from '../ipc/sparse-task-start-gate'
