@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { assertTaskWorkspaceLaunchableFor } from '../ipc/sparse-task-start-gate'
 import { OrcaRuntimeWithCreateMobileSessionTerminal } from './orca-runtime-create-mobile-session-terminal'
 import type { WorktreeStartupLaunch } from '../../shared/worktree/launch-types'
 import type { TuiAgent } from '../../shared/tui-agent'
@@ -40,6 +41,9 @@ export class OrcaRuntimeWithRunCreateMobileSessionTerminal extends OrcaRuntimeWi
     const pairedCreate = Boolean(opts.clientNavigationId)
     const graphEpoch = this.captureReadyGraphEpoch()
     const workspace = await this.resolveTerminalWorkspaceLaunchScope(worktreeSelector)
+    // M3: this path spawns a PTY through the renderer, so it is a launch and needs the same gate as
+    // the desktop and background terminal paths.
+    await assertTaskWorkspaceLaunchableFor({ store: this.store, workspace })
     const worktreeId = workspace.id
     const cwd = this.resolveWorkspaceTerminalStartupCwd(workspace, opts.cwd)
     this.hydrateHeadlessMobileSessionTabsFromWorkspaceSession(worktreeId)

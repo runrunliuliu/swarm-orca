@@ -27,9 +27,15 @@ spawn 之前"调用。当前接入：
 | `orca-runtime-create-terminal.ts`（后台分支） | 创建期 startup/setup/defaultTabs 终端、CLI 终端、worker 启动等所有走 runtime 的终端 |
 | `orca-runtime-create-terminal-desktop.ts` | 渲染进程负责 spawn 的桌面终端 |
 | `orca-runtime-create-agent-session.ts` | Agent 会话创建/恢复（会新 spawn 的路径） |
+| `orca-runtime-run-create-mobile-session-terminal.ts` | 移动端会话创建（直接请求渲染进程建标签页） |
+| `orca-runtime-split-pty-backed-terminal.ts` | 终端分屏（直接 `ptyController.spawn`） |
 
 不放在 `resolveTerminalWorkspaceLaunchScope` 内部：该方法也被只读解析复用，裸拦会误伤不产生
-进程的查询。创建期 `spawnLocalStartupAndSetupTerminals` 通过 `runtime.createTerminal` 间接覆盖。
+进程的查询。创建期 `spawnLocalStartupAndSetupTerminals` 通过 `runtime.createTerminal` 间接覆盖；
+runtime-owned 移动端会话走 `this.createTerminal`，同样覆盖。
+
+接入点按"会不会新 spawn 进程"逐个核对，而不是只看调用链名字：只要绕过 `createTerminal` 直接
+spawn 或直接请求渲染进程建标签页，就必须单独接门禁。
 
 ## 3. 判定顺序与失败语义
 
@@ -64,7 +70,6 @@ spawn 之前"调用。当前接入：
 
 ## 6. 已知缺口
 
-- `orca-runtime-create-runtime-owned-mobile-session-terminal.ts` 的移动端会话创建没有接入门禁。
 - 只有本地主机；远端工作区被跳过而不是被验证。
 - 拒绝时只抛错，没有面向用户的只读检查命令；处置仍依赖对账手册与 `git` 命令。
 - 未做 live Agent 闭环验收：门禁在真实创建→启动链路上的行为只有单元级证据。
