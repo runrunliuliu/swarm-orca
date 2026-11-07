@@ -130,7 +130,7 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 逻辑任务 ID、稳定身份路由 | 不存在。无 CLI 参数、无 schema、无持久记录；仍是设计概念 |
 | 一任务多仓库绑定 | 不存在。`software-development-v1` 任务记录只有单值 `repository: {root, worktree, branch, base_commit}` |
 | 跨入口 / 跨 runtime 续接 | 不存在。入口与任务无关联，也没有“同任务复用原绑定”的运行时校验 |
-| 就绪门禁与副作用分离（M3） | 未实现。setup 决策没有 task 模式分支，任务工作区仍可与 `--setup run` 组合；未就绪工作区不会被 Agent/终端启动入口拒绝 |
+| 就绪门禁与副作用分离（M3） | 最小版已实现：带 `sparseTaskBinding` 的工作区在 runtime 后台终端、桌面终端与 Agent 会话创建前校验绑定/基线祖先/cone/必需路径，失败即拒绝（`sparse_task_start_gate_failed`）。仍未实现：移动端会话创建接入、跨宿主探针、拒绝结果的只读状态展示；`--setup run` 与就绪判定的组合未收紧 |
 | 可恢复创建（M4） | 仅止血。任务模式失败后不再删除/回滚，并在失败路径上做只读判定（`absent`/`live`/`partial`/`unverifiable`）与 `[sparse_task_create_needs_reconciliation]` 标记；仍无客户端请求 ID、无持久回执、无 `create-status`、无重启后对账。响应丢失后不会删除，但残留需要人工按[对账手册](sparse-task-workspace-reconciliation.md)处理 |
 | 任务绑定与交接（M5） | 未实现。worktree 元数据只存 `sparseDirectories`；`pinnedSha`、`actualHead`、`requiredPaths` 仅存在于单次创建回执，返回给调用方后不进任务/交接记录，交接无法被独立复核 |
 | 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |

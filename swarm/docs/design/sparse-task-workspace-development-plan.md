@@ -147,3 +147,12 @@
 现场残留（已清理，2026-11-07）：`swarm-orca` 的 `git worktree list` 曾残留一个 `prunable` 登记
 `.orca-preparing/3131242-…`（目录已不存在、无孤儿分支）；按授权只执行了 `git worktree prune`，
 未动分支、未动 `release-radar`，父仓库无对应登记。
+
+## 9. M3 最小版交付状态（分支 `task-binding-start-gate`）
+
+已实现：启动门禁 `assertTaskWorkspaceLaunchableFor`，接入 runtime 后台终端、桌面终端与 Agent
+会话创建三条 launch 路径；判定为 "binding 有效 + pinnedSha 是 HEAD 祖先 + cone 覆盖 + 必需路径可读"，
+失败以 `sparse_task_start_gate_failed:<reason>` 拒绝，无绑定的工作区一律放行。
+
+未实现：移动端会话创建未接入、跨宿主/WSL 未接入、拒绝结果的 UI/CLI 只读状态、缓存策略与
+live Agent 闭环验收。契约见 [M3 启动就绪门禁](sparse-task-workspace-m3-start-gate.md)。

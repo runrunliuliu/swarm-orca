@@ -2,6 +2,7 @@
 import * as dependencies from './orca-runtime-create-terminal-dependencies'
 import type { OrcaRuntimeWithCreateTerminal } from './orca-runtime-create-terminal'
 import type { RuntimeTerminalPresentation } from '../../shared/runtime-types'
+import { assertTaskWorkspaceLaunchableFor } from '../ipc/sparse-task-start-gate'
 
 export async function createDesktopTerminal(
   runtime: OrcaRuntimeWithCreateTerminal,
@@ -15,6 +16,10 @@ export async function createDesktopTerminal(
   const workspace = worktreeSelector
     ? await runtime.resolveTerminalWorkspaceLaunchScope(worktreeSelector)
     : null
+  if (workspace) {
+    // M3: same gate as the background branch; the renderer spawns the PTY, so it has to refuse here.
+    await assertTaskWorkspaceLaunchableFor({ store: runtime.store, workspace })
+  }
   const launchOpts = workspace
     ? await runtime.resolveAgentTerminalCreateOptions(workspace, opts)
     : opts

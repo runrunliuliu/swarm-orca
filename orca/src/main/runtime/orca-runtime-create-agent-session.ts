@@ -1,5 +1,6 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithGetAgentSessionExecutionNamespace } from './orca-runtime-get-agent-session-execution-namespace'
+import { assertTaskWorkspaceLaunchableFor } from '../ipc/sparse-task-start-gate'
 import type {
   RuntimeAgentSessionRpcCaller,
   RuntimeCreateAgentSessionRequest,
@@ -111,6 +112,8 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
       // Why: reserve the client operation before any async preflight so concurrent retries cannot
       // both observe an empty ledger and reach the execution owner independently.
       const workspace = await this.resolveTerminalWorkspaceLaunchScope(request.worktree)
+      // M3: a resumed/created agent session runs in the workspace, so it is a launch, not a lookup.
+      await assertTaskWorkspaceLaunchableFor({ store: this.store, workspace })
       if (
         !(await this.executionOwnerSupportsAgentSessionOperation(
           workspace,
