@@ -1,5 +1,5 @@
 import type * as NodePath from 'node:path'
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -84,13 +84,14 @@ function makeStore(
   options: {
     projectGroups?: ProjectGroup[]
     folderWorkspaces?: FolderWorkspace[]
+    settings?: { workspaceDir?: string; nestWorkspaces?: boolean }
   } = {}
 ): Store {
   return {
     getRepos: () => repos,
     getProjectGroups: () => options.projectGroups ?? [],
     getFolderWorkspaces: () => options.folderWorkspaces ?? [],
-    getSettings: () => ({})
+    getSettings: () => options.settings ?? {}
   } as unknown as Store
 }
 
@@ -100,6 +101,79 @@ describe('filesystem auth worktree roots', () => {
     __resetCreatedWorktreeRootsForTests()
     vi.mocked(listRepoWorktreeGraph).mockReset()
   })
+
+  it.skipIf(process.platform === 'win32')(
+    'authorizes a canonical path under a workspace root registered through a symlink',
+    async () => {
+      const tempRoot = await mkdtemp(join(tmpdir(), 'orca-auth-alias-root-'))
+      try {
+        const realRoot = join(tempRoot, 'real-workspaces')
+        const featurePath = join(realRoot, 'app', 'feature')
+        await mkdir(featurePath, { recursive: true })
+        const target = join(featurePath, 'notes.md')
+        await writeFile(target, 'notes')
+        const aliasRoot = join(tempRoot, 'alias-workspaces')
+        await symlink(realRoot, aliasRoot, 'dir')
+        vi.mocked(listRepoWorktreeGraph).mockResolvedValue([])
+        // Why the alias spelling: the store keeps the root exactly as the user configured it.
+        const store = makeStore([{ ...repo, id: 'repo-temp', path: join(tempRoot, 'repo') }], {
+          settings: { workspaceDir: aliasRoot, nestWorkspaces: true }
+        })
+
+        await expect(resolveAuthorizedPath(target, store)).resolves.toBe(await realpath(target))
+      } finally {
+        await rm(tempRoot, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'authorizes a path spelled through a symlink to an allowed workspace root',
+    async () => {
+      const tempRoot = await mkdtemp(join(tmpdir(), 'orca-auth-alias-target-'))
+      try {
+        const workspaceRoot = join(tempRoot, 'workspaces')
+        const featurePath = join(workspaceRoot, 'app', 'feature')
+        await mkdir(featurePath, { recursive: true })
+        await writeFile(join(featurePath, 'notes.md'), 'notes')
+        const aliasRoot = join(tempRoot, 'alias-workspaces')
+        await symlink(workspaceRoot, aliasRoot, 'dir')
+        vi.mocked(listRepoWorktreeGraph).mockResolvedValue([])
+        const store = makeStore([{ ...repo, id: 'repo-temp', path: join(tempRoot, 'repo') }], {
+          settings: { workspaceDir: workspaceRoot, nestWorkspaces: true }
+        })
+
+        await expect(
+          resolveAuthorizedPath(join(aliasRoot, 'app', 'feature', 'notes.md'), store)
+        ).resolves.toBe(await realpath(join(featurePath, 'notes.md')))
+      } finally {
+        await rm(tempRoot, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'still rejects a symlink inside an allowed root that resolves outside it',
+    async () => {
+      const tempRoot = await mkdtemp(join(tmpdir(), 'orca-auth-escape-link-'))
+      try {
+        const repoPath = join(tempRoot, 'repo')
+        await mkdir(repoPath)
+        const outsidePath = join(tempRoot, 'outside.txt')
+        await writeFile(outsidePath, 'secret')
+        const linkPath = join(repoPath, 'escape.txt')
+        await symlink(outsidePath, linkPath, 'file')
+        vi.mocked(listRepoWorktreeGraph).mockResolvedValue([])
+        const store = makeStore([{ ...repo, id: 'repo-temp', path: repoPath }])
+
+        await expect(resolveAuthorizedPath(linkPath, store)).rejects.toThrow(
+          'Access denied: path resolves outside allowed directories'
+        )
+      } finally {
+        await rm(tempRoot, { recursive: true, force: true })
+      }
+    }
+  )
 
   it('rebuilds the authorized roots cache for large worktree lists', async () => {
     const worktrees: GitWorktreeInfo[] = Array.from(

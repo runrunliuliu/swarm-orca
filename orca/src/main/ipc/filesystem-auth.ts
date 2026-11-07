@@ -50,11 +50,32 @@ export function authorizeExternalPath(targetPath: string): void {
  * Lazy so a path already covered by an external grant still builds nothing at all, the way it did
  * before the list was hoisted out of the individual checks.
  */
-type AllowedRootsSnapshot = { get: () => readonly string[] }
+type AllowedRootsSnapshot = {
+  get: () => readonly string[]
+  /** Canonical form of every root, resolved once per authorization. */
+  getCanonical: () => Promise<readonly string[]>
+}
 
 function createAllowedRootsSnapshot(store: Store): AllowedRootsSnapshot {
   let roots: readonly string[] | undefined
-  return { get: () => (roots ??= getAllowedRoots(store)) }
+  let canonicalRoots: Promise<readonly string[]> | undefined
+  const list = (): readonly string[] => (roots ??= getAllowedRoots(store))
+  return {
+    get: list,
+    getCanonical: () => (canonicalRoots ??= resolveCanonicalAllowedRoots(list()))
+  }
+}
+
+/**
+ * The roots as the filesystem sees them, so a root registered through a symlink or mount alias
+ * authorizes the directory it actually names.
+ *
+ * `normalizeExistingPath` returns its input when the root is gone, which keeps this fail-closed: a
+ * missing root adds nothing beyond the comparison `isPathAllowed` already made.
+ */
+async function resolveCanonicalAllowedRoots(roots: readonly string[]): Promise<readonly string[]> {
+  const canonical = await Promise.all(roots.map((root) => normalizeExistingPath(resolve(root))))
+  return [...new Set(canonical)]
 }
 
 export function isPathAllowed(
@@ -92,9 +113,14 @@ export async function resolveAuthorizedPath(
   // Why: the roots depend only on store state, not on the candidate path, so one snapshot serves
   // every authorization below; each candidate is still checked against it in full.
   const allowedRoots = createAllowedRootsSnapshot(store)
-  if (!(await isPathAllowedIncludingRegisteredWorktrees(resolvedTarget, store, { allowedRoots }))) {
-    throw new Error(PATH_ACCESS_DENIED_MESSAGE)
-  }
+  // Why kept, not required: the spelling the caller typed may be an alias of an allowed root, or an
+  // allowed root may be an alias of it, so the canonical form below is what decides. This result
+  // only decides which error an unreadable candidate reports.
+  const typedSpellingAllowed = await isPathAllowedIncludingRegisteredWorktrees(
+    resolvedTarget,
+    store,
+    { allowedRoots }
+  )
 
   if (options.preserveSymlink) {
     // Canonicalize the parent so ancestor symlinks can't redirect outside allowed roots, but keep the leaf so delete/rename act on the link itself.
@@ -104,6 +130,9 @@ export async function resolveAuthorizedPath(
     } catch (error) {
       if (isENOENT(error)) {
         return resolveAuthorizedMissingPath(resolvedTarget, store, allowedRoots)
+      }
+      if (!typedSpellingAllowed) {
+        throw new Error(PATH_ACCESS_DENIED_MESSAGE)
       }
       throw error
     }
@@ -133,6 +162,9 @@ export async function resolveAuthorizedPath(
     return realTarget
   } catch (error) {
     if (!isENOENT(error)) {
+      if (!typedSpellingAllowed) {
+        throw new Error(PATH_ACCESS_DENIED_MESSAGE)
+      }
       throw error
     }
     return resolveAuthorizedMissingPath(resolvedTarget, store, allowedRoots)
@@ -188,14 +220,7 @@ async function isPathAllowedIncludingRegisteredWorktrees(
     return true
   }
 
-  if (
-    await isPathAllowedByCanonicalAllowedRoot(
-      targetPath,
-      options.canonicalSourcePath,
-      store,
-      options.allowedRoots
-    )
-  ) {
+  if (await isPathAllowedByCanonicalAllowedRoot(targetPath, store, options.allowedRoots)) {
     return true
   }
 
@@ -214,25 +239,22 @@ async function isPathAllowedIncludingRegisteredWorktrees(
   )
 }
 
+/**
+ * Whether the candidate lands inside an allowed root once both sides are canonical.
+ *
+ * Why not gated on the caller's spelling: a root may be registered through an alias (a symlinked
+ * `workspaceDir`, a mount alias) while the candidate arrives canonical, and the reverse, so
+ * requiring one spelling to contain the other denied paths that name the allowed directory exactly
+ * (#21172's sibling). Containment here is decided between two canonical paths, so a symlink that
+ * escapes an allowed root is still denied.
+ */
 async function isPathAllowedByCanonicalAllowedRoot(
   targetPath: string,
-  sourcePath: string | undefined,
   store: Store,
   allowedRoots?: AllowedRootsSnapshot
 ): Promise<boolean> {
-  if (!sourcePath) {
-    return false
-  }
-  for (const root of allowedRoots?.get() ?? getAllowedRoots(store)) {
-    const resolvedRoot = resolve(root)
-    if (!isDescendantOrEqual(sourcePath, resolvedRoot)) {
-      continue
-    }
-    // Why: macOS resolves /var→/private/var; canonicalize only the matched root, not the whole repo set.
-    const canonicalRoot = await normalizeExistingPath(resolvedRoot)
-    if (isDescendantOrEqual(targetPath, canonicalRoot)) {
-      return true
-    }
-  }
-  return false
+  const canonicalRoots = allowedRoots
+    ? await allowedRoots.getCanonical()
+    : await resolveCanonicalAllowedRoots(getAllowedRoots(store))
+  return canonicalRoots.some((root) => isDescendantOrEqual(targetPath, root))
 }
