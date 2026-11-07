@@ -74,6 +74,14 @@ export type WorktreeCreateTiming = {
 export const SPARSE_TASK_CHECKOUT_MODE = 'task-workspace-v1' as const
 export type SparseTaskCheckoutMode = typeof SPARSE_TASK_CHECKOUT_MODE
 
+// M0 request limits. Shared because a client must be able to refuse an over-limit request before
+// sending it; the host enforces the same numbers before any Git work. Only the task-workspace
+// request path applies them — a legacy sparse payload keeps its historical behavior.
+export const SPARSE_TASK_MAX_DIRECTORY_COUNT = 128
+export const SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES = 16 * 1024
+export const SPARSE_TASK_MAX_REQUIRED_PATH_COUNT = 256
+export const SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES = 32 * 1024
+
 
 export type CreateSparseCheckoutRequest = {
   directories: string[]

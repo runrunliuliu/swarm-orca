@@ -19,6 +19,9 @@
 
 语义：host 支持 `worktree.create` 的任务 sparse 协商字段，并在该字段存在时执行 M1/M2 的固定基线、创建回执、tree entry 校验与必需路径核验。客户端未看到该 capability 时不得发送新增字段；如果旧 host 收到未知字段并剥离，调用方不能把 legacy sparse 回执解释为任务 sparse 成功。
 
+能力是 **host 级**声明，不是路径级：v1 只在本地创建路径（desktop IPC 本地 create、runtime 本地 create）实现。SSH 创建路径对 `mode: 'task-workspace-v1'` 在注册 root 与任何 Git 副作用前以
+`sparse_task_capability_required` 明确拒绝——远程 sparse 序列还没有固定 SHA 与回读，静默降级成 legacy remote sparse 会让调用方把未固定基线的结果当成任务工作区。因此 SSH 上的结论是“拒绝”，不是“支持”；真实 SSH 接入需在具备 pin/回读能力后另行声明，不能靠放宽本能力名实现。
+
 ## 请求字段
 
 新增字段均为可选；缺省即 legacy 行为。
@@ -77,6 +80,16 @@ M2 限制：任务 sparse 选择最多 128 个目录；目录 UTF-8 编码总量
   message 区分 “could not verify”；M0 未定义独立的不可验证码。
 - pinned tree 探针的条目上限（`128 × 4`）与字节上限（64 KiB）属实现边界，超限同样报
   `sparse_task_tree_probe_invalid`，不属于新的请求侧限制。
+
+### 已知限制（M2 边界）
+
+- 必需路径核验在**创建主机的主进程**上用本地 `stat` 完成，跟随符号链接：悬空链接按不存在处理。
+  M2 只对本地创建路径成立；WSL distro 与跨宿主（SSH）尚未接入宿主侧 probe，若在 WSL 路径上出现
+  “假缺失”，先按 fail-closed 处理，不得改成自动扩 cone 或回退全量。
+- pinned tree 探针用 fatal UTF-8 解码：树中存在非 UTF-8 路径的仓库会以
+  `sparse_task_tree_probe_invalid` 失败关闭，而不是解析出可能错误的路径。
+- 创建后任一校验失败都**不自动清理**、不扩 cone、不回退全量：工作区、分支与部分索引留在原地供诊断，
+  恢复与对账归 M4。
 
 ## 兼容矩阵
 

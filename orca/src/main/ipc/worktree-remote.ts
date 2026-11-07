@@ -100,7 +100,11 @@ import {
   hasRepoWorktreeBasePath,
   mergeWorktree
 } from './worktree-logic'
-import { findCreatedWorktree, resolveCreatedWorktree } from './created-worktree-reconciliation'
+import {
+  findCreatedWorktree,
+  resolveCreatedWorktree,
+  type CreatedWorktreeResolution
+} from './created-worktree-reconciliation'
 import type { BranchPrefixSettings } from '../../shared/branch-prefix'
 import { getRepoIdFromWorktreeId } from '../../shared/worktree/id'
 import { parseWorkspaceKey, worktreeWorkspaceKey } from '../../shared/workspace-scope'
@@ -146,11 +150,9 @@ import { normalizeSparseDirectories } from './sparse-checkout-directories'
 import {
   assertSparseTaskWorkspaceCreatePath,
   assertSparseTaskWorkspaceNewBranch,
-  buildSparseTaskWorkspaceReceipt,
-  pinSparseTaskWorkspaceBase,
+  createSparseTaskWorkspace,
   resolveSparseTaskWorkspaceRequest,
-  verifySparseTaskWorkspacePinnedTree,
-  type SparseTaskWorkspacePin
+  type SparseTaskWorkspaceCreateOutcome
 } from './sparse-task-workspace-create'
 import { joinWorktreeRelativePath } from '../runtime/runtime-relative-paths'
 import type { IFilesystemProvider } from '../providers/types'
@@ -2713,31 +2715,6 @@ async function performLocalWorktreeCreate(
   // Why: a task sparse workspace starts a new branch at the pinned commit; reusing an existing
   // branch would make the readback compare against that branch's head instead.
   assertSparseTaskWorkspaceNewBranch(sparseTaskRequest, checkoutExistingBranch)
-  // Why resolve the base once and create at that commit: a ref can move between the caller's
-  // inspection and `git worktree add`, which would land the workspace somewhere unverified.
-  const sparseTaskPin: SparseTaskWorkspacePin | undefined = sparseTaskRequest
-    ? await timing.time('pin_base', () =>
-        pinSparseTaskWorkspaceBase({
-          repoPath: repo.path,
-          baseBranch,
-          baseSource: args.baseBranch ? 'request' : 'default',
-          options: localWorktreeGitOptions
-        })
-      )
-    : undefined
-  if (sparseTaskPin) {
-    // Why here: every requested directory must be a tree in the pinned commit before the worktree
-    // exists, proved by reading the repository at that commit and never the future worktree.
-    await timing.time('verify_sparse_task_pinned_tree', () =>
-      verifySparseTaskWorkspacePinnedTree({
-        repoPath: repo.path,
-        pin: sparseTaskPin,
-        requestedSparseCone: sparseDirectories,
-        options: localWorktreeGitOptions
-      })
-    )
-  }
-  const pinnedBaseOption = sparseTaskPin ? { pinnedBaseOid: sparseTaskPin.pinnedSha } : {}
   emitCreateWorktreeProgress(mainWindow, 'creating', args.creationId)
 
   // Why: defer the remote add + fetch to first push/pull/fetch/fast-forward
@@ -2760,54 +2737,33 @@ async function performLocalWorktreeCreate(
       : remoteTrackingBaseOption
   )
   let addResult: AddWorktreeResult
+  let sparseTaskOutcome: SparseTaskWorkspaceCreateOutcome | undefined
+  // Why: `--set-upstream-to` needs the remote to exist -- true for a same-repo target but not for a
+  // fork remote, which materializes lazily (#17828).
+  const configureDeferredPushTarget = async (): Promise<GitPushTarget | undefined> =>
+    preparedPushTarget && !preparedPushTarget.remoteUrl
+      ? await configureCreatedWorktreePushTarget(
+          worktreePath,
+          branchName,
+          preparedPushTarget,
+          localWorktreeGitOptions
+        )
+      : preparedPushTarget
+  let configuredPushTarget: GitPushTarget | undefined
   try {
-    addResult =
-      (await timing.time('git_worktree_add', async () => {
-        if (sparseDirectories.length === 0 && !checkoutExistingBranch) {
-          const prepared = await consumePreparedWorktreeCreate({
-            repoPath: repo.path,
-            workspaceRoot,
-            worktreePath,
-            branch: branchName,
-            baseBranch,
-            refreshLocalBaseRef: settings.refreshLocalBaseRefOnWorktreeCreate,
-            options: preparedWorktreeOptions,
-            timing
-          })
-          timing.recordPreparedCheckout(
-            prepared.status === 'hit'
-              ? { status: 'hit', retargeted: prepared.retargeted }
-              : { status: 'miss', reason: prepared.reason }
-          )
-          if (prepared.status === 'hit') {
-            // Why deferred: re-arming is a full `reset --hard`; started here it would hold a
-            // general admission slot for the rest of this create's own git.
-            rearm.fire = prepared.rearm
-            return prepared.result
-          }
-          if (prepared.rearm) {
-            rearm.fire = prepared.rearm
-          }
-        } else {
-          timing.recordPreparedCheckout({
-            status: 'miss',
-            reason: sparseDirectories.length > 0 ? 'sparse_checkout' : 'checkout_existing_branch'
-          })
-        }
-        if (sparseDirectories.length > 0) {
-          if (checkoutExistingBranch) {
-            return addSparseWorktree(
-              repo.path,
-              worktreePath,
-              branchName,
-              sparseDirectories,
-              baseBranch,
-              settings.refreshLocalBaseRefOnWorktreeCreate,
-              addProjectGitOptions(existingBranchOption)
-            )
-          }
-          if (suggestLocalBaseRefUpdate) {
-            return addSparseWorktree(
+    if (sparseTaskRequest) {
+      timing.recordPreparedCheckout({ status: 'miss', reason: 'sparse_checkout' })
+      sparseTaskOutcome = await createSparseTaskWorkspace({
+        repoPath: repo.path,
+        worktreePath,
+        branch: branchName,
+        baseBranch,
+        baseSource: args.baseBranch ? 'request' : 'default',
+        request: sparseTaskRequest,
+        options: localWorktreeGitOptions,
+        addWorktreeAtPin: async (pin) =>
+          (await timing.time('git_worktree_add', () =>
+            addSparseWorktree(
               repo.path,
               worktreePath,
               branchName,
@@ -2816,23 +2772,112 @@ async function performLocalWorktreeCreate(
               settings.refreshLocalBaseRefOnWorktreeCreate,
               addProjectGitOptions({
                 ...remoteTrackingBaseOption,
-                suggestLocalBaseRefUpdate,
-                ...pinnedBaseOption
+                ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {}),
+                pinnedBaseOid: pin.pinnedSha,
+                retainPartialWorktreeOnFailure: true
               })
             )
+          )) ?? {},
+        worktreeCreated: async () => {
+          runWorktreeChangeInvalidators(repo.id)
+          if (shouldRetireGeneratedName) {
+            await retireGeneratedWorktreeName(store, repo, settings, effectiveSanitizedName)
           }
-          return addSparseWorktree(
-            repo.path,
-            worktreePath,
-            branchName,
-            sparseDirectories,
-            baseBranch,
-            settings.refreshLocalBaseRefOnWorktreeCreate,
-            addProjectGitOptions({ ...remoteTrackingBaseOption, ...pinnedBaseOption })
-          )
-        }
+          configuredPushTarget = await configureDeferredPushTarget()
+        },
+        phase: (name, run) => timing.time(name, run)
+      })
+      addResult = sparseTaskOutcome.addResult
+    } else {
+      addResult =
+        (await timing.time('git_worktree_add', async () => {
+          if (sparseDirectories.length === 0 && !checkoutExistingBranch) {
+            const prepared = await consumePreparedWorktreeCreate({
+              repoPath: repo.path,
+              workspaceRoot,
+              worktreePath,
+              branch: branchName,
+              baseBranch,
+              refreshLocalBaseRef: settings.refreshLocalBaseRefOnWorktreeCreate,
+              options: preparedWorktreeOptions,
+              timing
+            })
+            timing.recordPreparedCheckout(
+              prepared.status === 'hit'
+                ? { status: 'hit', retargeted: prepared.retargeted }
+                : { status: 'miss', reason: prepared.reason }
+            )
+            if (prepared.status === 'hit') {
+              // Why deferred: re-arming is a full `reset --hard`; started here it would hold a
+              // general admission slot for the rest of this create's own git.
+              rearm.fire = prepared.rearm
+              return prepared.result
+            }
+            if (prepared.rearm) {
+              rearm.fire = prepared.rearm
+            }
+          } else {
+            timing.recordPreparedCheckout({
+              status: 'miss',
+              reason: sparseDirectories.length > 0 ? 'sparse_checkout' : 'checkout_existing_branch'
+            })
+          }
+          if (sparseDirectories.length > 0) {
+            if (checkoutExistingBranch) {
+              return addSparseWorktree(
+                repo.path,
+                worktreePath,
+                branchName,
+                sparseDirectories,
+                baseBranch,
+                settings.refreshLocalBaseRefOnWorktreeCreate,
+                addProjectGitOptions(existingBranchOption)
+              )
+            }
+            if (suggestLocalBaseRefUpdate) {
+              return addSparseWorktree(
+                repo.path,
+                worktreePath,
+                branchName,
+                sparseDirectories,
+                baseBranch,
+                settings.refreshLocalBaseRefOnWorktreeCreate,
+                addProjectGitOptions({ ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate })
+              )
+            }
+            return addSparseWorktree(
+              repo.path,
+              worktreePath,
+              branchName,
+              sparseDirectories,
+              baseBranch,
+              settings.refreshLocalBaseRefOnWorktreeCreate,
+              addProjectGitOptions(remoteTrackingBaseOption)
+            )
+          }
 
-        if (checkoutExistingBranch) {
+          if (checkoutExistingBranch) {
+            return addWorktree(
+              repo.path,
+              worktreePath,
+              branchName,
+              baseBranch,
+              settings.refreshLocalBaseRefOnWorktreeCreate,
+              false,
+              addProjectGitOptions(existingBranchOption)
+            )
+          }
+          if (suggestLocalBaseRefUpdate) {
+            return addWorktree(
+              repo.path,
+              worktreePath,
+              branchName,
+              baseBranch,
+              settings.refreshLocalBaseRefOnWorktreeCreate,
+              false,
+              addProjectGitOptions({ ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate })
+            )
+          }
           return addWorktree(
             repo.path,
             worktreePath,
@@ -2840,80 +2885,40 @@ async function performLocalWorktreeCreate(
             baseBranch,
             settings.refreshLocalBaseRefOnWorktreeCreate,
             false,
-            addProjectGitOptions(existingBranchOption)
+            addProjectGitOptions(remoteTrackingBaseOption)
           )
-        }
-        if (suggestLocalBaseRefUpdate) {
-          return addWorktree(
-            repo.path,
-            worktreePath,
-            branchName,
-            baseBranch,
-            settings.refreshLocalBaseRefOnWorktreeCreate,
-            false,
-            addProjectGitOptions({ ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate })
-          )
-        }
-        return addWorktree(
-          repo.path,
-          worktreePath,
-          branchName,
-          baseBranch,
-          settings.refreshLocalBaseRefOnWorktreeCreate,
-          false,
-          addProjectGitOptions(remoteTrackingBaseOption)
-        )
-      })) ?? {}
+        })) ?? {}
+    }
   } catch (error) {
     if (shouldRetireGeneratedName && failedWorktreeCreationNeedsRetirement(error)) {
       await retireGeneratedWorktreeName(store, repo, settings, effectiveSanitizedName)
     }
     throw error
   }
-  // Why: the worktree is listable from here on. Every scan that started earlier -- including a
-  // prepared checkout's, which listings hide while it is still locked -- now describes a catalog
-  // without it, and must not be served or cached as the current one.
-  runWorktreeChangeInvalidators(repo.id)
+  let createdResolution: CreatedWorktreeResolution
+  if (sparseTaskOutcome) {
+    // The orchestrated path already invalidated caches, retired the name, configured the push
+    // target and read the worktree back.
+    createdResolution = sparseTaskOutcome.resolution
+  } else {
+    // Why: the worktree is listable from here on. Every scan that started earlier -- including a
+    // prepared checkout's, which listings hide while it is still locked -- now describes a catalog
+    // without it, and must not be served or cached as the current one.
+    runWorktreeChangeInvalidators(repo.id)
 
-  // Why: fallible metadata work after creation must not leave a real workspace name reusable.
-  if (shouldRetireGeneratedName) {
-    await retireGeneratedWorktreeName(store, repo, settings, effectiveSanitizedName)
-  }
+    // Why: fallible metadata work after creation must not leave a real workspace name reusable.
+    if (shouldRetireGeneratedName) {
+      await retireGeneratedWorktreeName(store, repo, settings, effectiveSanitizedName)
+    }
+    configuredPushTarget = await configureDeferredPushTarget()
 
-  // Why: `--set-upstream-to` needs the remote to exist -- true for a same-repo
-  // target but not for a fork remote, which materializes lazily (#17828).
-  let configuredPushTarget: GitPushTarget | undefined = preparedPushTarget
-  if (preparedPushTarget && !preparedPushTarget.remoteUrl) {
-    configuredPushTarget = await configureCreatedWorktreePushTarget(
-      worktreePath,
-      branchName,
-      preparedPushTarget,
-      localWorktreeGitOptions
+    // Re-list to get the freshly created worktree info
+    createdResolution = await timing.time('list_created_worktree', async () =>
+      resolveCreatedWorktree(repo.path, worktreePath, branchName, localWorktreeGitOptions)
     )
   }
-
-  // Re-list to get the freshly created worktree info
-  const {
-    created,
-    worktrees: gitWorktrees,
-    listingComplete
-  } = await timing.time('list_created_worktree', async () =>
-    resolveCreatedWorktree(repo.path, worktreePath, branchName, localWorktreeGitOptions)
-  )
-  // Why before metadata/setup/terminals: a worktree whose HEAD or cone does not match the pin must
-  // not be published as a ready workspace.
-  const sparseCheckoutReceipt = sparseTaskPin
-    ? await timing.time('verify_sparse_task_workspace', () =>
-        buildSparseTaskWorkspaceReceipt({
-          worktreePath: created.path,
-          branch: branchName,
-          pin: sparseTaskPin,
-          requestedSparseCone: sparseDirectories,
-          requiredPaths: sparseTaskRequest?.requiredPaths ?? [],
-          options: localWorktreeGitOptions
-        })
-      )
-    : undefined
+  const { created, worktrees: gitWorktrees, listingComplete } = createdResolution
+  const sparseCheckoutReceipt = sparseTaskOutcome?.receipt
 
   const worktreeId = `${repo.id}::${created.path}`
   const now = Date.now()

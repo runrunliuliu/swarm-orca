@@ -4,7 +4,11 @@ import {
   type SparseTaskWorkspaceReceipt
 } from '../../shared/worktree/create-types'
 import { gitExecFileAsync, gitExecFileAsyncBuffer } from '../git/runner'
-import { gitExecOptions, type GitWorktreeExecOptions } from '../git/worktree-operation-options'
+import {
+  gitExecOptions,
+  type AddWorktreeResult,
+  type GitWorktreeExecOptions
+} from '../git/worktree-operation-options'
 import { resolvePinnedWorktreeBase } from '../git/worktree-add'
 import {
   parseSparseTaskDirectories,
@@ -23,7 +27,11 @@ import {
   type SparseTaskDirectoryTreeCheck
 } from '../git/sparse-task-tree-validation'
 import { SparseTaskValidationError } from '../git/sparse-task-input-validation'
-import { readCreatedWorktreeHead } from './created-worktree-reconciliation'
+import {
+  readCreatedWorktreeHead,
+  resolveCreatedWorktree,
+  type CreatedWorktreeResolution
+} from './created-worktree-reconciliation'
 
 /**
  * The task sparse create contract on the calling side: decide whether a request opted in, refuse
@@ -36,12 +44,12 @@ import { readCreatedWorktreeHead } from './created-worktree-reconciliation'
  */
 
 /** M0 stable codes owned by the create path (the M2 rules carry their own). */
-export type SparseTaskWorkspaceErrorCode =
+type SparseTaskWorkspaceErrorCode =
   | 'sparse_task_capability_required'
   | 'sparse_task_head_mismatch'
   | 'sparse_task_effective_cone_mismatch'
 
-export class SparseTaskWorkspaceError extends Error {
+class SparseTaskWorkspaceError extends Error {
   readonly code: SparseTaskWorkspaceErrorCode
 
   constructor(code: SparseTaskWorkspaceErrorCode, detail: string) {
@@ -198,7 +206,7 @@ export function sparseConeCovers(
  * directories are selected. Failing to read the list is treated as a mismatch because an unread
  * state cannot prove the cone took effect.
  */
-export async function readWorktreeSparseCone(
+async function readWorktreeSparseCone(
   worktreePath: string,
   options: GitWorktreeExecOptions = {}
 ): Promise<string[]> {
@@ -266,4 +274,65 @@ export async function buildSparseTaskWorkspaceReceipt(args: {
     effectiveSparseCone,
     requiredPaths: requiredPathCheck.requiredPaths
   }
+}
+
+/** What one task sparse create produced, in the order the gates ran. */
+export type SparseTaskWorkspaceCreateOutcome = {
+  resolution: CreatedWorktreeResolution
+  addResult: AddWorktreeResult
+  receipt: SparseTaskWorkspaceReceipt
+}
+
+/** The task sparse create sequence, defined once for both local create paths. Callers pass only
+ *  what differs: how to add a worktree, what to do once it exists, and whether to record timings. */
+export async function createSparseTaskWorkspace(args: {
+  repoPath: string
+  worktreePath: string
+  branch: string
+  baseBranch: string
+  baseSource: 'request' | 'default'
+  request: SparseTaskWorkspaceRequest
+  options: GitWorktreeExecOptions
+  addWorktreeAtPin: (pin: SparseTaskWorkspacePin) => Promise<AddWorktreeResult>
+  worktreeCreated?: (addResult: AddWorktreeResult) => Promise<void>
+  phase?: <T>(name: string, run: () => Promise<T>) => Promise<T>
+}): Promise<SparseTaskWorkspaceCreateOutcome> {
+  const phase = args.phase ?? (<T>(_name: string, run: () => Promise<T>) => run())
+  const { directories, requiredPaths } = args.request
+  const pin = await phase('pin_base', () =>
+    pinSparseTaskWorkspaceBase({
+      repoPath: args.repoPath,
+      baseBranch: args.baseBranch,
+      baseSource: args.baseSource,
+      options: args.options
+    })
+  )
+  // Why before the add: every requested directory must be a tree in the pinned commit before a
+  // worktree exists, proved by reading the repository at that commit (never the future worktree).
+  await phase('verify_sparse_task_pinned_tree', () =>
+    verifySparseTaskWorkspacePinnedTree({
+      repoPath: args.repoPath,
+      pin,
+      requestedSparseCone: directories,
+      options: args.options
+    })
+  )
+  const addResult = (await args.addWorktreeAtPin(pin)) ?? {}
+  await args.worktreeCreated?.(addResult)
+  const resolution = await phase('list_created_worktree', () =>
+    resolveCreatedWorktree(args.repoPath, args.worktreePath, args.branch, args.options)
+  )
+  // Why before any metadata: a workspace whose HEAD or cone does not match the pin, or that is
+  // missing a declared required path, must not be published as ready.
+  const receipt = await phase('verify_sparse_task_workspace', () =>
+    buildSparseTaskWorkspaceReceipt({
+      worktreePath: resolution.created.path,
+      branch: args.branch,
+      pin,
+      requestedSparseCone: directories,
+      requiredPaths,
+      options: args.options
+    })
+  )
+  return { resolution, addResult, receipt }
 }

@@ -5,6 +5,8 @@ import { resolveRegisteredWorktreePath } from './registered-worktree-roots-cache
 import { computeWorkspaceRootAsync } from './worktree-logic'
 import type * as WorktreeLogic from './worktree-logic'
 import {
+  addSparseWorktreeMock,
+  gitExecFileAsyncBufferMock,
   listWorktreesMock,
   describeCreatedWorktreeMock,
   addWorktreeMock,
@@ -802,5 +804,54 @@ describe('registerWorktreeHandlers', () => {
     expect(addWorktreeMock).not.toHaveBeenCalled()
     expect(store.setWorktreeMeta).not.toHaveBeenCalled()
     expect(createSetupRunnerScriptMock).not.toHaveBeenCalled()
+  })
+  // M2 entry wiring: the pin must reach the add, and the receipt must reflect what was read back.
+  it('creates a task sparse worktree at the pinned commit and returns its receipt', async () => {
+    const pinnedSha = 'a'.repeat(40)
+    const createdPath = '/workspace/task-sparse'
+    gitExecFileAsyncBufferMock.mockReset()
+    gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (args.join(' ') === 'sparse-checkout list') {
+        return { stdout: 'swarm\n', stderr: '' }
+      }
+      return { stdout: args.includes('rev-parse') ? `${pinnedSha}\n` : '', stderr: '' }
+    })
+    gitExecFileAsyncBufferMock.mockResolvedValue({
+      stdout: Buffer.from(`040000 tree ${'b'.repeat(40)}\tswarm\0`)
+    })
+    addSparseWorktreeMock.mockResolvedValue({})
+    listWorktreesMock.mockResolvedValue([
+      { path: createdPath, head: pinnedSha, branch: 'refs/heads/task-sparse', isBare: false, isMainWorktree: false }
+    ])
+
+    const result = (await handlers['worktrees:create'](null, {
+      repoId: 'repo-1',
+      name: 'task-sparse',
+      baseBranch: 'main',
+      sparseCheckout: { mode: 'task-workspace-v1', directories: ['swarm'] }
+    })) as CreateWorktreeResult
+
+    expect(result.sparseCheckoutReceipt).toMatchObject({
+      baseSource: 'request',
+      resolvedRef: 'refs/heads/main',
+      pinnedSha,
+      actualHead: pinnedSha,
+      requestedSparseCone: ['swarm'],
+      effectiveSparseCone: ['swarm'],
+      requiredPaths: []
+    })
+    expect(addSparseWorktreeMock).toHaveBeenCalledWith(
+      expect.any(String),
+      createdPath,
+      'task-sparse',
+      ['swarm'],
+      'main',
+      expect.any(Boolean),
+      expect.objectContaining({ pinnedBaseOid: pinnedSha, retainPartialWorktreeOnFailure: true })
+    )
+    expect(gitExecFileAsyncBufferMock).toHaveBeenCalledWith(
+      ['ls-tree', '-z', '--full-tree', pinnedSha, '--', ':(literal)swarm'],
+      expect.anything()
+    )
   })
 })

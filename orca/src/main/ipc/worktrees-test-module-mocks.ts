@@ -82,6 +82,7 @@ export const loadHooksMock: ModuleMock = vi.fn()
 export const computeWorktreePathMock: Mock<typeof computeWorktreePath> = vi.fn()
 export const ensurePathWithinWorkspaceMock: StringArgMock = vi.fn()
 export const gitExecFileAsyncMock: GitArgvMock = vi.fn()
+export const gitExecFileAsyncBufferMock: ModuleMock = vi.fn()
 export const getSshGitProviderMock: StringArgMock = vi.fn()
 export const getSshFilesystemProviderMock: ModuleMock = vi.fn()
 export const getActiveMultiplexerMock: ModuleMock = vi.fn()
@@ -122,9 +123,11 @@ export const gitWorktreeModuleMock = () => ({
 
 export const gitRunnerModuleMock = (): {
   gitExecFileAsync: GitArgvMock
+  gitExecFileAsyncBuffer: ModuleMock
   gitExecFileSync: ModuleMock
 } => ({
   gitExecFileAsync: gitExecFileAsyncMock,
+  gitExecFileAsyncBuffer: gitExecFileAsyncBufferMock,
   gitExecFileSync: vi.fn()
 })
 

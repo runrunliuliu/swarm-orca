@@ -10,7 +10,7 @@ import {
 
 /** Bounded probe output. 128 selections cannot legitimately produce more than a few KiB. */
 export const SPARSE_TASK_MAX_TREE_PROBE_BYTES = 64 * 1024
-export const SPARSE_TASK_MAX_TREE_PROBE_ENTRIES = SPARSE_TASK_MAX_DIRECTORY_COUNT * 4
+const SPARSE_TASK_MAX_TREE_PROBE_ENTRIES = SPARSE_TASK_MAX_DIRECTORY_COUNT * 4
 
 export type SparseTaskTreeEntry = {
   /** Six octal digits, e.g. `040000`, `100644`, `120000`, `160000`. */

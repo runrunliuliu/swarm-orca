@@ -1,26 +1,26 @@
 // Why (M2): task sparse workspaces must fail before any Git side effect, so the strict
 // request rules live in one pure module — no fs, no Git, no cone expansion, no repair.
 
-// Why re-exported: the M0 limits are contract values (shared, so a client can pre-validate), while
-// the strict parse rules that enforce them stay here with their tests.
+// Why re-exported: the M0 limits are shared contract values, while the strict parse rules that
+// enforce them live here with their tests.
 export {
   SPARSE_TASK_MAX_DIRECTORY_COUNT,
   SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES,
   SPARSE_TASK_MAX_REQUIRED_PATH_COUNT,
   SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES
-} from '../../shared/worktree/sparse-task-limits'
+} from '../../shared/worktree/create-types'
 
 import {
   SPARSE_TASK_MAX_DIRECTORY_COUNT,
   SPARSE_TASK_MAX_DIRECTORY_UTF8_BYTES,
   SPARSE_TASK_MAX_REQUIRED_PATH_COUNT,
   SPARSE_TASK_MAX_REQUIRED_PATH_UTF8_BYTES
-} from '../../shared/worktree/sparse-task-limits'
+} from '../../shared/worktree/create-types'
 
 /** Codes from the M0 contract, plus two M2 registrations (`sparse_task_tree_probe_invalid`,
  *  `sparse_task_pinned_sha_invalid`) that describe "cannot prove" rather than "absent/unusable" and
  *  are documented in the M0 error table. All are fail-closed and never retryable. */
-export type SparseTaskValidationCode =
+type SparseTaskValidationCode =
   | 'sparse_task_directory_invalid'
   | 'sparse_task_directory_limit_exceeded'
   | 'sparse_task_directory_missing'

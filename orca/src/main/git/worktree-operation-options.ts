@@ -34,6 +34,9 @@ export type AddWorktreeOptions = GitWorktreeExecOptions & {
   /** Already-resolved commit to create at. The base ref is still resolved and persisted, but the
    *  checkout start point cannot move between resolution and `git worktree add`. */
   pinnedBaseOid?: string
+  /** Task sparse: keep a half-created worktree instead of rolling it back, so the caller can report
+   *  what actually exists. Legacy creation keeps the rollback. */
+  retainPartialWorktreeOnFailure?: boolean
   remoteTrackingBase?: {
     base: string
     branch: string

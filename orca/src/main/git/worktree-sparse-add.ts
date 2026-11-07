@@ -50,7 +50,11 @@ export async function addSparseWorktree(
   } catch (error) {
     const wrapped: SparseWorktreeCreateError =
       error instanceof Error ? (error as SparseWorktreeCreateError) : new Error(String(error))
-    if (created) {
+    if (created && options.retainPartialWorktreeOnFailure) {
+      // Why: a task sparse create must not delete its own evidence — M4 owns recovery, and a
+      // rollback here would erase the worktree, branch and partial index a diagnosis needs.
+      wrapped.message = `${wrapped.message} (the partially created worktree at "${worktreePath}" was kept for inspection)`
+    } else if (created) {
       if (!options.checkoutExistingBranch) {
         try {
           await unsetWorktreeCreationBase(worktreePath, branch, options)
