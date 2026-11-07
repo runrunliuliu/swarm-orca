@@ -3,20 +3,36 @@ name: swarm-orchestration
 description: >-
   Prepare and coordinate supervised Orca Swarms: explicit deployment inputs, independent
   Coordinator startup, bounded Worker concurrency, checkpoints, recovery, evidence and closeout.
-  Use for supervised multi-agent work; not for ordinary single-agent editing or unsupervised handoffs.
+  Also owns the read-only eligibility judgement for asking several agents to debate or review a
+  decision before any Run exists. Use for supervised multi-agent work, or when asked to discuss,
+  debate, cross-review or get an independent second opinion; not for ordinary single-agent editing,
+  unsupervised handoffs, or questions one check would settle.
 ---
 
 # Swarm orchestration
 
-Read this skill completely before preparing a supervised Run. Paths below are relative to this
-file. This repository supplies generic control protocols; the task supplies deployment policy
-and domain-specific role skills. Neither this skill nor a successful helper grants execution authority.
+This skill has two purposes. Read the entry in full either way; only purpose 2 pulls in the rest.
+
+1. **Read-only eligibility judgement** — decide whether a question deserves several agents at all,
+   and return the verdict plus missing inputs. This creates no Run, starts no Agent, and does not
+   require a worktree or `max_workers`. The exemption covers execution-preparation requirements
+   only: user limits, applicable workspace rules, read-only boundaries and existing permission
+   constraints still apply. Protocol: [discussion](references/discussion.md).
+2. **Supervised execution preparation** — everything else in this file and every existing startup,
+   identity, concurrency and lifecycle requirement applies.
+
+Reading this skill is not launch authorization. Paths below are relative to this file. This
+repository supplies generic control protocols; the task supplies deployment policy and
+domain-specific role skills. Neither this skill nor a successful helper grants execution authority.
+Neither a debate verdict nor a discussion outcome authorizes writing, merging, deploying or
+starting a Run; those keep their own authorization and gates.
 
 Read the applicable shared references in full (they are not optional substitutes for the linked
 implementation protocols):
 
 | Before | Shared reference |
 | --- | --- |
+| Judging whether to convene several agents, or running such a discussion | [Discussion](references/discussion.md) |
 | Planning, handoff, recovery or ending a business turn | [Coordinator loop](references/coordinator-loop.md) |
 | Selecting or handing off domain roles | [Repository skills](references/repository-skills.md) |
 | Preparing, refreshing or reusing preflight evidence | [Preflight evidence](references/preflight-evidence.md) |
