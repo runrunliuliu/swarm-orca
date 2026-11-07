@@ -431,6 +431,29 @@ describe('inspectSparseTaskCreate', () => {
     expect(inspection.head?.toLowerCase()).toBe(pin.pinnedSha.toLowerCase())
   })
 
+  it('does not call an unreadable repository listing "absent"', async () => {
+    // Why this is the safety-relevant case: `absent` lets the caller retry. A listing that could not
+    // be read cannot prove the registration is gone, so the answer must stay unknown — and a
+    // missing directory must not talk the inspection out of that.
+    const notARepo = await mkdtemp(join(tmpdir(), 'orca-sparse-task-not-a-repo-'))
+    tempRoots.push(notARepo)
+
+    const inspection = await inspectSparseTaskCreate({
+      repoPath: notARepo,
+      worktreePath: join(notARepo, 'never-created'),
+      branch: 'never-created',
+      pin: { pinnedSha: '0'.repeat(40) },
+      requestedSparseCone: ['swarm'],
+      requiredPaths: []
+    })
+
+    expect(inspection).toMatchObject({ state: 'unverifiable', registered: false })
+    expect(inspection.reasons).toContain('repo listing could not be read')
+    expect(inspection.reasons).toContain(
+      'the directory is missing but the registration could not be read'
+    )
+  })
+
   it('reports a ghost registration when only the Git registration remains', async () => {
     const repoPath = await createRepo()
     const { worktreePath, pin } = await createSparseTaskWorktree(repoPath, ['swarm'])
@@ -511,6 +534,9 @@ describe('createSparseTaskWorkspace reconciliation marker', () => {
     expect(text).toContain('[sparse_task_required_path_missing]')
     expect(text).toContain('observed partial')
     expect(text).toContain(`branch task-marker`)
+    expect(text).toContain('registration listed')
+    // Why the code must survive: callers switch on `[sparse_task_*]`, so the marker may not erase it.
+    expect((error as Error & { code?: string }).code).toBe('sparse_task_required_path_missing')
     // Why the workspace survives: evidence for a human, and a later retry must not silently inherit
     // a half-built directory either.
     expect((await stat(join(worktreePath, 'swarm', 'notes.md'))).isFile()).toBe(true)

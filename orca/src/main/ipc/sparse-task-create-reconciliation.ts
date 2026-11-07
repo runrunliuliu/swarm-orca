@@ -49,12 +49,22 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-async function pathExists(target: string): Promise<boolean> {
+/** `present` / `missing` are proof; `unverifiable` (permission, I/O) is neither, and must not
+ *  collapse into `absent` — the difference is whether a retry is safe. */
+type DirectoryPresence = 'present' | 'missing' | 'unverifiable'
+
+function errorCode(error: unknown): unknown {
+  return typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+}
+
+async function directoryPresence(target: string): Promise<DirectoryPresence> {
   try {
     await stat(target)
-    return true
-  } catch {
-    return false
+    return 'present'
+  } catch (error) {
+    const code = errorCode(error)
+    // Why only these two: EACCES/ELOOP/EIO say nothing about whether the directory is there.
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unverifiable'
   }
 }
 
@@ -90,31 +100,43 @@ export async function inspectSparseTaskCreate(args: {
     directoryExists: false,
     reasons: []
   }
-  const listingUnknown = (): void => {
-    inspection.reasons.push('repo listing could not be read')
-  }
+  // Why track readability: an unreadable listing cannot prove `registered=false`, and `absent`
+  // authorizes a retry — so it may only be reported when both facts were actually proven.
+  let listingKnown = true
   try {
     const worktrees = await listWorktreesSharedStrict(args.repoPath, options)
     inspection.registered = Boolean(
       findCreatedWorktree(worktrees, args.worktreePath, args.branch)
     )
   } catch {
-    listingUnknown()
+    listingKnown = false
+    inspection.reasons.push('repo listing could not be read')
   }
-  inspection.directoryExists = await pathExists(args.worktreePath)
+  const presence = await directoryPresence(args.worktreePath)
+  inspection.directoryExists = presence === 'present'
   // Why ghost: a registration without a directory is what a killed writer leaves, and it is also
   // what makes a later `worktree add` refuse the name — it has to be visible, not silent.
-  inspection.ghostRegistration = inspection.registered && !inspection.directoryExists
-  if (!inspection.registered && !inspection.directoryExists) {
-    inspection.state = 'absent'
+  inspection.ghostRegistration = inspection.registered && presence === 'missing'
+  if (presence === 'unverifiable') {
+    inspection.state = 'unverifiable'
+    inspection.reasons.push('the worktree directory could not be checked')
     return inspection
   }
-  if (!inspection.directoryExists) {
+  if (presence === 'missing') {
+    if (!listingKnown) {
+      inspection.state = 'unverifiable'
+      inspection.reasons.push('the directory is missing but the registration could not be read')
+      return inspection
+    }
+    if (!inspection.registered) {
+      inspection.state = 'absent'
+      return inspection
+    }
     inspection.state = 'partial'
     inspection.reasons.push('registered but the directory is missing')
     return inspection
   }
-  let unknown = false
+  let unknown = !listingKnown
   try {
     inspection.head = await readCreatedWorktreeHead(args.worktreePath, options)
     inspection.headMatchesPin =
@@ -160,7 +182,7 @@ export async function inspectSparseTaskCreate(args: {
     unknown = true
     inspection.reasons.push('required paths could not be checked')
   }
-  if (!inspection.registered) {
+  if (listingKnown && !inspection.registered) {
     inspection.reasons.push('the worktree directory exists but is not in the repo listing')
   }
   inspection.state = unknown
@@ -188,7 +210,11 @@ export function markSparseTaskCreateNeedsReconciliation(args: {
     `pinned ${inspection.pinnedSha}`,
     `head ${inspection.head ?? 'unknown'}`,
     `directory ${inspection.directoryExists ? 'present' : 'missing'}`,
-    inspection.ghostRegistration ? 'registration ghost' : 'registration listed',
+    !inspection.registered
+      ? 'registration not listed'
+      : inspection.ghostRegistration
+        ? 'registration ghost'
+        : 'registration listed',
     ...(inspection.missingRequiredPaths && inspection.missingRequiredPaths.length > 0
       ? [`missing required paths ${inspection.missingRequiredPaths.join(', ')}`]
       : []),

@@ -20,7 +20,7 @@
 不会带标记，可以直接重试。带标记的错误原文会被完整保留在 message 中，`[sparse_task_*]`
 内层码仍在，因此"哪一个门禁拒绝了创建"不会被掩盖。
 
-## 2. 三个可判定状态
+## 2. 四个可判定状态
 
 `sparse_task_create_needs_reconciliation` 的 message 同时给出观测结论，取值如下：
 
@@ -31,7 +31,9 @@
 | `partial` | 有目录或登记，但上述任一项不成立（含"登记存在、目录缺失"的幽灵登记） | 保留现场，报告差异，等待授权处置 |
 | `unverifiable` | 列登记、HEAD、cone 或必需路径无法读取（权限、I/O、断连） | 按未知处理，不推测、不清理 |
 
-`unverifiable` 不是"没有残留"，`absent` 才是。
+`unverifiable` 不是"没有残留"，`absent` 才是。`absent` 只在两件事都被证明时出现：仓库登记可读且
+无该工作区、目录确定为不存在（`ENOENT`/`ENOTDIR`）。登记读不出来、或目录因权限/I/O 无法判定，
+一律落到 `unverifiable`，因为 `absent` 意味着"可以直接重试"。
 
 ## 3. 只读对账命令
 
