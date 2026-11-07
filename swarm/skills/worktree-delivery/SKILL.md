@@ -110,9 +110,27 @@ success/failure from that transport error.
   filesystem and Git worktree metadata, local branch, and any authorized remote branch. Refresh the
   native list after the exact-ID check so the user-facing view observes the new catalog generation.
 
+### Verify the client-facing projection after removal
+
+Native removal notifies clients; a removal performed outside Orca — for example an explicitly
+authorized `git worktree remove` after the native entry refused — emits no such event. Verify the
+projection, not just Git:
+
+- The filesystem, `git worktree list`, the local branch, the exact-ID lookup and the repo-scoped
+  listing must all be clean, as above.
+- Then check what a client would render. A row left in runtime metadata does not by itself create a
+  workspace: the list is built from the Git listing and metadata only overlays it. It re-projects
+  only when that listing fails, so a leftover row is inert, not an active workspace.
+- A user-facing list that still shows the workspace after the checks above is a stale client view.
+  Trigger one supported catalog refresh for that repository (a metadata write such as `worktree set`
+  with its existing value notifies clients), then re-check the same view.
+- Do not edit the runtime database, reset the profile, or restart the runtime to clear a cache. If
+  the entry survives a refresh and a client reopen, report it as an unresolved projection defect
+  with the exact IDs rather than working around it.
+
 ## 6. Report distinct outcomes
 
 Report reviewed and integrated commits, target branch/remote, push status, post-integration tests,
-deployed version (if any), live checks, rollback reference, cleanup performed, resources retained and
-coverage gaps. If blocked, name the last proven step and next owner. Do not call “committed” merged,
+deployed version (if any), live checks, rollback reference, cleanup performed — including whether the
+client-facing projection was verified or is still stale — resources retained and coverage gaps. If blocked, name the last proven step and next owner. Do not call “committed” merged,
 “deployed” accepted, or an absent terminal exited.
