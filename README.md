@@ -27,7 +27,10 @@ specific commit. Deployment instructions will be added with the implementation.
 
 Start with [AGENTS.md](AGENTS.md). Its task-to-skill index provides Orca CLI/native orchestration,
 Swarm coordination, and worktree delivery workflows without a private parent checkout or global
-skill installation. Deployment-specific configuration and domain roles are explicit inputs; see
+skill installation. Before choosing among them, read
+[entry paths](swarm/docs/entry-paths.md): task identity and workspace isolation first, then when not
+to convene agents, which of the three execution paths applies, and how a domain adapter attaches.
+Deployment-specific configuration and domain roles are explicit inputs; see
 [configuration](swarm/configuration.md).
 
 ## Task-centric development model (design)

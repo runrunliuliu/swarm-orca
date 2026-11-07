@@ -76,6 +76,13 @@ multiple repository worktrees and continue from different Projects or terminals;
 not task identities. This is a target design, not an implemented automatic gate or permission to
 migrate existing Runs. Current task authorization, isolation policy and delivery requirements still apply.
 
+## Choosing what to read first
+
+Pick the execution entry before the skill: [entry paths](swarm/docs/entry-paths.md) starts from task
+identity and workspace isolation, then covers when not to convene several agents, which of the three
+mutually exclusive execution paths a task belongs to, and how a domain adapter attaches. It is a
+routing index, not a mode enumeration and not a grant of authority.
+
 ## Skills
 
 Discover skills through the table below and read the applicable `SKILL.md` completely before acting.

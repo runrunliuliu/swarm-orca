@@ -9,6 +9,9 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 
 ## 先找对入口
 
+先定任务与工作区隔离，再按任务特征判断该不该召集、该用哪条入口（含只读讨论与领域适配）：见
+[入口选择：任务、讨论、执行路径、领域适配与交付](docs/entry-paths.md)。下表是“入口 → 权威文档”，两表不重复。
+
 | 路径 | 入口与用途 | 不能混用的边界 |
 | --- | --- | --- |
 | Strict Coordinator TUI + Operator monitor / scheduler | [启动准备](operator-prepare.md) → [strict 握手](coordinator-strict-start.md) → [TUI 续跑](coordinator-tui.md) / [monitor](operator-monitor.md)。当前 strict native 计划支持 Trae；通过原生 Run mailbox 续接真实 Coordinator。 | monitor 只有显式配置 continuation 才调用 scheduler；观察、消息入队或 Operator 结算都不等于业务完成。 |
