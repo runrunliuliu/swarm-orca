@@ -1,6 +1,8 @@
 import { describeCreatedWorktree, listWorktreesSharedStrict } from '../git/worktree'
 // Not via the worktree barrel: suites mock that module wholesale and would blank the constant.
 import { WORKTREE_LIST_TIMEOUT_MS } from '../git/worktree-operation-options'
+import { gitExecFileAsync } from '../git/runner'
+import { gitExecOptions } from '../git/worktree-operation-options'
 import type { GitWorktreeExecOptions } from '../git/worktree'
 import type { GitWorktreeInfo } from '../../shared/worktree/types'
 import { areWorktreePathsEqual } from './worktree-path-comparison'
@@ -27,6 +29,27 @@ export type CreatedWorktreeResolution = {
   worktrees: readonly GitWorktreeInfo[]
   /** Whether `worktrees` is the repo's whole listing, and so usable as its authorized-root set. */
   listingComplete: boolean
+}
+
+/**
+ * Read HEAD from the worktree itself.
+ *
+ * Why not the listing's head column: a create has to prove what the new checkout points at, and the
+ * listing is a scan that can be served from a cache or omit the row it was asked about.
+ */
+export async function readCreatedWorktreeHead(
+  worktreePath: string,
+  options: GitWorktreeExecOptions = {}
+): Promise<string> {
+  const { stdout } = await gitExecFileAsync(
+    ['rev-parse', '--verify', 'HEAD'],
+    gitExecOptions(worktreePath, options)
+  )
+  const head = stdout.trim()
+  if (head.length === 0) {
+    throw new Error(`Could not read HEAD for created worktree: ${worktreePath}`)
+  }
+  return head
 }
 
 /** `created but not found in listing` is load-bearing for `classifyWorkspaceCreateError`. */

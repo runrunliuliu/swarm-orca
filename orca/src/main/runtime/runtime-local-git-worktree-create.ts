@@ -1,9 +1,18 @@
 import type { LocalGitExecOptions } from '../git/repo-default-base-ref'
 import { runWorktreeChangeInvalidators } from '../ipc/worktree-change-invalidators'
 import type { GitPushTarget, GitWorktreeInfo } from '../../shared/worktree/types'
+import type { SparseTaskWorkspaceReceipt } from '../../shared/worktree/create-types'
 import type { Repo } from '../../shared/repo-types'
 import { resolveCreatedWorktree } from '../ipc/created-worktree-reconciliation'
 import { normalizeSparseDirectories } from '../ipc/sparse-checkout-directories'
+import {
+  assertSparseTaskRequiredPathsSupported,
+  assertSparseTaskWorkspaceCreatePath,
+  assertSparseTaskWorkspaceNewBranch,
+  buildSparseTaskWorkspaceReceipt,
+  resolveSparseTaskWorkspaceRequest,
+  type SparseTaskWorkspacePin
+} from '../ipc/sparse-task-workspace-receipt'
 import { configureCreatedWorktreePushTarget } from '../ipc/worktree-remote'
 import {
   addSparseWorktree,
@@ -11,6 +20,7 @@ import {
   type AddWorktreeOptions,
   type AddWorktreeResult
 } from '../git/worktree'
+import { resolvePinnedWorktreeBase } from '../git/worktree-add'
 import type { RuntimeStore } from './runtime-store-contract'
 import type { RuntimeManagedWorktreeCreateArgs } from './runtime-managed-worktree-create-types'
 import type { RemoteFetchResult, RemoteTrackingBase } from './runtime-remote-fetch-controller'
@@ -65,7 +75,14 @@ export async function createRuntimeLocalGitWorktree(args: {
   configuredPushTarget?: GitPushTarget
   created: GitWorktreeInfo
   addResult: AddWorktreeResult
+  sparseCheckoutReceipt?: SparseTaskWorkspaceReceipt
 }> {
+  // Why: the task sparse contract refuses what this path cannot honour before any Git work, so a
+  // legacy sparse result can never stand in for a pinned one.
+  const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.request.sparseCheckout)
+  assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'local')
+  assertSparseTaskWorkspaceNewBranch(sparseTaskRequest, args.checkoutExistingBranch)
+  assertSparseTaskRequiredPathsSupported(sparseTaskRequest)
   let remoteTrackingBase = await args.resolveRemoteTrackingBase(
     args.repo.path,
     args.baseBranch,
@@ -124,9 +141,22 @@ export async function createRuntimeLocalGitWorktree(args: {
     !args.settings.localBaseRefSuggestionDismissed &&
     Boolean(remoteTrackingBase)
   const remoteOption = remoteTrackingBase ? { remoteTrackingBase } : undefined
+  // Why: resolve the base once, after the refresh that makes it usable but before the add, so the
+  // worktree starts at the commit we verified rather than at a ref that can move mid-create.
+  const sparseTaskPin: SparseTaskWorkspacePin | undefined = sparseTaskRequest
+    ? {
+        baseSource: args.request.baseBranch ? 'request' : 'default',
+        ...(await resolvePinnedWorktreeBase(
+          args.repo.path,
+          args.baseBranch,
+          args.localWorktreeGitOptions
+        ))
+      }
+    : undefined
   const preparedWorktreeOptions: AddWorktreeOptions = {
     ...remoteOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {}),
+    ...(sparseTaskPin ? { pinnedBaseOid: sparseTaskPin.pinnedSha } : {}),
     ...args.localWorktreeGitOptions
   }
   const addOptions: AddWorktreeOptions = {
@@ -222,11 +252,23 @@ export async function createRuntimeLocalGitWorktree(args: {
     args.branchName,
     args.localWorktreeGitOptions
   )
+  // Why before any metadata: a workspace whose HEAD or cone does not match the pin must not be
+  // published as ready.
+  const sparseCheckoutReceipt = sparseTaskPin
+    ? await buildSparseTaskWorkspaceReceipt({
+        worktreePath: created.path,
+        branch: args.branchName,
+        pin: sparseTaskPin,
+        requestedSparseCone: sparseDirectories,
+        options: args.localWorktreeGitOptions
+      })
+    : undefined
   return {
     remoteTrackingBase,
     sparseDirectories,
     ...(configuredPushTarget ? { configuredPushTarget } : {}),
     created,
-    addResult
+    addResult,
+    ...(sparseCheckoutReceipt ? { sparseCheckoutReceipt } : {})
   }
 }

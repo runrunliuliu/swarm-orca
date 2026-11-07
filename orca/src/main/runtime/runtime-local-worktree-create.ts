@@ -142,6 +142,7 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
     ...materialized,
     worktreePath: candidate.worktreePath,
     created: git.created,
-    addResult: git.addResult
+    addResult: git.addResult,
+    ...(git.sparseCheckoutReceipt ? { sparseCheckoutReceipt: git.sparseCheckoutReceipt } : {})
   }
 }

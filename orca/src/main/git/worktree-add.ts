@@ -26,6 +26,41 @@ export type WorktreeAddBaseContext = AddWorktreeResult & {
   effectiveBaseOid?: string
 }
 
+/** A base resolved to one immutable commit, so a ref that moves mid-create cannot change what the
+ *  new workspace starts from. */
+export type PinnedWorktreeBase = {
+  /** The ref the pin came from, after base-ref qualification (`main` → `refs/heads/main`). */
+  resolvedRef: string
+  /** Full commit SHA; `git worktree add` receives this, not `resolvedRef`. */
+  pinnedSha: string
+}
+
+/**
+ * Resolve a worktree base to a full commit SHA before creation.
+ *
+ * Deliberately one resolution: the caller passes `pinnedSha` to `addWorktree` through
+ * `pinnedBaseOid`, so a concurrent push to the base branch cannot retarget the create.
+ */
+export async function resolvePinnedWorktreeBase(
+  repoPath: string,
+  baseBranch: string,
+  options: GitWorktreeExecOptions = {}
+): Promise<PinnedWorktreeBase> {
+  const resolvedRef = await resolveWorktreeAddBaseRef(
+    baseBranch,
+    async (qualifiedRef) =>
+      (await resolveWorktreeBaseCommitOid(repoPath, qualifiedRef, options)) !== null
+  )
+  const pinnedSha = await resolveWorktreeBaseCommitOid(repoPath, resolvedRef, options)
+  if (!pinnedSha) {
+    // Why fail closed: creating at the unresolved ref would silently lose the pin the caller asked for.
+    throw new Error(
+      `Could not resolve base "${baseBranch}" to a commit, so it cannot be pinned for this sparse task workspace.`
+    )
+  }
+  return { resolvedRef, pinnedSha }
+}
+
 export async function resolveWorktreeAddBaseContext(
   repoPath: string,
   baseBranch: string,
@@ -208,7 +243,9 @@ async function performAddWorktree(
       effectiveBase = baseContext.effectiveBase
       localBaseRefRefresh = baseContext.localBaseRefRefresh
       localBaseRefUpdateSuggestion = baseContext.localBaseRefUpdateSuggestion
-      args.push(effectiveBase)
+      // Why: a pinned caller already resolved this ref; creating at the pin keeps a moved ref from
+      // retargeting the checkout, while the persisted base metadata below stays a ref.
+      args.push(options.pinnedBaseOid ?? effectiveBase)
     }
   }
   try {

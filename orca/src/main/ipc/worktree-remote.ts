@@ -143,6 +143,15 @@ import { formatWorktreeIncludeCopyWarning } from './worktree-include-copy-budget
 import { resolveWorktreeIncludePaths } from '../git/worktree-include-file'
 import { resolveWorktreeSharedDirectories } from '../git/worktree-shared-directories'
 import { normalizeSparseDirectories } from './sparse-checkout-directories'
+import {
+  assertSparseTaskRequiredPathsSupported,
+  assertSparseTaskWorkspaceCreatePath,
+  assertSparseTaskWorkspaceNewBranch,
+  buildSparseTaskWorkspaceReceipt,
+  resolveSparseTaskWorkspaceRequest,
+  type SparseTaskWorkspacePin
+} from './sparse-task-workspace-receipt'
+import { resolvePinnedWorktreeBase } from '../git/worktree-add'
 import { joinWorktreeRelativePath } from '../runtime/runtime-relative-paths'
 import type { IFilesystemProvider } from '../providers/types'
 import {
@@ -1836,6 +1845,11 @@ export async function createRemoteWorktree(
 
   const settings = store.getSettings()
   const worktreePathSettings = getWorktreePathSettings(repo, settings)
+  // Why: the remote sparse sequence still runs on the executing host without a pinned base or a
+  // readback, so a task request is refused before roots are registered or anything is created.
+  const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.sparseCheckout)
+  assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'ssh')
+  assertSparseTaskRequiredPathsSupported(sparseTaskRequest)
   let effectiveRequestedName = args.name
   const sanitizedName = sanitizeWorktreeName(args.name)
   let effectiveSanitizedName = sanitizedName
@@ -2330,6 +2344,11 @@ async function performLocalWorktreeCreate(
     ...options,
     ...localWorktreeGitOptions
   })
+  // Why: the task sparse contract refuses what this path cannot honour before any Git work, so a
+  // legacy sparse result can never stand in for a pinned one.
+  const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.sparseCheckout)
+  assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'local')
+  assertSparseTaskRequiredPathsSupported(sparseTaskRequest)
 
   const requestedName = args.name
   const sanitizedName = sanitizeWorktreeName(args.name)
@@ -2689,6 +2708,20 @@ async function performLocalWorktreeCreate(
       await legacyFetchPromise
     })
   }
+  // Why: a task sparse workspace starts a new branch at the pinned commit; reusing an existing
+  // branch would make the readback compare against that branch's head instead.
+  assertSparseTaskWorkspaceNewBranch(sparseTaskRequest, checkoutExistingBranch)
+  // Why resolve the base once and create at that commit: a ref can move between the caller's
+  // inspection and `git worktree add`, which would land the workspace somewhere unverified.
+  const sparseTaskPin: SparseTaskWorkspacePin | undefined = sparseTaskRequest
+    ? {
+        baseSource: args.baseBranch ? 'request' : 'default',
+        ...(await timing.time('pin_base', () =>
+          resolvePinnedWorktreeBase(repo.path, baseBranch, localWorktreeGitOptions)
+        ))
+      }
+    : undefined
+  const pinnedBaseOption = sparseTaskPin ? { pinnedBaseOid: sparseTaskPin.pinnedSha } : {}
   emitCreateWorktreeProgress(mainWindow, 'creating', args.creationId)
 
   // Why: defer the remote add + fetch to first push/pull/fetch/fast-forward
@@ -2765,7 +2798,11 @@ async function performLocalWorktreeCreate(
               sparseDirectories,
               baseBranch,
               settings.refreshLocalBaseRefOnWorktreeCreate,
-              addProjectGitOptions({ ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate })
+              addProjectGitOptions({
+                ...remoteTrackingBaseOption,
+                suggestLocalBaseRefUpdate,
+                ...pinnedBaseOption
+              })
             )
           }
           return addSparseWorktree(
@@ -2775,7 +2812,7 @@ async function performLocalWorktreeCreate(
             sparseDirectories,
             baseBranch,
             settings.refreshLocalBaseRefOnWorktreeCreate,
-            addProjectGitOptions(remoteTrackingBaseOption)
+            addProjectGitOptions({ ...remoteTrackingBaseOption, ...pinnedBaseOption })
           )
         }
 
@@ -2847,6 +2884,19 @@ async function performLocalWorktreeCreate(
   } = await timing.time('list_created_worktree', async () =>
     resolveCreatedWorktree(repo.path, worktreePath, branchName, localWorktreeGitOptions)
   )
+  // Why before metadata/setup/terminals: a worktree whose HEAD or cone does not match the pin must
+  // not be published as a ready workspace.
+  const sparseCheckoutReceipt = sparseTaskPin
+    ? await timing.time('verify_sparse_task_workspace', () =>
+        buildSparseTaskWorkspaceReceipt({
+          worktreePath: created.path,
+          branch: branchName,
+          pin: sparseTaskPin,
+          requestedSparseCone: sparseDirectories,
+          options: localWorktreeGitOptions
+        })
+      )
+    : undefined
 
   const worktreeId = `${repo.id}::${created.path}`
   const now = Date.now()
@@ -3058,6 +3108,7 @@ async function performLocalWorktreeCreate(
       : {}),
     ...(stagedStartup.startupTerminal ? { startupTerminal: stagedStartup.startupTerminal } : {}),
     ...(baseFallback ? { baseFallback } : {}),
+    ...(sparseCheckoutReceipt ? { sparseCheckoutReceipt } : {}),
     ...(stagedStartup.warning
       ? { warning: appendWorktreeCreateWarning(includeCopyWarning, stagedStartup.warning) }
       : includeCopyWarning

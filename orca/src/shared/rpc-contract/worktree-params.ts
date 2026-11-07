@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { normalizeExecutionHostId } from '../execution-host'
 import { isTuiAgent } from '../tui-agent-config'
 import type { TuiAgent } from '../tui-agent'
+import { SPARSE_TASK_CHECKOUT_MODE } from '../worktree/create-types'
 import {
   OptionalBoolean,
   OptionalFiniteNumber,
@@ -87,6 +88,21 @@ export const WorktreeSelector = z.object({
 export const WorktreeActivate = WorktreeSelector.extend({
   notifyClients: OptionalBoolean,
   navigation: z.enum(RUNTIME_NAVIGATION_TARGETS).optional()
+})
+
+/**
+ * Sparse checkout payload for `worktree.create`.
+ *
+ * `mode` is the only trigger for the task sparse contract; every other payload (including sparse
+ * directories without it) keeps legacy behavior. `requiredPaths` is parsed rather than left to be
+ * dropped, so a host that cannot verify the requirement refuses the create instead of returning a
+ * legacy sparse success.
+ */
+export const WorktreeSparseCheckoutParams = z.object({
+  directories: z.array(z.string()),
+  presetId: OptionalString,
+  mode: z.literal(SPARSE_TASK_CHECKOUT_MODE).optional(),
+  requiredPaths: z.array(z.string()).optional()
 })
 
 /** Shared by WorktreeCreate and WorktreeSet so the two error messages cannot drift. */

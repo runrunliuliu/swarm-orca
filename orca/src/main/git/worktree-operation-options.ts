@@ -31,6 +31,9 @@ export type WorktreeRemovalPreflightOptions = GitWorktreeExecOptions & {
 export type AddWorktreeOptions = GitWorktreeExecOptions & {
   checkoutExistingBranch?: boolean
   suggestLocalBaseRefUpdate?: boolean
+  /** Already-resolved commit to create at. The base ref is still resolved and persisted, but the
+   *  checkout start point cannot move between resolution and `git worktree add`. */
+  pinnedBaseOid?: string
   remoteTrackingBase?: {
     base: string
     branch: string
