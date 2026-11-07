@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolve } from 'node:path'
 import type { CreateWorktreeResult } from '../../shared/worktree/create-types'
+import { parseSparseTaskWorkspaceBinding } from '../../shared/worktree/sparse-task-binding'
 import { resolveRegisteredWorktreePath } from './registered-worktree-roots-cache'
 import { computeWorkspaceRootAsync } from './worktree-logic'
 import type * as WorktreeLogic from './worktree-logic'
@@ -401,6 +402,8 @@ describe('registerWorktreeHandlers', () => {
       'repo-1::/workspace/rocket',
       expect.objectContaining({ displayName: '🚀' })
     )
+    // M5: a legacy create must never look like a task workspace to a later reader.
+    expect(store.setWorktreeMeta.mock.calls.at(-1)?.[1]).not.toHaveProperty('sparseTaskBinding')
   })
 
   it('uses a repo-specific worktree base path when creating local worktrees', async () => {
@@ -853,5 +856,12 @@ describe('registerWorktreeHandlers', () => {
       ['ls-tree', '-z', '--full-tree', pinnedSha, '--', ':(literal)swarm'],
       expect.anything()
     )
+
+    // M5: the publishing write must carry a readable binding or the start gate has nothing to read.
+    const persisted = store.setWorktreeMeta.mock.calls.at(-1)?.[1] as { sparseTaskBinding?: unknown }
+    expect(parseSparseTaskWorkspaceBinding(persisted?.sparseTaskBinding)).toMatchObject({
+      pinnedSha, requestedSparseCone: ['swarm'], requiredPaths: []
+    })
   })
+
 })

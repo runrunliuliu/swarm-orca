@@ -4,7 +4,11 @@ import { getRepoExecutionHostId } from '../../shared/execution-host'
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-lookup'
 import type { GitWorktreeInfo, GitPushTarget, Worktree } from '../../shared/worktree/types'
 import type { Repo } from '../../shared/repo-types'
-import type { CreateWorktreeArgs } from '../../shared/worktree/create-types'
+import type {
+  CreateWorktreeArgs,
+  SparseTaskWorkspaceReceipt
+} from '../../shared/worktree/create-types'
+import { createSparseTaskWorkspaceBinding } from '../../shared/worktree/sparse-task-binding'
 import type { TuiAgent } from '../../shared/tui-agent'
 import { resolveWorktreeIncludePaths } from '../git/worktree-include-file'
 import { formatWorktreeIncludeCopyWarning } from '../ipc/worktree-include-copy-budget'
@@ -40,6 +44,8 @@ export async function materializeRuntimeLocalWorktree<T>(args: {
   displayNameKind: CreateWorktreeArgs['displayNameKind']
   effectiveSanitizedName: string
   effectiveCreatedWithAgent?: TuiAgent
+  /** Present only for a successful task sparse create; legacy payloads never carry it. */
+  sparseCheckoutReceipt?: SparseTaskWorkspaceReceipt
   localWorktreeGitOptions: LocalGitExecOptions
   onMetadataPersisted: (worktree: Worktree) => T
 }): Promise<{ worktree: Worktree; metadataResult: T; includeCopyWarning?: string }> {
@@ -89,6 +95,11 @@ export async function materializeRuntimeLocalWorktree<T>(args: {
           sparseBaseRef: metadataBaseRef,
           sparsePresetId: request.sparseCheckout?.presetId
         }
+      : {}),
+    // Why in this same write: a workspace that reports success must already carry the facts a start
+    // gate needs. Written separately, a failure here would publish a workspace nobody can gate.
+    ...(args.sparseCheckoutReceipt
+      ? { sparseTaskBinding: createSparseTaskWorkspaceBinding(args.sparseCheckoutReceipt, now) }
       : {}),
     ...(request.linkedIssue !== undefined ? { linkedIssue: request.linkedIssue } : {}),
     ...(request.linkedPR !== undefined ? { linkedPR: request.linkedPR } : {}),

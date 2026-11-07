@@ -135,6 +135,7 @@ async function performRuntimeLocalWorktreeCreate<T>(args: RuntimeLocalWorktreeCr
     displayNameKind: candidate.displayNameKind,
     effectiveSanitizedName: candidate.effectiveSanitizedName,
     effectiveCreatedWithAgent: args.createdWithAgent,
+    sparseCheckoutReceipt: git.sparseCheckoutReceipt,
     localWorktreeGitOptions: worktreeGitOptions,
     onMetadataPersisted: args.onWorktreeMetadataPersisted
   })
