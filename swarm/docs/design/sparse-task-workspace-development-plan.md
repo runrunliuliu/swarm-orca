@@ -106,3 +106,21 @@
 - 顺序：M0 → M1 → M2 → M3 → M4 → M5。M1/M2 可先合并；M4 不得绕过 M1/M2。
 - 风险：`extensions.worktreeConfig` 属共享配置迁移；外部 Git 写入无法被 Orca 互斥；SSH 断连只能判 unverifiable；任何部署/重启单独授权。
 - 回滚：新增能力按能力名协商，旧 host 失败关闭；不改变 legacy 默认路径即可回退。
+
+## 7. M0–M2 交付状态与已知缺口（2026-11-07）
+
+已交付并合并进 `main`：M0 契约冻结、M1 固定基线 + 创建回执、M2 树级校验与必需路径核验
+（desktop IPC 本地 create 与 runtime 本地 create 共用同一编排 helper；legacy 全量与 legacy sparse 行为不变）。
+
+已知缺口，作为 M3/M4 的输入：
+
+- **SSH 任务模式仍 fail-closed**：远程 sparse 序列没有固定 SHA 与回读，v1 未接入；能力名是 host 级，只覆盖本地路径，SSH 明确拒绝而不降级。
+- **requiredPaths 仅本机 stat**：WSL/跨宿主未验证，已有可注入 probe 但无宿主适配，假缺失时 fail-closed。
+- **Git 版本**：只在 2.39.5 实测；2.25 基线与 `:(literal)` 兼容性未验证，被拒会 fail-closed 为 `sparse_task_tree_probe_invalid`。
+- **覆盖缺口**：IPC 侧未重复「legacy 零额外 Git 调用」断言（由 runtime 入口测试覆盖同一段共享代码）；无真实 sparse 创建端到端验收，无 live Agent 闭环。
+- **失败清理**：task 模式已改为保留现场、不自动回滚；完整恢复协议仍归 M4。
+
+现场发现（2026-11-07，与本计划直接相关）：
+
+- Orca `worktree create` 在约 31k 文件、网络存储的仓库上稳定失败：RPC 约 60–90 秒返回 `runtime_unavailable`，而完整检出需约 3.5 分钟；随后自动回滚删除仍在写入的目录，并留下孤儿分支。这正是 M4「响应丢失即回滚 / 保留 `needs_reconciliation`」要解决的场景。
+- 用 `git worktree add` 手工创建的工作区在原生 `worktree list` 可见，但缺 `createdAt` / `lastActivityAt`，项目区不一定显示。外部创建的工作区应被正常收养或明确报错，不能停在半注册状态，列入 M4 待定项。
