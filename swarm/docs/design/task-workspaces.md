@@ -1,6 +1,9 @@
 # 以任务为中心的跨 Project 工作区模式
 
-状态：设计理念，尚未实现为统一的自动创建、跨入口续接或运行时强制隔离功能。
+状态：设计理念，未实现为统一的自动创建、跨入口续接或运行时强制隔离功能。
+只有“任务稀疏工作区创建契约”的 M0–M2 已合入主分支（固定基线、创建回执、树级与必需路径校验）；
+逻辑任务身份、跨入口路由、启动门禁、可恢复创建与任务绑定持久化均未实现。
+逐项对照见下文“当前实现状态”。
 本文不改变既有 Run、会话、授权和固定引用，不构成启动 Agent、合并、部署或清理的授权。
 
 ## 核心理念
@@ -94,6 +97,59 @@
    清理前确认没有未提交工作、未归档证据、活跃执行者或其他仓库的依赖，并取得相应授权。
    部署和服务重启始终单独授权。
 
+## 当前实现状态
+
+核对日 2026-11-07，`swarm-orca` main @ `be2d8c14`。本节只记录“代码里有什么”，
+不是验收结论；没有跑过的用例和没有授权过的原生闭环一律记为未验证。
+阶段划分与退出条件见 [Sparse 任务工作区开发计划](sparse-task-workspace-development-plan.md)
+和 [M0 契约冻结](sparse-task-workspace-m0-contract.md)。
+
+### 已实现（M1–M2，任务 sparse 创建契约）
+
+入口：`orca/src/main/ipc/sparse-task-workspace-create.ts`，被 runtime 本地创建
+（`src/main/runtime/runtime-local-git-worktree-create.ts`）与 desktop IPC 本地创建共用。
+只有请求里出现 `sparseCheckout.mode: 'task-workspace-v1'` 才进入该契约，legacy 全量与
+legacy sparse 的行为、默认值和回滚策略不变。
+
+| 能力 | 现状 | 证据 |
+| --- | --- | --- |
+| 能力名与协商 | host 级声明 `worktree.sparse-task-workspace.v1`；能力缺失时调用方必须在发送前失败 | `src/shared/protocol-version.ts` |
+| 固定基线 | base 只解析一次并固定为完整 commit SHA，创建使用该 SHA 而非移动 ref；与“检出既有分支”互斥 | commit `19a2e0ec` |
+| 创建回执 | 成功时返回 `sparseCheckoutReceipt`：`baseSource`、`resolvedRef`、`pinnedSha`、`actualHead`、请求/实际 cone、`requiredPaths`；`actualHead !== pinnedSha` 或 cone 不符即不返回成功 | commit `19a2e0ec` |
+| 目录严格解析 | 拒绝空/`.`/绝对路径/盘符/UNC/`..`/NUL/控制字符/首尾空白；≤128 个目录、UTF-8 ≤16 KiB | `src/main/git/sparse-task-input-validation.ts` |
+| 树级校验 | 请求目录必须按 pinned tree 是 tree entry，blob/symlink/gitlink/缺失一律在 Git 副作用前失败；探针无法证明时 fail-closed | commit `84213496`、`5f3fb91b` |
+| 必需路径门禁 | 调用方声明的 `requiredPaths`（如 `AGENTS.md`、角色 skill、构建/测试配置）创建后逐项核验，缺失即失败，不扩 cone、不回退全量；≤256 项、UTF-8 ≤32 KiB | `src/main/git/sparse-task-required-paths.ts` |
+| 失败处置 | 任务模式不再自动回滚或强删分支，保留现场供诊断 | commit `84213496` |
+| SSH 结论 | 远程稀疏序列仍无 pin 与回读，`worktree.create` 在注册 root 和任何 Git 副作用前以 `sparse_task_capability_required` 拒绝，不静默降级 | `src/main/ipc/worktree-remote.ts` |
+
+### 未实现（M3–M5 与本文其余理念）
+
+| 设计要素 | 现状 |
+| --- | --- |
+| 逻辑任务 ID、稳定身份路由 | 不存在。无 CLI 参数、无 schema、无持久记录；仍是设计概念 |
+| 一任务多仓库绑定 | 不存在。`software-development-v1` 任务记录只有单值 `repository: {root, worktree, branch, base_commit}` |
+| 跨入口 / 跨 runtime 续接 | 不存在。入口与任务无关联，也没有“同任务复用原绑定”的运行时校验 |
+| 就绪门禁与副作用分离（M3） | 未实现。setup 决策没有 task 模式分支，任务工作区仍可与 `--setup run` 组合；未就绪工作区不会被 Agent/终端启动入口拒绝 |
+| 可恢复创建（M4） | 未实现。无客户端请求 ID、无持久回执、无 `create-status`；`needs_reconciliation` / 三态对账只存在于设计稿。响应丢失后仍可能回滚删目录并留孤儿分支 |
+| 任务绑定与交接（M5） | 未实现。worktree 元数据只存 `sparseDirectories`；`pinnedSha`、`actualHead`、`requiredPaths` 仅存在于单次创建回执，返回给调用方后不进任务/交接记录，交接无法被独立复核 |
+| 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |
+| Swarm 侧接入 | 未接入任务模式。`swarm` 仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`，因此拿不到本契约的 pin 与回执 |
+
+### 已文档化的约定层（非运行时强制）
+
+第一层已经落地：`AGENTS.md` 要求新的独立修改任务从已确认基线创建专属 worktree，
+`worktree-delivery` 技能规定逐仓库交付与清理，`swarm-orchestration` / 执行策略规定绑定与并发。
+这些是入口 Agent 需要遵守的规则；任意 Project 的入口是否加载、是否照做，运行时不做检查。
+
+### 未验证与已知缺口
+
+- 无 sparse worktree 端到端创建实例，无 live Agent 闭环；本次更新也未执行任何用例，
+  只有 `sparse-task-workspace-create.test.ts`、`runtime-local-git-worktree-task-sparse-entry.test.ts`、
+  `sparse-task-required-paths.test.ts` 等定向用例存在。
+- 只有本地创建路径受契约覆盖；WSL 与跨宿主的必需路径探针未接入，假缺失按 fail-closed 处理。
+- Git 只在 2.39.5 实测；pinned tree 探针用 fatal UTF-8 解码，非 UTF-8 路径仓库会失败关闭。
+- task 模式保留现场后没有恢复协议，遗留目录、分支和部分索引需人工对账（归 M4）。
+
 ## 分层落地方向与当前边界
 
 第一层是开发约定：通过入口 Agent 可读取的规则和技能，统一识别任务、准备 worktree、
@@ -104,6 +160,7 @@
 若需要“禁止写到任务目录外”的硬保证，还须覆盖工具、Shell 和外部进程的实际权限边界。
 
 Orca 已有 worktree 与工作区内终端的基础模型，见 [Worktrees](../../../orca/docs/site/content/docs/model/worktrees.mdx)。
-这些基础能力不证明本文的自动意图识别、跨 Project 任务绑定、跨 runtime 续接或写入强制隔离已实现。
-本文只同步设计理念；不修改原生 schema、启动器、已安装技能、现有会话或既有 Run，
+这些基础能力不证明本文的自动意图识别、跨 Project 任务绑定、跨 runtime 续接或写入强制隔离已实现；
+第二层目前只完成了创建期正确性（M1–M2），其余按上文“未实现”表逐项缺口推进。
+本文只同步设计理念与实现状态；不修改原生 schema、启动器、已安装技能、现有会话或既有 Run，
 也不迁移它们的 pins、验收标准及授权。后续实现与实际验收需分别记录。
