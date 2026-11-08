@@ -79,6 +79,11 @@ multiple repository worktrees and continue from different Projects or terminals;
 not task identities. This is a target design, not an implemented automatic gate or permission to
 migrate existing Runs. Current task authorization, isolation policy and delivery requirements still apply.
 
+Before deciding *whether* a task should use the task sparse workspace mode, use that document's
+"When to use task mode" checklist: it is an explicit operator decision (only `orca worktree create
+--sparse-task-dir` triggers it today), and using it for a small repo or a one-line fix buys friction
+rather than safety.
+
 ## Choosing what to read first
 
 Pick the execution entry before the skill: [entry paths](swarm/docs/entry-paths.md) starts from task
