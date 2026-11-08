@@ -150,6 +150,7 @@ import { resolveWorktreeSharedDirectories } from '../git/worktree-shared-directo
 import { normalizeSparseDirectories } from './sparse-checkout-directories'
 import {
   assertSparseTaskWorkspaceCreatePath,
+  assertSparseTaskSetupSkipped,
   assertSparseTaskWorkspaceNewBranch,
   createSparseTaskWorkspace,
   resolveSparseTaskWorkspaceRequest,
@@ -2716,6 +2717,10 @@ async function performLocalWorktreeCreate(
   // Why: a task sparse workspace starts a new branch at the pinned commit; reusing an existing
   // branch would make the readback compare against that branch's head instead.
   assertSparseTaskWorkspaceNewBranch(sparseTaskRequest, checkoutExistingBranch)
+  assertSparseTaskSetupSkipped(sparseTaskRequest, {
+    ...(args.setupDecision ? { setupDecision: args.setupDecision } : {}),
+    ...(args.runHooks === true ? { runHooks: true } : {})
+  })
   emitCreateWorktreeProgress(mainWindow, 'creating', args.creationId)
 
   // Why: defer the remote add + fetch to first push/pull/fetch/fast-forward

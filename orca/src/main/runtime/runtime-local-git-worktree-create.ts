@@ -7,6 +7,7 @@ import { resolveCreatedWorktree } from '../ipc/created-worktree-reconciliation'
 import { normalizeSparseDirectories } from '../ipc/sparse-checkout-directories'
 import {
   assertSparseTaskWorkspaceCreatePath,
+  assertSparseTaskSetupSkipped,
   assertSparseTaskWorkspaceNewBranch,
   createSparseTaskWorkspace,
   resolveSparseTaskWorkspaceRequest,
@@ -80,6 +81,10 @@ export async function createRuntimeLocalGitWorktree(args: {
   const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.request.sparseCheckout)
   assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'local')
   assertSparseTaskWorkspaceNewBranch(sparseTaskRequest, args.checkoutExistingBranch)
+  assertSparseTaskSetupSkipped(sparseTaskRequest, {
+    ...(args.request.setupDecision ? { setupDecision: args.request.setupDecision } : {}),
+    ...(args.request.runHooks === true ? { runHooks: true } : {})
+  })
   let remoteTrackingBase = await args.resolveRemoteTrackingBase(
     args.repo.path,
     args.baseBranch,
