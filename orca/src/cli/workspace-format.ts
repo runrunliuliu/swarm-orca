@@ -212,7 +212,14 @@ export function formatTaskCreateStatus(result: {
   repoId: string
   repoPath: string
   attempts: {
-    attempt: { requestId: string; branch: string; worktreePath: string; state: string; reasons: string[] }
+    attempt: {
+      requestId: string
+      branch: string
+      worktreePath: string
+      state: string
+      reasons: string[]
+      observation?: { state: string; at: number; reasons: string[] }
+    }
     observation: { state: string; reasons: string[]; ghostRegistration: boolean; directoryExists: boolean }
   }[]
 }): string {
@@ -226,6 +233,9 @@ export function formatTaskCreateStatus(result: {
         `- ${attempt.worktreePath} (branch ${attempt.branch})`,
         `  recorded: ${attempt.state}${attempt.reasons.length > 0 ? ` — ${attempt.reasons.join('; ')}` : ''}`,
         `  on disk: ${observation.state} (directory ${observation.directoryExists ? 'present' : 'missing'}${observation.ghostRegistration ? ', registration without directory' : ''})`,
+        ...(attempt.observation
+          ? [`  last seen: ${attempt.observation.state}`]
+          : []),
         ...(observation.reasons.length > 0 ? [`  reasons: ${observation.reasons.join('; ')}`] : [])
       ].join('\n')
     )

@@ -241,3 +241,21 @@ export function isSparseTaskCreateNeedsReconciliation(error: unknown): boolean {
   return message(error).includes(`[${SPARSE_TASK_RECONCILIATION_CODE}]`)
 }
 
+/**
+ * What a later reader may conclude from an inspection of an unsettled create.
+ *
+ * Why a separate function: the runtime and any future reader must agree on this mapping, and
+ * `partial` must never be reported as "nothing left" — a kept directory with a missing registration
+ * is exactly the case somebody has to look at.
+ */
+export function classifySparseTaskCreateOutcome(
+  inspection: Pick<SparseTaskCreateInspection, 'state'>
+): 'live' | 'exited' | 'unverifiable' {
+  if (inspection.state === 'live') {
+    return 'live'
+  }
+  if (inspection.state === 'absent') {
+    return 'exited'
+  }
+  return 'unverifiable'
+}

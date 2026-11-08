@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { addSparseWorktree } from '../git/worktree'
 import { createSparseTaskWorkspaceBinding } from '../../shared/worktree/sparse-task-binding'
 import type { SparseTaskWorkspaceReceipt } from '../../shared/worktree/create-types'
+import { classifySparseTaskCreateOutcome } from './sparse-task-create-reconciliation'
 import {
   SparseTaskStartGateError,
   assertTaskWorkspaceLaunchableFor,
@@ -318,5 +319,19 @@ describe('inspectTaskWorkspaceReadinessFor', () => {
 
     expect(report.state).toBe('drifted')
     expect(report.reasons.join(' ')).toContain('orca/src/main.ts')
+  })
+})
+
+// Restart reconciliation leans on this mapping: reporting a kept-but-partial workspace as "nothing
+// left" is how a real leftover gets forgotten.
+describe('classifySparseTaskCreateOutcome', () => {
+  it('maps only a proven-empty workspace to exited', () => {
+    expect(classifySparseTaskCreateOutcome({ state: 'absent' })).toBe('exited')
+    expect(classifySparseTaskCreateOutcome({ state: 'live' })).toBe('live')
+  })
+
+  it('refuses to call a partial or unreadable workspace exited', () => {
+    expect(classifySparseTaskCreateOutcome({ state: 'partial' })).toBe('unverifiable')
+    expect(classifySparseTaskCreateOutcome({ state: 'unverifiable' })).toBe('unverifiable')
   })
 })
