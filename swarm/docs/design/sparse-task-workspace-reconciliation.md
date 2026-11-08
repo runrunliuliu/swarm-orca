@@ -133,7 +133,21 @@ git -C <repo> ls-tree -z -d <sha> -- <requiredPaths...>
 （`live`/`exited`/`unverifiable`），fire-and-forget，不阻塞启动、失败只记日志、单次最多 20 条；
 本进程内新产生的记录视为可能仍在运行，不碰。观测同样不是结算——记录仍是 `pending`。
 
-仍未实现：外部工作区收养（`createdAt=null` 那类）。
+外部工作区收养（已实现，选定方案 A）：仓库列表里出现**没有元数据行**的 worktree 时（手工
+`git worktree add`、脚本、其他工具创建），Orca 在列表投影时补一条元数据：
+
+| 字段 | 值 |
+| --- | --- |
+| `instanceId` | 新生成（路径复用后的陈旧 lineage 有了锚点） |
+| `displayName` | 分支名；已有用户命名时保留 |
+| `createdAt` / `lastActivityAt` | 收养时刻 |
+| `orcaCreationSource` | `external`（**不**写 `orcaCreatedAt`，不谎称 Orca 创建的） |
+| `preserveBranchOnDelete` | `true`（不是 Orca 建的分支，删工作区不得删它） |
+
+约束：只收养本次列表看得见的行；跳过主 checkout；单次列表最多 50 条；幂等（已有元数据即跳过）；
+单条写失败不影响列表。收养后该工作区才有一等公民行为（活动排序、删除保护、任务绑定可写）。
+
+仍未实现：无。M4 条目到此为止；M3 的 `--setup run` 收紧与真实 Agent 闭环仍待做。
 
 ## 5. 已实现与未实现
 
