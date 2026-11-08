@@ -1,4 +1,5 @@
 import type { DetectedWorktreeListResult, Worktree } from '../../shared/worktree/types'
+import { adoptExternalWorktreesForListing } from '../ipc/external-worktree-adoption'
 import {
   getLocalWorktreeCatalogVersion,
   localWorktreeCatalogVersionAt
@@ -166,6 +167,17 @@ export class RuntimeManagedWorktreeQueries {
     )
     const expectedHostId = getRepoExecutionHostId(repo)
     const repoOwnerCount = store.getRepos().filter((candidate) => candidate.id === repo.id).length
+    // Why before the overlay: an external worktree has no metadata row, and the row is what makes the
+    // rest of this projection (createdAt, activity, deletion guarantees) mean anything. Adoption is
+    // bounded and idempotent, and only touches rows this listing can already see.
+    if (scan.ok) {
+      adoptExternalWorktreesForListing({
+        repoId: repo.id,
+        hostId: expectedHostId,
+        worktrees: scan.worktrees,
+        store: store as unknown as Parameters<typeof adoptExternalWorktreesForListing>[0]['store']
+      })
+    }
     const metaById = store.getAllWorktreeMeta()
     const detected = scan.worktrees.map((gitWorktree) => {
       const id = `${repo.id}::${gitWorktree.path}`

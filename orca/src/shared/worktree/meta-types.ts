@@ -80,7 +80,8 @@ export type WorktreeMeta = {
   pushTarget?: GitPushTarget
   /** Explicit marker stamped when Orca creates the worktree. */
   orcaCreatedAt?: number
-  orcaCreationSource?: 'desktop' | 'runtime' | 'cli' | 'ssh'
+  /** `external` marks a workspace Orca adopted rather than created. */
+  orcaCreationSource?: 'desktop' | 'runtime' | 'cli' | 'ssh' | 'external'
   /** Workspace layout active when Orca created the worktree. */
   orcaCreationWorkspaceLayout?: OrcaWorkspaceLayout
   /** User-assigned workspace board status for manual sidebar organization. */
