@@ -2,6 +2,14 @@
 
 状态：M0 契约冻结稿。本文只定义 M1/M2 要实现和测试的新增能力协商路径；不改变 legacy 全量或 legacy sparse 创建语义。
 
+### 修订记录（实施期，契约意图不变）
+
+| 日期 | 修订 | 原因 |
+| --- | --- | --- |
+| 2026-11-08 | `requiredPaths` 允许为空数组 | Orca 允许不声明必需路径；要求非空会让真实工作区无法记录（swarm 侧镜像同步放宽） |
+| 2026-11-08 | task sparse 创建要求 `--setup skip`，服务端强制 | setup 钩子假设全量检出，稀疏 cone 里执行会静默出错 |
+| 2026-11-08 | 跨宿主（SSH/WSL）明确推迟 | 探针必须在工作区所在主机执行；在具备宿主侧 probe 前保持 fail-closed / `not_probed` |
+
 ## 真实调用链与旧行为
 
 当前 Orca 没有第二套 worktree 创建器。任务 sparse 工作区必须复用现有 RPC、runtime、Git helper 和 metadata 路径，只在新协商字段存在时启用更严格的 sparse 任务契约。

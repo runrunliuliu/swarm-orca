@@ -7,6 +7,18 @@ flags, operation states, and recovery guarantees below are not current released
 interfaces. Existing sparse helpers and short-lived create deduplication are
 implemented; their presence does not establish end-to-end recovery.
 
+**Superseded in part (2026-11-08).** What this proposal asked for and where it now lives:
+
+| Proposed here | Current state |
+| --- | --- |
+| Pinned SHA, HEAD/cone readback, tree and required-path checks | implemented — [M0 contract](sparse-task-workspace-m0-contract.md) |
+| `worktree create-status --request <id>` and staged states | implemented with a different shape — [M4 status](../../docs/design/sparse-task-workspace-reconciliation.md): `orca worktree create-status --repo`, intent journal, `pending/created/failed/needs_reconciliation` |
+| Recovery without blind cleanup | partially: failures keep their workspace and are classified read-only; **no automatic recovery, retry or cleanup** |
+| Performance comparison as an acceptance gate | dropped: performance is recorded as an observation, never a correctness threshold |
+
+Read the numbered contracts for what is required, and the development plan's status
+section for what is merged; treat the rest of this file as pre-implementation history.
+
 This revision incorporates source review of Orca, Git, `actions/checkout`, and
 DeepSeek Harness. It authorizes no Agent launch, remote mutation, migration,
 cleanup, or service operation. Existing task bindings and Run pins stay unchanged.

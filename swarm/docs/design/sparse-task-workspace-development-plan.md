@@ -1,6 +1,8 @@
 # Sparse 任务工作区开发计划
 
-状态：计划稿，未实施、未测试、未部署。
+状态：M0–M5 的最小版本均已实现并合入 `main`，本地与 CLI 级证据齐全；真实 Agent 闭环已跑通一次
+（创建→门禁→Agent 提交→仍判定 ready）。**未做**：跨宿主/WSL 探针（已决定短期不做）、
+逻辑任务身份与跨入口路由。本文前半是当初的计划，后半（§7）是当前交付状态，两者冲突时以 §7 为准。
 依据：2026-11-07 与 codex-ark 达成的四项共识（设计理念 / 设计目标 / 已实现能力 / 现场事实 分层）。
 本文不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权。
 
@@ -80,7 +82,10 @@
 - cone、pinned SHA、必需路径写入任务/交接记录（planner 侧），与 worktree 元数据双向可核验。
 - 退出：交接可被独立复核；既有 Run 的 pins 不变。
 
-## 4. 测试矩阵（实施时逐项记录结果）
+## 4. 测试矩阵
+
+实施时逐项记录的结果不集中在这里：每个契约文档各自带"本轮测试证据"一节（M3、M5、
+对账手册），本表只列范围，避免两处记录互相过期。
 
 | 范围 | 要点 |
 | --- | --- |
@@ -107,67 +112,44 @@
 - 风险：`extensions.worktreeConfig` 属共享配置迁移；外部 Git 写入无法被 Orca 互斥；SSH 断连只能判 unverifiable；任何部署/重启单独授权。
 - 回滚：新增能力按能力名协商，旧 host 失败关闭；不改变 legacy 默认路径即可回退。
 
-## 7. M0–M2 交付状态与已知缺口（2026-11-07）
+## 7. 交付状态（2026-11-08）
 
-已交付并合并进 `main`：M0 契约冻结、M1 固定基线 + 创建回执、M2 树级校验与必需路径核验
-（desktop IPC 本地 create 与 runtime 本地 create 共用同一编排 helper；legacy 全量与 legacy sparse 行为不变）。
+| 阶段 | 状态 | 证据位置 |
+| --- | --- | --- |
+| M0 契约冻结 | 已交付（含实施期修订，见 M0 文档的修订记录） | [M0 契约](sparse-task-workspace-m0-contract.md) |
+| M1 固定基线 + 回执 | 已交付 | `sparse-task-workspace-create.ts`、`worktree-add.ts` |
+| M2 树级与必需路径校验 | 已交付（仅本地主机） | `sparse-task-{input-validation,tree-validation,required-paths}.ts` |
+| M3 启动就绪门禁 + 只读状态 | 已交付（本地；远端 `not_probed`） | [M3 契约](sparse-task-workspace-m3-start-gate.md) |
+| M4 失败保留 + 意图记录 + 查询 + 启动清扫 + 收养 | 已交付 | 本文 §7.2、[对账手册](sparse-task-workspace-reconciliation.md) |
+| M5 绑定持久化（最小） | 已交付 | [M5 契约](sparse-task-workspace-m5-min-contract.md) |
+| 逻辑任务 ID / 跨入口路由 / 一任务多仓库 | 未实现（设计保留） | [任务工作区设计](task-workspaces.md) |
 
-已知缺口，作为 M3/M4 的输入：
+### 7.1 已知边界（不是欠账，是已接受的取舍）
 
-- **SSH 任务模式仍 fail-closed**：远程 sparse 序列没有固定 SHA 与回读，v1 未接入；能力名是 host 级，只覆盖本地路径，SSH 明确拒绝而不降级。
-- **requiredPaths 仅本机 stat**：WSL/跨宿主未验证，已有可注入 probe 但无宿主适配，假缺失时 fail-closed。
-- **Git 版本**：只在 2.39.5 实测；2.25 基线与 `:(literal)` 兼容性未验证，被拒会 fail-closed 为 `sparse_task_tree_probe_invalid`。
-- **覆盖缺口**：IPC 侧未重复「legacy 零额外 Git 调用」断言（由 runtime 入口测试覆盖同一段共享代码）；无真实 sparse 创建端到端验收，无 live Agent 闭环。
-- **失败清理**：task 模式已改为保留现场、不自动回滚；完整恢复协议仍归 M4。
+- **跨宿主与 WSL 不接入**：探针必须在工作区所在主机执行；远端工作区在启动门禁里报 `not_probed`，
+  SSH 创建任务工作区仍被拒绝。重开前提是宿主侧 probe + 按宿主粒度的能力声明。
+- **`--setup run` 不支持**：服务端在创建期拒绝；setup 钩子假设全量检出，稀疏 cone 里执行会静默出错。
+- **不自动重试、不自动清理**：未结算记录只做观测与分类，处置按对账手册人工进行。
 
-现场发现（2026-11-07，与本计划直接相关）：
+### 7.2 M4 的落地形状
 
-- Orca `worktree create` 在约 31k 文件、网络存储的仓库上稳定失败：RPC 约 60–90 秒返回 `runtime_unavailable`，而完整检出需约 3.5 分钟；随后自动回滚删除仍在写入的目录，并留下孤儿分支。这正是 M4「响应丢失即回滚 / 保留 `needs_reconciliation`」要解决的场景。
-- 用 `git worktree add` 手工创建的工作区在原生 `worktree list` 可见，但缺 `createdAt` / `lastActivityAt`，项目区不一定显示。外部创建的工作区应被正常收养或明确报错，不能停在半注册状态，列入 M4 待定项。
+- 创建前写意图（`<userData>/sparse-task-creates/<repoId>/<requestId>.json`），成功后落 `created`，
+  失败按有无残留落 `failed` / `needs_reconciliation`；写不出来则不创建。
+- 失败不删除、不回滚，带 `[sparse_task_create_needs_reconciliation]` 与坐标；副作用前的拒绝不写记录。
+- `orca worktree create-status` 并列打印记录态与现场态，并给出 `live`/`exited`/`unverifiable` 分类
+  （观测写回，不改变记录自身状态）。
+- 进程启动对"早于本进程"的 `pending` 自动补一次分类（fire-and-forget、有界、不结算）。
+- 外部创建的 worktree 在权威列表投影时补元数据收养（`orcaCreationSource: 'external'`）。
 
-## 8. M4 最小止血交付状态（分支 `sparse-task-m4`，未合并、未部署）
+### 7.3 现场残留（已清理）
 
-只做了讨论中确认的「止血」部分，不是完整 M4。
+2026-11-07 `swarm-orca` 的 `git worktree list` 残留一个 `prunable` 登记 `.orca-preparing/3131242-…`
+（目录已不存在、无孤儿分支）；按授权只执行了 `git worktree prune`，未动分支与 `release-radar`，
+父仓库无对应登记。
 
-已实现：
+## 8. 能力与前提的对应
 
-- 任务模式创建失败后**不删除、不回滚**（沿用 M2 的 `retainPartialWorktreeOnFailure`），
-  新增失败后的只读判定：`absent` / `live` / `partial` / `unverifiable`，
-  `partial` 包含「登记在、目录无」的幽灵登记；判定不改 cone、不修复、不清理。
-- 失败带稳定标记 `[sparse_task_create_needs_reconciliation]` 与坐标（路径、分支、pinned SHA、
-  HEAD、目录存在性、幽灵登记、缺失必需路径），内层 `[sparse_task_*]` 码保留。
-- 只有**确实留有资源**时才加标记：创建在副作用前被拒绝的错误保持原样，可安全重试。
-- 代码位置：`orca/src/main/ipc/sparse-task-create-reconciliation.ts`，在
-  `createSparseTaskWorkspace` 的失败路径上调用（两条本地创建入口共用）。
-- 操作侧说明：[创建失败的只读对账运行手册](sparse-task-workspace-reconciliation.md)。
-
-仍未实现：客户端请求 ID 与先于副作用的持久回执、阶段化状态与 `create-status`、重启后三态对账、
-自动收养外部工作区、任何自动清理。这些仍按 M4 原条目推进。
-
-现场残留（已清理，2026-11-07）：`swarm-orca` 的 `git worktree list` 曾残留一个 `prunable` 登记
-`.orca-preparing/3131242-…`（目录已不存在、无孤儿分支）；按授权只执行了 `git worktree prune`，
-未动分支、未动 `release-radar`，父仓库无对应登记。
-
-## 9.5 M4 最小持久化（意图记录，分支 `task-binding-start-gate`）
-
-创建前写意图、成功后落 `created`、失败按有无残留落 `failed` / `needs_reconciliation`，
-每仓库保留最近 50 条；写不出来则不创建。查询已实现：`orca worktree create-status`（RPC `worktree.createStatus`）列出未结算尝试的
-记录态与现场态。观测分类（live/exited/unverifiable）在查询时写回记录，与记录自身状态分开。启动清扫、外部工作区收养（方案 A：列表投影时补元数据，`orcaCreationSource: 'external'`）均已实现。
-
-## 9. M3 最小版交付状态（分支 `task-binding-start-gate`）
-
-已实现：启动门禁 `assertTaskWorkspaceLaunchableFor`，接入 runtime 后台终端、桌面终端与 Agent
-会话创建三条 launch 路径；判定为 "binding 有效 + pinnedSha 是 HEAD 祖先 + cone 覆盖 + 必需路径可读"，
-失败以 `sparse_task_start_gate_failed:<reason>` 拒绝，无绑定的工作区一律放行。
-
-只读状态（`worktree show` 的 `taskWorkspace`）同样已实现：`unbound/ready/drifted/unverified/
-binding_invalid/not_probed` + reasons，不抛错、不写；放行集合与门禁一致。
-未实现：跨宿主/WSL（**短期不做，按已接受边界处理**）、缓存策略与 live Agent 闭环验收。
-移动端会话创建与终端分屏已接入。契约见 [M3 启动就绪门禁](sparse-task-workspace-m3-start-gate.md)。
-
-## 10. 能力与前提的对应（2026-11-08）
-
-本计划实现的 9 类能力并非概念必需，而是两类部署约束的产物，写在这里以免后来人把前提当理念：
+本计划实现的能力并非概念必需，而是两类部署约束的产物，写在这里以免后来人把前提当理念：
 
 | 约束 | 必需能力 | 换环境后可去掉 |
 | --- | --- | --- |
@@ -176,4 +158,3 @@ binding_invalid/not_probed` + reasons，不抛错、不写；放行集合与门�
 
 任务模型本身的必需项只有：稳定任务身份、从已确认基线创建的绑定、复用绑定与逐仓库交付。
 外部工作区收养属于 catalog 缺口，与任务绑定只是偶然相关。
-

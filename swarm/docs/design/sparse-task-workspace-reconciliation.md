@@ -1,8 +1,8 @@
 # Sparse 任务工作区：创建失败的只读对账运行手册
 
-状态：对应 M4 **最小止血**（`sparse_task_create_needs_reconciliation`）的操作侧说明。
-它不是完整恢复协议：没有持久请求回执、没有 `create-status` 命令、没有自动清理、没有跨宿主接入。
-执行任何写操作（prune、删除分支、删除目录、重建、重置索引）都需要单独授权。
+状态：M4 已交付部分的操作侧说明——失败保留现场与标记、意图记录、`create-status` 查询、
+启动清扫与观测分类、外部工作区收养。它是**只读对账**手册：没有自动重试、没有自动清理、
+没有跨宿主接入。执行任何写操作（prune、删除分支、删除目录、重建、重置索引）都需要单独授权。
 
 依据：[Sparse 任务工作区开发计划](sparse-task-workspace-development-plan.md)（M4 条目）、
 [M0 契约冻结](sparse-task-workspace-m0-contract.md)（错误码与兼容矩阵）、

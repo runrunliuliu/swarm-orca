@@ -7,17 +7,28 @@ M3 启动门禁与只读就绪状态。
 逐项对照见下文“当前实现状态”。
 本文不改变既有 Run、会话、授权和固定引用，不构成启动 Agent、合并、部署或清理的授权。
 
+## 阅读顺序（本子系统共 6 份文档）
+
+1. 本文：任务与工作区的边界、理念、当前实现状态
+2. [开发计划](sparse-task-workspace-development-plan.md)：阶段拆分、交付状态、能力与前提的对应
+3. 契约（只写"必须怎样"）：[M0 协商路径](sparse-task-workspace-m0-contract.md) →
+   [M3 启动门禁](sparse-task-workspace-m3-start-gate.md) →
+   [M5 绑定](sparse-task-workspace-m5-min-contract.md)
+4. 运维：[对账手册](sparse-task-workspace-reconciliation.md)（创建失败/残留怎么只看不动）
+5. 历史：[sparse 检出与可恢复创建提案](worktree-create-sparse-checkout.md)（实施前设计，部分已被上面的契约取代）
+
+冲突时以契约与其"本轮测试证据"为准；状态与取舍以开发计划 §7 为准。
+
 ## 实现前提：哪些能力由部署约束引入
 
 任务模型的理念只需要三件事：**稳定的任务身份**、**从已确认基线创建的绑定**、**复用绑定而不是
 重复创建 + 逐仓库交付**。其余实现量来自本仓库的两个现实约束，换环境就会缩小：
 
-| 约束 | 引入的必需能力 | 约束消失后 |
-| --- | --- | --- |
-| 目标仓库约 3 万文件、worktree 落在网络盘，全量检出约 3.5 分钟；同时要并行多 Worker | 稀疏检出 + 目录/树/必需路径校验（M2）+ 启动时的 cone 复核（M3）+ CLI 的 `--sparse-task-*` 入口 | 若仓库小或检出快：这些都可以不要，全量检出没有"必需文件被 cone 藏起来"这类失败 |
-| 创建会超时（RPC 60–90 秒 vs 检出数分钟）、失败会回滚删目录并留孤儿分支 | 失败不删除 + 只读判定（M4 止血）、创建意图记录、`create-status`、启动清扫 | 若创建在本机毫秒级完成：只需一次只读核对，"意图先落盘"的价值基本消失 |
+两类约束（大仓库 + 稀疏检出、创建会超时）各自引入了哪一层能力，以及换掉约束后哪些可以去掉，
+集中记录在[开发计划的交付状态一节](sparse-task-workspace-development-plan.md#8-能力与前提的对应)，
+本文不重复。
 
-外部工作区收养不属于以上两类：它是 Orca catalog 的既有缺口（外部 worktree 有 git 行、无元数据行），
+外部工作区收养不属于这两类：它是 Orca catalog 的既有缺口（外部 worktree 有 git 行、无元数据行），
 只是任务绑定恰好依赖元数据行才显得相关。
 
 ## 核心理念
@@ -136,7 +147,7 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 失败处置 | 任务模式不再自动回滚或强删分支，保留现场供诊断 | commit `84213496` |
 | SSH 结论 | 远程稀疏序列仍无 pin 与回读，`worktree.create` 在注册 root 和任何 Git 副作用前以 `sparse_task_capability_required` 拒绝，不静默降级 | `src/main/ipc/worktree-remote.ts` |
 
-### 未实现（M3–M5 与本文其余理念）
+### 实现边界（已做 / 未做 / 已接受取舍）
 
 | 设计要素 | 现状 |
 | --- | --- |
@@ -144,11 +155,11 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 一任务多仓库绑定 | 不存在。`software-development-v1` 任务记录只有单值 `repository: {root, worktree, branch, base_commit}` |
 | 跨入口 / 跨 runtime 续接 | 不存在。入口与任务无关联，也没有“同任务复用原绑定”的运行时校验 |
 | 外部创建的工作区 | 已收养：列表投影时为无元数据行的 worktree 补 `instanceId`/`createdAt`/`orcaCreationSource: 'external'`/`preserveBranchOnDelete`，不谎称 Orca 创建 |
-| 就绪门禁与副作用分离（M3） | 最小版已实现：带 `sparseTaskBinding` 的工作区在 runtime 后台终端、桌面终端与 Agent 会话创建前校验绑定/基线祖先/cone/必需路径，失败即拒绝（`sparse_task_start_gate_failed`），并可通过 `worktree show` 的 `taskWorkspace` 只读查看状态与原因。仍需注意：跨宿主探针按决定不做（fail-closed/skip），`--setup run` 与就绪判定的组合未收紧 |
+| 就绪门禁与副作用分离（M3） | 已实现：带 `sparseTaskBinding` 的工作区在 runtime 后台终端、桌面终端、Agent 会话、移动端会话与终端分屏前校验绑定/基线祖先/cone/必需路径，失败即拒绝（`sparse_task_start_gate_failed`）；`worktree show` 的 `taskWorkspace` 可只读查看状态与原因。跨宿主按决定报 `not_probed`；task sparse 创建要求 `--setup skip`（服务端强制） |
 | 可恢复创建（M4） | 已实现。失败不删除/不回滚，失败路径给 `[sparse_task_create_needs_reconciliation]` + 坐标；创建前写意图记录（`pending`→`created`/`failed`/`needs_reconciliation`），`orca worktree create-status` 并列打印记录态与现场态并给出 `live`/`exited`/`unverifiable` 分类，进程启动时自动补一次分类。仍不做自动重试与自动清理（见[对账手册](sparse-task-workspace-reconciliation.md)） |
 | 任务绑定与交接（M5） | 最小版已实现。成功创建的 `pinnedSha`/`baseSource`/`resolvedRef`/请求 cone/必需路径写成 `WorktreeMeta.sparseTaskBinding`（带自摘要，严格读取）；swarm 侧软件任务记录可选镜像同一组字段供复核。仍未做：逻辑任务 ID 与跨入口路由 |
 | 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |
-| Swarm 侧接入 | 未接入任务模式。`swarm` 仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`，因此拿不到本契约的 pin 与回执 |
+| Swarm 侧接入 | Worker 规划仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`；任务 sparse 入口目前只有 CLI `worktree create` 一种。要接 Worker 需先决定谁发 `mode` 与 `requiredPaths` |
 
 ### 已文档化的约定层（非运行时强制）
 
@@ -156,15 +167,14 @@ legacy sparse 的行为、默认值和回滚策略不变。
 `worktree-delivery` 技能规定逐仓库交付与清理，`swarm-orchestration` / 执行策略规定绑定与并发。
 这些是入口 Agent 需要遵守的规则；任意 Project 的入口是否加载、是否照做，运行时不做检查。
 
-### 未验证与已知缺口
+### 已验证与仍缺的验证
 
-- 无 sparse worktree 端到端创建实例，无 live Agent 闭环；本次更新也未执行任何用例，
-  只有 `sparse-task-workspace-create.test.ts`、`runtime-local-git-worktree-task-sparse-entry.test.ts`、
-  `sparse-task-required-paths.test.ts` 等定向用例存在。
-- 只有本地创建路径受契约覆盖；WSL 与跨宿主的必需路径探针未接入，假缺失按 fail-closed 处理。
-- Git 只在 2.39.5 实测；pinned tree 探针用 fatal UTF-8 解码，非 UTF-8 路径仓库会失败关闭。
-- task 模式保留现场后仍没有恢复协议：只读判定与标记已实现，清理、重建与收养仍需人工按
-  [对账手册](sparse-task-workspace-reconciliation.md)处置，且写操作需单独授权（完整 M4 未做）。
+已验证（本地、单机）：真实 CLI 创建 + 回执 + 绑定；真实 pi Agent 在工作区里提交后仍判定 `ready`；
+漂移后 `terminal create` 被拒；`create-status` 与启动清扫的观测分类。测试证据见各契约文档。
+
+仍缺：跨宿主与 WSL 探针（已决定不做）；Git 只在 2.39.5 实测；pinned tree 探针用 fatal UTF-8 解码，
+非 UTF-8 路径仓库会失败关闭；清理/重建/收养后的处置仍需按[对账手册](sparse-task-workspace-reconciliation.md)
+人工进行，写操作单独授权。
 
 ## 分层落地方向与当前边界
 
