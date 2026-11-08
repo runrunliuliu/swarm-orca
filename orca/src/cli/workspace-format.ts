@@ -190,12 +190,19 @@ export function formatWorktreeList(
     : bodyWithScope
 }
 
-export function formatWorktreeShow(result: { worktree: RuntimeWorktreeRecord }): string {
+export function formatWorktreeShow(result: {
+  worktree: RuntimeWorktreeRecord
+  taskWorkspace?: { state: string; reasons: string[]; checkedAt: number }
+}): string {
   const worktree = result.worktree
-  return Object.entries(worktree)
-    .map(
-      ([key, value]) =>
-        `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`
-    )
-    .join('\n')
+  const lines = Object.entries(worktree).map(
+    ([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`
+  )
+  // Why last and only when present: older runtimes do not answer this, and the record itself is
+  // still the primary content of the command.
+  if (result.taskWorkspace) {
+    const { state, reasons } = result.taskWorkspace
+    lines.push(`taskWorkspace: ${state}${reasons.length > 0 ? ` (${reasons.join('; ')})` : ''}`)
+  }
+  return lines.join('\n')
 }

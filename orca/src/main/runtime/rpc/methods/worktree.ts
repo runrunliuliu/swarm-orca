@@ -51,7 +51,10 @@ export const WORKTREE_METHODS = [
     name: 'worktree.show',
     params: WorktreeSelector,
     handler: async (params, { runtime }) => ({
-      worktree: await runtime.showManagedWorktree(params.worktree)
+      worktree: await runtime.showManagedWorktree(params.worktree),
+      // Why alongside and not inside the record: this is a probe of the filesystem taken now, not a
+      // property of the worktree, and a client that ignores it must keep working unchanged.
+      taskWorkspace: await runtime.inspectTaskWorkspaceReadiness(params.worktree)
     })
   }),
   defineMethod({
