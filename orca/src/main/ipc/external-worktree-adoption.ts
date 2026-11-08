@@ -65,9 +65,12 @@ export function externalWorktreeAdoptionMeta(args: {
   now: number
   instanceId?: string
   existingDisplayName?: string
+  /** Why required: two hosts can present the same repoId and path; the row must belong to this one. */
+  hostId?: string
 }): Partial<WorktreeMeta> {
   const branchName = args.worktree.branch?.replace(/^refs\/heads\//, '')
   return {
+    ...(args.hostId ? { hostId: args.hostId as WorktreeMeta['hostId'] } : {}),
     instanceId: args.instanceId ?? randomUUID(),
     displayName: args.existingDisplayName?.trim() || branchName || 'external worktree',
     createdAt: args.now,
@@ -91,9 +94,18 @@ export function adoptExternalWorktreesForListing(args: {
   hostId: string
   worktrees: readonly AdoptableWorktree[]
   store: AdoptionStore
+  /**
+   * Why required: a scan that was overtaken by a concurrent mutation describes a catalog that no
+   * longer exists. Adopting its rows would stamp metadata onto a worktree that just changed (or was
+   * deleted), so a non-authoritative listing adopts nothing.
+   */
+  authoritative?: boolean
   now?: number
   limit?: number
 }): string[] {
+  if (args.authoritative === false) {
+    return []
+  }
   const readMeta = (worktreeId: string): WorktreeMeta | undefined =>
     args.store.getWorktreeMetaForHost?.(worktreeId, args.hostId) ??
     args.store.getWorktreeMeta?.(worktreeId)
@@ -110,7 +122,8 @@ export function adoptExternalWorktreesForListing(args: {
       args.store.setWorktreeMeta(worktreeId, {
         ...externalWorktreeAdoptionMeta({
           worktree,
-          now: args.now ?? Date.now()
+          now: args.now ?? Date.now(),
+          hostId: args.hostId
         })
       })
       adopted.push(worktreeId)

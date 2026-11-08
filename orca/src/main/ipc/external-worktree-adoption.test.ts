@@ -31,10 +31,12 @@ describe('externalWorktreeAdoptionMeta', () => {
     const meta = externalWorktreeAdoptionMeta({
       worktree: worktree('/repo-wt', 'task-a'),
       now: 1_700_000_000_000,
-      instanceId: 'instance-1'
+      instanceId: 'instance-1',
+      hostId: 'ssh:host-1'
     })
 
     expect(meta).toEqual({
+      hostId: 'ssh:host-1',
       instanceId: 'instance-1',
       displayName: 'task-a',
       createdAt: 1_700_000_000_000,
@@ -68,6 +70,22 @@ describe('selectWorktreesToAdopt', () => {
     expect(selected.map((entry) => entry.path)).toEqual(['/b'])
   })
 
+  it('adopts nothing from a listing that was overtaken while it scanned', () => {
+    const store = storeWith()
+
+    expect(
+      adoptExternalWorktreesForListing({
+        repoId: 'repo-1',
+        hostId: 'local',
+        worktrees: [worktree('/wt-a')],
+        store,
+        authoritative: false,
+        now: 5
+      })
+    ).toEqual([])
+    expect(store.setWorktreeMeta).not.toHaveBeenCalled()
+  })
+
   it('is bounded so one listing cannot rewrite a whole catalog', () => {
     const many = Array.from({ length: 10 }, (_, index) => worktree(`/wt-${index}`))
     expect(
@@ -91,7 +109,12 @@ describe('adoptExternalWorktreesForListing', () => {
       adoptExternalWorktreesForListing({ repoId: 'repo-1', hostId: 'local', worktrees, store, now: 5 })
     ).toEqual(['repo-1::/wt-a', 'repo-1::/wt-b'])
     expect(store.written).toHaveLength(2)
-    expect(store.written[0]?.[1]).toMatchObject({ orcaCreationSource: 'external', createdAt: 5 })
+    expect(store.written[0]?.[1]).toMatchObject({
+      orcaCreationSource: 'external',
+      createdAt: 5,
+      // Why the host: the same repoId + path can exist on two hosts, so the row must name its owner.
+      hostId: 'local'
+    })
   })
 
   it('does not adopt again once the row exists', () => {

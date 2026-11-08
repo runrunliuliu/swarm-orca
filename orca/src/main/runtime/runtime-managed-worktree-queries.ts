@@ -170,14 +170,14 @@ export class RuntimeManagedWorktreeQueries {
     // Why before the overlay: an external worktree has no metadata row, and the row is what makes the
     // rest of this projection (createdAt, activity, deletion guarantees) mean anything. Adoption is
     // bounded and idempotent, and only touches rows this listing can already see.
-    if (scan.ok) {
-      adoptExternalWorktreesForListing({
-        repoId: repo.id,
-        hostId: expectedHostId,
-        worktrees: scan.worktrees,
-        store: store as unknown as Parameters<typeof adoptExternalWorktreesForListing>[0]['store']
-      })
-    }
+    adoptExternalWorktreesForListing({
+      repoId: repo.id,
+      hostId: expectedHostId,
+      worktrees: scan.worktrees,
+      store: store as unknown as Parameters<typeof adoptExternalWorktreesForListing>[0]['store'],
+      // Why: an overtaken scan describes a catalog that already changed under it.
+      authoritative: scan.ok && !scan.superseded
+    })
     const metaById = store.getAllWorktreeMeta()
     const detected = scan.worktrees.map((gitWorktree) => {
       const id = `${repo.id}::${gitWorktree.path}`
