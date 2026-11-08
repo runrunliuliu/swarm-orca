@@ -50,6 +50,31 @@ describe('worktree RPC methods', () => {
     })
   })
 
+  it('returns task workspace readiness beside the record, not inside it', async () => {
+    const readiness = {
+      state: 'drifted',
+      reasons: ['HEAD no longer contains the pinned baseline'],
+      pinnedSha: 'a'.repeat(40),
+      checkedAt: 1_700_000_000_000
+    }
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      showManagedWorktree: vi.fn().mockResolvedValue({ id: 'wt-1', path: '/workspace/wt-1' }),
+      inspectTaskWorkspaceReadiness: vi.fn().mockResolvedValue(readiness)
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: WORKTREE_METHODS })
+
+    const response = await dispatcher.dispatch(makeRequest('worktree.show', { worktree: 'id:wt-1' }))
+
+    // Why beside: `worktree` stays the git record a client already parses, and the readiness is a
+    // probe taken now, so a client that ignores it keeps working unchanged.
+    expect(response).toMatchObject({
+      ok: true,
+      result: { worktree: { id: 'wt-1' }, taskWorkspace: readiness }
+    })
+    expect(runtime.inspectTaskWorkspaceReadiness).toHaveBeenCalledWith('id:wt-1')
+  })
+
   it('forwards the mobile clientKind to the runtime on session-only activation', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',

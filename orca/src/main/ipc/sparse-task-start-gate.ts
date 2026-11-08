@@ -52,6 +52,8 @@ export type TaskWorkspaceReadinessState =
   | 'drifted'
   | 'unverified'
   | 'binding_invalid'
+  /** Bound, but this host cannot probe it (remote in v1). Not a failure and not a pass. */
+  | 'not_probed'
 
 export type TaskWorkspaceReadiness = {
   state: TaskWorkspaceReadinessState
@@ -250,10 +252,11 @@ export async function inspectTaskWorkspaceReadinessFor(args: {
     }
   }
   if (args.workspace.connectionId) {
-    // Why skip instead of guessing: the probe must run on the host that owns the worktree. v1 is
-    // local-only by decision, so a remote bound workspace is reported, not judged.
+    // Why its own state: the probe must run on the host that owns the worktree, and v1 is local-only
+    // by decision. Reporting `unverified` here would claim a failure nobody observed and would
+    // disagree with the launch gate, which lets this case through.
     return {
-      state: 'unverified',
+      state: 'not_probed',
       reasons: ['remote workspaces are not probed in v1 (no host-side probe yet)'],
       pinnedSha: binding.pinnedSha,
       checkedAt: Date.now()
@@ -289,10 +292,7 @@ export async function assertTaskWorkspaceLaunchableFor(args: {
       `The stored task binding of ${args.workspace.path} is not readable as schema v1, so this workspace cannot be proven to be a task workspace. Check it before launching; nothing was changed.`
     )
   }
-  if (args.workspace.connectionId) {
-    return
-  }
-  if (report.state === 'ready') {
+  if (report.state === 'ready' || report.state === 'not_probed') {
     return
   }
   throw new SparseTaskStartGateError(

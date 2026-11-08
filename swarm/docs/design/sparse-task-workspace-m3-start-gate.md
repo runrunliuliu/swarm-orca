@@ -75,11 +75,16 @@ orca worktree show --worktree <selector> --json
 | `unbound` | 该工作区没有绑定（legacy 全量/legacy sparse/外部创建） | 无 `sparseTaskBinding` |
 | `ready` | 绑定可读，HEAD 含基线，cone 覆盖请求，必需路径可读 | 三项探针全部通过 |
 | `drifted` | 有已证明的漂移（脱离基线 / cone 不覆盖 / 声明路径缺失） | 任一探针给出确定失败 |
-| `unverified` | 无法证明（HEAD/cone/路径读不出、目录不在、远端未探测） | 任一探针不可读 |
+| `unverified` | 无法证明（HEAD/cone/路径读不出、目录不在） | 任一探针不可读 |
+| `not_probed` | 有绑定，但本机无法探测（远端工作区） | 按范围决定跳过，不代表失败 |
 
 规则：**已证明的失败优先于不可读**——`drifted` 不会被另一个盲探针降级为 `unverified`；
 而目录根本不存在时判 `unverified`（可能是未挂载，不是被改写），且不再把"所有声明路径都缺失"
 当成漂移。`unbound` 不是任务工作区的状态，而是"任务契约从未适用"的答案，客户端据此可以完全不显示。
+
+放行规则必须与报告一致：门禁放行 `ready`、`unbound`、`not_probed`，拒绝 `drifted`、`unverified`、
+`binding_invalid`。这四类不能混用——`not_probed` 表示"没测"（远端按范围决定跳过），
+`unverified` 表示"测了但证明不了"，后者属于拒绝。
 
 实现落在 runtime 的 `inspectTaskWorkspaceReadiness(selector)`，由 `worktree.show` 附带返回；
 只读、不写、不修复，取 `checkedAt` 为本次探测时间。人类可读输出由 `orca worktree show` 末尾一行

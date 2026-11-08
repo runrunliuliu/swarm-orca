@@ -288,8 +288,16 @@ describe('inspectTaskWorkspaceReadinessFor', () => {
       workspace: { id: 'repo-1::/remote', path: '/nowhere', connectionId: 'ssh-1' }
     })
 
-    expect(report.state).toBe('unverified')
+    expect(report.state).toBe('not_probed')
     expect(report.reasons.join(' ')).toContain('remote')
+    // Why the two must agree: the launch gate lets this case through, so the report may not claim a
+    // failure. `unverified` means "we tried and could not prove", which is a refusal.
+    await expect(
+      assertTaskWorkspaceLaunchableFor({
+        store: { getWorktreeMeta: () => ({ sparseTaskBinding: binding }) },
+        workspace: { id: 'repo-1::/remote', path: '/nowhere', connectionId: 'ssh-1' }
+      })
+    ).resolves.toBeUndefined()
   })
 
   it('lets a proven failure win over a probe that could not answer', async () => {

@@ -155,6 +155,6 @@
 失败以 `sparse_task_start_gate_failed:<reason>` 拒绝，无绑定的工作区一律放行。
 
 只读状态（`worktree show` 的 `taskWorkspace`）同样已实现：`unbound/ready/drifted/unverified/
-binding_invalid` + reasons，不抛错、不写。
+binding_invalid/not_probed` + reasons，不抛错、不写；放行集合与门禁一致。
 未实现：跨宿主/WSL（**短期不做，按已接受边界处理**）、缓存策略与 live Agent 闭环验收。
 移动端会话创建与终端分屏已接入。契约见 [M3 启动就绪门禁](sparse-task-workspace-m3-start-gate.md)。
