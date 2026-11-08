@@ -8,6 +8,7 @@ import {
   beginSparseTaskCreate,
   readSparseTaskCreates,
   readUnsettledSparseTaskCreates,
+  recordSparseTaskCreateObservation,
   settleSparseTaskCreate
 } from './sparse-task-create-journal'
 
@@ -35,7 +36,12 @@ const intent = {
 }
 
 async function recordFiles(repo = 'repo-1'): Promise<string[]> {
-  return (await readdir(join(dir, repo))).filter((name) => name.endsWith('.json'))
+  try {
+    return (await readdir(join(dir, repo))).filter((name) => name.endsWith('.json'))
+  } catch {
+    // No directory yet is the same answer as no records.
+    return []
+  }
 }
 
 describe('sparse task create journal', () => {
@@ -137,5 +143,39 @@ describe('sparse task create journal', () => {
     expect(names).toHaveLength(1)
     expect(names[0]).not.toContain('/')
     expect(await recordFiles(names[0]!)).toHaveLength(1)
+  })
+})
+
+// Restart reconciliation: a later reader records what it saw, and that annotation must never be
+// mistaken for the attempt settling.
+describe('recordSparseTaskCreateObservation', () => {
+  it('annotates the attempt without changing its recorded state', async () => {
+    const record = await beginSparseTaskCreate(intent)
+
+    await recordSparseTaskCreateObservation({
+      repoId: 'repo-1',
+      requestId: record.requestId,
+      observation: { state: 'exited', at: 42, reasons: ['nothing on disk'] }
+    })
+
+    const [stored] = await readSparseTaskCreates('repo-1')
+    expect(stored?.state).toBe('pending')
+    expect(stored?.observation).toEqual({
+      state: 'exited',
+      at: 42,
+      reasons: ['nothing on disk']
+    })
+    // Still unsettled: an observation is evidence, not a decision.
+    expect(await readUnsettledSparseTaskCreates('repo-1')).toHaveLength(1)
+  })
+
+  it('does nothing for an attempt that was never recorded', async () => {
+    await recordSparseTaskCreateObservation({
+      repoId: 'repo-1',
+      requestId: 'never-existed',
+      observation: { state: 'live', at: 1, reasons: [] }
+    })
+
+    expect(await recordFiles()).toHaveLength(0)
   })
 })

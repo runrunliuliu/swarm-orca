@@ -1,7 +1,10 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { inspectTaskWorkspaceReadinessFor } from '../ipc/sparse-task-start-gate'
 import { inspectSparseTaskCreate } from '../ipc/sparse-task-create-reconciliation'
-import { readUnsettledSparseTaskCreates } from '../ipc/sparse-task-create-journal'
+import {
+  readUnsettledSparseTaskCreates,
+  recordSparseTaskCreateObservation
+} from '../ipc/sparse-task-create-journal'
 import { OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce } from './orca-runtime-restore-structured-agent-session-tabs-once'
 import { DEFAULT_WORKTREE_LIST_LIMIT } from './orca-runtime-postlude'
 import type { RuntimeWorktreeListResult } from '../../shared/runtime-types'
@@ -150,7 +153,24 @@ export class OrcaRuntimeWithListManagedWorktrees extends OrcaRuntimeWithRestoreS
         directoryExists: false,
         reasons: [`the workspace could not be inspected: ${String(error)}`]
       }))
-      inspected.push({ attempt, observation })
+      // Why classify three ways: after a restart the only honest questions are "did it leave a
+      // usable workspace", "did it leave nothing" and "can this host not tell".
+      const classified =
+        observation.state === 'live'
+          ? 'live'
+          : inspection.state === 'absent'
+            ? 'exited'
+            : 'unverifiable'
+      await recordSparseTaskCreateObservation({
+        repoId: repo.id,
+        requestId: attempt.requestId,
+        observation: {
+          state: classified,
+          at: Date.now(),
+          reasons: Array.isArray(observation.reasons) ? observation.reasons : []
+        }
+      })
+      inspected.push({ attempt, observation, classified })
     }
     return { repoId: repo.id, repoPath: repo.path, attempts: inspected }
   }
