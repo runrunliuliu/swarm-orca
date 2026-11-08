@@ -124,12 +124,12 @@ M3 启动门禁与只读就绪状态。
 
 ## 当前实现状态
 
-核对日 2026-11-07，`swarm-orca` main @ `be2d8c14`（M4 止血在分支 `sparse-task-m4`，未合并）。本节只记录“代码里有什么”，
-不是验收结论；没有跑过的用例和没有授权过的原生闭环一律记为未验证。
+核对日 2026-11-08，`swarm-orca` main @ `e0cfb87c`（M0–M5 最小版均已合入）。本节只记录“代码里有什么”，
+不是验收结论；没有跑过的用例和没有做过的原生闭环一律记为未验证。
 阶段划分与退出条件见 [Sparse 任务工作区开发计划](sparse-task-workspace-development-plan.md)
 和 [M0 契约冻结](sparse-task-workspace-m0-contract.md)。
 
-### 已实现（M1–M2，任务 sparse 创建契约）
+### 已实现（M1–M5 最小版，任务 sparse 契约）
 
 入口：`orca/src/main/ipc/sparse-task-workspace-create.ts`，被 runtime 本地创建
 （`src/main/runtime/runtime-local-git-worktree-create.ts`）与 desktop IPC 本地创建共用。
