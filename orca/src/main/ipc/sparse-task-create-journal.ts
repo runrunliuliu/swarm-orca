@@ -121,6 +121,29 @@ async function readJournal(repoId: string): Promise<SparseTaskCreateRecord[]> {
   return records.sort((left, right) => left.createdAt - right.createdAt)
 }
 
+/**
+ * Why a per-file lock: settling and annotating both read a record and write it back, and they can
+ * overlap (a settle lands while a status query is annotating). Serializing by file makes the
+ * read-modify-write atomic inside this process, which is the only writer of its own userData.
+ */
+const recordLocks = new Map<string, Promise<unknown>>()
+
+async function withRecordLock<T>(path: string, run: () => Promise<T>): Promise<T> {
+  const previous = recordLocks.get(path) ?? Promise.resolve()
+  const next = previous.then(run, run)
+  recordLocks.set(
+    path,
+    next.catch(() => undefined)
+  )
+  try {
+    return await next
+  } finally {
+    if (recordLocks.get(path) === next.catch(() => undefined)) {
+      recordLocks.delete(path)
+    }
+  }
+}
+
 async function writeRecord(record: SparseTaskCreateRecord): Promise<void> {
   const target = recordPath(record.repoId, record.requestId)
   await mkdir(repoDir(record.repoId), { recursive: true })
@@ -204,19 +227,23 @@ export async function settleSparseTaskCreate(args: {
   reasons?: readonly string[]
 }): Promise<void> {
   try {
-    const records = await readJournal(args.repoId)
-    const existing = records.find((record) => record.requestId === args.requestId)
-    if (!existing) {
-      // Why not invent one: without an intent there was no side effect to explain, and fabricating a
-      // record would make the journal claim an attempt that never started.
-      console.warn(`[sparse-task] no intent recorded for create ${args.requestId}; not settling it`)
-      return
-    }
-    await writeRecord({
-      ...existing,
-      state: args.state,
-      reasons: [...(args.reasons ?? [])],
-      updatedAt: Date.now()
+    await withRecordLock(recordPath(args.repoId, args.requestId), async () => {
+      const records = await readJournal(args.repoId)
+      const existing = records.find((record) => record.requestId === args.requestId)
+      if (!existing) {
+        // Why not invent one: without an intent there was no side effect to explain, and fabricating a
+        // record would make the journal claim an attempt that never started.
+        console.warn(
+          `[sparse-task] no intent recorded for create ${args.requestId}; not settling it`
+        )
+        return
+      }
+      await writeRecord({
+        ...existing,
+        state: args.state,
+        reasons: [...(args.reasons ?? [])],
+        updatedAt: Date.now()
+      })
     })
   } catch (error) {
     console.warn(
@@ -262,12 +289,16 @@ export async function recordSparseTaskCreateObservation(args: {
   observation: SparseTaskCreateObservation
 }): Promise<void> {
   try {
-    const records = await readJournal(args.repoId)
-    const existing = records.find((record) => record.requestId === args.requestId)
-    if (!existing) {
-      return
-    }
-    await writeRecord({ ...existing, observation: args.observation, updatedAt: Date.now() })
+    await withRecordLock(recordPath(args.repoId, args.requestId), async () => {
+      // Why re-read inside the lock: a settle may have landed since the caller inspected the record,
+      // and writing back the version it saw would revert that settle.
+      const records = await readJournal(args.repoId)
+      const existing = records.find((record) => record.requestId === args.requestId)
+      if (!existing) {
+        return
+      }
+      await writeRecord({ ...existing, observation: args.observation, updatedAt: Date.now() })
+    })
   } catch (error) {
     // Why swallow: this runs on the read path; failing a status query over an annotation would make
     // the diagnostic worse than the thing it diagnoses.

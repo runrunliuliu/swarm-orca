@@ -179,3 +179,23 @@ describe('recordSparseTaskCreateObservation', () => {
     expect(await recordFiles()).toHaveLength(0)
   })
 })
+
+describe('concurrent settle and annotation', () => {
+  it('does not let an annotation revert a settle that landed beside it', async () => {
+    const record = await beginSparseTaskCreate(intent)
+
+    // Why in parallel: this is the actual race — a status query annotating while the create settles.
+    await Promise.all([
+      settleSparseTaskCreate({ repoId: 'repo-1', requestId: record.requestId, state: 'created' }),
+      recordSparseTaskCreateObservation({
+        repoId: 'repo-1',
+        requestId: record.requestId,
+        observation: { state: 'live', at: 7, reasons: [] }
+      })
+    ])
+
+    const [stored] = await readSparseTaskCreates('repo-1')
+    expect(stored?.state).toBe('created')
+    expect(stored?.observation?.state).toBe('live')
+  })
+})

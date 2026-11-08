@@ -1,6 +1,9 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { inspectTaskWorkspaceReadinessFor } from '../ipc/sparse-task-start-gate'
-import { inspectSparseTaskCreate } from '../ipc/sparse-task-create-reconciliation'
+import {
+  classifySparseTaskCreateOutcome,
+  inspectSparseTaskCreate
+} from '../ipc/sparse-task-create-reconciliation'
 import {
   readUnsettledSparseTaskCreates,
   recordSparseTaskCreateObservation
@@ -155,12 +158,7 @@ export class OrcaRuntimeWithListManagedWorktrees extends OrcaRuntimeWithRestoreS
       }))
       // Why classify three ways: after a restart the only honest questions are "did it leave a
       // usable workspace", "did it leave nothing" and "can this host not tell".
-      const classified =
-        observation.state === 'live'
-          ? 'live'
-          : inspection.state === 'absent'
-            ? 'exited'
-            : 'unverifiable'
+      const classified = classifySparseTaskCreateOutcome(observation)
       await recordSparseTaskCreateObservation({
         repoId: repo.id,
         requestId: attempt.requestId,
