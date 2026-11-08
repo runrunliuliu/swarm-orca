@@ -1,4 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
+import { inspectTaskWorkspaceReadinessFor } from '../ipc/sparse-task-start-gate'
 import { OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce } from './orca-runtime-restore-structured-agent-session-tabs-once'
 import { DEFAULT_WORKTREE_LIST_LIMIT } from './orca-runtime-postlude'
 import type { RuntimeWorktreeListResult } from '../../shared/runtime-types'
@@ -117,6 +118,25 @@ export class OrcaRuntimeWithListManagedWorktrees extends OrcaRuntimeWithRestoreS
 
   async showManagedWorktree(worktreeSelector: string) {
     return await this.resolveWorktreeSelector(worktreeSelector)
+  }
+
+  /**
+   * Can this workspace be launched under the task contract, right now?
+   *
+   * Why here: `worktree show` already resolves the record, and the answer needs the same store the
+   * gate reads. This is the read-only form of the gate — it never throws for a workspace that is
+   * unbound, drifted or unprovable, so a client can show the state instead of parsing an error.
+   */
+  async inspectTaskWorkspaceReadiness(worktreeSelector: string) {
+    const worktree = await this.resolveWorktreeSelector(worktreeSelector)
+    return await inspectTaskWorkspaceReadinessFor({
+      store: this.store,
+      workspace: {
+        id: worktree.id,
+        path: worktree.path,
+        ...(worktree.connectionId ? { connectionId: worktree.connectionId } : {})
+      }
+    })
   }
 
   /**

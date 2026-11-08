@@ -154,5 +154,7 @@
 会话创建三条 launch 路径；判定为 "binding 有效 + pinnedSha 是 HEAD 祖先 + cone 覆盖 + 必需路径可读"，
 失败以 `sparse_task_start_gate_failed:<reason>` 拒绝，无绑定的工作区一律放行。
 
-未实现：跨宿主/WSL（**短期不做，按已接受边界处理**）、拒绝结果的 UI/CLI 只读状态、缓存策略与
-live Agent 闭环验收。移动端会话创建与终端分屏已接入。契约见 [M3 启动就绪门禁](sparse-task-workspace-m3-start-gate.md)。
+只读状态（`worktree show` 的 `taskWorkspace`）同样已实现：`unbound/ready/drifted/unverified/
+binding_invalid/not_probed` + reasons，不抛错、不写；放行集合与门禁一致。
+未实现：跨宿主/WSL（**短期不做，按已接受边界处理**）、缓存策略与 live Agent 闭环验收。
+移动端会话创建与终端分屏已接入。契约见 [M3 启动就绪门禁](sparse-task-workspace-m3-start-gate.md)。

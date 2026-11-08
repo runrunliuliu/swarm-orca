@@ -13,6 +13,8 @@ import {
   SparseTaskStartGateError,
   assertTaskWorkspaceLaunchableFor,
   assertTaskWorkspaceReadyToLaunch,
+  inspectTaskWorkspaceReadiness,
+  inspectTaskWorkspaceReadinessFor,
   type SparseTaskStartGateReason
 } from './sparse-task-start-gate'
 
@@ -217,5 +219,104 @@ describe('assertTaskWorkspaceLaunchableFor', () => {
         workspace: { id: 'repo-1::/remote', path: join(dirname(repoPath), 'missing'), connectionId: 'ssh-1' }
       })
     ).resolves.toBeUndefined()
+  })
+})
+
+// M3 read-only surface: the same probes, but as an answer a client can render.
+describe('inspectTaskWorkspaceReadinessFor', () => {
+  it('answers "unbound" for a workspace the task contract never applied to', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath } = await createTaskWorkspace(repoPath)
+
+    const report = await inspectTaskWorkspaceReadinessFor({
+      store: {},
+      workspace: { id: 'repo-1::/wt', path: worktreePath }
+    })
+
+    expect(report.state).toBe('unbound')
+    expect(report.reasons).toEqual([])
+  })
+
+  it('reports "ready" with the pinned sha for a workspace that still matches', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath, pinnedSha } = await createTaskWorkspace(repoPath)
+    const binding = createSparseTaskWorkspaceBinding(receipt(pinnedSha), 1)
+
+    const report = await inspectTaskWorkspaceReadinessFor({
+      store: { getWorktreeMeta: () => ({ sparseTaskBinding: binding }) },
+      workspace: { id: 'repo-1::/wt', path: worktreePath }
+    })
+
+    expect(report).toMatchObject({ state: 'ready', pinnedSha, reasons: [] })
+    expect(report.head?.toLowerCase()).toBe(pinnedSha.toLowerCase())
+    expect(report.checkedAt).toBeGreaterThan(0)
+  })
+
+  it('reports drift with the reason instead of throwing', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath, pinnedSha } = await createTaskWorkspace(repoPath)
+    const binding = createSparseTaskWorkspaceBinding(
+      receipt(pinnedSha, { requestedSparseCone: ['swarm', 'orca'] }),
+      1
+    )
+
+    const report = await inspectTaskWorkspaceReadinessFor({
+      store: { getWorktreeMeta: () => ({ sparseTaskBinding: binding }) },
+      workspace: { id: 'repo-1::/wt', path: worktreePath }
+    })
+
+    expect(report.state).toBe('drifted')
+    expect(report.reasons.join(' ')).toContain('orca')
+  })
+
+  it('reports a binding it cannot parse as binding_invalid, never as ready', async () => {
+    const report = await inspectTaskWorkspaceReadinessFor({
+      store: { getWorktreeMeta: () => ({ sparseTaskBinding: { schemaVersion: 9 } }) },
+      workspace: { id: 'repo-1::/wt', path: '/nowhere' }
+    })
+
+    expect(report.state).toBe('binding_invalid')
+  })
+
+  it('reports a remote bound workspace as unverified rather than probing the wrong host', async () => {
+    const repoPath = await createRepo()
+    const { pinnedSha } = await createTaskWorkspace(repoPath)
+    const binding = createSparseTaskWorkspaceBinding(receipt(pinnedSha), 1)
+
+    const report = await inspectTaskWorkspaceReadinessFor({
+      store: { getWorktreeMeta: () => ({ sparseTaskBinding: binding }) },
+      workspace: { id: 'repo-1::/remote', path: '/nowhere', connectionId: 'ssh-1' }
+    })
+
+    expect(report.state).toBe('not_probed')
+    expect(report.reasons.join(' ')).toContain('remote')
+    // Why the two must agree: the launch gate lets this case through, so the report may not claim a
+    // failure. `unverified` means "we tried and could not prove", which is a refusal.
+    await expect(
+      assertTaskWorkspaceLaunchableFor({
+        store: { getWorktreeMeta: () => ({ sparseTaskBinding: binding }) },
+        workspace: { id: 'repo-1::/remote', path: '/nowhere', connectionId: 'ssh-1' }
+      })
+    ).resolves.toBeUndefined()
+  })
+
+  it('lets a proven failure win over a probe that could not answer', async () => {
+    const repoPath = await createRepo()
+    const { worktreePath, pinnedSha } = await createTaskWorkspace(repoPath)
+    const binding = createSparseTaskWorkspaceBinding(
+      receipt(pinnedSha, { requiredPaths: ['orca/src/main.ts'] }),
+      1
+    )
+    // Why remove the git marker: HEAD and the cone become unreadable while the missing declared path
+    // is still a proven fact, so `drifted` must win over `unverified`.
+    await rm(join(worktreePath, '.git'), { force: true })
+
+    const report = await inspectTaskWorkspaceReadiness({
+      binding,
+      worktreePath
+    })
+
+    expect(report.state).toBe('drifted')
+    expect(report.reasons.join(' ')).toContain('orca/src/main.ts')
   })
 })

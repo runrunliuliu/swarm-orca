@@ -60,7 +60,37 @@ spawn 或直接请求渲染进程建标签页，就必须单独接门禁。
 - 只覆盖本地创建工作区；SSH/WSL 未接入（与 M2 的能力名边界一致）。
 - 不拦：纯 reattach、只读解析、没有绑定的工作区。
 
-## 5. 与其它阶段的关系
+## 5. 只读状态（同一个判定的第二种输出）
+
+门禁抛出异常只适合"要不要继续启动"；人需要的是"现在到底怎么了"。因此同一套探针还有一个
+不抛错的形态：
+
+```text
+orca worktree show --worktree <selector> --json
+  → taskWorkspace: { state, reasons[], pinnedSha?, head?, checkedAt }
+```
+
+| state | 含义 | 来源 |
+| --- | --- | --- |
+| `unbound` | 该工作区没有绑定（legacy 全量/legacy sparse/外部创建） | 无 `sparseTaskBinding` |
+| `ready` | 绑定可读，HEAD 含基线，cone 覆盖请求，必需路径可读 | 三项探针全部通过 |
+| `drifted` | 有已证明的漂移（脱离基线 / cone 不覆盖 / 声明路径缺失） | 任一探针给出确定失败 |
+| `unverified` | 无法证明（HEAD/cone/路径读不出、目录不在） | 任一探针不可读 |
+| `not_probed` | 有绑定，但本机无法探测（远端工作区） | 按范围决定跳过，不代表失败 |
+
+规则：**已证明的失败优先于不可读**——`drifted` 不会被另一个盲探针降级为 `unverified`；
+而目录根本不存在时判 `unverified`（可能是未挂载，不是被改写），且不再把"所有声明路径都缺失"
+当成漂移。`unbound` 不是任务工作区的状态，而是"任务契约从未适用"的答案，客户端据此可以完全不显示。
+
+放行规则必须与报告一致：门禁放行 `ready`、`unbound`、`not_probed`，拒绝 `drifted`、`unverified`、
+`binding_invalid`。这四类不能混用——`not_probed` 表示"没测"（远端按范围决定跳过），
+`unverified` 表示"测了但证明不了"，后者属于拒绝。
+
+实现落在 runtime 的 `inspectTaskWorkspaceReadiness(selector)`，由 `worktree.show` 附带返回；
+只读、不写、不修复，取 `checkedAt` 为本次探测时间。人类可读输出由 `orca worktree show` 末尾一行
+`taskWorkspace: <state>` 展示，`--json` 给完整 `reasons`。
+
+## 6. 与其它阶段的关系
 
 - 绑定由 M5 在**创建成功时**写入；失败创建（`needs_reconciliation`）没有绑定，因此不会被门禁
   当成任务工作区，仍需按[对账手册](sparse-task-workspace-reconciliation.md)人工处理。
@@ -68,21 +98,22 @@ spawn 或直接请求渲染进程建标签页，就必须单独接门禁。
 - 完整 M3 仍缺：把判定结果暴露给 UI/CLI（可读的状态而不是异常栈）、缓存与失效策略、
   跨宿主探针、"启动被拒"后的恢复指引。
 
-## 6. 已知缺口
+## 7. 已知缺口
 
 - 只有本地主机；远端工作区被跳过而不是被验证。
   **范围决定（2026-11-08）：短期不做跨宿主。** 探针必须跑在工作区所在主机上，而当前只有本机
   git/stat 能力；在需要之前，远端工作区保持"跳过门禁"而不是"用本机探针假装验证过"。
   WSL 同理按 fail-closed 处理。
-- 拒绝时只抛错，没有面向用户的只读检查命令；处置仍依赖对账手册与 `git` 命令。
 - 未做 live Agent 闭环验收：门禁在真实创建→启动链路上的行为只有单元级证据。
 
-## 7. 本轮测试证据
+## 8. 本轮测试证据
 
-- `orca/src/main/ipc/sparse-task-start-gate.test.ts`：9 passed（真实 Git：放行无绑定、拒绝坏绑定、
+- `orca/src/main/ipc/sparse-task-start-gate.test.ts`：15 passed（含只读状态的 unbound/ready/
+  drifted/binding_invalid/远端 unverified/目录不在判 unverified/已证明失败优先）（真实 Git：放行无绑定、拒绝坏绑定、
   放行基线祖先、Agent 提交后仍放行、拒绝脱离基线/cone 不符/必需路径缺失、不可读记 unverified、
   远端跳过）。
-- 相关面合计 31 文件 / 331 tests passed（含 M1/M2/M4/M5 与本地创建流程）。
+- 相关面合计 31 文件 / 331 tests passed；只读状态接入后 CLI + RPC 面 249 文件 / 2477 tests
+  （仅 2 个既有 SQLite/orchestration 失败，基线同样失败）。
 - 全 `src/main/runtime` 批跑出现 57 个失败，均在 orchestration/SQLite 域；
   抽样 3 个文件在未含本改动的基线上同样失败，属既有环境问题（node 22 vs engines 24、实验性 SQLite）。
 - 未跑：Electron/E2E、真实 Agent 闭环。
