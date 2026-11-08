@@ -1,3 +1,4 @@
+import { sweepTaskCreateJournalOnStart } from '../ipc/sparse-task-create-startup-sweep'
 import { app, nativeTheme } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
@@ -59,6 +60,12 @@ export async function initializeReadyRuntimeServices(): Promise<void> {
   runtime.setAgentBrowserBridge(state.agentBrowserBridge)
   // Why: daemons a crashed or SIGKILL'd previous run left behind answer to nobody; nothing else reclaims them.
   void state.agentBrowserBridge.sweepOrphanedSessions()
+  // Why fire-and-forget: a task create killed by the previous process leaves a `pending` journal
+  // record, and only a sweep at start can still classify it. It annotates and never settles, so it
+  // must not block or fail startup.
+  void sweepTaskCreateJournalOnStart().catch((error) =>
+    console.warn('[sparse-task] startup sweep failed:', error)
+  )
   const browserClientAutomationDispatcher = new RpcDispatcher({ runtime })
   configureBrowserClientPageAutomationRuntime({
     browserManager,
