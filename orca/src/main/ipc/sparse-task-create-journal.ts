@@ -8,8 +8,8 @@
 //
 // Nothing here deletes, repairs or re-runs a create. Reading is read-only by construction.
 
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { getOrcaUserDataPath } from '../codex/codex-home-paths'
 
@@ -35,7 +35,7 @@ export type SparseTaskCreateRecord = {
   updatedAt: number
 }
 
-/** Entries kept per repo: enough to explain recent attempts, bounded so the file cannot grow. */
+/** Entries kept per repo: enough to explain recent attempts, bounded so the directory cannot grow. */
 const MAX_RECORDS_PER_REPO = 50
 /** A `pending` record older than this can no longer be assumed to be in flight. */
 const PENDING_STALE_MS = 15 * 60_000
@@ -46,51 +46,99 @@ function journalDir(): string {
   return process.env.ORCA_SPARSE_TASK_JOURNAL_DIR || join(getOrcaUserDataPath(), 'sparse-task-creates')
 }
 
-function journalPath(repoId: string): string {
-  // Why sanitize: a repo id reaches a file name, and an id is not a path component by contract.
-  const safe = repoId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 128) || 'unknown-repo'
-  return join(journalDir(), `${safe}.json`)
+function sanitizeComponent(value: string, fallback: string): string {
+  const safe = value.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 128)
+  return safe.length > 0 && safe !== '.' && safe !== '..' ? safe : fallback
 }
 
-type JournalFile = { version: number; records: SparseTaskCreateRecord[] }
+function repoDir(repoId: string): string {
+  return join(journalDir(), sanitizeComponent(repoId, 'unknown-repo'))
+}
 
+/**
+ * Why one file per attempt instead of one file per repo: recording an intent is a read-merge-write
+ * on a shared file otherwise, and two creates starting at the same time would each write the whole
+ * set — the later one silently dropping the earlier one's `pending`, which is exactly the trace that
+ * must survive. Per-attempt files have no merge step to lose.
+ */
+function recordPath(repoId: string, requestId: string): string {
+  return join(repoDir(repoId), `${sanitizeComponent(requestId, 'unknown-request')}.json`)
+}
+
+function isRecord(value: unknown): value is SparseTaskCreateRecord {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+  const record = value as Partial<SparseTaskCreateRecord>
+  return (
+    typeof record.requestId === 'string' &&
+    typeof record.repoId === 'string' &&
+    typeof record.state === 'string'
+  )
+}
+
+/**
+ * Read every attempt for a repo, oldest first.
+ *
+ * Why skip unparsable files instead of failing: a corrupt record is a diagnostics problem, not a
+ * reason to refuse later creates. The file stays where it is — nothing rewrites it — and the caller
+ * simply does not see a record it cannot trust.
+ */
 async function readJournal(repoId: string): Promise<SparseTaskCreateRecord[]> {
-  let raw: string
+  let names: string[]
   try {
-    raw = await readFile(journalPath(repoId), 'utf8')
+    names = await readdir(repoDir(repoId))
   } catch (error) {
     if ((error as { code?: unknown }).code === 'ENOENT') {
       return []
     }
     throw error
   }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    // Why not throw: a corrupt journal is a diagnostics problem, not a reason to refuse every later
-    // create. The caller sees an empty history and the file stays for inspection.
-    return []
+  const records: SparseTaskCreateRecord[] = []
+  for (const name of names) {
+    if (!name.endsWith('.json')) {
+      continue
+    }
+    try {
+      const parsed: unknown = JSON.parse(await readFile(join(repoDir(repoId), name), 'utf8'))
+      if (isRecord(parsed)) {
+        records.push(parsed)
+      }
+    } catch {
+      continue
+    }
   }
-  const records = (parsed as Partial<JournalFile>)?.records
-  if (!Array.isArray(records)) {
-    return []
-  }
-  return records.filter(
-    (record): record is SparseTaskCreateRecord =>
-      typeof record === 'object' && record !== null && typeof (record as { requestId?: unknown }).requestId === 'string'
-  )
+  return records.sort((left, right) => left.createdAt - right.createdAt)
 }
 
-async function writeJournal(repoId: string, records: SparseTaskCreateRecord[]): Promise<void> {
-  const target = journalPath(repoId)
-  await mkdir(dirname(target), { recursive: true })
-  const bounded = records.slice(-MAX_RECORDS_PER_REPO)
-  const body: JournalFile = { version: SPARSE_TASK_CREATE_JOURNAL_VERSION, records: bounded }
-  // Why tmp + rename: a killed write must not truncate the history it is appending to.
-  const temp = `${target}.${process.pid}.${Date.now()}.tmp`
-  await writeFile(temp, `${JSON.stringify(body, null, 2)}\n`, 'utf8')
+async function writeRecord(record: SparseTaskCreateRecord): Promise<void> {
+  const target = recordPath(record.repoId, record.requestId)
+  await mkdir(repoDir(record.repoId), { recursive: true })
+  // Why a random suffix: two settles of the same attempt can overlap, and a shared temp name would
+  // let one rename the other's half-written file into place.
+  const temp = `${target}.${randomUUID()}.tmp`
+  await writeFile(temp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
   await rename(temp, target)
+}
+
+/** Best-effort trim: drop the oldest settled attempts beyond the cap, never an unsettled one. */
+async function pruneSettled(repoId: string): Promise<void> {
+  const records = await readJournal(repoId)
+  if (records.length <= MAX_RECORDS_PER_REPO) {
+    return
+  }
+  const settled = records.filter(
+    (record) => record.state === 'created' || record.state === 'failed'
+  )
+  const excess = records.length - MAX_RECORDS_PER_REPO
+  for (const record of settled.slice(0, excess)) {
+    try {
+      await unlink(recordPath(repoId, record.requestId))
+    } catch {
+      // Why ignore: the record is already settled and bounded elsewhere; failing a create over a
+      // cosmetic cleanup would be worse than one extra file.
+    }
+  }
 }
 
 /** What the stopped create path needs to record; everything but these four is derived. */
@@ -129,8 +177,8 @@ export async function beginSparseTaskCreate(
     createdAt: now,
     updatedAt: now
   }
-  const existing = await readJournal(intent.repoId)
-  await writeJournal(intent.repoId, [...existing, record])
+  await writeRecord(record)
+  await pruneSettled(intent.repoId).catch(() => undefined)
   return record
 }
 
@@ -147,17 +195,19 @@ export async function settleSparseTaskCreate(args: {
 }): Promise<void> {
   try {
     const records = await readJournal(args.repoId)
-    const next = records.map((record) =>
-      record.requestId === args.requestId
-        ? {
-            ...record,
-            state: args.state,
-            reasons: [...(args.reasons ?? [])],
-            updatedAt: Date.now()
-          }
-        : record
-    )
-    await writeJournal(args.repoId, next)
+    const existing = records.find((record) => record.requestId === args.requestId)
+    if (!existing) {
+      // Why not invent one: without an intent there was no side effect to explain, and fabricating a
+      // record would make the journal claim an attempt that never started.
+      console.warn(`[sparse-task] no intent recorded for create ${args.requestId}; not settling it`)
+      return
+    }
+    await writeRecord({
+      ...existing,
+      state: args.state,
+      reasons: [...(args.reasons ?? [])],
+      updatedAt: Date.now()
+    })
   } catch (error) {
     console.warn(
       `[sparse-task] could not settle create ${args.requestId} as ${args.state}:`,

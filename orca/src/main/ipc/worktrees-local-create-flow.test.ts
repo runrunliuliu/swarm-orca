@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolve } from 'node:path'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import type { CreateWorktreeResult } from '../../shared/worktree/create-types'
 import { parseSparseTaskWorkspaceBinding } from '../../shared/worktree/sparse-task-binding'
 import { resolveRegisteredWorktreePath } from './registered-worktree-roots-cache'
@@ -25,6 +27,10 @@ import {
 } from './worktrees-test-module-mocks'
 import { handlers, mainWindow, setupWorktreeHandlers, store } from './worktrees-test-harness'
 import type { WorktreeRuntimeStub } from './worktrees-test-runtime-stub'
+
+// Why: the create path journals under userData; keep the suite off real state.
+process.env.ORCA_SPARSE_TASK_JOURNAL_DIR = mkdtempSync(join(tmpdir(), 'orca-journal-'))
+afterAll(() => rmSync(process.env.ORCA_SPARSE_TASK_JOURNAL_DIR!, { recursive: true, force: true }))
 
 vi.mock('electron', async () =>
   (await import('./worktrees-test-module-mocks')).electronModuleMock()
