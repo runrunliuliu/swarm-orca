@@ -2,6 +2,7 @@
 // one actually left behind — without settling, cleaning or retrying anything.
 import { describe, expect, it, vi } from 'vitest'
 import { formatTaskCreateStatus } from '../workspace-format'
+import type { RuntimeClient } from '../runtime-client'
 import { handleWorktreeCreateStatus } from './worktree-create-status'
 
 const payload = {
@@ -32,12 +33,13 @@ const flags = (entries: [string, string | boolean][]) => new Map(entries)
 
 describe('worktree create-status', () => {
   it('asks for the repo journal with an optional limit', async () => {
-    const client = { call: vi.fn().mockResolvedValue({ result: payload }) }
+    const call = vi.fn().mockResolvedValue({ result: payload })
+    const client = { call } as unknown as RuntimeClient
 
     await handleWorktreeCreateStatus({ flags: flags([['repo', 'path:/repo']]), client, json: true })
     expect(client.call).toHaveBeenCalledWith('worktree.createStatus', { repo: 'path:/repo' })
 
-    client.call.mockClear()
+    call.mockClear()
     await handleWorktreeCreateStatus({
       flags: flags([['repo', 'path:/repo'], ['limit', '5']]),
       client,
