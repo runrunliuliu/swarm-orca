@@ -14,6 +14,11 @@ import {
 } from '../omitted-host-scope-selectors'
 import { RuntimeClientError } from '../runtime-client'
 import {
+  assertSparseTaskSetupDecision,
+  assertSparseTaskWorkspaceCapability,
+  readSparseTaskCheckoutFlags
+} from './worktree-sparse-task-flags'
+import {
   getOptionalNullableNumberFlag,
   getOptionalNumberFlag,
   getOptionalPositiveIntegerFlag,
@@ -195,6 +200,8 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
     const explicitParentWorkspace = explicitParent.parentWorkspace
     const startupAgent = getOptionalStartupAgent(flags)
     const setupDecision = getOptionalSetupDecision(flags)
+    const sparseTask = readSparseTaskCheckoutFlags(flags)
+    assertSparseTaskSetupDecision(flags, sparseTask)
     const noParent = flags.get('no-parent') === true
     const envParentWorkspace =
       !noParent && !explicitParentWorkspace && !explicitParentWorktree
@@ -218,6 +225,7 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
     const linearIssueLink = getOptionalLinearIssueLinkFlag(flags, 'linear-issue')
     const activate = flags.get('activate') === true || flags.get('run-hooks') === true
     const name = getRequiredStringFlag(flags, 'name')
+    await assertSparseTaskWorkspaceCapability(client, sparseTask)
     const result = await client.call<RuntimeWorktreeCreateResult>('worktree.create', {
       repo: await getCreateRepoSelector(flags, cwdParentWorktree, client),
       name,
@@ -233,6 +241,7 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
       // delivery would make --activate a no-op against a remote runtime.
       ...(activate ? { navigation: 'all' as const } : {}),
       ...(setupDecision ? { setupDecision } : {}),
+      ...(sparseTask ? { sparseCheckout: sparseTask } : {}),
       parentWorktree: explicitParentWorktree,
       ...(explicitParentWorkspace ? { parentWorkspace: explicitParentWorkspace } : {}),
       ...(envParentWorkspace ? { envParentWorkspace } : {}),
