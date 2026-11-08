@@ -19,9 +19,11 @@
 5. **续做复用，交付按仓库、验收按任务。** 补充、修正、重试和恢复沿用原绑定；交付逐仓库走
    [worktree-delivery](../skills/worktree-delivery/SKILL.md)，任务层做跨仓库联合验收。
 
-现状：这五条是**入口约定层**，依赖执行 Agent 遵守，运行时不做检查。落地程度只到稀疏创建契约的
-M1–M2 与 M4 最小止血；逻辑任务 ID、跨入口路由、多仓库绑定、启动门禁与写入硬隔离均未实现，
-逐项以[实现状态](design/task-workspaces.md#当前实现状态)为准。
+现状：这五条是**入口约定层**，依赖执行 Agent 遵守，运行时不做检查。代码侧已完成任务 sparse 契约的
+M1–M2（固定基线、回执、树级与必需路径校验）、M3 启动门禁（仅本地宿主）、M4 创建失败只读对账与
+M5 最小绑定；逻辑任务 ID、跨入口路由、多仓库绑定与写入硬隔离仍未实现，
+逐项以[实现状态](design/task-workspaces.md#当前实现状态)为准；契约与运维手册在
+[sparse 任务工作区目录](design/sparse-task-workspace/README.md)。
 
 ## 2. 决策顺序
 
@@ -81,7 +83,7 @@ pins 仍以各自固定引用为准，本文不构成穷尽清单：
 - 设计理念、入口约定、源码落地和实机验收是四件事，不能互相推导；分级标准见
   [Swarm 测试与验收指南](testing/reliability.md)。
 - 入口依赖 runtime 宣告的能力。能力缺失时不得降级发送新字段、也不得把 legacy 回执当成新契约
-  成功；应报告缺口，并按[创建失败的只读对账](design/sparse-task-workspace-reconciliation.md)
+  成功；应报告缺口，并按[创建失败的只读对账](design/sparse-task-workspace/reconciliation.md)
   处置残留，不盲目重试或删除现场。
 - 讨论结论、领域 checker 回执、启动门通过和 monitor 回传都**不**授权写入、合并、部署或重启；
   它们各自的授权仍须单独取得。

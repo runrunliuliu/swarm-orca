@@ -1,11 +1,12 @@
 # Sparse 任务工作区：M5 最小绑定契约
 
 状态：M5 最小版实现契约（`sparseTaskBinding`）。只记录**成功创建**的规范事实，供后续 M3 启动门禁与交接复核读取。
-本文不是完整任务系统：没有逻辑任务 ID、没有跨入口路由、没有持久回执、没有 `create-status`、没有收养或清理。
+本文不是完整任务系统：没有逻辑任务 ID、没有跨入口路由、没有持久回执、没有失败记录或清理。
+M4 交付的 `create-status`、启动清扫与外部工作区收养不在本文范围，状态见[对账手册](reconciliation.md)。
 
-依据：[开发计划](sparse-task-workspace-development-plan.md)（M5 条目）、
-[M0 契约冻结](sparse-task-workspace-m0-contract.md)（receipt 与错误码）、
-[创建失败的只读对账](sparse-task-workspace-reconciliation.md)（M4 最小止血）。
+依据：[开发计划](development-plan.md)（M5 条目）、
+[M0 契约冻结](m0-contract.md)（receipt 与错误码）、
+[创建失败的只读对账](reconciliation.md)（M4 最小止血）。
 
 ## 1. 落点与理由
 
@@ -66,13 +67,15 @@ bindingDigest: string        # 上述规范字段的 sha256(hex)
 
 - M3 启动门禁只对"请求了 task workspace 或带该绑定的启动"生效；缺记录、摘要不符、schema 未知一律 fail-closed。
 - 绑定**不能替代**现场回读：启动时仍要回读 HEAD、cone、必需路径（M3 口径另定，见计划）。
-- M4 完整版仍需：客户端请求 ID、先于副作用的持久回执、阶段化状态、`create-status`、重启后对账、收养与清理。
+- M4 的已交付范围（意图记录、`create-status`、启动清扫、外部收养与只读对账）以[对账手册](reconciliation.md)
+  为唯一来源，本文不重复；M5 不持久化失败记录，自动重试与清理仍不做。
 
 ## 6. 已知缺口
 
 - 元数据阶段失败（绑定写入之后、启动之前）**不会**带 M4 标记：`createSparseTaskWorkspace` 已成功返回，
   标记只覆盖创建序列内部。
-- 外部（非原生创建）工作区没有绑定；收养流程未实现，读取方只能把它当普通工作区。
+- 外部（非原生创建）工作区没有绑定；收养流程由 M4 在列表投影时完成（见[对账手册](reconciliation.md)），
+  收养后它仍是普通工作区：没有 `sparseTaskBinding`，也可能没有 pin，不得当作任务工作区启动。
 - 跨宿主/SSH 与 WSL 未接入；只有本地创建路径写绑定。
 - 无 schema 迁移工具：v1 之外的版本一律读作 `null`，需要时另立契约。
 
@@ -81,4 +84,5 @@ bindingDigest: string        # 上述规范字段的 sha256(hex)
 - `orca/src/shared/worktree/sparse-task-binding.test.ts`：11 passed（摘要规范化、字段取舍、篡改与未知 schema 拒绝、receipt 比对）。
 - `orca/src/main/ipc/worktrees-local-create-flow.test.ts`：19 passed（任务创建后元数据里可解析出绑定）。
 - `orca/src/main/runtime/runtime-local-worktree-materialization.test.ts`：3 passed（runtime 入口写绑定；无 receipt 时不写）。
-- `oxlint` 干净；`check-max-lines-ratchet` 通过；未跑全仓 vitest、Electron/E2E 与真实 Agent 闭环。
+- `oxlint` 干净；`check-max-lines-ratchet` 通过；未跑全仓 vitest、Electron/E2E 与真实 Agent 闭环
+  （本文取证时未跑；之后一次创建→门禁→Agent 提交→仍 `ready` 的 smoke 已跑通，完整验收仍未做，见 [开发计划](development-plan.md) §7）。

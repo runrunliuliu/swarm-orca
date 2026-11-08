@@ -8,7 +8,7 @@
 
 目标：让 strict bootstrap → Coordinator TUI → continuation / monitor / scheduler
 控制链能够推进普通软件开发任务，并依据代码、测试和独立审查证据判断进展。
-首个业务接入候选是 [sparse-checkout 开发](worktree-create-sparse-checkout.md)，
+首个业务接入候选是 [sparse-checkout 开发](sparse-task-workspace/history/sparse-checkout-proposal.md)，
 其业务范围和验收仍以该任务单独固定的需求为准，不在适配器中硬编码。
 
 本文所有代码与 skill 路径均相对 **`swarm-orca/` 仓库根目录**；

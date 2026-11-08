@@ -11,8 +11,8 @@ implemented; their presence does not establish end-to-end recovery.
 
 | Proposed here | Current state |
 | --- | --- |
-| Pinned SHA, HEAD/cone readback, tree and required-path checks | implemented — [M0 contract](sparse-task-workspace-m0-contract.md) |
-| `worktree create-status --request <id>` and staged states | implemented with a different shape — [M4 status](../../docs/design/sparse-task-workspace-reconciliation.md): `orca worktree create-status --repo`, intent journal, `pending/created/failed/needs_reconciliation` |
+| Pinned SHA, HEAD/cone readback, tree and required-path checks | implemented — [M0 contract](../m0-contract.md) |
+| `worktree create-status --request <id>` and staged states | implemented with a different shape — [M4 status](../reconciliation.md): `orca worktree create-status --repo`, intent journal, `pending/created/failed/needs_reconciliation` |
 | Recovery without blind cleanup | partially: failures keep their workspace and are classified read-only; **no automatic recovery, retry or cleanup** |
 | Performance comparison as an acceptance gate | dropped: performance is recorded as an observation, never a correctness threshold |
 
@@ -144,7 +144,7 @@ Reuse the existing base resolver, naming rules, host routing, and sparse helper:
    because the response was lost.
 
 The older `init --cone` then `set` sequence is a compatibility candidate, not an
-unconditional fallback. Follow [Git compatibility](../../../orca/docs/reference/git-compatibility.md):
+unconditional fallback. Follow [Git compatibility](../../../../../orca/docs/reference/git-compatibility.md):
 Git 2.25 remains the core-workflow baseline; use host-scoped `GitCapabilityCache`,
 narrow unsupported-option detection, and real-binary tests to select commands.
 If a safe sparse sequence cannot be established, refuse sparse creation before
@@ -289,7 +289,7 @@ After cancellation/deadline, stop admitting later phases, terminate the owned
 process range, and wait for host-confirmed settlement before safe cleanup decisions.
 If observation fails, report it rather than claiming cancellation completed.
 
-Follow [SSH execution ownership](../../../orca/docs/reference/ssh-execution-boundary.md):
+Follow [SSH execution ownership](../../../../../orca/docs/reference/ssh-execution-boundary.md):
 process verdicts are **`live` / `unverifiable` / `exited`**. A disconnected SSH
 provider, absent client-side map entry, or expired heartbeat is not exit evidence.
 Status can expose the last durable phase while marking current host observation
@@ -324,7 +324,7 @@ and possible user content. A dirty index that appears to delete all tracked file
 is evidence to inspect, not proof of user deletion or a cleanup instruction.
 
 Removal is a distinct authorized action governed by
-[worktree delivery](../../skills/worktree-delivery/SKILL.md). Recheck ownership and
+[worktree delivery](../../../../skills/worktree-delivery/SKILL.md). Recheck ownership and
 process state immediately before removal, preserve evidence, prefer native Git and
 catalog cleanup, and do not automatically remove locks or recursively delete paths.
 
@@ -342,7 +342,7 @@ catalog cleanup, and do not automatically remove locks or recursively delete pat
 - Apply the ready gate in the native executor used by all launch consumers, not
   only CLI validation or a prompt warning. A later terminal launch must also refuse
   a known partial worktree. Do not broaden existing filesystem permissions.
-- Follow [remote wire compatibility](../../../orca/docs/reference/remote-wire-compatibility.md).
+- Follow [remote wire compatibility](../../../../../orca/docs/reference/remote-wire-compatibility.md).
   Negotiate recoverable-create and sparse semantics before sending dependent
   requests; old Zod parsers may strip unknown fields. Never silently drop sparse
   or idempotency requirements to make an older host accept the call.

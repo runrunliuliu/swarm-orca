@@ -4,9 +4,9 @@
 启动清扫与观测分类、外部工作区收养。它是**只读对账**手册：没有自动重试、没有自动清理、
 没有跨宿主接入。执行任何写操作（prune、删除分支、删除目录、重建、重置索引）都需要单独授权。
 
-依据：[Sparse 任务工作区开发计划](sparse-task-workspace-development-plan.md)（M4 条目）、
-[M0 契约冻结](sparse-task-workspace-m0-contract.md)（错误码与兼容矩阵）、
-[以任务为中心的工作区模式](task-workspaces.md)（隔离与交付边界）。
+依据：[Sparse 任务工作区开发计划](development-plan.md)（M4 条目）、
+[M0 契约冻结](m0-contract.md)（错误码与兼容矩阵）、
+[以任务为中心的工作区模式](../task-workspaces.md)（隔离与交付边界）。
 
 ## 1. 什么时候需要这份手册
 
@@ -147,7 +147,8 @@ git -C <repo> ls-tree -z -d <sha> -- <requiredPaths...>
 约束：只收养本次列表看得见的行；跳过主 checkout；单次列表最多 50 条；幂等（已有元数据即跳过）；
 单条写失败不影响列表。收养后该工作区才有一等公民行为（活动排序、删除保护、任务绑定可写）。
 
-仍未实现：无。M4 条目到此为止；M3 的 `--setup run` 收紧与真实 Agent 闭环仍待做。
+仍未实现：无。M4 条目到此为止；M3 的 `--setup run` 收紧仍待做，真实 Agent 闭环只跑通一次 smoke、
+未做完整验收（口径见[开发计划](development-plan.md) §7）。
 
 ## 5. 已实现与未实现
 

@@ -1,7 +1,7 @@
 # Sparse 任务工作区开发计划
 
-状态：M0–M5 的最小版本均已实现并合入 `main`，本地与 CLI 级证据齐全；真实 Agent 闭环已跑通一次
-（创建→门禁→Agent 提交→仍判定 ready）。**未做**：跨宿主/WSL 探针（已决定短期不做）、
+状态：M0–M5 的最小版本均已实现并合入 `main`，本地与 CLI 级证据齐全；真实 Agent 闭环已跑通一次 smoke
+（创建→门禁→Agent 提交→仍判定 ready），完整验收未做。**未做**：跨宿主/WSL 探针（已决定短期不做）、
 逻辑任务身份与跨入口路由。本文前半是当初的计划，后半（§7）是当前交付状态，两者冲突时以 §7 为准。
 依据：2026-11-07 与 codex-ark 达成的四项共识（设计理念 / 设计目标 / 已实现能力 / 现场事实 分层）。
 本文不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权。
@@ -46,7 +46,7 @@
 ### M0 冻结契约（0.5–1 天）
 
 - 交付：请求/回执/状态字段表、错误码、能力名、兼容矩阵、旧调用者行为清单。
-- 本轮冻结稿：[Sparse 任务工作区 M0 契约冻结](sparse-task-workspace-m0-contract.md)。
+- 本轮冻结稿：[Sparse 任务工作区 M0 契约冻结](m0-contract.md)。
 - 退出：审查确认默认行为不变、无第二套创建器、未知/旧 host 明确失败而不是静默降级。
 
 ### M1 基线固定与创建回执（2–3 天）
@@ -116,13 +116,13 @@
 
 | 阶段 | 状态 | 证据位置 |
 | --- | --- | --- |
-| M0 契约冻结 | 已交付（含实施期修订，见 M0 文档的修订记录） | [M0 契约](sparse-task-workspace-m0-contract.md) |
+| M0 契约冻结 | 已交付（含实施期修订，见 M0 文档的修订记录） | [M0 契约](m0-contract.md) |
 | M1 固定基线 + 回执 | 已交付 | `sparse-task-workspace-create.ts`、`worktree-add.ts` |
 | M2 树级与必需路径校验 | 已交付（仅本地主机） | `sparse-task-{input-validation,tree-validation,required-paths}.ts` |
-| M3 启动就绪门禁 + 只读状态 | 已交付（本地；远端 `not_probed`） | [M3 契约](sparse-task-workspace-m3-start-gate.md) |
-| M4 失败保留 + 意图记录 + 查询 + 启动清扫 + 收养 | 已交付 | 本文 §7.2、[对账手册](sparse-task-workspace-reconciliation.md) |
-| M5 绑定持久化（最小） | 已交付 | [M5 契约](sparse-task-workspace-m5-min-contract.md) |
-| 逻辑任务 ID / 跨入口路由 / 一任务多仓库 | 未实现（设计保留） | [任务工作区设计](task-workspaces.md) |
+| M3 启动就绪门禁 + 只读状态 | 已交付（本地；远端 `not_probed`） | [M3 契约](m3-start-gate.md) |
+| M4 失败保留 + 意图记录 + 查询 + 启动清扫 + 收养 | 已交付 | 本文 §7.2、[对账手册](reconciliation.md) |
+| M5 绑定持久化（最小） | 已交付 | [M5 契约](m5-min-contract.md) |
+| 逻辑任务 ID / 跨入口路由 / 一任务多仓库 | 未实现（设计保留） | [任务工作区设计](../task-workspaces.md) |
 
 ### 7.1 已知边界（不是欠账，是已接受的取舍）
 

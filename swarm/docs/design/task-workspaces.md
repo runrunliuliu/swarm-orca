@@ -7,17 +7,16 @@ M3 启动门禁与只读就绪状态。
 逐项对照见下文“当前实现状态”。
 本文不改变既有 Run、会话、授权和固定引用，不构成启动 Agent、合并、部署或清理的授权。
 
-## 阅读顺序（本子系统共 6 份文档）
+## 阅读顺序
 
-1. 本文：任务与工作区的边界、理念、当前实现状态
-2. [开发计划](sparse-task-workspace-development-plan.md)：阶段拆分、交付状态、能力与前提的对应
-3. 契约（只写"必须怎样"）：[M0 协商路径](sparse-task-workspace-m0-contract.md) →
-   [M3 启动门禁](sparse-task-workspace-m3-start-gate.md) →
-   [M5 绑定](sparse-task-workspace-m5-min-contract.md)
-4. 运维：[对账手册](sparse-task-workspace-reconciliation.md)（创建失败/残留怎么只看不动）
-5. 历史：[sparse 检出与可恢复创建提案](worktree-create-sparse-checkout.md)（实施前设计，部分已被上面的契约取代）
+1. 本文：任务与工作区的边界、理念、当前实现状态，以及[何时使用任务模式](#何时使用任务模式判据)
+2. [Sparse 任务工作区文档目录](sparse-task-workspace/README.md)：任务 sparse 契约（[M0 协商路径](sparse-task-workspace/m0-contract.md)、
+   [M3 启动门禁](sparse-task-workspace/m3-start-gate.md)、[M5 绑定](sparse-task-workspace/m5-min-contract.md)）、
+   [开发计划](sparse-task-workspace/development-plan.md)、[对账手册](sparse-task-workspace/reconciliation.md)、
+   [历史提案](sparse-task-workspace/history/sparse-checkout-proposal.md)
 
-冲突时以契约与其"本轮测试证据"为准；状态与取舍以开发计划 §7 为准。
+任务 sparse 契约、阶段状态与运维细节集中在该目录，本文不重复。冲突时以契约与其"本轮测试证据"为准；
+状态与取舍以[开发计划 §7](sparse-task-workspace/development-plan.md) 为准。
 
 ## 实现前提：哪些能力由部署约束引入
 
@@ -25,7 +24,7 @@ M3 启动门禁与只读就绪状态。
 重复创建 + 逐仓库交付**。其余实现量来自本仓库的两个现实约束，换环境就会缩小：
 
 两类约束（大仓库 + 稀疏检出、创建会超时）各自引入了哪一层能力，以及换掉约束后哪些可以去掉，
-集中记录在[开发计划的交付状态一节](sparse-task-workspace-development-plan.md#8-能力与前提的对应)，
+集中记录在[开发计划的交付状态与能力前提](sparse-task-workspace/development-plan.md#8-能力与前提的对应)，
 本文不重复。
 
 外部工作区收养不属于这两类：它是 Orca catalog 的既有缺口（外部 worktree 有 git 行、无元数据行），
@@ -52,8 +51,9 @@ M3 启动门禁与只读就绪状态。
 （swarm 侧字段 `sparse_task_binding`），否则"绑定"只存在于 Orca 元数据里。
 
 **常见误用**：单文件快速修复（全量更快，门禁只增加摩擦）；小仓库（稀疏没有收益，却引入
-"必需文件被 cone 藏起来"的风险）；必须 `pnpm install` 之类 setup 的任务；SSH/WSL 工作区
-（探针未接入，创建会被拒或在门禁里报 `not_probed`）。
+"必需文件被 cone 藏起来"的风险）；必须 `pnpm install` 之类 setup 的任务；SSH 工作区
+（任务 sparse 创建被拒）；WSL 工作区（未接入且未实测；即使绑定落到远端，启动门禁也只报
+`not_probed`，不能当成已验证）。
 
 ## 核心理念
 
@@ -148,10 +148,11 @@ M3 启动门禁与只读就绪状态。
 
 ## 当前实现状态
 
-核对日 2026-11-08，`swarm-orca` main @ `e0cfb87c`（M0–M5 最小版均已合入）。本节只记录“代码里有什么”，
-不是验收结论；没有跑过的用例和没有做过的原生闭环一律记为未验证。
-阶段划分与退出条件见 [Sparse 任务工作区开发计划](sparse-task-workspace-development-plan.md)
-和 [M0 契约冻结](sparse-task-workspace-m0-contract.md)。
+核对日 2026-11-08，基线是文档重构前的 `swarm-orca` main（`4c8cd6df`，M0–M5 最小版均已合入；
+本次重构只改文档，不改实现）。本节只记录“代码里有什么”，不是验收结论；没有跑过的用例和没有做过的原生闭环
+一律记为未验证。实现事实以代码与各契约文档为准，不要用本节 SHA 推断当前 HEAD。
+阶段划分与退出条件见 [Sparse 任务工作区开发计划](sparse-task-workspace/development-plan.md)
+和 [M0 契约冻结](sparse-task-workspace/m0-contract.md)。
 
 ### 已实现（M1–M5 最小版，任务 sparse 契约）
 
@@ -180,7 +181,7 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 跨入口 / 跨 runtime 续接 | 不存在。入口与任务无关联，也没有“同任务复用原绑定”的运行时校验 |
 | 外部创建的工作区 | 已收养：列表投影时为无元数据行的 worktree 补 `instanceId`/`createdAt`/`orcaCreationSource: 'external'`/`preserveBranchOnDelete`，不谎称 Orca 创建 |
 | 就绪门禁与副作用分离（M3） | 已实现：带 `sparseTaskBinding` 的工作区在 runtime 后台终端、桌面终端、Agent 会话、移动端会话与终端分屏前校验绑定/基线祖先/cone/必需路径，失败即拒绝（`sparse_task_start_gate_failed`）；`worktree show` 的 `taskWorkspace` 可只读查看状态与原因。跨宿主按决定报 `not_probed`；task sparse 创建要求 `--setup skip`（服务端强制） |
-| 可恢复创建（M4） | 已实现。失败不删除/不回滚，失败路径给 `[sparse_task_create_needs_reconciliation]` + 坐标；创建前写意图记录（`pending`→`created`/`failed`/`needs_reconciliation`），`orca worktree create-status` 并列打印记录态与现场态并给出 `live`/`exited`/`unverifiable` 分类，进程启动时自动补一次分类。仍不做自动重试与自动清理（见[对账手册](sparse-task-workspace-reconciliation.md)） |
+| 可恢复创建（M4） | 已实现。失败不删除/不回滚，失败路径给 `[sparse_task_create_needs_reconciliation]` + 坐标；创建前写意图记录（`pending`→`created`/`failed`/`needs_reconciliation`），`orca worktree create-status` 并列打印记录态与现场态并给出 `live`/`exited`/`unverifiable` 分类，进程启动时自动补一次分类。仍不做自动重试与自动清理（见[对账手册](sparse-task-workspace/reconciliation.md)） |
 | 任务绑定与交接（M5） | 最小版已实现。成功创建的 `pinnedSha`/`baseSource`/`resolvedRef`/请求 cone/必需路径写成 `WorktreeMeta.sparseTaskBinding`（带自摘要，严格读取）；swarm 侧软件任务记录可选镜像同一组字段供复核。仍未做：逻辑任务 ID 与跨入口路由 |
 | 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |
 | Swarm 侧接入 | Worker 规划仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`；任务 sparse 入口目前只有 CLI `worktree create` 一种。要接 Worker 需先决定谁发 `mode` 与 `requiredPaths` |
@@ -195,9 +196,10 @@ legacy sparse 的行为、默认值和回滚策略不变。
 
 已验证（本地、单机）：真实 CLI 创建 + 回执 + 绑定；真实 pi Agent 在工作区里提交后仍判定 `ready`；
 漂移后 `terminal create` 被拒；`create-status` 与启动清扫的观测分类。测试证据见各契约文档。
+这是**一次 smoke**，不是完整原生闭环验收：只跑过一次、没有重复验证与多宿主对比。
 
 仍缺：跨宿主与 WSL 探针（已决定不做）；Git 只在 2.39.5 实测；pinned tree 探针用 fatal UTF-8 解码，
-非 UTF-8 路径仓库会失败关闭；清理/重建/收养后的处置仍需按[对账手册](sparse-task-workspace-reconciliation.md)
+非 UTF-8 路径仓库会失败关闭；清理/重建/收养后的处置仍需按[对账手册](sparse-task-workspace/reconciliation.md)
 人工进行，写操作单独授权。
 
 ## 分层落地方向与当前边界
@@ -211,6 +213,7 @@ legacy sparse 的行为、默认值和回滚策略不变。
 
 Orca 已有 worktree 与工作区内终端的基础模型，见 [Worktrees](../../../orca/docs/site/content/docs/model/worktrees.mdx)。
 这些基础能力不证明本文的自动意图识别、跨 Project 任务绑定、跨 runtime 续接或写入强制隔离已实现；
-第二层目前只完成了创建期正确性（M1–M2），其余按上文“未实现”表逐项缺口推进。
+第二层目前完成了创建期正确性（M1–M2）、单仓库本地宿主上的启动门禁与只读状态（M3）、创建失败只读
+对账（M4）与最小绑定（M5），其余按上文“未实现”表逐项缺口推进。
 本文只同步设计理念与实现状态；不修改原生 schema、启动器、已安装技能、现有会话或既有 Run，
 也不迁移它们的 pins、验收标准及授权。后续实现与实际验收需分别记录。

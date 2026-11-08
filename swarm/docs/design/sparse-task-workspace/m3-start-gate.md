@@ -93,10 +93,10 @@ orca worktree show --worktree <selector> --json
 ## 6. 与其它阶段的关系
 
 - 绑定由 M5 在**创建成功时**写入；失败创建（`needs_reconciliation`）没有绑定，因此不会被门禁
-  当成任务工作区，仍需按[对账手册](sparse-task-workspace-reconciliation.md)人工处理。
+  当成任务工作区，仍需按[对账手册](reconciliation.md)人工处理。
 - 门禁不写、不修、不扩 cone、不回退全量；它只回答"现在能不能启动"。
-- 完整 M3 仍缺：把判定结果暴露给 UI/CLI（可读的状态而不是异常栈）、缓存与失效策略、
-  跨宿主探针、"启动被拒"后的恢复指引。
+- 完整 M3 仍缺：缓存与失效策略、跨宿主探针、"启动被拒"后的恢复指引。只读状态本身已交付
+  （`worktree show` 的 `taskWorkspace`，含 `--json` 的 `reasons`；见 §5），不再列为缺口。
 
 ## 7. 已知缺口
 
@@ -104,7 +104,9 @@ orca worktree show --worktree <selector> --json
   **范围决定（2026-11-08）：短期不做跨宿主。** 探针必须跑在工作区所在主机上，而当前只有本机
   git/stat 能力；在需要之前，远端工作区保持"跳过门禁"而不是"用本机探针假装验证过"。
   WSL 同理按 fail-closed 处理。
-- 未做 live Agent 闭环验收：门禁在真实创建→启动链路上的行为只有单元级证据。
+- 契约取证时未做 live Agent 闭环：门禁在真实创建→启动链路上只有单元级证据。
+  **后续进展（2026-11-08）：** 一次创建→门禁→Agent 提交→仍判定 `ready` 的 smoke 已跑通，
+  完整闭环验收仍缺，口径以[开发计划](development-plan.md) §7 为准。
 
 ## 8. 本轮测试证据
 
@@ -116,4 +118,4 @@ orca worktree show --worktree <selector> --json
   （仅 2 个既有 SQLite/orchestration 失败，基线同样失败）。
 - 全 `src/main/runtime` 批跑出现 57 个失败，均在 orchestration/SQLite 域；
   抽样 3 个文件在未含本改动的基线上同样失败，属既有环境问题（node 22 vs engines 24、实验性 SQLite）。
-- 未跑：Electron/E2E、真实 Agent 闭环。
+- 未跑：Electron/E2E、真实 Agent 闭环（仅上述一次 smoke，见§7）。
