@@ -78,6 +78,17 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS, 'worktree']
   },
   {
+    path: ['worktree', 'create-status'],
+    summary: 'Show task creates that never settled, with what they left on disk',
+    usage: 'orca worktree create-status --repo <selector> [--limit <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'repo', 'limit'],
+    notes: [
+      'Read-only: it inspects the recorded attempts against the repository and the filesystem and never settles, cleans or retries one.',
+      'Only attempts that are still pending or already flagged as needing reconciliation are reported; a create that finished cleanly is history.'
+    ],
+    examples: ['orca worktree create-status --repo id:<repoId>', 'orca worktree create-status --repo path:/repo --json']
+  },
+  {
     path: ['worktree', 'current'],
     summary: 'Show the Orca-managed worktree for the current directory',
     usage: 'orca worktree current [--json]',

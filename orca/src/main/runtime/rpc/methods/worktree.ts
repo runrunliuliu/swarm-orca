@@ -23,7 +23,8 @@ import {
   WorktreeSelector,
   WorktreeSet,
   WorktreeSortOrder,
-  WorktreeTeardownMissingTerminalsParams
+  WorktreeTeardownMissingTerminalsParams,
+  WorktreeCreateStatusParams
 } from './worktree-schemas'
 import { WORKTREE_CATALOG_METHODS } from './worktree-catalog-methods'
 
@@ -56,6 +57,12 @@ export const WORKTREE_METHODS = [
       // property of the worktree, and a client that ignores it must keep working unchanged.
       taskWorkspace: await runtime.inspectTaskWorkspaceReadiness(params.worktree)
     })
+  }),
+  defineMethod({
+    name: 'worktree.createStatus',
+    params: WorktreeCreateStatusParams,
+    handler: async (params, { runtime }) =>
+      runtime.inspectTaskCreateJournal(params.repo, params.limit)
   }),
   defineMethod({
     name: 'worktree.sleep',
