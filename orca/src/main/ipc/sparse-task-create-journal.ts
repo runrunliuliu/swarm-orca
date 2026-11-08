@@ -306,6 +306,30 @@ export async function recordSparseTaskCreateObservation(args: {
   }
 }
 
+/** Every unsettled attempt on this host, across all repos. Used by the startup sweep. */
+export async function readAllUnsettledSparseTaskCreates(): Promise<SparseTaskCreateRecord[]> {
+  let names: string[]
+  try {
+    names = await readdir(journalDir())
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'ENOENT') {
+      return []
+    }
+    throw error
+  }
+  const all: SparseTaskCreateRecord[] = []
+  for (const name of names) {
+    try {
+      const records = await readJournal(name)
+      all.push(...records.filter((record) => record.state === 'pending'))
+    } catch {
+      // Why skip a repo: one unreadable directory must not stop the sweep for every other repo.
+      continue
+    }
+  }
+  return all.sort((left, right) => left.createdAt - right.createdAt)
+}
+
 /** The records still worth a human's attention, newest last. */
 export async function readUnsettledSparseTaskCreates(
   repoId: string

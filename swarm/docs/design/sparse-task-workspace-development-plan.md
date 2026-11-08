@@ -152,7 +152,7 @@
 
 创建前写意图、成功后落 `created`、失败按有无残留落 `failed` / `needs_reconciliation`，
 每仓库保留最近 50 条；写不出来则不创建。查询已实现：`orca worktree create-status`（RPC `worktree.createStatus`）列出未结算尝试的
-记录态与现场态。观测分类（live/exited/unverifiable）在查询时写回记录，与记录自身状态分开。仍缺进程启动自动清扫与收养。
+记录态与现场态。观测分类（live/exited/unverifiable）在查询时写回记录，与记录自身状态分开。启动清扫已实现（对早于本进程的 pending 自动分类写回观测）；仍缺外部工作区收养。
 
 ## 9. M3 最小版交付状态（分支 `task-binding-start-gate`）
 
