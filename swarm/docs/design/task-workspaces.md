@@ -1,11 +1,24 @@
 # 以任务为中心的跨 Project 工作区模式
 
-状态：设计理念，未实现为统一的自动创建、跨入口续接或运行时强制隔离功能。
-只有“任务稀疏工作区创建契约”的 M0–M2 已合入主分支（固定基线、创建回执、树级与必需路径校验），
-M4 只做了不删除失败现场与只读对账的止血部分；
-逻辑任务身份、跨入口路由、启动门禁、完整可恢复创建与任务绑定持久化均未实现。
+状态：设计理念 + 单仓库、本地宿主上的实现。已合入主分支：M0–M2（固定基线、创建回执、树级与
+必需路径校验）、M4（意图记录、只读对账与分类、启动清扫、外部工作区收养）、M5 最小绑定、
+M3 启动门禁与只读就绪状态。
+**未实现**：逻辑任务身份、跨入口路由、一任务多仓库绑定、跨宿主/WSL 探针（已决定短期不做）。
 逐项对照见下文“当前实现状态”。
 本文不改变既有 Run、会话、授权和固定引用，不构成启动 Agent、合并、部署或清理的授权。
+
+## 实现前提：哪些能力由部署约束引入
+
+任务模型的理念只需要三件事：**稳定的任务身份**、**从已确认基线创建的绑定**、**复用绑定而不是
+重复创建 + 逐仓库交付**。其余实现量来自本仓库的两个现实约束，换环境就会缩小：
+
+| 约束 | 引入的必需能力 | 约束消失后 |
+| --- | --- | --- |
+| 目标仓库约 3 万文件、worktree 落在网络盘，全量检出约 3.5 分钟；同时要并行多 Worker | 稀疏检出 + 目录/树/必需路径校验（M2）+ 启动时的 cone 复核（M3）+ CLI 的 `--sparse-task-*` 入口 | 若仓库小或检出快：这些都可以不要，全量检出没有"必需文件被 cone 藏起来"这类失败 |
+| 创建会超时（RPC 60–90 秒 vs 检出数分钟）、失败会回滚删目录并留孤儿分支 | 失败不删除 + 只读判定（M4 止血）、创建意图记录、`create-status`、启动清扫 | 若创建在本机毫秒级完成：只需一次只读核对，"意图先落盘"的价值基本消失 |
+
+外部工作区收养不属于以上两类：它是 Orca catalog 的既有缺口（外部 worktree 有 git 行、无元数据行），
+只是任务绑定恰好依赖元数据行才显得相关。
 
 ## 核心理念
 
@@ -132,8 +145,8 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 跨入口 / 跨 runtime 续接 | 不存在。入口与任务无关联，也没有“同任务复用原绑定”的运行时校验 |
 | 外部创建的工作区 | 已收养：列表投影时为无元数据行的 worktree 补 `instanceId`/`createdAt`/`orcaCreationSource: 'external'`/`preserveBranchOnDelete`，不谎称 Orca 创建 |
 | 就绪门禁与副作用分离（M3） | 最小版已实现：带 `sparseTaskBinding` 的工作区在 runtime 后台终端、桌面终端与 Agent 会话创建前校验绑定/基线祖先/cone/必需路径，失败即拒绝（`sparse_task_start_gate_failed`），并可通过 `worktree show` 的 `taskWorkspace` 只读查看状态与原因。仍需注意：跨宿主探针按决定不做（fail-closed/skip），`--setup run` 与就绪判定的组合未收紧 |
-| 可恢复创建（M4） | 仅止血。任务模式失败后不再删除/回滚，并在失败路径上做只读判定（`absent`/`live`/`partial`/`unverifiable`）与 `[sparse_task_create_needs_reconciliation]` 标记；仍无客户端请求 ID、无持久回执、无 `create-status`、无重启后对账。响应丢失后不会删除，但残留需要人工按[对账手册](sparse-task-workspace-reconciliation.md)处理 |
-| 任务绑定与交接（M5） | 未实现。worktree 元数据只存 `sparseDirectories`；`pinnedSha`、`actualHead`、`requiredPaths` 仅存在于单次创建回执，返回给调用方后不进任务/交接记录，交接无法被独立复核 |
+| 可恢复创建（M4） | 已实现。失败不删除/不回滚，失败路径给 `[sparse_task_create_needs_reconciliation]` + 坐标；创建前写意图记录（`pending`→`created`/`failed`/`needs_reconciliation`），`orca worktree create-status` 并列打印记录态与现场态并给出 `live`/`exited`/`unverifiable` 分类，进程启动时自动补一次分类。仍不做自动重试与自动清理（见[对账手册](sparse-task-workspace-reconciliation.md)） |
+| 任务绑定与交接（M5） | 最小版已实现。成功创建的 `pinnedSha`/`baseSource`/`resolvedRef`/请求 cone/必需路径写成 `WorktreeMeta.sparseTaskBinding`（带自摘要，严格读取）；swarm 侧软件任务记录可选镜像同一组字段供复核。仍未做：逻辑任务 ID 与跨入口路由 |
 | 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |
 | Swarm 侧接入 | 未接入任务模式。`swarm` 仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`，因此拿不到本契约的 pin 与回执 |
 
