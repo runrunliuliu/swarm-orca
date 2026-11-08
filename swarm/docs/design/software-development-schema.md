@@ -14,6 +14,7 @@ timestamps include a timezone. Unknown fields on domain records are rejected.
 | Prepare inputs | v2 requires `domain_binding`; v1 remains RSI only |
 | Continuation config | Existing v2 plus exact startup `domain_binding`; no v3 scheduler fork |
 | Software binding / task / source / receipt | Each has integer `schema_version: 1` |
+| Task `sparse_task_binding` | Optional mirror of Orca `WorktreeMeta.sparseTaskBinding`; absent means legacy |
 | Acceptance | Existing exact `{"requirements": [...]}`; no new top-level fields |
 | RSI configurations | Existing v1/v2 authority behavior and pins retained; no implicit migration |
 
@@ -74,6 +75,8 @@ baseline: ref
 scope: {read_roots: [path], write_roots: [path], exclude_paths: [path], operations: [string]}
 policy: {max_workers, token_budget, cost_budget, deadline, retry_limit, stop_conditions}
 authority_review: ref
+sparse_task_binding: optional {pinned_sha, worktree_path, branch,
+                               requested_sparse_cone: [string], required_paths: [string]}
 ```
 
 Repository root/worktree are existing directories; worktree equals startup workspace.
@@ -108,6 +111,34 @@ The authority review is exactly `{actor, approved, inputs, source_records}`. Act
 startup Operator, approved is true, and inputs equals all original task fields except
 schema_version and authority_review. Source records must include original authorization
 and the independently produced review record, not evidence invented by the candidate.
+
+## Optional sparse task workspace binding
+
+`sparse_task_binding` is written only for a workspace created from a task sparse receipt. It is
+a written-down mirror of the Orca `WorktreeMeta.sparseTaskBinding`, copied into the reviewed
+record so a later reader can cross-check the handoff without re-reading Orca metadata. Its keys
+are exactly `{pinned_sha, worktree_path, branch, requested_sparse_cone, required_paths}`:
+`pinned_sha` is a full 40/64-character lowercase Git hash, `worktree_path` and `branch` are
+nonempty strings, and both lists are deduplicated string lists (empty allowed, because Orca allows
+a create with no required paths and an empty cone). Anything else,
+including an extra or missing key, fails with `software_sparse_binding_invalid` without echoing
+record contents.
+
+Absence is the normal legacy state, not a broken record: full checkouts, legacy sparse worktrees,
+externally adopted folders and every existing record and caller simply carry no binding, so no
+migration is implied and no workspace is silently upgraded. Presence is also not an equality
+claim: this record does not require `worktree_path` to equal `repository.worktree`, because one
+logical task may bind several repository worktrees, and `pinned_sha` is not compared with
+`repository.base_commit`.
+
+The binding is reference material only. It grants no scope, authority, write permission or
+isolation, and it is not a readiness or existence proof: the checker opens no path from it and
+probes no HEAD. Readiness is decided by re-reading the live worktree and its
+`WorktreeMeta.sparseTaskBinding` (Orca start gate), and any drift there is not repaired or
+reported by this record. An empty cone or required-path list is accepted here for the same
+reason Orca accepts it: rejecting it would make a real workspace impossible to mirror. Because the review signs
+the task as written, a task carrying the field also carries it in `authority_review.inputs`;
+that keeps the generic "all task fields" rule true without making the mirror an authorization.
 
 ## Baseline, current snapshot and changes
 
@@ -218,6 +249,8 @@ file/record consistency only; real execution/identity still require external aud
 ## Verification scope
 
 `test_software_development.py` covers file/scope/provenance and completion checks;
+it also pins the optional sparse binding: legal record, absent field, and rejection of extra
+keys, bad SHA, empty or duplicated lists.
 `test_coordinator_domain.py` reuses startup, prepare, scheduler and workflow fixtures,
 including a real local file edit between claim and settlement and subsequent scheduling.
 These are deterministic offline tests with mocked native receipts, not native integration

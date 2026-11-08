@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as GitRunner from '../git/runner'
 import type { Repo } from '../../shared/repo-types'
 import type { RuntimeManagedWorktreeCreateArgs } from './runtime-managed-worktree-create-types'
@@ -31,6 +32,10 @@ vi.mock('../git/runner', async (importOriginal) => {
 })
 
 const tempRoots: string[] = []
+
+// Why: the create path journals its intent under userData; keep the suite off real state.
+process.env.ORCA_SPARSE_TASK_JOURNAL_DIR = mkdtempSync(join(tmpdir(), 'orca-task-entry-journal-'))
+afterAll(() => rmSync(process.env.ORCA_SPARSE_TASK_JOURNAL_DIR!, { recursive: true, force: true }))
 
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, {
@@ -65,7 +70,14 @@ function createArgs(
   request: Pick<RuntimeManagedWorktreeCreateArgs, 'sparseCheckout'>
 ) {
   return {
-    request: { ...request, repoSelector: repoPath, name: 'task' },
+    request: {
+      ...request,
+      repoSelector: repoPath,
+      name: 'task',
+      // Why skip: the task sparse contract only creates with setup skipped, and this entry now
+      // enforces that. A create that wants setup is refused before any git work.
+      setupDecision: 'skip'
+    },
     repo: { id: 'repo-1', path: repoPath } as Repo,
     store: {} as Parameters<typeof createRuntimeLocalGitWorktree>[0]['store'],
     settings: {
@@ -133,6 +145,19 @@ describe('runtime task sparse create entry', () => {
     ).toBe(true)
     // The add is pinned, not the (now moved) base branch.
     expect(ranAny((argv) => argv.includes('worktree add') && argv.endsWith(pinnedSha))).toBe(true)
+  })
+
+  it('refuses a setup decision before any git work', async () => {
+    const repoPath = await createRepo()
+    const args = createArgs(repoPath, {
+      sparseCheckout: { mode: 'task-workspace-v1', directories: ['swarm'] }
+    })
+
+    await expect(
+      createRuntimeLocalGitWorktree({ ...args, request: { ...args.request, setupDecision: 'run' } })
+    ).rejects.toThrow(/sparse_task_capability_required/)
+    // Why no runner call: the refusal has to precede the first side effect, not follow it.
+    expect(runnerCalls).toEqual([])
   })
 
   it('leaves a legacy sparse create with no probe, no readback and no receipt', async () => {

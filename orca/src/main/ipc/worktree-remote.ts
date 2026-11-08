@@ -150,6 +150,7 @@ import { resolveWorktreeSharedDirectories } from '../git/worktree-shared-directo
 import { normalizeSparseDirectories } from './sparse-checkout-directories'
 import {
   assertSparseTaskWorkspaceCreatePath,
+  assertSparseTaskSetupSkipped,
   assertSparseTaskWorkspaceNewBranch,
   createSparseTaskWorkspace,
   resolveSparseTaskWorkspaceRequest,
@@ -2350,6 +2351,12 @@ async function performLocalWorktreeCreate(
   // legacy sparse result can never stand in for a pinned one.
   const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.sparseCheckout)
   assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'local')
+  // Why here and not with the other gates below: those run after the base-ref fetch/refresh has
+  // already hit the network. A request this path will never honour must cost nothing.
+  assertSparseTaskSetupSkipped(sparseTaskRequest, {
+    ...(args.setupDecision ? { setupDecision: args.setupDecision } : {}),
+    ...(args.runHooks === true ? { runHooks: true } : {})
+  })
 
   const requestedName = args.name
   const sanitizedName = sanitizeWorktreeName(args.name)

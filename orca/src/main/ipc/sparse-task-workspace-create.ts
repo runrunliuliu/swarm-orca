@@ -117,6 +117,31 @@ export function assertSparseTaskWorkspaceNewBranch(
   )
 }
 
+/**
+ * Why refuse a setup decision at all: a repository's setup hook assumes a full checkout —
+ * `pnpm install`, codegen, writing `node_modules` — and a task workspace deliberately materializes
+ * only its cone. Running it there fails obscurely, or writes into paths the cone never restores.
+ * M0 already said the first task sparse version runs with setup skipped; this puts that rule in the
+ * host instead of trusting every caller (desktop, mobile, CLI, future ones) to send it.
+ */
+export function assertSparseTaskSetupSkipped(
+  request: SparseTaskWorkspaceRequest | null,
+  args: { setupDecision?: 'run' | 'skip' | 'inherit'; runHooks?: boolean }
+): void {
+  if (!request) {
+    return
+  }
+  // Why `--run-hooks` counts: it forces `run` regardless of the recorded decision.
+  const decision = args.runHooks === true ? 'run' : (args.setupDecision ?? 'inherit')
+  if (decision === 'skip') {
+    return
+  }
+  throw new SparseTaskWorkspaceError(
+    'sparse_task_capability_required',
+    `Task sparse workspaces are created with setup skipped, but this request asked for "${decision}". Create the workspace with --setup skip, then run any setup yourself if the task needs it. Nothing was created.`
+  )
+}
+
 /** The pinned base a receipt reports: what the caller asked for, resolved to one commit. */
 export type SparseTaskWorkspacePin = {
   baseSource: 'request' | 'default'

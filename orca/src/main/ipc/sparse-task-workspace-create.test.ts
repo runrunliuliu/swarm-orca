@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { addSparseWorktree, addWorktree } from '../git/worktree'
 import { parseSparseTaskTreeListing } from '../git/sparse-task-tree-validation'
 import {
+  assertSparseTaskSetupSkipped,
   assertSparseTaskWorkspaceCreatePath,
   assertSparseTaskWorkspaceNewBranch,
   buildSparseTaskWorkspaceReceipt,
@@ -145,6 +146,31 @@ describe('resolveSparseTaskWorkspaceRequest', () => {
         requiredPaths: ['../../outside']
       })
     ).toBeNull()
+  })
+})
+
+describe('assertSparseTaskSetupSkipped', () => {
+  const request = { directories: ['swarm'], requiredPaths: [] }
+
+  it('accepts the only decision the contract allows', () => {
+    expect(() => assertSparseTaskSetupSkipped(request, { setupDecision: 'skip' })).not.toThrow()
+  })
+
+  it('refuses run, inherit and --run-hooks before anything is created', () => {
+    expect(() => assertSparseTaskSetupSkipped(request, { setupDecision: 'run' })).toThrow(
+      /sparse_task_capability_required/
+    )
+    // Why inherit is refused too: it can resolve to run-by-default from repository config, which
+    // this host cannot see at decision time.
+    expect(() => assertSparseTaskSetupSkipped(request, { setupDecision: 'inherit' })).toThrow()
+    expect(() => assertSparseTaskSetupSkipped(request, {})).toThrow()
+    expect(() =>
+      assertSparseTaskSetupSkipped(request, { setupDecision: 'skip', runHooks: true })
+    ).toThrow()
+  })
+
+  it('leaves every legacy payload alone', () => {
+    expect(() => assertSparseTaskSetupSkipped(null, { setupDecision: 'run' })).not.toThrow()
   })
 })
 

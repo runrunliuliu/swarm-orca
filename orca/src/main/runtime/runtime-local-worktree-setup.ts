@@ -38,9 +38,19 @@ export async function prepareRuntimeLocalWorktreeSetup(args: {
       ? { tabs: yamlHooks.defaultTabs, runCommands: false }
       : undefined
   }
-  const shouldRunSetup = Boolean(
-    hooks?.scripts.setup && shouldRunSetupForCreate(repo, effectiveDecision)
-  )
+  // Why task workspaces never reach setup: creation refuses any decision but `skip`, and a sparse
+  // checkout is not a full one — setup hooks assume the whole tree. This guard is the second line:
+  // it keeps that true if the create-time refusal is ever relaxed, instead of silently running
+  // `pnpm install`-style commands against a cone.
+  const isTaskSparseWorkspace = request.sparseCheckout?.mode === 'task-workspace-v1'
+  const shouldRunSetup =
+    !isTaskSparseWorkspace &&
+    Boolean(hooks?.scripts.setup && shouldRunSetupForCreate(repo, effectiveDecision))
+  if (isTaskSparseWorkspace && hooks?.scripts.setup && effectiveDecision !== 'skip') {
+    console.warn(
+      `[hooks] setup refused for task sparse workspace ${worktreePath}; task workspaces are created with setup skipped.`
+    )
+  }
   let didStartInProcessSetupHook = false
   if (shouldRunSetup && hooks?.scripts.setup) {
     if (args.shouldUseSetupRunner) {

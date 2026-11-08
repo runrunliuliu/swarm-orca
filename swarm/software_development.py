@@ -19,6 +19,13 @@ from coordinator_tui_errors import failure, require
 
 LIMITS = "scoped_file_and_record_consistency_only; execution_and_identity_require_external_audit"
 MATERIALS = ("skill", "coordinator", "implementation", "review")
+TASK_FIELDS = ("schema_version", "task_id", "objective", "acceptance", "repository",
+               "baseline", "scope", "policy", "authority_review")
+AUTHORITY_INPUTS = ("task_id", "objective", "acceptance", "repository", "baseline", "scope", "policy")
+# Optional mirror of Orca `WorktreeMeta.sparseTaskBinding`. Absent means a legacy record;
+# it is reviewed as declared below and never read as authority or as a readiness result.
+SPARSE_BINDING = "sparse_task_binding"
+SPARSE_BINDING_FIELDS = ("pinned_sha", "worktree_path", "branch", "requested_sparse_cone", "required_paths")
 
 
 def shape(value, keys, code="software_schema_invalid"):
@@ -31,6 +38,23 @@ def text(value):
 
 def sha(value):
     return isinstance(value, str) and re.fullmatch(r"[a-f0-9]{64}", value) is not None
+
+
+def sparse_task_binding(binding):
+    """A written-down claim for review; the live worktree is still re-read on its own.
+
+    Mirrors what Orca persists: either list may be empty (a cone can be empty, and required paths are
+    optional), so emptiness is not an error here. No path is opened and no HEAD is probed.
+    """
+    shape(binding, SPARSE_BINDING_FIELDS, "software_sparse_binding_invalid")
+    require(isinstance(binding["pinned_sha"], str)
+            and re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", binding["pinned_sha"]),
+            "software_sparse_binding_invalid")
+    require(text(binding["worktree_path"]) and text(binding["branch"]), "software_sparse_binding_invalid")
+    for key in ("requested_sparse_cone", "required_paths"):
+        values = binding[key]
+        require(isinstance(values, list) and all(text(v) for v in values)
+                and len(set(values)) == len(values), "software_sparse_binding_invalid")
 
 
 def location(value):
@@ -95,10 +119,12 @@ def validate_binding(binding, startup):
 
 
 def validate_task(task, startup):
-    shape(task, {"schema_version", "task_id", "objective", "acceptance", "repository",
-                 "baseline", "scope", "policy", "authority_review"})
+    require(isinstance(task, dict) and set(task) in (set(TASK_FIELDS), {*TASK_FIELDS, SPARSE_BINDING}),
+            "software_schema_invalid")
     require(type(task["schema_version"]) is int and task["schema_version"] == 1
             and text(task["task_id"]) and text(task["objective"]), "software_task_invalid")
+    if SPARSE_BINDING in task:
+        sparse_task_binding(task[SPARSE_BINDING])
     repo = task["repository"]
     shape(repo, {"root", "worktree", "branch", "base_commit"})
     path(repo["root"], directory=True)
@@ -153,7 +179,11 @@ def validate_task(task, startup):
     baseline_files(baseline, task)
     review = scoped_json(task["authority_review"], scope["read_roots"], scope["exclude_paths"])
     shape(review, {"actor", "approved", "inputs", "source_records"})
-    expected = {k: task[k] for k in ("task_id", "objective", "acceptance", "repository", "baseline", "scope", "policy")}
+    expected = {k: task[k] for k in AUTHORITY_INPUTS}
+    if SPARSE_BINDING in task:
+        # The review signs the original task as written, optional mirror included. That keeps the
+        # generic "all task fields" rule true; it still grants nothing by itself.
+        expected[SPARSE_BINDING] = task[SPARSE_BINDING]
     require(review["actor"] == startup["operator"] and review["approved"] is True
             and canonical(review["inputs"]) == canonical(expected), "software_authority_review_mismatch")
     references(review["source_records"], scope["read_roots"], scope["exclude_paths"])

@@ -837,6 +837,7 @@ describe('registerWorktreeHandlers', () => {
       repoId: 'repo-1',
       name: 'task-sparse',
       baseBranch: 'main',
+      setupDecision: 'skip',
       sparseCheckout: { mode: 'task-workspace-v1', directories: ['swarm'] }
     })) as CreateWorktreeResult
 
@@ -850,12 +851,7 @@ describe('registerWorktreeHandlers', () => {
       requiredPaths: []
     })
     expect(addSparseWorktreeMock).toHaveBeenCalledWith(
-      expect.any(String),
-      createdPath,
-      'task-sparse',
-      ['swarm'],
-      'main',
-      expect.any(Boolean),
+      expect.any(String), createdPath, 'task-sparse', ['swarm'], 'main', expect.any(Boolean),
       expect.objectContaining({ pinnedBaseOid: pinnedSha, retainPartialWorktreeOnFailure: true })
     )
     expect(gitExecFileAsyncBufferMock).toHaveBeenCalledWith(
@@ -863,11 +859,9 @@ describe('registerWorktreeHandlers', () => {
       expect.anything()
     )
 
-    // M5: the publishing write must carry a readable binding or the start gate has nothing to read.
     const persisted = store.setWorktreeMeta.mock.calls.at(-1)?.[1] as { sparseTaskBinding?: unknown }
     expect(parseSparseTaskWorkspaceBinding(persisted?.sparseTaskBinding)).toMatchObject({
-      pinnedSha, requestedSparseCone: ['swarm'], requiredPaths: []
+      pinnedSha, requestedSparseCone: ['swarm'], requiredPaths: [],
     })
   })
-
 })
