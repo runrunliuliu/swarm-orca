@@ -86,6 +86,27 @@ git -C <repo> ls-tree -z -d <sha> -- <requiredPaths...>
   `git reset`/`git unlock`、在同一路径重建同名工作区、把 `prunable` 当成"不存在"从而直接重试。
 - 若分支上存在其他 worktree 的提交或未归档证据，先归档再谈清理。
 
+## 4.5 持久意图记录（M4 最小持久化）
+
+创建序列现在在**第一个副作用之前**先写一条意图记录，结束后落终态：
+
+| 位置 | `<userData>/sparse-task-creates/<repoId>.json`（`ORCA_SPARSE_TASK_JOURNAL_DIR` 可覆盖，供测试/诊断用） |
+| --- | --- |
+| 记录 | `requestId`、`repoId`、`repoPath`、`worktreePath`、`branch`、`pinnedSha`、`requestedSparseCone`、`requiredPaths`、`state`、`reasons`、`createdAt/updatedAt` |
+| 状态 | `pending`（唯一非终态）→ `created` / `failed` / `needs_reconciliation` |
+| 上限 | 每仓库保留最近 50 条；写临时文件后 `rename`，避免半截 JSON |
+
+规则：
+
+- 意图写不出来就**不创建**（fail-closed）：能超时的创建必须留下可查痕迹，否则又回到"猜有没有残留"。
+- 在副作用之前被拒绝的创建（目录格式、pinned tree、能力缺失）**不写记录**——那些尝试没碰磁盘，
+  记录它们只会淹没真正需要解释的尝试。
+- 结算失败不让已经发生的创建失败：记录保持 `pending`，之后读到会转成
+  `needs_reconciliation`（超过 15 分钟未结算即视为已停滞），不会假装还在运行。
+- 读取纯只读：不重跑、不清理、不修复。
+
+仍未实现：`create-status` 查询命令、重启后的跨进程对账、外部工作区收养。
+
 ## 5. 已实现与未实现
 
 已实现（M4 最小止血）：

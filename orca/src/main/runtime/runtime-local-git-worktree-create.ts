@@ -173,6 +173,7 @@ export async function createRuntimeLocalGitWorktree(args: {
   try {
     if (sparseTaskRequest) {
       sparseTaskOutcome = await createSparseTaskWorkspace({
+        repoId: args.repo.id,
         repoPath: args.repo.path,
         worktreePath: args.worktreePath,
         branch: args.branchName,

@@ -2755,6 +2755,7 @@ async function performLocalWorktreeCreate(
     if (sparseTaskRequest) {
       timing.recordPreparedCheckout({ status: 'miss', reason: 'sparse_checkout' })
       sparseTaskOutcome = await createSparseTaskWorkspace({
+        repoId: repo.id,
         repoPath: repo.path,
         worktreePath,
         branch: branchName,

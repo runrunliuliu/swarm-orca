@@ -74,7 +74,7 @@ describe('assertSparseTaskWorkspaceCapability', () => {
     }
 
     await expect(assertSparseTaskWorkspaceCapability(client, request)).resolves.toBeUndefined()
-    expect(client.call).toHaveBeenCalledWith('status')
+    expect(client.call).toHaveBeenCalledWith('status.get')
     // A legacy create must not spend a status round trip.
     client.call.mockClear()
     await expect(assertSparseTaskWorkspaceCapability(client, undefined)).resolves.toBeUndefined()
