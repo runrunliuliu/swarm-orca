@@ -40,6 +40,10 @@ import {
   inspectSparseTaskCreate,
   markSparseTaskCreateNeedsReconciliation
 } from './sparse-task-create-reconciliation'
+import {
+  beginSparseTaskCreate,
+  settleSparseTaskCreate
+} from './sparse-task-create-journal'
 
 // Why re-exported: this module's callers and tests reach the cone rule through the create contract,
 // and moving the implementation must not move the seam.
@@ -241,6 +245,8 @@ export type SparseTaskWorkspaceCreateOutcome = {
 /** The task sparse create sequence, defined once for both local create paths. Callers pass only
  *  what differs: how to add a worktree, what to do once it exists, and whether to record timings. */
 export async function createSparseTaskWorkspace(args: {
+  /** When present, the attempt is journalled before the first side effect (M4 intent record). */
+  repoId?: string
   repoPath: string
   worktreePath: string
   branch: string
@@ -272,6 +278,33 @@ export async function createSparseTaskWorkspace(args: {
       options: args.options
     })
   )
+  // Why before the first side effect: if the intent cannot be recorded, a create that later times
+  // out would leave a workspace nobody can trace. Refusing here is cheaper than that.
+  const journal = args.repoId
+    ? await beginSparseTaskCreate({
+        repoId: args.repoId,
+        repoPath: args.repoPath,
+        worktreePath: args.worktreePath,
+        branch: args.branch,
+        pinnedSha: pin.pinnedSha,
+        requestedSparseCone: directories,
+        requiredPaths
+      })
+    : undefined
+  const settle = async (
+    state: 'created' | 'failed' | 'needs_reconciliation',
+    reasons?: readonly string[]
+  ): Promise<void> => {
+    if (!journal || !args.repoId) {
+      return
+    }
+    await settleSparseTaskCreate({
+      repoId: args.repoId,
+      requestId: journal.requestId,
+      state,
+      ...(reasons ? { reasons } : {})
+    })
+  }
   // Why the try starts here: `git worktree add` is the first side effect, and every failure after
   // it can leave a directory, a branch or a registration behind even when the caller sees an error.
   try {
@@ -292,6 +325,7 @@ export async function createSparseTaskWorkspace(args: {
         options: args.options
       })
     )
+    await settle('created')
     return { resolution, addResult, receipt }
   } catch (error) {
     // Why inspect instead of assuming: the create may have been aborted or answered too late, so
@@ -306,9 +340,13 @@ export async function createSparseTaskWorkspace(args: {
       requiredPaths,
       options: args.options
     }).catch(() => undefined)
+    const detail = error instanceof Error ? error.message : String(error)
     if (!inspection || inspection.state === 'absent') {
+      await settle('failed', [detail])
       throw error
     }
-    throw markSparseTaskCreateNeedsReconciliation({ error, inspection })
+    const marked = markSparseTaskCreateNeedsReconciliation({ error, inspection })
+    await settle('needs_reconciliation', [detail, ...inspection.reasons])
+    throw marked
   }
 }

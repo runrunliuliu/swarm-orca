@@ -28,6 +28,9 @@ const AGENT_HOME_FILE_PREFIXES = ['.claude.json']
 // Why: an Orca terminal exports these pointing at the live app and agent state; guarded, then unset.
 const INHERITED_STATE_ENV = [
   'ORCA_USER_DATA_PATH',
+  // Why: the task-create journal writes under it; a live value inherited into a test would write
+  // into the developer's real Orca state.
+  'ORCA_SPARSE_TASK_JOURNAL_DIR',
   'CODEX_HOME',
   'ORCA_CODEX_HOME',
   'CLAUDE_CONFIG_DIR',

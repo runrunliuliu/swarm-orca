@@ -148,6 +148,11 @@
 `.orca-preparing/3131242-…`（目录已不存在、无孤儿分支）；按授权只执行了 `git worktree prune`，
 未动分支、未动 `release-radar`，父仓库无对应登记。
 
+## 9.5 M4 最小持久化（意图记录，分支 `task-binding-start-gate`）
+
+创建前写意图、成功后落 `created`、失败按有无残留落 `failed` / `needs_reconciliation`，
+每仓库保留最近 50 条；写不出来则不创建。仍缺 `create-status` 查询、重启后对账与收养。
+
 ## 9. M3 最小版交付状态（分支 `task-binding-start-gate`）
 
 已实现：启动门禁 `assertTaskWorkspaceLaunchableFor`，接入 runtime 后台终端、桌面终端与 Agent

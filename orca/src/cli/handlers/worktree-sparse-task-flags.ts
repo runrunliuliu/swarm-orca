@@ -8,6 +8,7 @@
 import { getOptionalStringFlag, getRepeatedStringFlag } from '../flags'
 import { RuntimeClientError } from '../runtime-client'
 import { WORKTREE_SPARSE_TASK_WORKSPACE_RUNTIME_CAPABILITY } from '../../shared/protocol-version'
+import type { RuntimeStatus } from '../../shared/runtime-types'
 import type { SparseTaskCheckoutMode } from '../../shared/worktree/create-types'
 import { SPARSE_TASK_CHECKOUT_MODE } from '../../shared/worktree/create-types'
 
@@ -70,7 +71,7 @@ export async function assertSparseTaskWorkspaceCapability(
   if (!request) {
     return
   }
-  const status = await client.call<{ capabilities?: string[] }>('status')
+  const status = await client.call<RuntimeStatus>('status.get')
   if (!status.result?.capabilities?.includes(WORKTREE_SPARSE_TASK_WORKSPACE_RUNTIME_CAPABILITY)) {
     throw new RuntimeClientError(
       'incompatible_runtime',

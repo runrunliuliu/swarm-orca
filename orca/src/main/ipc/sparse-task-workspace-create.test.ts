@@ -23,6 +23,7 @@ import {
   inspectSparseTaskCreate,
   isSparseTaskCreateNeedsReconciliation
 } from './sparse-task-create-reconciliation'
+import { readSparseTaskCreates } from './sparse-task-create-journal'
 
 const tempRoots: string[] = []
 
@@ -565,6 +566,109 @@ describe('createSparseTaskWorkspace reconciliation marker', () => {
 
     expect((error as Error).message).toContain('[sparse_task_directory_missing]')
     expect(isSparseTaskCreateNeedsReconciliation(error)).toBe(false)
+    await expect(stat(worktreePath)).rejects.toThrow()
+    expect(git(repoPath, ['worktree', 'list'])).not.toContain(worktreePath)
+  })
+})
+
+// M4: the create path must record the intent before the first side effect and settle it after, so a
+// timeout can be explained later instead of guessed at.
+describe('createSparseTaskWorkspace journal', () => {
+  const journalDirFor = async (): Promise<string> => {
+    const dir = await mkdtemp(join(tmpdir(), 'orca-task-journal-wiring-'))
+    tempRoots.push(dir)
+    process.env.ORCA_SPARSE_TASK_JOURNAL_DIR = dir
+    return dir
+  }
+  const addTaskWorktree =
+    (repoPath: string, worktreePath: string, branch: string, directories: string[]) =>
+    (pin: Awaited<ReturnType<typeof pinSparseTaskWorkspaceBase>>) =>
+      addSparseWorktree(repoPath, worktreePath, branch, directories, 'main', false, {
+        pinnedBaseOid: pin.pinnedSha,
+        retainPartialWorktreeOnFailure: true
+      })
+
+  afterEach(() => {
+    delete process.env.ORCA_SPARSE_TASK_JOURNAL_DIR
+  })
+
+  it('settles a successful create as created', async () => {
+    await journalDirFor()
+    const repoPath = await createRepo()
+    const worktreePath = join(dirname(repoPath), 'wt-journal-ok')
+
+    await createSparseTaskWorkspace({
+      repoId: 'repo-1',
+      repoPath,
+      worktreePath,
+      branch: 'journal-ok',
+      baseBranch: 'main',
+      baseSource: 'request',
+      request: { directories: ['swarm'], requiredPaths: ['AGENTS.md'] },
+      options: {},
+      addWorktreeAtPin: addTaskWorktree(repoPath, worktreePath, 'journal-ok', ['swarm'])
+    })
+
+    expect(await readSparseTaskCreates('repo-1')).toMatchObject([{ state: 'created' }])
+  })
+
+  it('records nothing for a refusal before side effects, and flags a real leftover', async () => {
+    await journalDirFor()
+    const repoPath = await createRepo()
+
+    await expect(
+      createSparseTaskWorkspace({
+        repoId: 'repo-1',
+        repoPath,
+        worktreePath: join(dirname(repoPath), 'wt-journal-refused'),
+        branch: 'journal-refused',
+        baseBranch: 'main',
+        baseSource: 'request',
+        request: { directories: ['no-such-dir'], requiredPaths: [] },
+        options: {},
+        addWorktreeAtPin: addTaskWorktree(repoPath, join(dirname(repoPath), 'wt-journal-refused'), 'journal-refused', ['no-such-dir'])
+      })
+    ).rejects.toThrow(/sparse_task_directory_missing/)
+
+    const leftoverPath = join(dirname(repoPath), 'wt-journal-left')
+    await expect(
+      createSparseTaskWorkspace({
+        repoId: 'repo-1',
+        repoPath,
+        worktreePath: leftoverPath,
+        branch: 'journal-left',
+        baseBranch: 'main',
+        baseSource: 'request',
+        request: { directories: ['swarm'], requiredPaths: ['orca/src/main.ts'] },
+        options: {},
+        addWorktreeAtPin: addTaskWorktree(repoPath, leftoverPath, 'journal-left', ['swarm'])
+      })
+    ).rejects.toThrow(/sparse_task_create_needs_reconciliation/)
+
+    // Why only one record: the refusal failed the pinned-tree probe before any side effect, so there
+    // is nothing to explain later. Journaling it would bury the attempts that did touch the disk.
+    expect(await readSparseTaskCreates('repo-1')).toMatchObject([{ state: 'needs_reconciliation' }])
+  })
+
+  it('creates nothing when the intent cannot be recorded', async () => {
+    const repoPath = await createRepo()
+    const worktreePath = join(dirname(repoPath), 'wt-journal-blocked')
+    // A path that cannot be created makes the journal write fail before any Git side effect.
+    process.env.ORCA_SPARSE_TASK_JOURNAL_DIR = join(repoPath, 'plain.txt', 'nested')
+
+    await expect(
+      createSparseTaskWorkspace({
+        repoId: 'repo-1',
+        repoPath,
+        worktreePath,
+        branch: 'journal-blocked',
+        baseBranch: 'main',
+        baseSource: 'request',
+        request: { directories: ['swarm'], requiredPaths: [] },
+        options: {},
+        addWorktreeAtPin: addTaskWorktree(repoPath, worktreePath, 'journal-blocked', ['swarm'])
+      })
+    ).rejects.toThrow()
     await expect(stat(worktreePath)).rejects.toThrow()
     expect(git(repoPath, ['worktree', 'list'])).not.toContain(worktreePath)
   })
