@@ -206,3 +206,28 @@ export function formatWorktreeShow(result: {
   }
   return lines.join('\n')
 }
+
+/** M4: one block per unsettled task create — the recorded state and what is actually on disk. */
+export function formatTaskCreateStatus(result: {
+  repoId: string
+  repoPath: string
+  attempts: {
+    attempt: { requestId: string; branch: string; worktreePath: string; state: string; reasons: string[] }
+    observation: { state: string; reasons: string[]; ghostRegistration: boolean; directoryExists: boolean }
+  }[]
+}): string {
+  if (result.attempts.length === 0) {
+    return `no unsettled task creates for ${result.repoPath}`
+  }
+  return [
+    `${result.attempts.length} unsettled task create(s) for ${result.repoPath}`,
+    ...result.attempts.map(({ attempt, observation }) =>
+      [
+        `- ${attempt.worktreePath} (branch ${attempt.branch})`,
+        `  recorded: ${attempt.state}${attempt.reasons.length > 0 ? ` — ${attempt.reasons.join('; ')}` : ''}`,
+        `  on disk: ${observation.state} (directory ${observation.directoryExists ? 'present' : 'missing'}${observation.ghostRegistration ? ', registration without directory' : ''})`,
+        ...(observation.reasons.length > 0 ? [`  reasons: ${observation.reasons.join('; ')}`] : [])
+      ].join('\n')
+    )
+  ].join('\n')
+}

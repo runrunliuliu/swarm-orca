@@ -151,7 +151,8 @@
 ## 9.5 M4 最小持久化（意图记录，分支 `task-binding-start-gate`）
 
 创建前写意图、成功后落 `created`、失败按有无残留落 `failed` / `needs_reconciliation`，
-每仓库保留最近 50 条；写不出来则不创建。仍缺 `create-status` 查询、重启后对账与收养。
+每仓库保留最近 50 条；写不出来则不创建。查询已实现：`orca worktree create-status`（RPC `worktree.createStatus`）列出未结算尝试的
+记录态与现场态。仍缺重启后对账与收养。
 
 ## 9. M3 最小版交付状态（分支 `task-binding-start-gate`）
 

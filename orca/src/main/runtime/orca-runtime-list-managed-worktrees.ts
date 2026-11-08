@@ -1,5 +1,7 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { inspectTaskWorkspaceReadinessFor } from '../ipc/sparse-task-start-gate'
+import { inspectSparseTaskCreate } from '../ipc/sparse-task-create-reconciliation'
+import { readUnsettledSparseTaskCreates } from '../ipc/sparse-task-create-journal'
 import { OrcaRuntimeWithRestoreStructuredAgentSessionTabsOnce } from './orca-runtime-restore-structured-agent-session-tabs-once'
 import { DEFAULT_WORKTREE_LIST_LIMIT } from './orca-runtime-postlude'
 import type { RuntimeWorktreeListResult } from '../../shared/runtime-types'
@@ -118,6 +120,39 @@ export class OrcaRuntimeWithListManagedWorktrees extends OrcaRuntimeWithRestoreS
 
   async showManagedWorktree(worktreeSelector: string) {
     return await this.resolveWorktreeSelector(worktreeSelector)
+  }
+
+  /**
+   * What do this repo's unsettled task creates look like on disk right now?
+   *
+   * Why here and not in the CLI: the probes must run on the host that owns the workspaces, and the
+   * journal lives under this host's userData. Read-only — it never settles, cleans or retries.
+   */
+  async inspectTaskCreateJournal(repoSelector: string, limit = 10) {
+    const repo = await this.resolveRepoSelector(repoSelector)
+    const attempts = (await readUnsettledSparseTaskCreates(repo.id)).slice(-limit)
+    const inspected = []
+    for (const attempt of attempts) {
+      const observation = await inspectSparseTaskCreate({
+        repoPath: attempt.repoPath,
+        worktreePath: attempt.worktreePath,
+        branch: attempt.branch,
+        pin: { pinnedSha: attempt.pinnedSha },
+        requestedSparseCone: attempt.requestedSparseCone,
+        requiredPaths: attempt.requiredPaths
+      }).catch((error: unknown) => ({
+        state: 'unverifiable' as const,
+        worktreePath: attempt.worktreePath,
+        branch: attempt.branch,
+        pinnedSha: attempt.pinnedSha,
+        registered: false,
+        ghostRegistration: false,
+        directoryExists: false,
+        reasons: [`the workspace could not be inspected: ${String(error)}`]
+      }))
+      inspected.push({ attempt, observation })
+    }
+    return { repoId: repo.id, repoPath: repo.path, attempts: inspected }
   }
 
   /**

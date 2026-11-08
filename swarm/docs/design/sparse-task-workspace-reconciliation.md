@@ -105,7 +105,20 @@ git -C <repo> ls-tree -z -d <sha> -- <requiredPaths...>
   `needs_reconciliation`（超过 15 分钟未结算即视为已停滞），不会假装还在运行。
 - 读取纯只读：不重跑、不清理、不修复。
 
-仍未实现：`create-status` 查询命令、重启后的跨进程对账、外部工作区收养。
+查询入口（已实现）：`orca worktree create-status --repo <selector> [--limit n] [--json]`
+（RPC `worktree.createStatus`）列出该仓库**未结算**的尝试，并把记录态与现场态分开打印：
+
+```text
+- /repo-wt-a (branch task-a)
+  recorded: pending
+  on disk: partial (directory missing, registration without directory)
+  reasons: registered but the directory is missing
+```
+
+只读：不结算、不清理、不重试；每次最多看 `--limit`（默认 10，上限 50）条，探测在拥有工作区的
+主机上执行。没有未结算尝试时直接说明，而不是打印空表。
+
+仍未实现：重启后的跨进程对账（把 `pending` 与三类现场状态自动关联）、外部工作区收养。
 
 ## 5. 已实现与未实现
 

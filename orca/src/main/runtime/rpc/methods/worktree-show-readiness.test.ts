@@ -36,3 +36,21 @@ describe('worktree.show readiness', () => {
     expect(runtime.inspectTaskWorkspaceReadiness).toHaveBeenCalledWith('id:wt-1')
   })
 })
+
+describe('worktree.createStatus', () => {
+  it('returns the repo journal with an optional limit and nothing else', async () => {
+    const journal = { repoId: 'repo-1', repoPath: '/repo', attempts: [] }
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      inspectTaskCreateJournal: vi.fn().mockResolvedValue(journal)
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: WORKTREE_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('worktree.createStatus', { repo: 'id:repo-1', limit: 5 })
+    )
+
+    expect(response).toMatchObject({ ok: true, result: journal })
+    expect(runtime.inspectTaskCreateJournal).toHaveBeenCalledWith('id:repo-1', 5)
+  })
+})

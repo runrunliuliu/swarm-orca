@@ -8,6 +8,7 @@ import type {
 import type { CommandHandler } from '../dispatch'
 import { printHookWarning, printPreservedBranchWarning } from './worktree-removal-warnings'
 import { formatWorktreeList, formatWorktreePs, formatWorktreeShow, printResult } from '../format'
+import { handleWorktreeCreateStatus } from './worktree-create-status'
 import {
   annotateOmittedHostScope,
   type WithAnnotatedHostScope
@@ -181,6 +182,7 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
     })
     printResult(result, json, formatWorktreeShow)
   },
+  'worktree create-status': ({ flags, client, json }) => handleWorktreeCreateStatus({ flags, client, json }),
   'worktree current': async ({ client, cwd, json }) => {
     const result = await client.call<{ worktree: RuntimeWorktreeRecord }>('worktree.show', {
       worktree: await resolveCurrentWorktreeSelector(cwd, client)

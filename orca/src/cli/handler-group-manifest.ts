@@ -72,6 +72,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'worktree show',
       'worktree current',
       'worktree create',
+      'worktree create-status',
       'worktree set',
       'worktree rm'
     ],
