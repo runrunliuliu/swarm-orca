@@ -48,14 +48,17 @@ describe('orca search command spec', () => {
 
   it('declares --agent and --path repeatable for this command only', () => {
     expect(searchSpec.repeatableFlags).toEqual(['agent', 'path'])
+    // Why list the exceptions: repeatable flags change how argv merges, so each one is a decision
+    // that has to be visible here rather than an incidental side effect of adding a spec.
+    const intentionalRepeatable: Record<string, string[] | undefined> = {
+      'orchestration worker-start': ['sparse-dir'],
+      'worktree create': ['sparse-task-dir', 'sparse-task-required']
+    }
     for (const spec of COMMAND_SPECS) {
-      if (spec !== searchSpec) {
-        if (spec.path.join(' ') === 'orchestration worker-start') {
-          expect(spec.repeatableFlags).toEqual(['sparse-dir'])
-        } else {
-          expect(spec.repeatableFlags).toBeUndefined()
-        }
+      if (spec === searchSpec) {
+        continue
       }
+      expect(spec.repeatableFlags).toEqual(intentionalRepeatable[spec.path.join(' ')])
     }
   })
 
