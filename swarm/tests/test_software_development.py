@@ -334,6 +334,53 @@ class SoftwareTests(unittest.TestCase):
         self.assertFalse(result["grants_authority"])
         self.assertNotIn("authority_check", result)
 
+    def sparse(self, **updates):
+        binding = dict(pinned_sha="b" * 40, worktree_path=str(self.s.workspace), branch="task/sparse-fixture",
+                       requested_sparse_cone=["swarm", "docs"], required_paths=["src/main.py"])
+        binding.update(updates)
+        self.s.task[software.SPARSE_BINDING] = binding
+        self.s.bind_task()
+        self.s.source["contract_sha256"] = self.s.binding["contract"]["sha256"]
+        return binding
+
+    def test_sparse_task_binding_is_optional(self):
+        self.assertNotIn(software.SPARSE_BINDING, self.s.task)
+        self.assertEqual(self.s.check()["decision"], "continue")
+        self.sparse()
+        self.assertTrue(self.s.check()["consistent"])
+        self.s.task[software.SPARSE_BINDING]["pinned_sha"] = "c" * 64
+        self.s.bind_task()
+        self.s.source["contract_sha256"] = self.s.binding["contract"]["sha256"]
+        self.assertTrue(self.s.check()["consistent"])
+
+    def test_sparse_task_binding_is_strict(self):
+        for updates in (dict(extra="x"), dict(pinned_sha="B" * 40), dict(pinned_sha="b" * 39),
+                        dict(pinned_sha="b" * 41), dict(requested_sparse_cone=["swarm", "swarm"]),
+                        dict(required_paths=["src/main.py", "src/main.py"]),
+                        dict(requested_sparse_cone=[""]), dict(worktree_path=""), dict(branch=" ")):
+            with self.subTest(updates=updates):
+                self.sparse()
+                self.s.task[software.SPARSE_BINDING].update(updates)
+                with self.assertRaisesRegex(ValueError, "software_sparse_binding_invalid"):
+                    software.validate_task(self.s.task, self.f.c)
+
+    def test_sparse_task_binding_accepts_empty_lists_like_orca(self):
+        # Why: Orca allows a create with no required paths, so a mirror that rejected emptiness could
+        # not describe a real workspace.
+        self.sparse(requested_sparse_cone=[], required_paths=[])
+        self.assertTrue(self.s.check()["consistent"])
+
+    def test_sparse_task_binding_is_not_authority_or_readiness(self):
+        # A binding for a worktree that is not this one, with a pinned SHA that is not the baseline:
+        # it is only a reviewed claim, so it neither grants nor proves anything.
+        self.sparse(pinned_sha="d" * 40, worktree_path=str(self.s.archive))
+        self.assertTrue(self.s.check()["consistent"])
+        self.s.task[software.SPARSE_BINDING].pop("branch")
+        self.s.bind_task()
+        self.s.source["contract_sha256"] = self.s.binding["contract"]["sha256"]
+        with self.assertRaisesRegex(ValueError, "software_sparse_binding_invalid"):
+            self.s.check()
+
     def test_generation_and_requirement_refusal(self):
         self.s.source["generation"] = True
         with self.assertRaisesRegex(ValueError, "binding_mismatch"):
