@@ -2351,6 +2351,12 @@ async function performLocalWorktreeCreate(
   // legacy sparse result can never stand in for a pinned one.
   const sparseTaskRequest = resolveSparseTaskWorkspaceRequest(args.sparseCheckout)
   assertSparseTaskWorkspaceCreatePath(sparseTaskRequest, 'local')
+  // Why here and not with the other gates below: those run after the base-ref fetch/refresh has
+  // already hit the network. A request this path will never honour must cost nothing.
+  assertSparseTaskSetupSkipped(sparseTaskRequest, {
+    ...(args.setupDecision ? { setupDecision: args.setupDecision } : {}),
+    ...(args.runHooks === true ? { runHooks: true } : {})
+  })
 
   const requestedName = args.name
   const sanitizedName = sanitizeWorktreeName(args.name)
@@ -2717,10 +2723,6 @@ async function performLocalWorktreeCreate(
   // Why: a task sparse workspace starts a new branch at the pinned commit; reusing an existing
   // branch would make the readback compare against that branch's head instead.
   assertSparseTaskWorkspaceNewBranch(sparseTaskRequest, checkoutExistingBranch)
-  assertSparseTaskSetupSkipped(sparseTaskRequest, {
-    ...(args.setupDecision ? { setupDecision: args.setupDecision } : {}),
-    ...(args.runHooks === true ? { runHooks: true } : {})
-  })
   emitCreateWorktreeProgress(mainWindow, 'creating', args.creationId)
 
   // Why: defer the remote add + fetch to first push/pull/fetch/fast-forward
