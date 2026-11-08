@@ -113,6 +113,9 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
       'run-hooks',
       'activate'
     ],
+    // Why: both flags declare ranges the workspace must keep readable; without this the parser keeps
+    // only the last occurrence and the binding would under-declare the task.
+    repeatableFlags: ['sparse-task-dir', 'sparse-task-required'],
     notes: [
       'This creates a new checkout. For a fresh agent in an existing worktree, use `orca terminal create --worktree active --command "codex"` instead.',
       'By default, Orca records the new worktree as a child of the caller context when it can infer one from the Orca terminal or current directory.',
