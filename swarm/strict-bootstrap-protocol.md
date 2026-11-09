@@ -481,6 +481,9 @@ Phase 1 的隔离进程崩溃/新代次关闭仍在回归中；Phase 3 同链证
   失败回执新增白名单脱敏 `reason`，区分进程不可见、proc 权限拒绝、宿主 PID 视图不一致
   与签名失败等；未知异常不回显私有路径或原始错误。签名/传输失败不能确认持久化，query
   返回 `durability_unverified`；协议签名也不替代原 file + directory fsync 确认。
+  `bootstrap_confirmation_unavailable` 仍在 `reason` 中保持原代码（调用方按字符串比较），
+  另在 `diagnostics` 里给出精确 `target`/`sha256`/查询 `status`：只用于定位是哪个固定槽
+  未确认（已见调用方归错阶段），不授予权限，也不代表该槽可删可重写。
 - `bootstrap_actions.py`：统一 S1–S4 的动作数据，生成计划、owner 槽和 intent 的固定契约。
   `complete` 分发原机械 producer 或校验/发布候选；`inspect-action` 独立只读，不取写锁，
   deadline/STOP 后只查询同 owner 的原提交，不恢复执行；细节见第 12.2 节。
