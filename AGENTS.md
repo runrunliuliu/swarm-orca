@@ -14,6 +14,25 @@ instructions and explicit deployment policy; no particular private parent reposi
 When a change spans both layers, keep the upstream diff minimal and put the reasoning in the
 commit message: it has to survive the next upstream upgrade.
 
+## Directory and artifact landing
+
+- A dispatch states two absolute paths: the **working directory** (briefs, in-flight evidence,
+  notes) and the **archive directory** (what must outlive the task). A brief that names only one
+  is incomplete: do not infer the other, and never treat the working directory as the archive.
+- A local disk is not durable storage. A working directory on the host's own filesystem dies with
+  that host or container. Before claiming delivery, copy the report and its evidence into the
+  archive, write an index (host, account, source working directory, resolved archive path,
+  hosting filesystem, per-file SHA256) and read the copies back to compare hashes.
+- Resolve paths instead of assuming them: `readlink -f` for the symlink chain, and
+  `findmnt -T <path>` or `stat -L -c %d` for the filesystem that actually holds the bytes. `df`
+  and `stat -f %T` follow symlinks, so they misreport a linked path in both directions.
+- Concrete landing paths, host names and archive layout come from the deployment or private
+  policy for that task, not from this file (see
+  [public-repository boundary](#public-repository-boundary)). This section states the rule, not
+  the address.
+- A retry reuses the archive directory already registered for that Run or Task; do not open a new
+  one, and do not overwrite a different attempt.
+
 ## Public-repository boundary
 
 This repository is public-safe. Do not add:
