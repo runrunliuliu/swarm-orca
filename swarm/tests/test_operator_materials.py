@@ -211,10 +211,13 @@ class OperatorMaterialsTests(unittest.TestCase):
         kwargs = launch_kwargs({"agent": "trae", "trae": sys.executable, "cwd": str(self.cwd),
                                 "model_config": "/m/model.json",
                                 "trae_runtime_config": "/r/runtime.json",
-                                "strict_coordinator": True, "registered_bootstrap": True},
+                                "strict_coordinator": True, "registered_bootstrap": True,
+                                "reviewed_inputs": {"path": "/approved/prepared.json",
+                                                    "sha256": "0" * 64}},
                                self.directory / "handoff.md")
         self.assertTrue(kwargs["registered_bootstrap"])
         self.assertTrue(kwargs["strict_coordinator"])
+        self.assertEqual(kwargs["reviewed_inputs"]["path"], "/approved/prepared.json")
         self.assertFalse(launch_kwargs({"agent": "trae", "trae": sys.executable, "cwd": str(self.cwd),
                                         "model_config": "/m/model.json",
                                         "trae_runtime_config": "/r/runtime.json"},

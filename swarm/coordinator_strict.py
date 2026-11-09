@@ -138,10 +138,22 @@ def strict_bootstrap_prompt(plan):
         lines.append("TUI continuation helper: " + continuation + "; publish validated checkpoints and run turn-end before ending turns.")
     else:
         lines.append("Do not end the exec turn for terminal follow-up; if required, stop and report the incompatible launch contract.")
+    reviewed = plan.get("reviewed_inputs")
+    if reviewed:
+        lines.append(
+            "Operator static preparation already froze the reviewed inputs (" +
+            str(plan.get("reviewed_input_snapshot_count")) + " snapshots, " +
+            str(plan.get("reviewed_input_baseline_count")) + " baselines): " +
+            reviewed["path"] + " sha256 " + reviewed["sha256"] +
+            ". Read pins from that manifest instead of re-deriving them from the repository. Planning "
+            "re-checked every frozen ref and each baseline's head/cleanliness: a snapshot mismatch or a "
+            "baseline drift is a stop, and it is not re-pinned by a later layer. It is pinned input, not "
+            "authorization: the Operator still verifies every pin itself and still owns binding, "
+            "registration and owner publication.")
     return "\n".join(lines) + "\n"
 
 
-def strict_plan(plan, *, registered_bootstrap=False):
+def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
     require(plan["phase"] == "bootstrap" and plan["resume_session"] is None
             and plan.get("replacement_run") is None, "strict_requires_fresh_native_bootstrap")
     archive = Path(plan["artifact_dirs"]["archive"])
@@ -152,6 +164,17 @@ def strict_plan(plan, *, registered_bootstrap=False):
     registered_evidence = (archive / "attempt-binding.json", archive / "control" / "owner.json")
     require(registered_bootstrap or not any(os.path.lexists(p) for p in registered_evidence),
             "strict_registered_bootstrap_required")
+    # A registered attempt starts from frozen, independently audited static inputs
+    # (Operator `prepare`). Without the pin every role re-derives them live, which
+    # is both slow and the class of error that wastes an attempt (stale task path).
+    require(not registered_bootstrap or reviewed_inputs is not None,
+            "strict_reviewed_inputs_required")
+    prepared = None
+    if reviewed_inputs is not None:
+        require(isinstance(reviewed_inputs, dict) and set(reviewed_inputs) == {"path", "sha256"},
+                "strict_reviewed_inputs_invalid")
+        from operator_prepare import verify_prepared
+        prepared = verify_prepared(reviewed_inputs)
     executable = plan["argv"][0]
     tui = plan["execution"]["launch_mode"] == "tui"
     from coordinator_strict_delivery import layout
@@ -159,6 +182,9 @@ def strict_plan(plan, *, registered_bootstrap=False):
     phase = "strict-tui-bootstrap" if tui else "strict-bootstrap"
     plan = dict(plan, phase=phase, strict_coordinator=True,
                 registered_bootstrap=bool(registered_bootstrap),
+                reviewed_inputs=reviewed_inputs,
+                reviewed_input_snapshot_count=None if prepared is None else prepared["snapshot_count"],
+                reviewed_input_baseline_count=None if prepared is None else prepared["baseline_count"],
                 startup_delivery=delivery,
                 prompt_fragment=phase_contract(phase) +
                 " Verify actual Trae model, effort, Max, sandbox and approvals against " +
@@ -258,7 +284,8 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
         bootstrap_dir=plan["artifact_dirs"]["archive"], write_dirs=plan["task_write_roots"],
         selection=plan["selection"], runtime_config=plan["runtime_config"],
         prompt_file=plan["prompt_file"], resume_session=None),
-        registered_bootstrap=plan.get("registered_bootstrap") is True)
+        registered_bootstrap=plan.get("registered_bootstrap") is True,
+        reviewed_inputs=plan.get("reviewed_inputs"))
     require(plan == rebuilt, "strict_native_plan_changed")
     verified = verify_native_inputs(ref, plan, cli=cli, runtime=runtime, workspace=workspace,
                                     materials_ref=materials, operator_input_ref=operator_input)

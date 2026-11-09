@@ -112,6 +112,14 @@ python3 -B /absolute/swarm/operator_prepare.py prepare --input /absolute/reviewe
 自动补授权或 exactly-once 启动承诺：这里根本不启动。新 attempt 仍需沿用任务限制，
 不得靠改名清零预算或未决操作。
 
+对**已登记的 strict attempt**，`prepared.json` 现在是启动计划的一部分：`build_plan` /
+CLI 用 `--reviewed-inputs` + `--reviewed-inputs-sha256` pin 它，`strict_plan()` 调
+`verify_prepared()` 重验 kind/status、全部冻结 Ref（input/sources/authority/task 快照）以及每条 baseline 的
+HEAD/cleanliness 与摘要（快照或基线漂移即停），并在 registered 模式下
+缺这个 pin 时直接报 `strict_reviewed_inputs_required`。短 prompt 会引用该清单，让 Coordinator
+从 pin 读输入而不是从仓库重新推导；该 pin 是输入，不是授权，Operator 仍自行复核每条 pin 并拥有
+binding/registration/owner 发布权。
+
 ## 2. Operator 复用已有启动 argv
 
 先按现有 [Coordinator 启动说明（私有部署）](configuration.md) 生成 strict launch plan，并用

@@ -90,7 +90,7 @@ def build_plan(*, codex=None, trae=None, cwd, archive_dir=None, write_dirs=(),
                runtime_config=BASE / "coordinator-runtime.json",
                trae_runtime_config=None, prompt_file=None, bootstrap_dir=None,
                resume_session=None, replacement_run=None, strict_coordinator=False,
-               registered_bootstrap=False):
+               registered_bootstrap=False, reviewed_inputs=None):
     selection = read_config(model_config, "selection")
     if set(selection) != {"mode", "agent", "model", "effort", "max_mode"}:
         raise ValueError("invalid Coordinator selection fields")
@@ -105,7 +105,8 @@ def build_plan(*, codex=None, trae=None, cwd, archive_dir=None, write_dirs=(),
             replacement_run=replacement_run)
         if strict_coordinator:
             from coordinator_strict import strict_plan
-            return strict_plan(plan, registered_bootstrap=registered_bootstrap)
+            return strict_plan(plan, registered_bootstrap=registered_bootstrap,
+                               reviewed_inputs=reviewed_inputs)
         if plan["execution"]["launch_mode"] == "tui":
             raise ValueError("TUI requires --strict-coordinator native launch")
         return plan
@@ -252,6 +253,9 @@ def main(argv=None):
     parser.add_argument("--registered-bootstrap", action="store_true",
                         help="this attempt has (or will have) attempt-binding/control owner "
                              "slots; forbids the historical direct caller write")
+    parser.add_argument("--reviewed-inputs",
+                        help="Operator `prepare` manifest (prepared.json) pinned as {path} + --reviewed-inputs-sha256")
+    parser.add_argument("--reviewed-inputs-sha256")
     parser.add_argument("--single-turn", action="store_true",
                         help="explicit Trae run-phase handoff/one-shot turn, NOT cross-turn goal execution")
     parser.add_argument("--write-dir", action="append", default=[], dest="write_dirs")
@@ -273,6 +277,14 @@ def main(argv=None):
     if args.single_turn and args.strict_coordinator:
         parser.error("--single-turn conflicts with the continuous strict Coordinator process")
     del args.single_turn
+    if args.reviewed_inputs_sha256 and not args.reviewed_inputs:
+        parser.error("--reviewed-inputs-sha256 requires --reviewed-inputs")
+    if args.reviewed_inputs and not args.reviewed_inputs_sha256:
+        parser.error("--reviewed-inputs requires --reviewed-inputs-sha256")
+    prepare_input = (dict(path=args.reviewed_inputs, sha256=args.reviewed_inputs_sha256)
+                     if args.reviewed_inputs else None)
+    del args.reviewed_inputs, args.reviewed_inputs_sha256
+    args.reviewed_inputs = prepare_input
     try:
         plan = build_plan(**vars(args))
     except (OSError, ValueError, RuntimeError) as error:
