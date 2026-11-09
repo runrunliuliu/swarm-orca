@@ -351,6 +351,68 @@ Agent 行元素与来源：
 
 这些组件读的都是派生数据；**需要持久化的只有任务实体本身（§8）**，组件不直接写盘。
 
+### 7.8 Agent 派生树（可先做，独立于 M1/M2）
+
+来源：用户 2026-11-09 的需求。"目前我在项目区的 TUI 中，新开 agent 的时候，会并行罗列"，
+希望改成父子树：
+
+```text
+▾ TUI · claude-sonnet-4.5              ◐ working   12m
+  ├─ 派生1 · codex-5.1                 ◐ working    4m
+  └─ 派生2 · gpt-5.5                   ✓ done       2m
+```
+
+**这条不依赖 `taskRecords`，也不依赖 M2a**，可以在 M1 之前或并行单独交付。
+
+现状（读代码）：
+
+- Agent 状态 store 里**已经有子行/层级的能力**：`orchestration.parentPaneKey` 用于 host 上报的 subagent，
+  `applyAgentRowLineage` 提供 `depth 0/1`、首/末子节点、`childCount` 与连接线（Dashboard 在用）；
+  `shared/agent-child-row-model.ts` 提供子行模型。
+- 缺的是**用户自己启动的 Agent 的派生关系**：`terminal create` / `tab.newAgent` 建的 tab 记的是
+  `worktreeId`，没有"从哪个 pane 派生"的指针，所以只能并列。
+- 因此根因不是渲染，而是**provenance 缺失**：没有父子指针，树就没有来源。
+
+设计要求（三条，缺一条就不做）：
+
+1. **来源必须显式**：新 agent 在创建时记录来源（`TerminalTab` 增加 additive 可选字段，
+   例如 `spawnedFromPaneKey` / `parentTabId`，随 tab 持久化，与 `viewMode`/`isPinned` 同款先例）。
+   **不靠**标题相似、时间接近或 tab 顺序去猜父子。
+2. **三类来源分治**：① provider 上报的 subagent（已有 `parentPaneKey`，继续走现有子行）；
+   ② 用户从某个 agent 启动的新 agent（本期新增，用 1 的来源字段）；
+   ③ 没有来源（CLI、快捷键、外部创建）→ 保持平级，**不强行归属**。
+3. **只是呈现层级，不改实际布局**：PTY、tab、split 的实际层级与生命周期不变；树只影响列表的缩进、
+   连接线、折叠与计数。
+
+展示与交互：
+
+- 主展示位：侧栏/工作台里的 Agent 行列表（与 Dashboard 共用行模型与 lineage 计算）。
+- 父行可折叠，折叠态显示 `▸ TUI · 2`（子数量）；子行保留自己的状态点、时长、token 与跳转。
+- 排序：父行按现有规则，子行按创建时间升序；**子行不参与父级的 `Needs you` 计数重复累计**（父行汇总，
+  子行明细，计数只算一次）。
+- 关闭与归档：关闭父 tab **不自动关闭**子 tab（各自有独立 PTY）；父行消失后子行**上提一级**并显示
+  `◇ 来源已关闭`（不丢失、不改写来源字段）。
+- 跨工作区不建树：子 tab 与其来源必须在同一 `worktreeId`；跨工作区只做互链。
+
+明确不做：
+
+- 不改变 split/PTY 布局，不把子 tab 变成 pane。
+- 不改 `agentStatusByPaneKey` 单一 store 的状态语义，不新增第二套状态来源。
+- 不做"自动发现父子"（不猜）。
+- 不在移动端一期实现（与 D5 一致）。
+
+验收点：
+
+- 从 A 启动 B、再启动 C：侧栏显示 `A ▸ B / C` 两层，折叠态计数正确。
+- 直接用 CLI 启动 D：与 A 平级，不带连接线。
+- 关闭 A：B、C 上提一级并带"来源已关闭"标记，状态点与跳转仍可用。
+- provider 上报的 subagent 与用户派生同时存在：两类子行共存且不重复计数。
+- 旧 build 读新 tab 记录：忽略未知可选字段，tab 仍能恢复（与 §8.6 的 additive 规则一致）。
+
+**待你确认一件事**：你说的"项目区的 TUI"指哪一层——侧栏/工作台里的 Agent 行列表，还是顶部 tab bar
+（或者两者都要）？我按"行列表为主、tab bar 只加父子小徽标"写的；如果实际是 tab bar 为主，本节的
+展示与折叠段落需要改写。
+
 ### 7.7 交互
 
 - `⌘F` 聚焦搜索（与既有 Tasks / Agents feed 一致）；`↑/↓` 在列表内移动；`↵` 打开详情；`esc` 回列表。

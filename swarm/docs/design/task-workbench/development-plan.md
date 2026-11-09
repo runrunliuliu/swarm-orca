@@ -62,6 +62,26 @@
   未冻结的项不得进入 M2 编码。
 - 不做：任何代码、任何 schema。
 
+### T1 Agent 派生树（1–2 天，可先做，独立于 M1/M2）
+
+需求与形态见[设计文档 §7.8](README.md#78-agent-派生树可先做独立于-m1m2)。这条**不依赖** `taskRecords`，
+也**不需要 M2a 判决**，可以作为独立小改动先行合入；与 M1 并行时共用 renderer 的 Agent 行模型。
+
+- 范围：新增来源指针 + 列表层级/折叠/连接线 + 计数与关闭语义；**不改实际 PTY/tab/split 布局**。
+- 交付：
+  - WP-T1a 来源记录：`TerminalTab` 增加 additive 可选字段（`spawnedFromPaneKey` / `parentTabId` 取一），
+    由 `terminal create` / `tab.newAgent` 在"从某个 agent 启动"时写入；随 tab 持久化。
+  - WP-T1b 层级渲染：复用 `applyAgentRowLineage` 与 `agent-child-row-model`，把用户派生行按 1 层子行渲染；
+    provider subagent 继续走既有路径。
+  - WP-T1c 交互与边界：折叠与计数、父 tab 关闭后子行上提并标"来源已关闭"、跨工作区不建树。
+- 退出：
+  - 四个验收点（设计文档 §7.8）各有一条断言或截图；
+  - 旧 build 读新 tab 记录忽略未知字段、tab 正常恢复（additive 兼容用例）；
+  - 关闭父 tab 不自动关子 tab，且不丢子行状态；
+  - `Needs you` 计数不因父子关系重复累计（单测）；
+  - `pnpm tc`、定向 `pnpm test`、i18n 抽取、`check:code-quality:changed` 通过。
+- 不做：自动推断父子、移动端、把子 tab 变成 pane、跨工作区树。
+
 ### M1 只读面板（3–5 天）
 
 - 在既有 issue/PR 详情新增 `Orca` tab；顺序 GitHub issue/PR → Linear → GitLab → Jira。
@@ -191,6 +211,9 @@
 | WP4c | 启动对账 + `usageSettlement` 结算 | 同上 | WP4a、M2a 判决 | 与 WP5 并行 |
 | WP5 | 反查索引升级（四 provider） | 现有 `*workspace-attachment*`、`task-page-linear-in-orca-issues.ts` | WP4 字段表 | 是 |
 | WP0 | M2a 存储兼容验证（只读 fixture，不写生产库） | 独立 fixture + 手写旧 build 快照 | M0 | 是 |
+| WP-T1a | Agent 派生来源记录（tab additive 字段） | `orca/src/shared/terminal-tab-types.ts`、terminal create 路径 | M0（只锁定义） | 与 T1b/T1c 并行 |
+| WP-T1b | 层级渲染（复用 lineage / child row 模型） | `orca/src/renderer/src/components/sidebar/*` | WP-T1a | 否（串行收口） |
+| WP-T1c | 折叠、计数、关闭父 tab 的上提语义 | 同上 + Dashboard 行模型 | WP-T1b | 否 |
 | WP6 | 测试与基准 | 与各项同目录 `*.test.ts` | 全程 | 是 |
 
 约束：
@@ -214,6 +237,7 @@
 | GC 解耦 | `worktreeMeta` 行被 30 天 GC 后任务记录仍可读且标 unresolved |
 | 性能 | 1000 工作区列表构建、面板打开耗时、domain 序列化/读入基线 |
 | i18n / 样式 | 全部新文案进 catalog；只用 `components/ui/` primitive；无 raw 色值 |
+| Agent 派生树 | 从 A 启动 B/C 的两层渲染与折叠计数；CLI 启动的 D 保持平级；关闭 A 后 B/C 上提并带"来源已关闭"；provider subagent 与用户派生共存不重复计数；旧 build 忽略未知字段仍能恢复 tab |
 | UX 验收 | 分组优先级与 `Delivered` 定义；loading/未授权/部分失败/过期/scan failed 态；三态文案不被读成 0；动作在已归档/不可恢复时禁用并有说明；迁移后 `conversation/checks/files` 可发现；键盘与焦点返回；屏幕阅读器名称与非颜色表达；窄桌面/长标题/大数字布局边界；primary fallback 标识；Agent 内容隐私遮蔽 |
 
 命令：`pnpm tc`、`pnpm test <path>`、`pnpm run check:code-quality:changed`、
@@ -229,7 +253,7 @@
 
 ## 7. 顺序、依赖与风险
 
-顺序：M0 → M1 → M2（前置用例通过才落地 domain）→ M3；M4 单独授权。
+顺序：M0 → T1 / M1（可并行，T1 不依赖 `taskRecords`）→ M2a → M2b → M3；M4 单独授权。
 
 | 风险 | 处理 |
 | --- | --- |
@@ -241,6 +265,7 @@
 | 双写漂移（Agent 状态 / 用量） | 坚持"派生不存"；`usageSettlement` 只在失去读取能力前写入 |
 | 逐 Agent 金额被当成事实 | 只显示 token；金额仅任务/工作区级；会话级归因（H5）通过后才放开 |
 | M2a 结论被跳过 | M2b 的开工条件写成"M2a 判决通过"，没有判决不得写 `taskRecords` |
+| 派生树靠猜父子 | 只认创建时写入的来源指针；无来源一律平级，不做标题/时间相似度推断 |
 | 并行工作包互相踩文件 | §4 的所有权划分 + 共享类型先冻结 |
 
 回滚：
@@ -259,6 +284,7 @@
 
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
+| T1 Agent 派生树（可先做） | 未开始 | — |
 | M0 决策冻结 | 未开始 | — |
 | M1 只读面板 | 未开始 | — |
 | M2a 存储兼容验证 | 未开始 | — |
