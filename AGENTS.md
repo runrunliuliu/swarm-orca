@@ -118,6 +118,26 @@ multiple repository worktrees and continue from different Projects or terminals;
 not task identities. This is a target design, not an implemented automatic gate or permission to
 migrate existing Runs. Current task authorization, isolation policy and delivery requirements still apply.
 
+### Isolating modification work (hard rule)
+
+Every primary checkout of this repository is read-only for modification work. Decide by intent, not
+by where the agent happened to be launched:
+
+- Read-only review, diagnosis and Q&A need no new worktree. Anything that will produce a git change
+  (source, scripts, config, or content docs) is modification work and belongs in a dedicated Orca
+  worktree created from a confirmed baseline.
+- Cwd is not authorization. A task instruction such as "fix it" or "apply option A" authorizes the
+  change, not the location: it is neither permission to edit a primary checkout nor permission to
+  create a worktree. When the location is not already authorized, stop and ask for the worktree
+  (repo id, base ref, name) instead of silently taking the cheaper branch.
+- Detect the case mechanically: a primary checkout has `git rev-parse --git-dir` equal to
+  `--git-common-dir`; linked worktrees differ. Apply it to submodules and nested repositories too —
+  when cwd is a primary checkout and the target files live in one of its submodules, it is still
+  modification work in a primary checkout.
+- Do not stack new edits on a primary checkout that is already dirty. Name the dirty files first.
+- Before delivery run `git -C <repo> status --porcelain` for every repository touched. A primary
+  checkout carrying this task's changes is a process violation to report, never a detail to omit.
+
 Before deciding *whether* a task should use the task sparse workspace mode, use that document's
 "When to use task mode" checklist: it is an explicit operator decision (only `orca worktree create
 --sparse-task-dir` triggers it today), and using it for a small repo or a one-line fix buys friction
