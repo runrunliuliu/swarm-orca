@@ -79,9 +79,14 @@ class StrictCoordinatorTests(unittest.TestCase):
             + ". Leave it absent for Operator's strict-start-prepare; "
             "do not create it or write caller/status/raw evidence there.")
         caller = (
-            "For an unregistered historical attempt, run orchestration strict-caller-check in this live Coordinator context "
+            "HISTORICAL PATH, only when this attempt has neither attempt-binding.json nor control/owner.json: "
+            "run orchestration strict-caller-check in this live Coordinator context "
             "and preserve the raw receipt at: " + str(self.trae.bootstrap / "initial-caller.json"))
-        for instruction in (read_first, reserved, caller):
+        registered_slot = (
+            "Once an attempt-binding or control/owner.json exists, that same path is the "
+            "registered caller slot owned by commit_owner: never write or replace it yourself, take the "
+            "caller-intent/complete actions instead, because a self-written slot stays unconfirmed forever.")
+        for instruction in (read_first, reserved, caller, registered_slot):
             self.assertIn(instruction, prompt)
         self.assertLess(prompt.index(read_first), prompt.index(caller))
         self.assertLess(prompt.index(reserved), prompt.index(caller))
@@ -94,6 +99,29 @@ class StrictCoordinatorTests(unittest.TestCase):
         self.assertIn("Read-only poll expiry is pending with unverified current liveness", prompt)
         self.assertIn("heartbeat never confirms a commit or extends the attempt deadline", prompt)
         self.assertEqual(plan["native_launch"]["short_prompt_sha256"], digest(prompt.encode("utf-8")))
+
+    def test_registered_attempt_forbids_the_historical_direct_write_branch(self):
+        # A live attempt wrote initial-caller.json from the short prompt's
+        # historical branch before its binding existed, which made the S1 slot
+        # permanently unconfirmed. A registered launch must not offer it.
+        from coordinator_strict import strict_plan
+        base = build_plan(**self.trae.args)
+        unregistered = strict_plan(base)
+        registered = strict_plan(base, registered_bootstrap=True)
+        self.assertTrue(registered["registered_bootstrap"])
+        self.assertFalse(unregistered["registered_bootstrap"])
+        self.assertIn("registered_bootstrap", registered)
+        for plan, forbidden, required in (
+                (unregistered, "REGISTERED ATTEMPT", "HISTORICAL PATH, only when"),
+                (registered, "HISTORICAL PATH, only when", "REGISTERED ATTEMPT")):
+            prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
+            self.assertIn(required, prompt)
+            self.assertNotIn(forbidden, prompt)
+            self.assertEqual(plan["native_launch"]["short_prompt_sha256"],
+                             digest(prompt.encode("utf-8")))
+        self.assertIn(str(self.trae.bootstrap / "initial-caller.json"),
+                      shlex.split(registered["native_launch"]["agent_args"])[-1])
+        self.assertIn("commit_owner", shlex.split(registered["native_launch"]["agent_args"])[-1])
 
     def test_single_turn_flag_conflicts_with_continuous_strict_launch(self):
         out = io.StringIO()

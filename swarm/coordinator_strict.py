@@ -72,6 +72,25 @@ def strict_bootstrap_prompt(plan):
     directory = Path(plan["startup_delivery"]["directory"])
     caller_receipt = directory.parent / "initial-caller.json"
     delivery = json.dumps(plan["startup_delivery"], ensure_ascii=False, sort_keys=True)
+    # A registered attempt owns that exact caller path; offering the historical
+    # direct write made a live attempt self-write the S1 slot before its binding
+    # existed, which left it unconfirmed forever.
+    if plan.get("registered_bootstrap"):
+        caller_line = (
+            "REGISTERED ATTEMPT: the historical direct-write path is FORBIDDEN here. Do not run "
+            "strict-caller-check to persist a caller receipt and never write " + str(caller_receipt) +
+            " yourself; that exact path is the S1 slot owned by commit_owner. Pull returns "
+            "caller-intent, and its complete argv makes the owner produce and commit the receipt. "
+            "Every later fixed slot follows the same rule.")
+    else:
+        caller_line = (
+            "HISTORICAL PATH, only when this attempt has neither attempt-binding.json nor "
+            "control/owner.json: run orchestration strict-caller-check in this live Coordinator "
+            "context and preserve the raw receipt at: " + str(caller_receipt) + ". Once an "
+            "attempt-binding or control/owner.json exists, that same path is the registered caller "
+            "slot owned by commit_owner: never write or replace it yourself, take the "
+            "caller-intent/complete actions instead, because a self-written slot stays unconfirmed "
+            "forever.")
     lines = [
         "Strict Coordinator bootstrap: this is a short native prompt; use pinned files, not inline stdin.",
         "Do not treat this short prompt as the full task or authority.",
@@ -87,8 +106,7 @@ def strict_bootstrap_prompt(plan):
         "Protocol-owned directory (not an evidence directory): " + str(directory) +
         ". Leave it absent for Operator's strict-start-prepare; "
         "do not create it or write caller/status/raw evidence there.",
-        "For an unregistered historical attempt, run orchestration strict-caller-check in this live Coordinator context "
-        "and preserve the raw receipt at: " + str(caller_receipt),
+        caller_line,
         "For that historical path, use strict-config-request with pinned session observation, caller, runtime/workspace, task_deadline and final readiness.",
         "For an explicitly registered strict-bootstrap attempt, use coordinator_launch.py strict-bootstrap plan "
         "with the independently pinned --owner and --owner-sha256 from the S0 handoff first. Follow its original-role "
@@ -123,7 +141,7 @@ def strict_bootstrap_prompt(plan):
     return "\n".join(lines) + "\n"
 
 
-def strict_plan(plan):
+def strict_plan(plan, *, registered_bootstrap=False):
     require(plan["phase"] == "bootstrap" and plan["resume_session"] is None
             and plan.get("replacement_run") is None, "strict_requires_fresh_native_bootstrap")
     executable = plan["argv"][0]
@@ -132,6 +150,7 @@ def strict_plan(plan):
     delivery = layout(plan["artifact_dirs"]["archive"])
     phase = "strict-tui-bootstrap" if tui else "strict-bootstrap"
     plan = dict(plan, phase=phase, strict_coordinator=True,
+                registered_bootstrap=bool(registered_bootstrap),
                 startup_delivery=delivery,
                 prompt_fragment=phase_contract(phase) +
                 " Verify actual Trae model, effort, Max, sandbox and approvals against " +
@@ -230,7 +249,8 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
         trae=executable, cwd=plan["cwd"], archive_dir=None,
         bootstrap_dir=plan["artifact_dirs"]["archive"], write_dirs=plan["task_write_roots"],
         selection=plan["selection"], runtime_config=plan["runtime_config"],
-        prompt_file=plan["prompt_file"], resume_session=None))
+        prompt_file=plan["prompt_file"], resume_session=None),
+        registered_bootstrap=plan.get("registered_bootstrap") is True)
     require(plan == rebuilt, "strict_native_plan_changed")
     verified = verify_native_inputs(ref, plan, cli=cli, runtime=runtime, workspace=workspace,
                                     materials_ref=materials, operator_input_ref=operator_input)
