@@ -451,6 +451,152 @@ describe('buildWorktreeAgentRows', () => {
     expect(rows[1].entry.orchestration).toMatchObject({ parentPaneKey: PANE_KEY_1 })
   })
 
+  it('uses spawnedFromPaneKey as renderer-only lineage for same-worktree live tabs', () => {
+    const parent = makeEntry(PANE_KEY_1, 1500, {
+      prompt: 'parent tab',
+      state: 'working'
+    })
+    const child = makeEntry(PANE_KEY_2, 1000, {
+      prompt: 'user spawned child',
+      state: 'working'
+    })
+    const rows = applyAgentRowLineage(
+      buildWorktreeAgentRows({
+        tabs: [
+          makeTab('tab-1', { createdAt: 100 }),
+          makeTab('tab-2', { createdAt: 200, spawnedFromPaneKey: PANE_KEY_1 })
+        ],
+        entries: [child, parent],
+        retained: [],
+        now: 2000
+      })
+    )
+
+    expect(rows.map((row) => row.paneKey)).toEqual([PANE_KEY_1, PANE_KEY_2])
+    expect(rows[0].lineage).toMatchObject({ depth: 0, childCount: 1 })
+    expect(rows[1].lineage).toMatchObject({
+      depth: 1,
+      parentPaneKey: PANE_KEY_1,
+      childCount: 0
+    })
+    expect(rows[1].lineageParentPaneKey).toBe(PANE_KEY_1)
+    expect(rows[1].entry.orchestration).toBeUndefined()
+  })
+
+  it('orders spawnedFromPaneKey siblings by tab creation time', () => {
+    const parent = makeEntry(PANE_KEY_1, 500, {
+      prompt: 'parent tab',
+      state: 'working'
+    })
+    const laterCreatedButEarlierStatus = makeEntry(PANE_KEY_2, 1000, {
+      prompt: 'created second'
+    })
+    const earlierCreatedButLaterStatus = makeEntry(PANE_KEY_3, 3000, {
+      prompt: 'created first'
+    })
+    const rows = applyAgentRowLineage(
+      buildWorktreeAgentRows({
+        tabs: [
+          makeTab('tab-1', { createdAt: 100 }),
+          makeTab('tab-2', { createdAt: 300, spawnedFromPaneKey: PANE_KEY_1 }),
+          makeTab('tab-3', { createdAt: 200, spawnedFromPaneKey: PANE_KEY_1 })
+        ],
+        entries: [parent, laterCreatedButEarlierStatus, earlierCreatedButLaterStatus],
+        retained: [],
+        now: 4000
+      })
+    )
+
+    expect(rows.map((row) => row.paneKey)).toEqual([PANE_KEY_1, PANE_KEY_3, PANE_KEY_2])
+    expect(rows[1].lineage).toMatchObject({ depth: 1, isFirstSibling: true })
+    expect(rows[2].lineage).toMatchObject({ depth: 1, isLastSibling: true })
+  })
+
+  it('keeps spawned child tabs and provider subagent children under the same parent', () => {
+    const parent = makeEntry(PANE_KEY_1, 1000, {
+      state: 'working',
+      prompt: 'parent tab',
+      subagents: [
+        {
+          id: 'provider-child',
+          state: 'working',
+          startedAt: 1100,
+          agentType: 'code-reviewer'
+        }
+      ]
+    })
+    const spawnedChild = makeEntry(PANE_KEY_2, 1200, {
+      state: 'working',
+      prompt: 'user spawned child'
+    })
+    const rows = applyAgentRowLineage(
+      buildWorktreeAgentRows({
+        tabs: [
+          makeTab('tab-1', { createdAt: 100 }),
+          makeTab('tab-2', { createdAt: 200, spawnedFromPaneKey: PANE_KEY_1 })
+        ],
+        entries: [parent, spawnedChild],
+        retained: [],
+        now: 2000
+      })
+    )
+
+    expect(rows[0].paneKey).toBe(PANE_KEY_1)
+    expect(rows[0].lineage).toMatchObject({ depth: 0, childCount: 2 })
+    const childRows = rows.slice(1)
+    expect(childRows).toHaveLength(2)
+    expect(childRows.every((row) => row.lineage.depth === 1)).toBe(true)
+    expect(childRows.map((row) => row.rowSource).sort()).toEqual(['live', 'subagent'])
+    expect(childRows.find((row) => row.rowSource === 'subagent')?.activationPaneKey).toBe(
+      PANE_KEY_1
+    )
+    expect(childRows.find((row) => row.paneKey === PANE_KEY_2)?.entry.orchestration).toBeUndefined()
+  })
+
+  it('leaves spawnedFromPaneKey child rows flat when the parent tab is missing or cross-worktree', () => {
+    const child = makeEntry(PANE_KEY_2, 1000, {
+      prompt: 'orphan spawned child'
+    })
+    const missingParentRows = applyAgentRowLineage(
+      buildWorktreeAgentRows({
+        tabs: [makeTab('tab-2', { createdAt: 200, spawnedFromPaneKey: PANE_KEY_1 })],
+        entries: [child],
+        retained: [],
+        now: 2000
+      })
+    )
+
+    expect(missingParentRows[0].lineage).toMatchObject({ depth: 0, childCount: 0 })
+    expect(missingParentRows[0].lineageParentPaneKey).toBeUndefined()
+
+    const parentInOtherWorktree = makeEntry(PANE_KEY_1, 900, {
+      prompt: 'other worktree parent'
+    })
+    const crossWorktreeRows = applyAgentRowLineage(
+      buildWorktreeAgentRows({
+        tabs: [
+          makeTab('tab-1', { worktreeId: 'wt-other', createdAt: 100 }),
+          makeTab('tab-2', { worktreeId: 'wt-1', createdAt: 200, spawnedFromPaneKey: PANE_KEY_1 })
+        ],
+        entries: [parentInOtherWorktree, child],
+        retained: [],
+        now: 2000
+      })
+    )
+
+    expect(crossWorktreeRows.find((row) => row.paneKey === PANE_KEY_1)?.lineage).toMatchObject({
+      depth: 0,
+      childCount: 0
+    })
+    expect(crossWorktreeRows.find((row) => row.paneKey === PANE_KEY_2)?.lineage).toMatchObject({
+      depth: 0,
+      childCount: 0
+    })
+    expect(
+      crossWorktreeRows.find((row) => row.paneKey === PANE_KEY_2)?.lineageParentPaneKey
+    ).toBeUndefined()
+  })
+
   it('does not override current hook dispatch identity with mismatched runtime metadata', () => {
     const currentParent = makeEntry(PANE_KEY_1, 1000, {
       prompt: 'current parent',

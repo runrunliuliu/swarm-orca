@@ -15,6 +15,11 @@ export type DashboardAgentRow = {
   /** Pane to focus when the row is activated, when it differs from paneKey.
    *  Subagent rows have no pane of their own and activate their parent's. */
   activationPaneKey?: string
+  /** Renderer-only parent for visual lineage. Unlike `entry.orchestration`, this
+   *  is not a Dispatch identity and must not be read as lifecycle state. */
+  lineageParentPaneKey?: string
+  /** Optional sibling order inside one visual lineage parent. */
+  lineageSortAt?: number
   /** When this agent first began reporting status. Derived from the oldest
    *  stateHistory entry, falling back to updatedAt when no history exists yet.
    *  Used to sort agents by when they started. */
