@@ -23,6 +23,28 @@ AGENTS = ("trae", "pi", "codex-ark")
 # must not invent a model flag, and the Operator must verify the agent config separately.
 AGENT_CONFIG_MODELS = frozenset({"codex-ark"})
 
+# Launch transport each reviewed agent's vendor path actually honors. This is a closed table and
+# not a request field: the transport belongs to the agent, so a caller cannot ask for a shape the
+# vendor refuses. Measured 2026-11-09 on codex-ark 0.163.0: the wrapper always injects
+# `--remote <socket>`, and that CLI accepts `--remote` only for the TUI, so `codex-ark exec ...`
+# fails with "only supported for interactive TUI commands" before any turn starts. Trae keeps both
+# because its exec plan is a separately reviewed contract (trae-exec-stream-v1), not a fallback.
+AGENT_TRANSPORT = {"trae": "both", "pi": "tui-only", "codex-ark": "tui-only"}
+
+# An agent outside this table is not a reviewed Swarm launch shape; this table then abstains
+# instead of claiming to describe every agent the Orca runtime can start.
+TRANSPORTS = ("tui", "exec")
+
+
+def transport(agent, want="tui"):
+    """Return an agent's declared transport, refusing a shape its vendor path cannot honor."""
+    require(want in TRANSPORTS, "unknown_launch_transport:" + str(want))
+    supported = AGENT_TRANSPORT.get(agent)
+    if supported is not None:
+        require(supported in ("both", want + "-only"),
+                "agent_transport_unsupported:" + str(agent) + ":" + str(want) + ":" + supported)
+    return supported
+
 
 def source():
     """Return the policy path the caller must pin; an override never falls back."""
@@ -107,6 +129,8 @@ def resolve(model, sha256):
         if profile[key] is not None:
             settings[key] = profile[key]
     # model_source records that this model is declared, not enforced by the plan's argv.
+    # The worker path only exists as a runtime-managed TUI launch, so a profile whose agent has
+    # no TUI shape fails here, before a terminal or a plan exists.
     return settings, {"config": ref, "model": model,
                       "model_source": "agent_config" if agent_config_model else "worker_argv",
-                      **profile}
+                      "launch_transport": transport(profile["agent"]), **profile}

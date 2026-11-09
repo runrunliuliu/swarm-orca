@@ -121,6 +121,7 @@ class TuiTests(unittest.TestCase):
     def test_tui_native_plan_no_exec_flags_and_prompt_exact(self):
         plan = build_plan(**self.f.args, strict_coordinator=True)
         self.assertEqual(plan["adapter"], TUI_ADAPTER)
+        self.assertEqual(plan["launch_transport"], "tui")
         self.assertEqual(plan["phase"], "strict-tui-bootstrap")
         args = shlex.split(plan["native_launch"]["agent_args"])
         for flag in ("--no-daemon", "--no-alt-screen", "--strict-config"):

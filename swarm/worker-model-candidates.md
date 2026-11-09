@@ -22,3 +22,15 @@ is not enforced by argv, so the Operator must separately pin the wrapper config
 and check `codex-ark --ark-status` before dispatch. Details:
 [Worker 参数计划](coordinator-worker-plan.md#codex-ark-worker-固定参数).
 
+`orchestration worker-start --agent <id>`
+takes its agent id from the running Orca build, not from this profile. Upstream v1.4.219
+source registers a `codex-ark` TUI agent, but a deployed build can predate that entry, and
+such a build refuses the id as an unknown TUI agent. Check the build you are about to use
+before claiming the agent is deployable; listing a profile proves nothing on its own.
+
+Launch transport is not a request field either. `coordinator_worker_profiles.AGENT_TRANSPORT`
+is a closed table (`trae`: `both`, `pi`/`codex-ark`: `tui-only`) and the worker plan only
+exists as a TUI launch, so a reviewed agent with no TUI shape is refused before a plan or
+a terminal exists. Transport is never inferred from another agent and never downgraded; see
+[启动传输](coordinator-worker-plan.md#启动传输tui--exec-由-agent-决定不由请求选择).
+

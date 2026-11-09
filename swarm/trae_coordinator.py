@@ -169,6 +169,10 @@ def build_trae_plan(*, trae, cwd, archive_dir, write_dirs, selection,
     native_agent_args = argv[1:-1]
     plan = {
         "scope": "swarm_coordinator_only", "adapter": TUI_ADAPTER if tui else "trae-exec-stream-v1",
+        # The adapter is the transport declaration: a plan is either the reviewed TUI adapter or
+        # the reviewed exec stream, never a fallback of the other. Downstream capture and launch
+        # steps refuse a mismatch instead of reinterpreting the plan.
+        "launch_transport": "tui" if tui else "exec",
         "phase": phase,
         "cli_version": cli_version,
         "selection": selection, "execution": execution, "cwd": str(cwd),

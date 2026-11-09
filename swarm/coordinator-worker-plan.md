@@ -68,6 +68,36 @@ wrapper 的 `config.toml` 与 catalog 原始字节 SHA，派发前在目标主�
 `effort`/`backend_variant` 仍在生成命令前拒绝，`blocked_reason` 仍以
 `worker_profile_blocked` 显式失败，没有默认模型或降级。
 
+### 启动传输：TUI / exec 由 Agent 决定，不由请求选择
+
+`coordinator_worker_profiles.AGENT_TRANSPORT` 是闭集：`trae` 为 `both`，`pi` 与 `codex-ark`
+为 `tui-only`。worker 计划（`orchestration worker-start --agent …`）只存在 TUI 形态，因此解析
+profile 时就按 TUI 校验：声明为 `exec-only` 的 Agent 会在任何终端或计划产生之前以
+`agent_transport_unsupported:<agent>:tui:<declared>` 失败。`resolved_profile.launch_transport`
+与计划顶层 `launch_transport` 如实回显这次是哪种形态；新增未定传输的 Agent 会先撞上
+`AGENTS` 与 `AGENT_TRANSPORT` 的对应关系测试，而不是默认放行。
+
+Coordinator 侧不另设字段：`adapter` 就是传输声明（`trae-tui-runtime-v1` ↔ `tui`，
+`trae-exec-stream-v1` ↔ `exec`），新计划同时写 `launch_transport`；`trae_exec_capture` 只接
+`exec`，旧计划缺该字段时按历史 exec 含义处理，不重解释、不自动改写。
+
+不把「一律 TUI」定为全局规则的两个原因：
+
+- TUI 只能做 fresh bootstrap（launch 时拒绝 resume / replacement），续跑与恢复依赖 exec 计划；
+  exec 的 argv 与 stdin sha 才是可复核的那部分证据，TUI 没有等价机器流。
+- `codex-ark` 恰好相反：wrapper 固定注入 `--remote <socket>`，pinned CLI 只在 TUI 接受它，
+  `codex-ark exec` 在产生任何回合前即报 `only supported for interactive TUI commands`。
+
+因此传输是 Agent 的固有属性：不得从其他 Agent 推断，不得缺项时降级到另一种形态。
+
+另一个独立的门在运行构建侧：`--agent <id>` 是否被接受，取决于**目标运行构建**内置的 TUI
+agent 目录，而不是本仓库 `orca/` 快照或计划里的 `resolved_profile`。计划无法离线证明这一点，
+因此在执行计划前先用目标构建核验；失败签名为
+`Unknown TUI agent: <id>`，`worker-start` 上可能表现为 `agent_unconfigured`（该码也盖
+禁用/不可用，需按 message 分辨）。两者都表示“这次没拿到该 Agent”，不是“上游不支持”。
+`terminal create --command <bin>` 能绕过该门起厂商 TUI，
+但没有 Orca launch 身份与回执，不能用作受监督 Worker 的启动路径。
+
 `--writable-roots`/`write_isolation` 仍只接受 fresh local Trae；codex-ark 复用该参数会被拒绝。
 codex-ark 的受监督 Worker 原生生命周期（启动握手、真实模型/effort 回读、`worker_done`
 结算与释放）尚未验收，见 [Worker 白名单](worker-model-candidates.md)。

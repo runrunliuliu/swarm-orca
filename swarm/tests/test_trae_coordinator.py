@@ -72,6 +72,7 @@ class TraeCoordinatorTests(unittest.TestCase):
     def test_bootstrap_plan_is_pure_and_separate(self):
         plan = build_plan(**self.args)
         self.assertEqual(plan["phase"], "bootstrap")
+        self.assertEqual(plan["launch_transport"], "exec")
         self.assertIsNone(plan["preparation"])
         self.assertEqual(plan["native_launch"]["method"], "agent.launch")
         self.assertEqual(plan["native_launch"]["agent"], "trae")

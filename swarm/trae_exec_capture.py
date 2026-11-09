@@ -162,6 +162,9 @@ def run(plan_path, output):
         raise ValueError("strict_requires_native_launch_not_capture")
     if plan.get("adapter") != "trae-exec-stream-v1":
         raise ValueError("only the reviewed Trae exec adapter is supported")
+    # Older reviewed plans predate the field, so absence keeps its historical exec meaning.
+    if plan.get("launch_transport", "exec") != "exec":
+        raise ValueError("only an exec plan may be replayed through the capture adapter")
     stdin = input_bytes(plan)
     plan_sha256 = hashlib.sha256(plan_bytes).hexdigest()
     stdin_sha256 = hashlib.sha256(stdin).hexdigest()
