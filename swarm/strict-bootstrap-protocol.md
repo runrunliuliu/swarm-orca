@@ -481,6 +481,12 @@ Phase 1 的隔离进程崩溃/新代次关闭仍在回归中；Phase 3 同链证
   不宣称能隔离可读取 owner 内存的恶意同 UID 进程。
 - `bootstrap_tool.py`：双侧独立 tool.lock；`pull` 默认 30s、上限 60s，返回 `action` / `pending`
   / `reconciliation_required` / `request_ready` / `s5_ready`。固定槽补查不依赖通知。
+  `advance`（有界、默认 120s、上限 600s，`--until-stage 0..4`）把本角色的机械跳合并成
+  一次调用：只自动完成 `caller-intent` / `observe-intent` 这两个工具自身produce 的动作，
+  以及在**角色已写好全部 candidate** 时完成 submit/readiness；否则停并返回
+  `needs_role_judgement` 与原 `candidate_path`。`reconciliation_required`、`pending` /
+  阶段边界（`request_ready`/`s5_ready`）都立即退出，不重放、不代写、不跳级；每一步仍走
+  同一 intent + owner commit + prerequisites + pin 校验，与手工 `complete` 字节等价。
   每个动作一个不可覆盖 intent；超时、断连、intent 有而结果无只对账，不推断未执行或重发。
   RPC 超时不撤回服务端已准入提交；提交结果未知时必须 query 原 pin。单次请求 4 MiB 上限。
   只有机械只读的 heartbeat/check/query 等待域可将超时返回为 `pending`；该域禁止提交、

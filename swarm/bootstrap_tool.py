@@ -27,6 +27,35 @@ from coordinator_io import canonical, digest, file_ref, now, parse, pinned, requ
 from coordinator_strict import caller_result
 from coordinator_strict_request import observed_coordinator
 
+# Only these actions are produced mechanically by the tool itself (caller receipt
+# and session observation). Every other stage carries this role's own authored
+# candidate or review decision, so a bounded advance must stop and let the role
+# run, never author it.
+MECHANICAL_PRODUCE = frozenset({"caller-intent", "observe-intent"})
+ADVANCE_MAX_STEPS = 8
+
+
+def advance_decision(result, *, spec_of, candidates_exist):
+    """Pure: what may a bounded advance do with one pull result?
+
+    Returns one of `complete`, `stop-reconciliation`, `stop-judgement`, `stop`.
+    """
+    if not isinstance(result, dict) or "action" not in result:
+        # pending / request_ready / s5_ready: a stage boundary, not permission.
+        return "stop"
+    if result.get("state") == "reconciliation_required":
+        return "stop-reconciliation"
+    name = result["action"]
+    if name not in ACTIONS:
+        return "stop-judgement"
+    spec = spec_of(name)
+    if spec.mode == "produce":
+        return "complete" if name in MECHANICAL_PRODUCE else "stop-judgement"
+    # A submit/readiness stage is mechanical only when this role already wrote
+    # every candidate; completing it then re-validates and commits those exact
+    # bytes, and can never turn into authoring the candidate here.
+    return "complete" if candidates_exist(name) else "stop-judgement"
+
 
 def provision(control):
     """Explicit S0 setup only; never replace locks, remove STOP or re-use owner."""
@@ -119,6 +148,16 @@ class ActionReader:
         return dict(state="confirmed" if complete else "reconciliation_required", intent=intent_ref,
             submission_record=record, submission_record_status=record_status,
             outputs=results, retry_allowed=False, execution_authorized=False)
+
+
+def _ref_of(value):
+    """Return the committed ref from a produce/submit result, else None."""
+    if isinstance(value, dict) and isinstance(value.get("path"), str):
+        return {"path": value["path"], "sha256": value.get("sha256")}
+    if isinstance(value, dict) and isinstance(value.get("result"), dict):
+        ref = value["result"]
+        return {"path": ref.get("path"), "sha256": ref.get("sha256")}
+    return None
 
 
 class RoleTool(BootstrapMachine, ActionReader):
@@ -464,6 +503,49 @@ class RoleTool(BootstrapMachine, ActionReader):
             self.emit(output["path"], raw, self.actor, [intent_ref, admitted], check=lambda _: validate())
         return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs], check=lambda _: validate())
 
+    def advance(self, *, until_stage=None, timeout=120, poll=30):
+        """Run this role's own mechanical stages in one bounded call.
+
+        One model turn used to be spent per stage hop. This loop keeps the same
+        intents, owner commits, prerequisites and pins, and stops the moment a
+        step would need this role's own authored candidate or review decision.
+        """
+        require(type(timeout) in (int, float) and 0 < timeout <= 600,
+                "bootstrap_advance_budget_invalid")
+        require(type(poll) in (int, float) and 0 < poll <= 60,
+                "bootstrap_advance_budget_invalid")
+        require(until_stage is None or (type(until_stage) is int and 0 <= until_stage <= 4),
+                "bootstrap_advance_stage_invalid")
+        end, steps = time.monotonic() + timeout, []
+
+        def candidates(name):
+            try:
+                contract = self.submission(name)
+            except ValueError:
+                return False
+            return bool(contract["outputs"]) and all(
+                os.path.lexists(item["candidate_path"]) for item in contract["outputs"])
+
+        while len(steps) < ADVANCE_MAX_STEPS and time.monotonic() < end:
+            stage = len(self.local_check()["validated_markers"])
+            if until_stage is not None and stage >= until_stage:
+                return dict(state="stage_reached", stage=stage, steps=steps,
+                            execution_authorized=False)
+            result = self.pull(min(poll, max(0.1, end - time.monotonic())))
+            decision = advance_decision(result, spec_of=lambda name: ACTIONS[name],
+                                        candidates_exist=candidates)
+            if decision != "complete":
+                states = {"stop-reconciliation": "reconciliation_required",
+                          "stop-judgement": "needs_role_judgement",
+                          "stop": result.get("state", "pending")}
+                return dict(state=states[decision], stage=stage, result=result, steps=steps,
+                            execution_authorized=False)
+            committed = self.complete(result["intent"])
+            steps.append({"action": result["action"], "intent": result["intent"]["path"],
+                          "committed": _ref_of(committed)})
+        return dict(state="advance_budget_spent" if time.monotonic() >= end
+                    else "advance_step_limit", steps=steps, execution_authorized=False)
+
     def complete(self, intent_ref):
         """Dispatch a pinned action, deriving file pins locally; never generate evidence."""
         intent = self.action_intent(intent_ref)
@@ -485,7 +567,7 @@ def connect(owner_ref):
 
 def cli_main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("provision", "serve", "arm", "stop", "query", "heartbeat", "reconcile", "pull", "produce", "submit", "readiness", "complete", "inspect-action", "build", "plan"))
+    parser.add_argument("mode", choices=("provision", "serve", "arm", "stop", "query", "heartbeat", "reconcile", "pull", "produce", "submit", "readiness", "complete", "advance", "inspect-action", "build", "plan"))
     parser.add_argument("--owner")
     parser.add_argument("--owner-sha256")
     parser.add_argument("--binding")
@@ -499,6 +581,8 @@ def cli_main(argv=None):
     parser.add_argument("--intent")
     parser.add_argument("--intent-sha256")
     parser.add_argument("--timeout", type=float, default=30)
+    parser.add_argument("--poll", type=float, default=30)
+    parser.add_argument("--until-stage", type=int)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -564,6 +648,9 @@ def cli_main(argv=None):
                     result = tool.submit_readiness(intent, parse(pinned(ref)))
                 elif args.mode == "complete":
                     result = tool.complete(intent)
+                elif args.mode == "advance":
+                    result = tool.advance(until_stage=args.until_stage,
+                                          timeout=args.timeout, poll=args.poll)
                 else:
                     require(args.actor == "coordinator", "bootstrap_original_role_required")
                     result = tool.build(parse(pinned(ref)), require_live=True)

@@ -359,5 +359,96 @@ class NonExecutionRetryTests(unittest.TestCase):
         self.assertEqual(authority.calls, 1)
 
 
+
+class AdvanceLoopTests(unittest.TestCase):
+    """The loop shape: one mechanical step, then stop at the judgement boundary."""
+
+    def tool(self, pulls, markers=()):
+        from bootstrap_tool import RoleTool
+        tool = object.__new__(RoleTool)
+        tool.actor = "operator"
+        tool.pull = lambda timeout: pulls.pop(0)
+        tool.local_check = lambda: {"validated_markers": list(markers)}
+        tool.submission = lambda name: {"outputs": [{"candidate_path": "/not-authored"}]}
+        tool.completed = []
+        tool.complete = lambda intent: (tool.completed.append(intent["path"]),
+                                       {"path": "/committed", "sha256": "z"})[1]
+        return tool
+
+    def action(self, name, path):
+        return {"state": "action", "action": name, "intent": {"path": path, "sha256": "x"}}
+
+    def test_completes_a_mechanical_step_then_stops_at_judgement(self):
+        tool = self.tool([self.action("observe-intent", "/i1"),
+                          self.action("fields-intent", "/i2")])
+        result = tool.advance(timeout=5, poll=1)
+        self.assertEqual(result["state"], "needs_role_judgement")
+        self.assertEqual(tool.completed, ["/i1"])
+        self.assertEqual([step["action"] for step in result["steps"]], ["observe-intent"])
+        self.assertFalse(result["execution_authorized"])
+
+    def test_never_completes_a_submit_stage_without_an_authored_candidate(self):
+        tool = self.tool([self.action("contract-intent", "/i1")])
+        self.assertEqual(tool.advance(timeout=5, poll=1)["state"], "needs_role_judgement")
+        self.assertEqual(tool.completed, [])
+
+    def test_reconciliation_required_stops_before_any_commit(self):
+        tool = self.tool([{"state": "reconciliation_required", "action": "observe-intent",
+                           "intent": {"path": "/i1", "sha256": "x"}}])
+        self.assertEqual(tool.advance(timeout=5, poll=1)["state"], "reconciliation_required")
+        self.assertEqual(tool.completed, [])
+
+    def test_stage_boundary_returns_before_pulling(self):
+        tool = self.tool([], markers=[0, 1, 2])
+        self.assertEqual(tool.advance(until_stage=2, timeout=5)["state"], "stage_reached")
+
+    def test_pending_pull_is_not_permission(self):
+        tool = self.tool([{"state": "pending", "reason": "waiting_stage"}])
+        self.assertEqual(tool.advance(timeout=5, poll=1)["state"], "pending")
+        self.assertEqual(tool.completed, [])
+
+
+class AdvanceDecisionTests(unittest.TestCase):
+    """A bounded advance may only complete what the tool itself would produce."""
+
+    class Spec:
+        def __init__(self, mode):
+            self.mode = mode
+
+    def decide(self, result, *, candidates=False):
+        from bootstrap_tool import advance_decision
+        modes = {"caller-intent": "produce", "observe-intent": "produce",
+                 "fields-intent": "submit", "contract-intent": "submit",
+                 "readiness-intent": "submit", "final-evidence-intent": "readiness"}
+        return advance_decision(result, spec_of=lambda name: self.Spec(modes[name]),
+                                candidates_exist=lambda name: candidates)
+
+    def test_stage_boundaries_and_pending_are_not_permission(self):
+        for result in ({}, {"state": "pending", "reason": "waiting_stage"},
+                       {"state": "request_ready"}, {"state": "s5_ready"}):
+            with self.subTest(result=result):
+                self.assertEqual(self.decide(result), "stop")
+
+    def test_reconciliation_required_never_advances(self):
+        self.assertEqual(self.decide({"state": "reconciliation_required",
+                                      "action": "caller-intent"}), "stop-reconciliation")
+
+    def test_only_mechanical_produce_actions_are_completed(self):
+        for name in ("caller-intent", "observe-intent"):
+            self.assertEqual(self.decide({"state": "action", "action": name}), "complete")
+
+    def test_submit_stages_stop_until_the_role_authored_the_candidate(self):
+        for name in ("fields-intent", "contract-intent", "readiness-intent",
+                     "final-evidence-intent"):
+            with self.subTest(name=name):
+                self.assertEqual(self.decide({"state": "action", "action": name}),
+                                 "stop-judgement")
+                self.assertEqual(self.decide({"state": "action", "action": name}, candidates=True),
+                                 "complete")
+
+    def test_unknown_action_stops(self):
+        self.assertEqual(self.decide({"state": "action", "action": "made-up"}), "stop-judgement")
+
+
 if __name__ == "__main__":
     unittest.main()
