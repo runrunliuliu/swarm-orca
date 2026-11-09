@@ -254,6 +254,64 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual((owner.attempted, owner.confirmations), before)
             self.assertFalse(owner.armed)
 
+class NonExecutionRetryTests(unittest.TestCase):
+    """A busy owner admitted nothing, so the same intent may be retried in place."""
+
+    def authority(self, replies):
+        from bootstrap_protocol import Confirmation
+        from coordinator_io import digest
+
+        class Stub:
+            def __init__(self):
+                self.calls = 0
+
+            def query(self, control, target):
+                return Confirmation(control, target, "confirmed")
+
+            def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
+                self.calls += 1
+                outcome = replies[self.calls - 1]
+                if outcome is not None:
+                    raise outcome
+                return Confirmation(control, {"path": target, "sha256": digest(raw)}, "confirmed")
+
+        return Stub()
+
+    def setUp(self):
+        import tempfile
+        self.temp = tempfile.TemporaryDirectory(prefix="s5-retry-")
+        self.addCleanup(self.temp.cleanup)
+        self.target = Path(self.temp.name) / "x.json"
+        self.target.write_bytes(b"{}\n")
+
+    def run_commit(self, authority, retry_seconds=5):
+        from bootstrap_s5 import commit_confirmed
+        return commit_confirmed(authority, "control", actor="operator", target=str(self.target),
+                                raw=b"{}\n", prerequisites=[], recheck=lambda: None,
+                                retry_seconds=retry_seconds)
+
+    def test_busy_replies_are_retried_until_the_commit_lands(self):
+        from observation_budget import ObservationBusy
+        authority = self.authority([ObservationBusy(), ObservationBusy(), None])
+        with patch("bootstrap_s5.time.sleep"):
+            self.assertEqual(self.run_commit(authority)["path"], str(self.target))
+        self.assertEqual(authority.calls, 3)
+
+    def test_unknown_or_failed_commit_is_never_retried(self):
+        for error in (ValueError("bootstrap_new_bytes_changed"), OSError("io")):
+            with self.subTest(error=error):
+                authority = self.authority([error, None])
+                with self.assertRaises((ValueError, OSError)):
+                    self.run_commit(authority)
+                self.assertEqual(authority.calls, 1)
+
+    def test_retry_budget_is_bounded(self):
+        from observation_budget import ObservationBusy
+        authority = self.authority([ObservationBusy()] * 3)
+        with patch("bootstrap_s5.time.sleep"), self.assertRaises(ValueError):
+            self.run_commit(authority, retry_seconds=-1)
+        self.assertEqual(authority.calls, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

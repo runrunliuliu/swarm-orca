@@ -68,6 +68,32 @@ class StrictDeliveryTests(unittest.TestCase):
         self.assertEqual(self.start.calls, [])
         self.assertEqual(list(self.directory.iterdir()), [])
 
+    def test_transient_owner_busy_does_not_abort_the_publication_wait(self):
+        # A live attempt aborted with "delivery failed" at S5 while the Operator
+        # was still publishing, because one busy/timed-out checkpoint raised.
+        from observation_budget import ObservationBusy
+        state = {"calls": 0}
+
+        def checkpoint_side_effect():
+            state["calls"] += 1
+            if state["calls"] <= 2:
+                # ObservationTimeout shares the same transient handling but needs
+                # a live budget scope, so the busy code stands in for both here.
+                raise ObservationBusy()
+
+        def later(seconds):
+            self.start.clock += timedelta(seconds=seconds)
+            if state["calls"] >= 2:
+                self.prepare()
+                self.publish()
+
+        with patch("coordinator_strict_delivery.checkpoint", side_effect=checkpoint_side_effect), \
+                patch("coordinator_strict_delivery.time.sleep", side_effect=later):
+            result = wait_for_config(self.ref)
+        self.assertTrue(result["review_required"])
+        self.assertEqual(state["calls"], 3)
+        self.assert_no_start()
+
     def test_delayed_prepare_delivery_returns_reviewable_plan_without_gate_or_create(self):
         sleeps = []
 

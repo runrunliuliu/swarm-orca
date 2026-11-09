@@ -11,10 +11,42 @@ from pathlib import Path
 import os
 import shlex
 import sys
+import time
 
 from coordinator_io import canonical, file_ref, now, parse, pinned, require
 
 current = ContextVar("strict_bootstrap_s5", default=None)
+
+# Non-execution replies mean the owner admitted nothing: the same intent may be
+# retried in place. Anything else (including an unknown outcome) must reconcile.
+NON_EXECUTION_RETRY_SECONDS = 20
+
+
+def non_execution(exc):
+    from observation_budget import ObservationBusy
+    from bootstrap_identity import IdentityVerificationPending
+    # Both mean "nothing was admitted"; the identity lease expiry is the same
+    # class because it is re-acquired by the next admission attempt.
+    return (isinstance(exc, (ObservationBusy, IdentityVerificationPending))
+            or str(exc) == "bootstrap_identity_snapshot_expired")
+
+
+def commit_confirmed(authority, control, *, actor, target, raw, prerequisites, recheck,
+                     retry_seconds=NON_EXECUTION_RETRY_SECONDS):
+    """Commit once, retrying only replies that prove nothing was admitted."""
+    end = time.monotonic() + retry_seconds
+    while True:
+        try:
+            recheck()
+            reply = authority.commit_new(control, actor=actor, target=target, raw=raw,
+                                         prerequisites=list(prerequisites), recheck=recheck)
+            return confirmed(authority, control, reply.target)
+        except (OSError, ValueError) as exc:
+            # A busy owner or a throwaway identity lease admitted nothing. An
+            # unknown outcome is NOT in that class and must reconcile instead.
+            if not non_execution(exc) or time.monotonic() >= end:
+                raise
+            time.sleep(0.2)
 
 
 def confirmed(*args):
@@ -56,11 +88,9 @@ class S5Guard:
             require(reply.status == "confirmed", "bootstrap_s5_input_unconfirmed")
 
     def publish(self, target, value):
-        self.check()
         raw = value if isinstance(value, bytes) else canonical(value) + b"\n"
-        reply = self.authority.commit_new(self.control, actor=self.actor, target=str(target), raw=raw,
-            prerequisites=[self.association, self.ready, self.request], recheck=self.check)
-        return confirmed(self.authority, self.control, reply.target)
+        return commit_confirmed(self.authority, self.control, actor=self.actor, target=str(target), raw=raw,
+                                prerequisites=[self.association, self.ready, self.request], recheck=self.check)
 
     def publication(self, target, value):
         # Staging/probe paths are local, non-ready evidence of the already
