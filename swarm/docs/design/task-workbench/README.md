@@ -12,7 +12,8 @@
 真实 Run / Task / terminal ID、部署路径或凭据。
 
 关联：[任务与工作区模型](../task-workspaces.md)（一个任务如何绑定 worktree、如何续做）、
-[开发计划](development-plan.md)（阶段、工作包、退出条件与测试矩阵）。
+[开发计划](development-plan.md)（阶段、工作包、退出条件与测试矩阵）、
+[评审记录](discussion-record.md)（2026-11-09 只读 panel 的结论、缺项与失效条件）。
 
 ---
 
@@ -27,6 +28,9 @@
   "逻辑任务 ID、稳定身份路由"不存在——没有 CLI 参数、没有 schema、没有持久记录。
 - **关系存储**（§8）：并非全都要存——运行态/Agent 列表/实时用量是派生；任务实体、绑定集合、用户意图与
   "结算过的用量"必须存，落点是 profile-state 里新增的一个 JSON domain（不需要 DDL、不需要 bump schema 版本）。
+- **2026-11-09 只读评审的收敛结论**：M1 可以现在做（3/3 同意）；M2 冻结到 H1（旧 build round-trip）与 H2
+  （`ambiguous_session` 频率）有证据为止；逐 Agent 的金额在会话级归因成立前不展示，只显示 token 或"不可用"。
+  分歧只在"是否值得为任务历史/多工作区语义承担 M2 成本"，属产品优先级，见[评审记录](discussion-record.md)。
 - 实施拆分（工作包、退出条件、测试矩阵、回滚）见[开发计划](development-plan.md)。
 - 因此推荐 **增量优先**：先在不新建 schema、不新增 RPC 的前提下，把 join 层做对（决策见 §6，
   UI 见 §7.4），验证归因质量后再决定是否翻列表主轴（§7.2 / §7.3）。
@@ -166,6 +170,20 @@ taskKey = "workspace:web-app::feature/add-login"  // 无 tracker（本地任务�
 | D5 | 移动端一期做不做 | 不做，明确"桌面独有"并登记 parity 豁免 | 跨端契约门禁会持续报差异 |
 | D6 | 关系存哪（§8） | 派生不存；provenance 留既有字段；任务实体进 `taskRecords` domain | 变成"只有投影"，手动组织与历史成本全丢 |
 
+### 6.1 评审后修正（2026-11-09）
+
+| # | 修正 | 来源 |
+| --- | --- | --- |
+| R1 | `Unlinked` 从分组降为**徽标/筛选器**（`◇`）；分组只保留运行/交付状态，并定义互斥优先级 | A |
+| R2 | 逐 Agent 只显示 **token**，金额只出现在工作区级与任务级；会话级归因未成立前不显示金额 | A、C |
+| R3 | 图 B 默认折叠历史 Agent、次要工作区与 Delivery/Evidence | A |
+| R4 | M1 的 selector 必须可被 M2 直接复用，否则暂停并重新拆包 | A、B |
+| R5 | M2 拆为 `M2a 存储兼容验证` + `M2b 落库实现`；M2a 不过就只交付 M1 | B |
+| R6 | M1 的对照数据要覆盖 OpenCode 与 Muse，不只 Claude/Codex | C |
+| R7 | `projectBreakdown.key` 必须经解析层 + 单测，不直接散落 `split(':')` | C |
+
+`Delivered` 的产品定义（Agent done / PR merged / checks passed / 验收完成）与分组优先级仍待产品 owner 确认（§7.2）。
+
 ---
 
 ## 7. UI 设计
@@ -197,28 +215,35 @@ Tasks (top level view)
 ### 7.2 图 A：任务列表（方案 2 形态）
 
 ```text
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│  Tasks                              [ All providers ▾ ]   [ Search…        ]   ⌘F       │
-│  ◉ Needs you 3    ◐ Working 4    ✓ Delivered 12    – Unlinked 5      [ Group: Task ▾ ]  │
-├─────────────────────────────────────────────────────────────────────────────────────────┤
-│  NEEDS YOU                                                                              │
-│  ◉  Add login auth                    GitHub #412    ▦ 2 ws   ⚑ 2 agents    4m   $1.82  │
-│  ◉  Retry backfill on resume          Linear FIN-88  ▦ 1 ws   ⚑ 1 agent     9m   $0.44  │
-│                                                                                         │
-│  WORKING                                                                                │
-│  ◐  Sparse task workspace rollout     Jira ORCA-31   ▦ 1 ws   ⚑ 3 agents    1m   $6.10  │
-│  ◐  Task tab redesign                 local         ▦ 1 ws   ⚑ 1 agent    now   —       │
-│                                                                                         │
-│  DELIVERED                                                                              │
-│  ✓  Bump swarm-orca docs              GitLab !77     ▦ 1 ws   ⚑ 2 agents    2h   $2.20  │
-│                                                                                         │
-│  UNLINKED  (workspaces with no tracker item)                                            │
-│  –  investigation/perf-spike          local         ▦ 1 ws   ⚑ 1 agent     1d   $0.91   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│  Tasks                              [ All providers ▾ ]   [ Search…        ]   ⌘F         │
+│  ◉ Needs you 3    ◐ Working 4    ✓ Delivered 12   ◇ No tracker 5  [ Tracker: all ▾ ]      │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│  NEEDS YOU                                                                                │
+│  ◉  Add login auth                    GitHub #412    ▦ 2 ws   ⚑ 2 agents    4m   $1.82    │
+│  ◉  Retry backfill on resume          Linear FIN-88  ▦ 1 ws   ⚑ 1 agent     9m   $0.44    │
+│                                                                                           │
+│  WORKING                                                                                  │
+│  ◐  Sparse task workspace rollout     Jira ORCA-31   ▦ 1 ws   ⚑ 3 agents    1m   $6.10    │
+│  ◐  Task tab redesign                 local ◇        ▦ 1 ws   ⚑ 1 agent    now   —        │
+│  –  investigation/perf-spike          local ◇        ▦ 1 ws   ⚑ 1 agent     1d   $0.91    │
+│                                                                                           │
+│  DELIVERED                                                                                │
+│  ✓  Bump swarm-orca docs              GitLab !77     ▦ 1 ws   ⚑ 2 agents    2h   $2.20    │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 行内信息优先级（窄宽度降级顺序）：状态 → 标题 → provider → workspaces → agents → 时间 → 花费。
 花费列在 D2 未解决前允许整体隐藏（设置项），不做 `$0` 占位。
+
+分组规则（评审后补充，待产品确认最后一项）：
+
+- 单一归属，优先级 `Needs you` > `Working` > `Delivered`；一条任务只出现在一个分组里。
+- `◇` 是**属性徽标**（无 tracker 的工作区），与分组正交：一个无 tracker 但正在跑的任务出现在 `Working` 里并带 `◇`；
+  顶部 `◇ No tracker 5` 是筛选入口，不是第 4 个分组。
+- `Delivered` 当前按"有合并/完成证据"派生（PR merged、或 Agent done + 无未完成 checks）；
+  是否等价于"验收完成"**未定义**，需产品确认，未确认前 UI 文案不得写"已完成"。
+- primary workspace 缺失时按"最近活动"兜底，并在 UI 显式标注为派生（不是用户选择）。
 
 ### 7.3 图 B：任务详情（工作台）
 
@@ -227,29 +252,29 @@ Tasks (top level view)
 │  ← Tasks                                                                                  │
 │    Add login auth        GitHub #412 · open · web-app                                     │
 │    base 8f3c1ab → feature/add-login    PR #431 (draft · checks 5/6)                       │
-│                                           [ Open workspace ]  [ ⋯ ]                       │
+│               [ Open workspace ]  [ ⋯ ]       交付/证据默认折叠                           │
 ├─────────────────────────────────────────────────────────────────┬─────────────────────────┤
 │  AGENTS (4)                     [ All agents ▾ ]                │  WORKSPACES (2)         │
 │  ┌─────────────────────────────────────────────────────────┐    │  ▸ web-app              │
 │  │ ◐  claude-sonnet-4.5 · add-login-impl                   │    │  feature/add-login      │
-│  │    "wire JWT middleware into auth routes"               │    │  1 agent                │
-│  │    working · 12m · 412k tok · $1.20      [open]         │    │  412k tok · $1.20       │
+│  │    "wire JWT middleware into auth routes"               │    │  1 agent · 412k tok     │
+│  │    working · 12m · 412k tok        [open]               │    │  $1.20                  │
 │  ├─────────────────────────────────────────────────────────┤    │  ▸ api                  │
 │  │ ✓  codex-5.1 · jwt-verify-fix                           │    │  feature/jwt-verify     │
-│  │    done · 6m · 890k tok · $0.62      [resume]           │    │  2 agents               │
-│  ├─────────────────────────────────────────────────────────┤    │  890k tok · $0.62       │
-│  │ –  claude-opus · spike  (AI Vault history)              │    │  + create workspace     │
-│  │    archived · 2d · 61k tok · $0.18     [view]           │    │                         │
-│  ├─────────────────────────────────────────────────────────┤    │  SPEND                  │
-│  │ ⚑ 3 subagents folded under add-login-impl               │    │  1.36M tok              │
-│  └─────────────────────────────────────────────────────────┘    │  est. $1.82             │
+│  │    done · 6m · 890k tok        [resume]                 │    │  2 agents · 890k tok    │
+│  ├─────────────────────────────────────────────────────────┤    │  $0.62                  │
+│  │ ▸  archived & history (2) · 61k tok · 2d                │    │  + create workspace     │
+│  │    (默认折叠，展开才拉 AI Vault 明细)                   │    │                         │
+│  └─────────────────────────────────────────────────────────┘    │  SPEND · task level     │
+│                                                                 │  1.36M tok              │
+│                                                                 │  est. $1.82             │
 │                                                                 │  claude 412k · $1.20    │
 │                                                                 │  codex  890k · $0.62    │
 │                                                                 │  opencode 61k · (—)     │
 │                                                                 │  ⓘ 1 session            │
 │                                                                 │      unattributed       │
 ├─────────────────────────────────────────────────────────────────┴─────────────────────────┤
-│  DELIVERY   commits 3 · PR #431 draft · checks 5/6 · review pending  [ refresh ]          │
+│  DELIVERY   commits 3 · PR #431 draft · checks 5/6 · review pending  [ expand ]           │
 │  EVIDENCE   binding ok · base 8f3c1ab · cone 4 dirs · requiredPaths present               │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -263,7 +288,7 @@ Agent 行元素与来源：
 | model | 状态行 `model`；历史会话取 transcript 记录的 model |
 | 时长 | 状态行 `stateStartedAt` / 会话时间窗 |
 | tokens | 会话级用量（需 D1 之外的 additive `worktreeId`，或 AI Vault `totalTokens`）；子 Agent 用 `totalTokens` 上报 |
-| 花费 | `estimatedCostUsd`；未定价显示 `—` 并给 `hasUnpricedModels` 提示 |
+| 花费 | **逐 Agent 不显示金额**（会话行无 `worktreeId`，精确归因未成立）：只显示 token，金额只到工作区/任务级；未定价显示 `—` 并给 `hasUnpricedModels` 提示 |
 | `[open]` / `[resume]` / `[view]` | 复用 `activateThreadTerminal` / AI Vault resume / 结构化会话 resume |
 
 花费口径提示（tooltip 文案要点）：估算值、按 provider 计价、未启用统计/远端工作区/歧义会话不计入 0。
@@ -280,9 +305,9 @@ Agent 行元素与来源：
 │  WORKSPACE   web-app · feature/add-login · base 8f3c1ab     [ Open workspace ] │
 │              PR #431 draft · checks 5/6 · review pending                       │
 │                                                                                │
-│  AGENTS      ◐ claude-sonnet-4.5  add-login-impl   working 12m  412k  $1.20    │
-│              ✓ codex-5.1          jwt-verify-fix   done     6m  890k  $0.62    │
-│              – claude-opus        spike            archived 2d   61k  $0.18    │
+│  AGENTS      ◐ claude-sonnet-4.5  add-login-impl   working 12m  412k tok       │
+│              ✓ codex-5.1          jwt-verify-fix   done     6m  890k tok       │
+│              – claude-opus        spike            archived 2d   61k tok       │
 │                                                                                │
 │  SPEND       1.36M tokens · est. $1.82        ⓘ 1 session unattributed         │
 │                                                                                │
@@ -307,6 +332,8 @@ Agent 行元素与来源：
 | 无关联工作区 | 任务无绑定 | 主按钮 `Create workspace from this task` |
 | 本地任务（无 tracker） | 仅在 worktree 侧存在 | 分组 `UNLINKED`，标题取 `displayName` |
 | 工作区已归档 | `isArchived` | 折叠在 `Show archived` 下，不参与"Needs you"计数 |
+| 逐 Agent 成本不可归因 | 会话行无 `worktreeId` / `ambiguous_session` | 该行只显示 token；成本显示 `—`，文案说明"仅到工作区级" |
+| 无 tracker 的工作区 | 无 `linkedWorkItem` 等字段 | 行内 `◇` 徽标 + 顶部筛选；不影响其状态分组 |
 
 ### 7.6 组件与数据映射（实现清单草案）
 
@@ -495,8 +522,9 @@ TaskWorkspaceBinding {
 | 阶段 | 范围 | 明确不做 | 验收 |
 | --- | --- | --- | --- |
 | **M0 决策冻结** | 定 §6 的 D1–D6 与 `taskRecords` 字段表；不写代码 | — | 每条决策有结论或明确 `escalate-value-choice` |
-| **M1 增量面板**（推荐先做） | 详情加 `Orca` tab；GitHub issue/PR → Linear → Jira/GitLab；四类 Agent 行；用量三态；指向工作区的动作。**零持久化**（纯投影，不写盘） | 列表主轴、移动端、远端用量 | 手动对照：某 worktree 跑 2 段 Claude + 1 段 Codex 后，面板合计 == `projectBreakdown['worktree:<id>']`；歧义场景必须显示 `ambiguous`；未启用统计时显示空态而非 0 |
-| **M2 列表主轴 + 落库** | 分组（Needs you/Working/Delivered/Unlinked）+ 一任务多工作区列表反查 + 新增 `taskRecords` domain（§8：记录、绑定、`externalIndex`、primary、对账、结算快照） | 跨 runtime 逻辑任务、多仓联合验收（设计文档 C 的剩余部分）、移动端 | 投影一致性测试；§8.9 的存储专项 1–7 全绿；1000 工作区规模下列表构建无逐行扫描（复用缓存 pass） |
+| **M1 增量面板**（推荐先做） | 现有任务详情加 `Orca` tab；GitHub issue/PR → Linear → Jira/GitLab；Agent 行（逐 Agent 只 token）、用量三态、指向工作区的动作。**零持久化**；selector 必须可被 M2 复用 | 列表主轴、移动端、远端用量、逐 Agent 金额 | 对照覆盖 **Claude + Codex + OpenCode + Muse**：面板合计 == `projectBreakdown['worktree:<id>']`；歧义显示 `ambiguous`；未启用显示空态而非 0；`key` 解析有单测 |
+| **M2a 存储兼容验证** | 只读验证：指定旧 build 的新→旧→新 round-trip、`orca profile state` export/recovery 对未知 domain、备份恢复；产出判决 | 任何落盘 | 三项全绿才允许 M2b；否则范围收缩为 M1 |
+| **M2b 列表主轴 + 落库** | 分组（按 §7.2 优先级，`◇` 为徽标）+ 一任务多工作区列表反查 + 新增 `taskRecords` domain（§8：记录、绑定、`externalIndex`、primary、对账、结算快照） | 跨 runtime 逻辑任务、多仓联合验收（设计文档 C 的剩余部分）、移动端 | 投影一致性；§8.9 存储专项 1–7 + 评审补充缺项全绿；1000 工作区规模下列表构建无逐行扫描 |
 | **M3 跨端（可选）** | 新 RPC（task usage 只读）+ allowlist + 录制 golden + 移动端详情接入 | SSH 实时用量 | wire 兼容：旧客户端忽略新字段；`pnpm run verify:rpc-params-catalog` 通过 |
 
 每阶段都必须：新文案进 locale catalog（`verify:localization-extraction` / `-coverage`）、
@@ -547,6 +575,9 @@ TaskWorkspaceBinding {
 - 移动端成本仅按文件数估计（206 文件），未做实现级评估。
 - `projectBreakdown` 的 `worktree:<id>` key 形态是当前实现细节，属未文档化契约；若上游改动，M1 的读取需同步调整（稳妥做法：在 renderer 侧加一层解析与回退，并对 `key` 前缀做单测）。
 - 未核对 `v1.4.219` 之后上游是否已有同类改动（本仓库为快照）。
+- 2026-11-09 的只读评审（[记录](discussion-record.md)）把 H1–H6 全部标为未验证，并补了存储、用量、UX 三组缺项；
+  这些缺项进入[开发计划](development-plan.md) §5，本文不重复。
+- 评审只覆盖文档与代码阅读，没有真机渲染、没有真实用量样本、没有旧 build 实测。
 - §8 的降级结论（旧 build 保留未知 domain 并写回）来自代码阅读（`normalizeLoadedProfileState` 的 `{...parsed}`、
   `buildStateToSave` 的 `getDurableState()`），**没有跑过 round-trip 用例**；§8.9 第 1、2 条尚未执行。
 - 未确认 `orca profile state` 的 export/recovery 是否包含未知 domain。
