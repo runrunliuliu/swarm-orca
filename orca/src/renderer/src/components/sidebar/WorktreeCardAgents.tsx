@@ -34,6 +34,10 @@ import { activateStructuredAgentSessionTab } from '@/lib/structured-agent-sessio
 import { selectAcknowledgedAgentTimes } from './worktree-card-agent-ack-inputs'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { formatAgentTypeLabel } from '@/lib/agent-status'
+import { workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
+import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session'
 
 export const SUPPRESS_WORKTREE_LIST_SCROLL_ADJUSTMENT_EVENT =
   'orca-suppress-worktree-list-scroll-adjustment'
@@ -44,11 +48,34 @@ const dispatchSuppressScrollAdjustment = () => {
 
 function spawnableTuiAgent(
   agent: DashboardAgentRowData,
+  worktreeId: string,
   disabledAgents: Iterable<unknown> | null | undefined
 ): TuiAgent | null {
-  return isTuiAgent(agent.agentType) && isTuiAgentEnabled(agent.agentType, disabledAgents)
-    ? agent.agentType
-    : null
+  if (
+    agent.rowSource === 'subagent' ||
+    !isTuiAgent(agent.agentType) ||
+    !isTuiAgentEnabled(agent.agentType, disabledAgents)
+  ) {
+    return null
+  }
+  if (agentSpawnWouldUseStructuredRoute(worktreeId, agent.agentType)) {
+    return null
+  }
+  return agent.agentType
+}
+
+function agentSpawnWouldUseStructuredRoute(worktreeId: string, agent: TuiAgent): boolean {
+  const store = useAppStore.getState()
+  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)
+  if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
+    return true
+  }
+  return (
+    planAgentSessionLaunch(store, {
+      agent,
+      workspace: { kind: workspaceKindForWorktreeId(worktreeId), worktreeId }
+    }).route === 'structured-native-chat'
+  )
 }
 
 function revealCompactAgentCard(agentListRoot: HTMLElement | null): void {
@@ -302,7 +329,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           disabledReason: 'Agent is not available'
         })
       : undefined
-    const spawnAgent = spawnableTuiAgent(agent, disabledTuiAgents)
+    const spawnAgent = spawnableTuiAgent(agent, worktreeId, disabledTuiAgents)
     const descendantAncestorPaneKeys = new Set(ancestorPaneKeys)
     descendantAncestorPaneKeys.add(agent.paneKey)
     return (
@@ -363,7 +390,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           disabledReason: 'Agent is not available'
         })
       : undefined
-    const spawnAgent = spawnableTuiAgent(agent, disabledTuiAgents)
+    const spawnAgent = spawnableTuiAgent(agent, worktreeId, disabledTuiAgents)
     const descendantAncestorPaneKeys = new Set(ancestorPaneKeys)
     descendantAncestorPaneKeys.add(agent.paneKey)
     return (

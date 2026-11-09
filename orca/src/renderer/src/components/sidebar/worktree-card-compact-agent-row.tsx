@@ -17,6 +17,7 @@ import { lastEnteredDoneAt } from '@/components/dashboard/agent-finished-timesta
 import CacheTimer, { usePromptCacheCountdownForPane } from './CacheTimer'
 import { formatShortTimeAgo } from '@/lib/short-time-ago'
 import { agentVerdictDisplayMark } from '../../../../shared/agent-main-agent-verdict'
+import { translate } from '@/i18n/i18n'
 
 function getCompactAgentPrimary(
   agent: DashboardAgentRowData,
@@ -151,6 +152,12 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
   const model = agent.entry.model?.trim() ?? ''
   const shortTime = getCompactAgentTime(agent, now)
   const cacheTimer = usePromptCacheCountdownForPane(agent.paneKey, cacheTimerActive)
+  const spawnButtonLabel =
+    spawnAgentLabel ??
+    translate(
+      'auto.components.sidebar.WorktreeCardAgents.spawnAgentFallback',
+      'Spawn agent from this row'
+    )
 
   const handleActivate = useCallback(
     (e: React.MouseEvent) => {
@@ -286,8 +293,8 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
             'can-hover:opacity-0 transition-opacity duration-150',
             'group-hover/compact-agent-row:opacity-100 focus-visible:opacity-100'
           )}
-          aria-label={spawnAgentLabel ?? 'Spawn agent from this row'}
-          title={spawnAgentLabel ?? 'Spawn agent from this row'}
+          aria-label={spawnButtonLabel}
+          title={spawnButtonLabel}
         >
           <GitFork className="size-3" />
         </button>
