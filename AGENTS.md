@@ -84,6 +84,13 @@ Before deciding *whether* a task should use the task sparse workspace mode, use 
 --sparse-task-dir` triggers it today), and using it for a small repo or a one-line fix buys friction
 rather than safety.
 
+For the Orca-side view of a task (workspaces, agents, spend), read
+[the Tasks workbench design](swarm/docs/design/task-workbench/README.md) and its
+[development plan](swarm/docs/design/task-workbench/development-plan.md). The relationship storage
+split (derived vs provenance vs a new `taskRecords` domain) and the "unknown never recorded as 0"
+usage rule live there. Both are drafts: no schema, RPC or UI is implemented, and the plan authorizes
+nothing.
+
 ## Choosing what to read first
 
 Pick the execution entry before the skill: [entry paths](swarm/docs/entry-paths.md) starts from task
