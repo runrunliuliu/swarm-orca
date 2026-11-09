@@ -76,6 +76,24 @@ class BootstrapFlowTests(unittest.TestCase):
         self.driver.final_readiness()
         self.driver.wait_for(EVENTS[3])
 
+    def test_authorization_mismatch_fails_before_the_request_input_commit(self):
+        # commit_request enforces this only at the final publish seam, after the
+        # owner-committed request-input slot can no longer be rewritten.
+        from coordinator_io import digest
+        self.ready()
+        brief = b"superseded handoff\n"
+        publish_new(self.root / "other-brief.md", brief)
+        task = parse(pinned(self.base.source["task_source"]))
+        task["authorization_refs"] = [{"path": str(self.root / "other-brief.md"),
+                                       "sha256": digest(brief)}]
+        publish_new(self.root / "other-task.json", task)
+        source = dict(self.base.source,
+                      task_source=file_ref(self.root / "other-task.json"))
+        with self.assertRaisesRegex(ValueError, "bootstrap_authorization_refs_mismatch"):
+            self.driver.build(source)
+        self.assertFalse(Path(control_paths(self.root)["request-input"]).exists())
+        self.assertIsNone(self.driver.slot("request-input"))
+
     def test_real_builder_full_dynamic_chain_and_same_control_downstream(self):
         import coordinator_strict_request
         for name in ("caller_receipt", "session_observation", "contract_fields", "final_readiness", "request"):

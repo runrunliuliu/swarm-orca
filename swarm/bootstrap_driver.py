@@ -379,6 +379,16 @@ class BootstrapMachine:
         self.local_check()
         require(self.slot("wait-readiness") is not None, "bootstrap_second_wait_required")
         s4 = self.slot(EVENTS[3])
+        # Pre-flight the one requirement that can never be repaired later: the
+        # task_source authorization must equal the binding's. commit_request
+        # enforces this only at the final publish seam, AFTER request-input has
+        # been committed, and that owner slot can never be rewritten.
+        task_ref = source.get("task_source")
+        require(isinstance(task_ref, dict) and set(task_ref) == {"path", "sha256"},
+                "strict_config_request_input_invalid")
+        task = parse(pinned(task_ref))
+        require(task["authorization_refs"] == self.b["authorization_refs"],
+                "bootstrap_authorization_refs_mismatch")
         admission = RequestAdmission(self.control, s4)
         preview = self.local_check()["request_input_preview"]
         value = dict(source, **preview)
