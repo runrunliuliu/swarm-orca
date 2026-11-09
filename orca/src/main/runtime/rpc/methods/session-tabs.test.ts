@@ -468,6 +468,44 @@ describe('session tab RPC methods', () => {
     })
   })
 
+  it('passes explicit agent-spawn provenance to terminal creation', async () => {
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      createMobileSessionTerminal: vi.fn().mockResolvedValue({
+        tab: {
+          type: 'terminal',
+          id: 'tab-1::leaf-1',
+          parentTabId: 'tab-1',
+          leafId: 'leaf-1',
+          title: 'Terminal',
+          status: 'ready',
+          terminal: 'pty-1',
+          isActive: true
+        },
+        publicationEpoch: 'epoch-1',
+        snapshotVersion: 1
+      })
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: SESSION_TAB_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('session.tabs.createTerminal', {
+        worktree: 'id:wt-1',
+        launchAgent: 'codex',
+        spawnedFromPaneKey: 'parent-tab:11111111-1111-4111-8111-111111111111'
+      })
+    )
+
+    expect(response.ok).toBe(true)
+    expect(runtime.createMobileSessionTerminal).toHaveBeenCalledWith(
+      'id:wt-1',
+      expect.objectContaining({
+        launchAgent: 'codex',
+        spawnedFromPaneKey: 'parent-tab:11111111-1111-4111-8111-111111111111'
+      })
+    )
+  })
+
   it('defaults legacy paired terminal creation to caller-owned selection', async () => {
     const runtime = {
       getRuntimeId: () => 'test-runtime',

@@ -203,6 +203,7 @@ export class OrcaRuntimeWithWaitForMobileTerminalSurface extends OrcaRuntimeWith
       title: null,
       activate: pending.activate,
       selectIfNoActiveTab: pending.selectIfNoActiveTab,
+      ...(pending.spawnedFromPaneKey ? { spawnedFromPaneKey: pending.spawnedFromPaneKey } : {}),
       ...(pending.viewMode ? { viewMode: pending.viewMode } : {})
     })
     // Why: check closures normally drain only inside syncWindowGraph; a main-side publish must drain them too or the pending wait misses the insertion.

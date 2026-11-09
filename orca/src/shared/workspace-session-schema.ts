@@ -106,6 +106,7 @@ const terminalTabSchema = z.object({
   // the same `.catch('terminal')` degradation the unified tab uses below.
   // Legacy rows that predate this stay undefined → 'terminal' in the renderer.
   viewMode: z.enum(['terminal', 'chat']).catch('terminal').optional(),
+  spawnedFromPaneKey: z.string().min(1).optional().catch(undefined),
   sortOrder: z.number(),
   createdAt: z.number(),
   generation: z.number().optional(),

@@ -296,6 +296,7 @@ export function projectRuntimeMobileSessionTabs(
       ...(turnCompletedAt !== undefined ? { turnCompletedAt } : {}),
       ...(tab.parentLayout ? { parentLayout: tab.parentLayout } : {}),
       ...(tab.startupCwd ? { startupCwd: tab.startupCwd } : {}),
+      ...(tab.spawnedFromPaneKey ? { spawnedFromPaneKey: tab.spawnedFromPaneKey } : {}),
       ...(tab.color != null ? { color: tab.color } : {}),
       ...(tab.isPinned ? { isPinned: true } : {}),
       ...(tab.viewMode ? { viewMode: tab.viewMode } : {}),

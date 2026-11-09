@@ -30,6 +30,7 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
       startupCommandDelivery?: WorktreeStartupLaunch['startupCommandDelivery']
       identity?: { tabId: string; leafId: string; sessionId?: string }
       launchAgent?: TuiAgent
+      spawnedFromPaneKey?: string
       viewMode?: 'terminal' | 'chat'
       targetGroupId?: string
       supportsSplitGroupPlacement?: boolean
@@ -74,9 +75,12 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
     }
     const parentTabId = livePty.pty.tabId ?? `pty:${livePty.pty.ptyId}`
     const leafId = parsePaneKey(livePty.pty.paneKey ?? '')?.leafId ?? randomUUID()
-    if (opts.viewMode) {
+    if (opts.viewMode || opts.spawnedFromPaneKey) {
       // Why: the runtime-owned binding must survive a serve restart with the same initial mode, not a later client's local default.
-      this.persistHeadlessSessionTabProps(worktreeId, parentTabId, { viewMode: opts.viewMode })
+      this.persistHeadlessSessionTabProps(worktreeId, parentTabId, {
+        ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
+        ...(opts.spawnedFromPaneKey ? { spawnedFromPaneKey: opts.spawnedFromPaneKey } : {})
+      })
     }
     const existing = this.mobileSessionTabsByWorktree.get(worktreeId)
     const existingSurface =
@@ -101,6 +105,7 @@ export class OrcaRuntimeWithCreateRuntimeOwnedMobileSessionTerminal extends Orca
       title: terminal.title ?? livePty.pty.title ?? 'Terminal',
       ...(cwd ? { startupCwd: cwd } : {}),
       ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
+      ...(opts.spawnedFromPaneKey ? { spawnedFromPaneKey: opts.spawnedFromPaneKey } : {}),
       ...(opts.viewMode ? { viewMode: opts.viewMode } : {}),
       parentLayout,
       isActive: activate

@@ -23,6 +23,7 @@ export class OrcaRuntimeWithCreateMobileSessionTerminal extends OrcaRuntimeWithC
       agentPrompt?: string
       launchConfig?: SleepingAgentLaunchConfig
       launchAgent?: TuiAgent
+      spawnedFromPaneKey?: string
       viewMode?: 'terminal' | 'chat'
       activate?: boolean
       select?: boolean

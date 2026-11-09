@@ -20,6 +20,8 @@ export type RuntimeMobileSessionTerminalTab = {
   /** Event-only lead-turn end time for paired clients; never persisted in AgentStatusEntry. */
   turnCompletedAt?: number
   launchAgent?: TuiAgent
+  /** Explicit parent pane for user-spawned agent tabs; omitted when the source is unknown. */
+  spawnedFromPaneKey?: string
   startupCwd?: string
   parentLayout?: TerminalLayoutSnapshot
   color?: string | null
