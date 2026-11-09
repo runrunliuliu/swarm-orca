@@ -75,6 +75,9 @@
   `worker_done`、`reconciliation_absent`（对账后确认不存在）、`not_supported`（该 channel 无法取证）。
 - **落盘**：`<state_root>/delivery/events/<sha256>.json`（`publish_new` 写入，不可覆盖）+
   `<state_root>/delivery/cursor.json`（单写者摘要，`Journal` 语义）。目录 0700、文件 0600。
+- **游标落盘频率与代价**：`cursor.json` 每 1 秒 flush 一次，SIGTERM/正常退出时再存一次。崩溃最多回退 1 秒的
+  确认位置，后果是**可能重复**（已投递条目被重放）而不是**丢失**；因此重放必须幂等（I1），不得靠游标精度保正确性。
+  不采用"每次确认都 fsync"：那是拿写入放大量换 1 秒精度，与既有单写者模型不成比例。
 
 ## 3. 不变量（每条都要有确定性测试）
 
@@ -86,6 +89,7 @@
 | I4 | 游标单调不回退；`since=cursor` 查询不漏不重（对已知集合做双向比对） | 少一条或来两次 |
 | I5 | `unknown`、`false`、`true` 三态分离，序列化后仍可区分 | 把未知写成 0/false |
 | I6 | 事件文件只增不改；任何"修正"都是新事件 | 原地改写事件 |
+| I7 | **读后重验**：对算出的待投递集合再做一次 recipient/权限校验，期间已失去资格的条目必须丢弃而不是投递 | 越权后仍投递 |
 
 ## 4. 阶段与退出条件
 
@@ -129,15 +133,17 @@
 | W2 | 落盘、游标、单写者 | 新增 `delivery_store.py`；复用 `coordinator_io.publish_new/pinned`、`coordinator_state.Journal` | `coordinator_io` 的既有函数签名、`Journal.validate` 的必填集合 |
 | W3 | 发送路径接线 | `operator_monitor.py`、`coordinator_tui_scheduler.py` 的最小插入 | 重试/对账语义、发送顺序、门禁判断 |
 | W4 | 只读查询 | 新增 `delivery_cli.py`（`show` / `since` / `cursor-at`） | 任何写入路径 |
+| W7 | 观察者只读模式 | `delivery_cli.py` 增加 `--read-only` 入口：同一实现以只读模式启动，不写事件与游标、不生成回执 | 写路径；不得以只读模式伪造 `accepted` |
 | W5 | 测试 | 新增 `tests/test_delivery_ledger.py`、`tests/test_delivery_compat.py` | 改动既有测试以迁就新实现 |
 | W6 | 文档 | `operator-monitor.md`、`coordinator-tui.md` 各增一节"投递台账" | 改写既有语义段落 |
 
-落地顺序：W1 → W2 → W5(确定性) → M1 只读 → W3 → W5(兼容) → W4 → W6。
+落地顺序：W1 → W2 → W5(确定性) → M1 只读 → W3 → W5(兼容) → W4 → W7 → W6。
 
 ## 6. 测试矩阵
 
-- **确定性（离线，默认门）**：I1–I6 各一条；双写者被 `flock` 拒绝；`publish_new` 冲突不覆盖；
-  crash 注入（在 accepted 之后、consumed 之前中断）后重启只产生 ambiguous 不重发。
+- **确定性（离线，默认门）**：I1–I7 各一条；双写者被 `flock` 拒绝；`publish_new` 冲突不覆盖；
+  crash 注入（在 accepted 之后、consumed 之前中断）后重启只产生 ambiguous 不重发；
+  I7 用"取得待投递集合后撤销资格"的顺序测试，验证条目被丢弃而非记录为已投递。
 - **原生集成（需要真实 runtime）**：用真实 `request-show` / `turn_started` 回执验证 `accepted` 与 `consumed`
   的对应关系，不 mock 原生响应；判据是"台账与原生回执逐条一致"。
 - **真实 Agent 验收（需单独授权）**：一次小波次（1 个 Coordinator + 1–2 个 Worker），人为制造一次
