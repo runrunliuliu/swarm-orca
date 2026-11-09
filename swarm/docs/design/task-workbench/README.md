@@ -439,9 +439,13 @@ Agent 行元素与来源：
 4. provider synthetic 行（`rowSource:'subagent'`）**不可派生**：其 `paneKey` 是合成值，写入
    来源会得到无法解析的父边。
 
-证据：`evidence/w4-review.md`（验收清单）、`w4b/w4c/w4d-review.md`（三轮独立复审）、
-`strict-operator-fix.md`（本轮 strict 启动门缺口）。本轮开发为 Operator 驱动的并行波次，
-**不是** Orca strict Run（`strict: not_applicable`，原因见该文件）。
+证据与复核：实现分布在本节所列文件的提交里（来源字段、行模型、交互、发起端四处），
+对应测试见 `orca/src/shared/workspace-session-terminal-schema.test.ts`、
+`orca/src/renderer/src/components/sidebar/useWorktreeAgentRows.test.ts`、
+`orca/src/renderer/src/components/dashboard/agent-row-lineage-model.test.ts`、
+`orca/src/renderer/src/components/sidebar/WorktreeCardAgents.test.tsx`、
+`orca/src/renderer/src/lib/agent-launch-caller-routing.test.ts`；每条验收都经过三方独立复审并
+按复审结论收敛（synthetic 行不可派生、structured 路由 fail-closed、计数去重单点）。
 
 **待你确认一件事**：你说的"项目区的 TUI"指哪一层——侧栏/工作台里的 Agent 行列表，还是顶部 tab bar
 （或者两者都要）？我按"行列表为主、tab bar 只加父子小徽标"写的；如果实际是 tab bar 为主，本节的
