@@ -30,12 +30,32 @@ Private policy, live configuration, and historical results stay in the private w
 Python (from `swarm-orca/swarm`):
 
 ```bash
+tests/run_offline.sh                          # full suite: the integration/delivery gate
+tests/run_offline.sh --fast                   # full suite minus the four wall-time dominators
+tests/run_offline.sh -p "test_coordinator_*"  # one area
+tests/run_offline.sh --list                   # what a mode would run, without running
+tests/run_offline.sh -v                       # equivalent to the full form below
+```
+
+Run the narrowest command that covers the change while iterating; run the **full** suite
+once before integration or delivery. Say which mode produced a result: `--fast` output is
+iteration feedback, and only `--full` may be reported as "offline PASS". The full suite is
+about eight minutes of real owner-socket RPC, `fsync` and subprocess signature work — do not
+re-run it after every edit, and do not shorten it by deleting the heavy modules, which are
+the bootstrap/strict production-path evidence (see
+[testing strategy](swarm/docs/testing/strategy.md#5-跑法与门禁地图) for the gate levels).
+
+The script clears both private-input variables and is equivalent to:
+
+```bash
 env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
-  PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -q
+  PYTHONPATH=.:tests python3 -B -m unittest discover -s tests
 ```
 
 `env -u SWARM_WORKER_PROFILES` is deliberate: a private profile file changes the pinned
 `worker-model-profiles.json` hash and makes unrelated suites fail with `file_pin_changed`.
+`RSI_CHECKER_TEST_ROOT` decides whether the 18 explicitly gated real-RSI cases run or skip;
+neither variable should be set by hand for a baseline run.
 
 Node/vitest (`orca/`), when a prepared dependency tree is available:
 

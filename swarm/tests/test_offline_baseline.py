@@ -5,11 +5,19 @@ assertions say why that is required: an ambient override either names a differen
 reviewed file (so a pin computed elsewhere must be refused as a *source* mismatch)
 or names a file that cannot be read (so the run must fail closed with a code rather
 than with a bare `OSError` or a misleading `file_pin_changed`).
+
+The runner's own modes are pinned here too: `--fast` is iteration feedback over every
+module except the documented wall-time dominators, and only `--full` may be reported as
+PASS. Both listings are read without running either suite. The expected module set comes
+from unittest's own discovery rather than from the glob the script globs, so a nested
+importable test package — which discovery would run and `--fast`'s explicit list would
+silently miss — fails these assertions instead of passing them.
 """
 
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -79,6 +87,66 @@ class OfflineBaselineTests(unittest.TestCase):
                 self.assertNotIn(str(self.policy), message)
                 self.assertNotIn("gpt-5.5", message)
                 self.assertNotIn("trae", message)
+
+
+class OfflineRunnerModeTests(unittest.TestCase):
+    """Mode selection is a coverage claim, so it is asserted rather than assumed."""
+
+    SLOW = ("test_bootstrap_production", "test_bootstrap_workflow",
+            "test_startup_handoff", "test_bootstrap_failures")
+    root = Path(__file__).resolve().parents[1]
+    script = root / "tests" / "run_offline.sh"
+
+    def discovered(self):
+        # unittest's own answer, not the script's glob: that is what `--full` runs, so it is
+        # the only honest baseline for "--fast is exactly this minus the slow modules".
+        loader = unittest.TestLoader()
+        suite = loader.discover(str(self.root / "tests"), top_level_dir=str(self.root / "tests"))
+        found = set()
+
+        def walk(items):
+            for item in items:
+                if isinstance(item, unittest.TestSuite):
+                    walk(item)
+                else:
+                    found.add(type(item).__module__)
+
+        walk(suite)
+        return found
+
+    def listing(self, *args, env=None):
+        proc = subprocess.run(["sh", str(self.script), *args, "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.split()
+
+    def test_full_listing_covers_every_discovered_module(self):
+        self.assertEqual(sorted(self.listing("--full")), sorted(self.discovered()))
+
+    def test_fast_listing_is_the_full_suite_minus_the_documented_slow_modules(self):
+        discovered = self.discovered()
+        listed = self.listing("--fast")
+        # A renamed or deleted slow module must fail here instead of shrinking --fast
+        # silently, and the remainder must be exactly the discovered suite minus that set.
+        self.assertTrue(set(self.SLOW) <= discovered)
+        self.assertEqual(len(listed), len(set(listed)))
+        self.assertEqual(sorted(listed), sorted(discovered - set(self.SLOW)))
+
+    def test_fast_refuses_a_discovery_pattern_instead_of_ignoring_it(self):
+        # --fast selects whole modules; honouring neither the pattern nor an error would
+        # report coverage the run never had.
+        proc = subprocess.run(["sh", str(self.script), "--fast", "-p", "test_bootstrap_*",
+                               "--list"], cwd=self.root, capture_output=True, text=True,
+                              timeout=120)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("cannot be combined", proc.stderr)
+
+    def test_selection_does_not_read_private_policy_inputs(self):
+        # The script clears both variables itself; a bogus value must change nothing.
+        env = dict(os.environ, SWARM_WORKER_PROFILES="/nonexistent/profiles.json",
+                   RSI_CHECKER_TEST_ROOT="/nonexistent/rsi-checkout")
+        self.assertEqual(sorted(self.listing("--fast", env=env)),
+                         sorted(self.discovered() - set(self.SLOW)))
 
 
 if __name__ == "__main__":

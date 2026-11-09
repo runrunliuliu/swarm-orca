@@ -243,6 +243,24 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 #   PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -v
 ```
 
+**默认跑子集，门禁跑全量。** 同一入口提供两种选择模式（清环境规则相同）：
+
+```bash
+tests/run_offline.sh --fast   # 90 个模块中的 86 个，≈2.5 分钟
+tests/run_offline.sh          # 全量 90 个模块，≈8 分钟
+tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
+```
+
+模块数与耗时来自 2026-11-09 本机一次空闲实测；**测试项数不写进文档**（它随套件增长，
+以每次输出为准）。`--fast` 排除的 4 个模块（`test_bootstrap_production`、
+`test_bootstrap_workflow`、`test_startup_handoff`、`test_bootstrap_failures`）合计 301 s，
+占全量 65%；成本来自真实 owner-socket RPC（约 2000 次往返，每次一个子进程做签名校验）、
+`fsync` 与 JSON 规范化，不是 sleep。它们是 bootstrap/strict 生产路径的行为证据，
+**不得为提速删除或削弱断言**。按变更范围迭代用 `--fast` 或 `-p`，合并/交付前跑一次
+全量；`--fast` 只能作为迭代反馈，不得上报为离线 PASS。模块清单的选取契约由
+`tests/test_offline_baseline.py` 的 `OfflineRunnerModeTests` 固定：它用 unittest 自己的
+discovery 结果（而不是脚本用的同一个 glob）做期望值，所以新增递归测试目录也会报红。
+
 > **两个变量都必须清除，脚本已固化这一点。** 实测：在本工作区的环境下
 > （`SWARM_WORKER_PROFILES` 指向私有 `swarm/worker-model-profiles.json`），
 > 不清除时整包会出现 39 项 `FAIL/ERROR`，全部集中在 `tests/test_coordinator_worker_plan.py`；

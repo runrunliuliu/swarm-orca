@@ -60,9 +60,12 @@ provider 限定 `--model` 选择器且拒绝 effort/backend；`codex-ark` 的模
 从公开仓库的 `swarm/` 目录执行：
 
 ```bash
-tests/run_offline.sh -q
+tests/run_offline.sh --fast   # 按变更范围迭代，约 2.5 分钟
+tests/run_offline.sh -q       # 全量：合并/交付前门禁
 ```
 
-脚本自行清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT`；不要手动继承私有策略路径，
-也不要把私有旧代码目录加入 `PYTHONPATH`。测试边界见[测试指南](docs/testing/reliability.md)；
-离线 PASS 不替代目标文件系统、原生 runtime 或真实 Agent 验收。
+`--fast` 排除 `tests/run_offline.sh` 文件头列出的 4 个耗时主因模块，只用于迭代，不得作为
+离线 PASS 上报。脚本自行清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT`；
+不要手动继承私有策略路径，也不要把私有旧代码目录加入 `PYTHONPATH`。测试边界见
+[测试指南](docs/testing/reliability.md)；离线 PASS 不替代目标文件系统、原生 runtime 或
+真实 Agent 验收。
