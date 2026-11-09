@@ -93,6 +93,9 @@ export async function createWebRuntimeSessionTerminalResult(
       // Why: structured creation cannot yet express afterTabId; keep the exact legacy placement contract until it can.
       // Why: focus belongs to the paired client; a headless execution host has no renderer to focus.
       // Why: rebuilding a prepared command through host authority can discard its embedded prompt and delivery flags.
+      // Why: a spawn provenance pin has no host-authority field in this snapshot, so it forces the legacy create;
+      // the sidebar only offers spawning for agents that cannot take the structured route, so no user session is
+      // silently downgraded. Adding provenance to structured create must extend this contract first.
       const mustUseLegacyAgentCreate =
         args.preparedAgentCommand || args.afterTabId || args.spawnedFromPaneKey
       const hostAuthority = mustUseLegacyAgentCreate

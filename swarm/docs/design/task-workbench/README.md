@@ -409,6 +409,40 @@ Agent 行元素与来源：
 - provider 上报的 subagent 与用户派生同时存在：两类子行共存且不重复计数。
 - 旧 build 读新 tab 记录：忽略未知可选字段，tab 仍能恢复（与 §8.6 的 additive 规则一致）。
 
+### 7.8.1 实施状态（2026-11-09，分支 `agent-spawn-tree`）
+
+已实现（`orca/` 快照上 5 个提交，逐条对应本节验收）：
+
+- 来源字段：`TerminalTab.spawnedFromPaneKey?: string`（additive optional，缺省=平级）；host RPC
+  `session.tabs` 只在调用方显式给出时转发，runtime-owned/headless 持久化、PTY 重发布不擦除、
+  mobile/client 投影带出。
+- 唯一写入入口：侧栏 agent 行的显式派生动作（full/compact 行上的派生按钮）。快捷键
+  `handleNewAgentTab`、`cli`、外部创建**不写**来源，也不按 active tab 推断。
+- 建树与折叠：行模型把来源投影成 renderer-only 的 lineage parent（不伪装成
+  `entry.orchestration.parentPaneKey`），父行折叠沿用既有 `+N` 计数通道；provider subagent
+  仍是 `rowSource:'subagent'` 的 synthetic 子行，可与用户派生子行共存。
+- 交互：父 tab 缺失时子行上提为 root 并带 `originClosed`（显示 `◇ 来源已关闭`），状态点与
+  跳转仍指向子行自身；跨 `worktreeId` 视为无来源。
+- `Needs you` 去重：在 bucket 计数层按 lineage 分组只计一次（`collectAgentLineageAttentionCounts`），
+  其它 bucket 计数不受影响。
+
+已知限制（不是欠账，是本期取舍）：
+
+1. **structured（native-chat）agent 暂不提供派生入口**：把来源透传进 structured launch/settlement
+   与 paired host authority 需要 host/main 侧契约，超出本期 renderer-only 的窄改动；因此宁可
+   不提供按钮，也不静默把用户降级到 legacy terminal create（丢掉 structured 会话/恢复能力）。
+2. **`Needs you` 只在 renderer 计数层去重**；Task workbench 列表 selector 尚未实现，接入时
+   必须复用同一函数，不得另建第二套计数。
+3. **旧 build 的往返语义**：旧 build 读新 tab 记录能恢复 tab（未知字段被 Zod strip），但旧
+   build **再写盘会丢掉** `spawnedFromPaneKey`，派生关系跨旧 build 不保留。验收措辞以本条
+   为准；要跨版本保留需另做持久化兼容设计。
+4. provider synthetic 行（`rowSource:'subagent'`）**不可派生**：其 `paneKey` 是合成值，写入
+   来源会得到无法解析的父边。
+
+证据：`evidence/w4-review.md`（验收清单）、`w4b/w4c/w4d-review.md`（三轮独立复审）、
+`strict-operator-fix.md`（本轮 strict 启动门缺口）。本轮开发为 Operator 驱动的并行波次，
+**不是** Orca strict Run（`strict: not_applicable`，原因见该文件）。
+
 **待你确认一件事**：你说的"项目区的 TUI"指哪一层——侧栏/工作台里的 Agent 行列表，还是顶部 tab bar
 （或者两者都要）？我按"行列表为主、tab bar 只加父子小徽标"写的；如果实际是 tab bar 为主，本节的
 展示与折叠段落需要改写。

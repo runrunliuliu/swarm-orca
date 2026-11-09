@@ -215,7 +215,17 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       initialSessionOptions: startupPlan.sessionOptions,
       onPromptDelivered
     })
-  if (plan?.route === 'structured-native-chat' && !spawnedFromPaneKey) {
+  if (plan?.route === 'structured-native-chat' && spawnedFromPaneKey) {
+    // Why: this snapshot's structured launch/settlement contract cannot persist a provenance pin, and
+    // falling through would silently downgrade the launch to a legacy terminal tab and lose structured
+    // session/recovery behavior. The sidebar hides this affordance for structured-capable agents, so
+    // reaching here is a caller bug: fail loudly instead of degrading the user's session.
+    throw new Error(
+      'spawnedFromPaneKey is not supported on the structured-native-chat launch route' +
+        (plan ? '' : ': missing plan')
+    )
+  }
+  if (plan?.route === 'structured-native-chat') {
     const structured = launchAgentInStructuredNewTab({
       plan,
       ...(beforeSurfaceOpen
