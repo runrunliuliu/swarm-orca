@@ -42,11 +42,11 @@ implementation protocols):
 
 ## 1. Discover the runtime and choose a supported execution path
 
-Read [Orca CLI discovery](../../../orca/skills/orca-cli/SKILL.md) and
-[orchestration discovery](../../../orca/skills/orchestration/SKILL.md). Resolve the executable
-against the explicit task target and verified existing ownership before using environment defaults.
-Load that executable's version-matched guides with `skills get orca-cli` and
-`skills get orchestration`; use `--help` for uncovered commands. Do not invent flags.
+Load the selected executable's version-matched guides with `orca skills get orca-cli` and
+`orca skills get orchestration`; use `--help` for uncovered commands. Do not invent flags. Resolve the
+executable against the explicit task target and verified existing ownership before using environment
+defaults. This checkout does not vendor an `orca/skills/` directory: a missing `SKILL.md` path there
+is not a failed skill read, and searching the filesystem for it is not a substitute for the guide.
 
 Access denial or connection failure stops affected operations: preserve the error, do not change
 runtime, escalate permissions, restart or weaken controls automatically. This safety boundary takes

@@ -141,9 +141,10 @@ checker 不执行命令，也不把退出码 0 自动等同于需求满足。无
 | `swarm/skills/software-development/references/review.md` | 新增 | 独立审查、被审快照、拒绝/复审和验收证据；Reviewer 读取 |
 | `swarm/skills/swarm-orchestration/SKILL.md` | 复用 | 通用身份、启动、派发、续跑、恢复及记账规则 |
 | `swarm/skills/worktree-delivery/SKILL.md` | 复用 | 通用审查、单写入者整合、整合后复测、单独授权的发布和清理 |
-| `orca/skills/orca-cli/SKILL.md`、`orca/skills/orchestration/SKILL.md` | 复用，不改 | 版本匹配的原生 CLI、任务、消息与生命周期入口 |
+| `orca skills get orca-cli`、`orca skills get orchestration` | 复用，不改 | 版本匹配的原生 CLI、任务、消息与生命周期入口；正文由可执行文件提供 |
 
-不放到 `orca/skills/` 上游快照，不放到嵌入式工作区的私有 `swarm/` 目录，
+上游快照不含 `orca/skills/` 目录，这两份正文由可执行文件按版本输出；不要放到 `orca/skills/`
+假装是本仓文件，不放到嵌入式工作区的私有 `swarm/` 目录，
 不复制到 `.agents/skills`、`.pi/` 或用户全局目录维护第二份源码。
 新领域 skill 通过相对链接引用通用 skills 和协议，不复制它们的命令/schema 正文。
 创建 skill 时按可用的 skill-creator 流程执行；本轮只是约定文件布局。

@@ -36,6 +36,8 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
 4. Coordinator 完整读规则、核验任务授权和实际文件工具后，保存工具记录。
    Operator 独立审查其完整性和自身 provider/session 与 terminal 的真实关联。
    普通 shell 占位符不证明外层 Operator 身份，观察器 JSON 不替代 skill-read。
+   技能正文用 `orca skills get <name>` 获取（版本匹配、由可执行文件输出）；本 checkout 不含
+   `orca/skills/`，所以“该路径不存在”既不能当作已读证据，也不能当作不可读的 blocker。
    **等 Coordinator 写出最终 readiness 后**再审查并 pin；不能在它仍写入
    `readiness-current.json` 时生成契约，也不能在发现漂移后直接重新取 hash。
 5. Coordinator 用固定生成器将最终清单和契约字段 pin 纳入 request。Operator 使用下述
