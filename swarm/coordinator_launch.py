@@ -89,7 +89,8 @@ def build_plan(*, codex=None, trae=None, cwd, archive_dir=None, write_dirs=(),
                model_config=BASE / "coordinator-model.json",
                runtime_config=BASE / "coordinator-runtime.json",
                trae_runtime_config=None, prompt_file=None, bootstrap_dir=None,
-               resume_session=None, replacement_run=None, strict_coordinator=False):
+               resume_session=None, replacement_run=None, strict_coordinator=False,
+               registered_bootstrap=False):
     selection = read_config(model_config, "selection")
     if set(selection) != {"mode", "agent", "model", "effort", "max_mode"}:
         raise ValueError("invalid Coordinator selection fields")
@@ -104,7 +105,7 @@ def build_plan(*, codex=None, trae=None, cwd, archive_dir=None, write_dirs=(),
             replacement_run=replacement_run)
         if strict_coordinator:
             from coordinator_strict import strict_plan
-            return strict_plan(plan)
+            return strict_plan(plan, registered_bootstrap=registered_bootstrap)
         if plan["execution"]["launch_mode"] == "tui":
             raise ValueError("TUI requires --strict-coordinator native launch")
         return plan
@@ -248,6 +249,9 @@ def main(argv=None):
     parser.add_argument("--replacement-run")
     parser.add_argument("--strict-coordinator", action="store_true",
                         help="native continuous Trae process; no capture or shell resume")
+    parser.add_argument("--registered-bootstrap", action="store_true",
+                        help="this attempt has (or will have) attempt-binding/control owner "
+                             "slots; forbids the historical direct caller write")
     parser.add_argument("--single-turn", action="store_true",
                         help="explicit Trae run-phase handoff/one-shot turn, NOT cross-turn goal execution")
     parser.add_argument("--write-dir", action="append", default=[], dest="write_dirs")

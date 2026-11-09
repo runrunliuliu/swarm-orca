@@ -123,6 +123,28 @@ class StrictCoordinatorTests(unittest.TestCase):
                       shlex.split(registered["native_launch"]["agent_args"])[-1])
         self.assertIn("commit_owner", shlex.split(registered["native_launch"]["agent_args"])[-1])
 
+    def test_registration_evidence_requires_the_registered_flag(self):
+        # Fail closed: once an attempt has a binding/owner slot, a plan that does
+        # not declare registered mode would offer the historical direct write to
+        # the slot commit_owner owns, and that slot stays unconfirmed forever.
+        from coordinator_strict import strict_plan
+        base = build_plan(**self.trae.args)
+        (self.trae.bootstrap / "attempt-binding.json").write_text("{}\n")
+        with self.assertRaisesRegex(ValueError, "strict_registered_bootstrap_required"):
+            strict_plan(base)
+        self.assertTrue(strict_plan(base, registered_bootstrap=True)["registered_bootstrap"])
+
+    def test_build_plan_passes_the_registered_flag_into_the_prompt(self):
+        # The production planning entry, not only strict_plan(), must be able to
+        # produce the registered prompt; otherwise "registered" is unreachable.
+        plan = build_plan(**self.trae.args, strict_coordinator=True, registered_bootstrap=True)
+        self.assertTrue(plan["registered_bootstrap"])
+        prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
+        self.assertIn("REGISTERED ATTEMPT", prompt)
+        self.assertNotIn("HISTORICAL PATH, only when", prompt)
+        self.assertEqual(plan["native_launch"]["short_prompt_sha256"],
+                         digest(prompt.encode("utf-8")))
+
     def test_single_turn_flag_conflicts_with_continuous_strict_launch(self):
         out = io.StringIO()
         with redirect_stderr(out), self.assertRaises(SystemExit) as exc:

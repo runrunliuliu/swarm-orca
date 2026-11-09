@@ -144,6 +144,14 @@ def strict_bootstrap_prompt(plan):
 def strict_plan(plan, *, registered_bootstrap=False):
     require(plan["phase"] == "bootstrap" and plan["resume_session"] is None
             and plan.get("replacement_run") is None, "strict_requires_fresh_native_bootstrap")
+    archive = Path(plan["artifact_dirs"]["archive"])
+    # A registered attempt's caller slot belongs to commit_owner. Producing the
+    # historical direct-write prompt for such an attempt is unrecoverable (the
+    # slot stays unconfirmed forever), so absence of the flag cannot be treated
+    # as "not registered" once registration evidence exists.
+    registered_evidence = (archive / "attempt-binding.json", archive / "control" / "owner.json")
+    require(registered_bootstrap or not any(os.path.lexists(p) for p in registered_evidence),
+            "strict_registered_bootstrap_required")
     executable = plan["argv"][0]
     tui = plan["execution"]["launch_mode"] == "tui"
     from coordinator_strict_delivery import layout
