@@ -127,6 +127,12 @@ class TuiTests(unittest.TestCase):
             self.assertIn(flag, args)
         for flag in ("exec", "--json", "--color", "resume", "-"):
             self.assertNotIn(flag, args[:-1])
+        # Why: the folder-trust gate would stop an unattended TUI on a workspace Trae has not
+        # seen; the override answers it for this process only, without writing user config.
+        trust = "projects={" + json.dumps(plan["cwd"]) + '={trust_level="trusted"}}'
+        self.assertIn(trust, args)
+        self.assertEqual(args[args.index(trust) - 1], "-c")
+        self.assertEqual([arg for arg in args if arg.startswith("projects=")], [trust])
         self.assertNotEqual(args[-1].encode(), input_bytes(plan))
         self.assertEqual(plan["native_launch"]["prompt_sha256"],
                          plan["input_contract"]["stdin_sha256"])

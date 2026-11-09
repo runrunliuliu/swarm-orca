@@ -85,6 +85,8 @@ class TraeCoordinatorTests(unittest.TestCase):
         self.assertIn('approval_policy="never"', plan["argv"])
         self.assertIn('sandbox_workspace_write.network_access=true', plan["argv"])
         self.assertIn('model_backend_variant="max"', plan["argv"])
+        # A non-TUI (exec) launch keeps its historical argv: no launch-scoped trust override.
+        self.assertFalse([arg for arg in plan["argv"] if arg.startswith("projects=")])
         self.assertIsNone(plan["command"])
         self.assertTrue(input_bytes(plan).endswith(self.prompt.read_bytes()))
         self.assertEqual(list(self.bootstrap.iterdir()), [])

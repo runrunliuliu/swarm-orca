@@ -153,6 +153,13 @@ def build_trae_plan(*, trae, cwd, archive_dir, write_dirs, selection,
             "-c", 'model_reasoning_effort="xhigh"', "-c", 'model_backend_variant="max"']
     if "approvals_reviewer" in execution:
         argv += ["-c", "approvals_reviewer=" + json.dumps(execution["approvals_reviewer"])]
+    if tui:
+        # Why: an unattended TUI otherwise stops on "Do you trust the contents of this directory?"
+        # for every workspace Trae has not seen before. This override answers that gate for this
+        # process only, so no user-level config file is written; json.dumps keeps the exact cwd a
+        # single quoted TOML key (a dotted-path spelling would split on dots inside the path), and
+        # it grants nothing but project-config loading — sandbox and approval policy are unchanged.
+        argv += ["-c", "projects={" + json.dumps(str(cwd)) + '={trust_level="trusted"}}']
     for root in roots:
         argv += ["--add-dir", root]
     if resume_session is not None:
