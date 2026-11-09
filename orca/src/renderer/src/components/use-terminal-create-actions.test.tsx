@@ -19,7 +19,8 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   createBrowserTab: vi.fn(),
   openNewBrowserTabInActiveWorkspace: vi.fn(),
-  openMobileEmulatorTab: vi.fn()
+  openMobileEmulatorTab: vi.fn(),
+  launchAgentInNewTab: vi.fn()
 }))
 
 vi.mock('../store', () => ({ useAppStore: { getState: () => mocks.state } }))
@@ -41,7 +42,9 @@ vi.mock('@/runtime/web-runtime-session', () => ({
 vi.mock('@/lib/open-mobile-emulator-tab', () => ({
   openMobileEmulatorTab: (...args: unknown[]) => mocks.openMobileEmulatorTab(...args)
 }))
-vi.mock('@/lib/launch-agent-in-new-tab', () => ({ launchAgentInNewTab: vi.fn() }))
+vi.mock('@/lib/launch-agent-in-new-tab', () => ({
+  launchAgentInNewTab: (...args: unknown[]) => mocks.launchAgentInNewTab(...args)
+}))
 vi.mock('@/lib/duplicate-browser-tab-options', () => ({
   buildDuplicatedBrowserTabOptions: () => ({})
 }))
@@ -115,5 +118,21 @@ describe('useTerminalCreateActions creation gates', () => {
     renderActions().handleNewSimulatorTab()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(mocks.toastError).toHaveBeenCalledWith('emulator says no')
+  })
+
+  it('keeps shortcut-created agent tabs unparented', () => {
+    mocks.launchAgentInNewTab.mockReturnValue({ surface: { kind: 'local-terminal', tabId: 'tab-1' } })
+
+    renderActions().handleNewAgentTab('codex')
+
+    expect(mocks.launchAgentInNewTab).toHaveBeenCalledWith({
+      agent: 'codex',
+      worktreeId: WORKTREE_ID,
+      groupId: undefined,
+      launchSource: 'shortcut'
+    })
+    expect(mocks.launchAgentInNewTab.mock.calls[0]?.[0]).not.toHaveProperty(
+      'spawnedFromPaneKey'
+    )
   })
 })

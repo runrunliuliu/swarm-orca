@@ -76,6 +76,8 @@ type Props = {
   sendTargetStatus?: 'eligible' | 'disabled' | 'sending'
   sendTargetDisabledReason?: string
   onSendTargetClick?: (paneKey: string) => void
+  onSpawnAgent?: () => void
+  spawnAgentLabel?: string
 }
 
 const DashboardAgentRow = React.memo(function DashboardAgentRow({
@@ -94,7 +96,9 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
   hideLineageConnectors = false,
   sendTargetStatus,
   sendTargetDisabledReason,
-  onSendTargetClick
+  onSendTargetClick,
+  onSpawnAgent,
+  spawnAgentLabel
 }: Props) {
   const hasChildDisclosure =
     typeof childAgentCount === 'number' &&
@@ -307,6 +311,8 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
           onDismiss={onDismiss}
           onToggleExpanded={handleToggleExpanded}
           onSendTargetClick={onSendTargetClick}
+          onSpawnAgent={onSpawnAgent}
+          spawnAgentLabel={spawnAgentLabel}
         />
       </div>
       <DashboardAgentRowToolStep

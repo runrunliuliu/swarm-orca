@@ -46,6 +46,8 @@ export type LaunchAgentInNewTabArgs = {
   promptDelivery?: 'auto-submit' | 'draft' | 'submit-after-ready'
   /** Telemetry surface that initiated this launch. Defaults to the tab-bar quick-launch entry point. */
   launchSource?: LaunchSource
+  /** Explicit parent pane for user-initiated agent lineage. Omit for shortcut/CLI/external launches. */
+  spawnedFromPaneKey?: string
   /** User-authored Quick Command label for local tabs created from the tab bar. */
   quickCommandLabel?: string | null
   /** Shell platform for the startup command; defaults to renderer OS. SSH/WSL worktrees run Linux even from Windows. */
@@ -111,6 +113,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     initialCwd,
     promptDelivery = 'auto-submit',
     launchSource,
+    spawnedFromPaneKey,
     quickCommandLabel,
     launchPlatform,
     onPromptDelivered,
@@ -185,6 +188,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       pastePromptAfterReady: pasteDraftAfterLaunch,
       submitPastedPrompt,
       agentArgs,
+      spawnedFromPaneKey,
       // Why: omission means terminal locally, but would let a paired host apply
       // its own default; send the client's resolved terminal choice explicitly.
       viewMode: initialViewModeProps.viewMode ?? 'terminal',
@@ -211,7 +215,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       initialSessionOptions: startupPlan.sessionOptions,
       onPromptDelivered
     })
-  if (plan?.route === 'structured-native-chat') {
+  if (plan?.route === 'structured-native-chat' && !spawnedFromPaneKey) {
     const structured = launchAgentInStructuredNewTab({
       plan,
       ...(beforeSurfaceOpen
@@ -247,6 +251,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
   // Why: followup path pastes an unsubmitted draft, so gate the initial chat view like a draft launch, not auto-submit.
   const tab = store.createTab(worktreeId, groupId, undefined, {
     launchAgent: agent,
+    ...(spawnedFromPaneKey ? { spawnedFromPaneKey } : {}),
     quickCommandLabel,
     ...(pendingActivationSpawn ? { pendingActivationSpawn: true } : {}),
     ...initialViewModeProps

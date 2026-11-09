@@ -190,6 +190,27 @@ describe('DashboardAgentRow', () => {
     expect(markup).not.toContain('aria-label="Dismiss agent"')
   })
 
+  it('renders an explicit spawn action when a row can launch a child agent', () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <DashboardAgentRow
+          agent={makeAgent()}
+          onDismiss={vi.fn()}
+          onActivate={vi.fn()}
+          now={NOW}
+          hideIdentityIcon
+          hideExpand
+          onSpawnAgent={vi.fn()}
+          spawnAgentLabel="Spawn another Codex from this agent"
+        />
+      </TooltipProvider>
+    )
+
+    expect(markup).toContain('aria-label="Spawn another Codex from this agent"')
+    expect(markup).toContain('lucide-git-fork')
+    expect(markup).toContain('aria-label="Dismiss agent"')
+  })
+
   it('marks disabled send-target rows as muted without an eligibility ring', () => {
     const markup = renderSendTargetRow({
       sendTargetStatus: 'disabled',

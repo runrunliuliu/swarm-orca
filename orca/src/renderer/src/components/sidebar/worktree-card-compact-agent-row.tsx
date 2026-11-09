@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react'
+import { GitFork } from 'lucide-react'
 import { DashboardAgentChildDisclosure } from '@/components/dashboard/DashboardAgentChildDisclosure'
 import { AgentStateDot, agentStateLabel } from '@/components/AgentStateDot'
 import { AgentChildRowContent } from '@/components/AgentChildRowContent'
@@ -82,6 +83,8 @@ type CompactAgentRowProps = {
   sendTargetStatus?: 'eligible' | 'disabled' | 'sending'
   sendTargetDisabledReason?: string
   onSendTargetClick?: (paneKey: string) => void
+  onSpawnAgent?: () => void
+  spawnAgentLabel?: string
   childAgentCount?: number
   childAgentsExpanded?: boolean
   onToggleChildAgents?: () => void
@@ -98,6 +101,8 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
   sendTargetStatus,
   sendTargetDisabledReason,
   onSendTargetClick,
+  onSpawnAgent,
+  spawnAgentLabel,
   childAgentCount,
   childAgentsExpanded = false,
   onToggleChildAgents,
@@ -175,6 +180,14 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
       }
     },
     [agent.paneKey, onSendTargetClick, sendTargetStatus]
+  )
+  const handleSpawnAgent = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onSpawnAgent?.()
+    },
+    [onSpawnAgent]
   )
   const timestamp = shortTime ? (
     <span
@@ -258,6 +271,27 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
         </span>
       )}
       {cacheTimer && <CacheTimer startedAt={cacheTimer.startedAt} ttlMs={cacheTimer.ttlMs} />}
+      {onSpawnAgent && !sendTargetStatus && (
+        <button
+          type="button"
+          onClick={handleSpawnAgent}
+          onMouseDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.stopPropagation()
+            }
+          }}
+          className={cn(
+            'inline-flex shrink-0 items-center justify-center text-muted-foreground/70 hover:text-foreground',
+            'can-hover:opacity-0 transition-opacity duration-150',
+            'group-hover/compact-agent-row:opacity-100 focus-visible:opacity-100'
+          )}
+          aria-label={spawnAgentLabel ?? 'Spawn agent from this row'}
+          title={spawnAgentLabel ?? 'Spawn agent from this row'}
+        >
+          <GitFork className="size-3" />
+        </button>
+      )}
       {hasChildDisclosure ? (
         <DashboardAgentChildDisclosure
           childAgentCount={childAgentCount}
