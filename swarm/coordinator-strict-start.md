@@ -61,6 +61,35 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
    continuation 发布后才激活原 monitor/scheduler。模式化当前 readiness 通过才形成
    运行能力证据，不把 created 或 monitor 心跳当作业务验收通过。
 
+## Operator provider
+
+strict 的 Operator 角色只接受可核验的 **Trae TUI 会话**。`operator_session.py` 对
+`provider: pi` 在原生查询前直接以 `operator_session_pi_operator_unverifiable` 停止：
+本机 Orca 1.4.219 不为 pi pane 写 `agent-hooks/last-status.json` 记录，且 pi 1.5.0 的会话
+日志没有读取器核验的 `session_meta`/`turn_context`，补通道属 Orca 侧改动而不是 swarm 选项。
+用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
+
+用 Trae 会话当 Operator 的完整清单（每步都在**该 Operator 自己的 pane** 内执行）：
+
+1. 在目标 worktree 用 `terminal create --agent trae` 起一个**独立** Operator 会话，
+   不与 Coordinator 同 terminal、不同 provider session；记录它的 `handle`、`incarnationId`、
+   真实 provider session（不是 `paneKey`、不是 `ptyId` 后段）及 `worktreeId`。
+2. 在跑任何 gate 命令的 shell 中确认 `ORCA_TERMINAL_HANDLE` 就是该 Operator terminal。
+   `require_operator_context` 要求它等于契约 `operator.terminal`；**不要**设置或清除身份环境、
+   不要把普通 shell 标成 Operator，也不要由其他会话代跑 publish。
+3. 先固定 Operator 自身身份输入（`cli`/`runtime`/`workspace`/`profile`/`log_root`/
+   `expected_effective`/`output`），把它与原始 SHA256 交给 `observe-operator --execute`；
+   观察结束后再固定观察文件 SHA256。`context_max_age_seconds` 从已审查契约继承。
+4. 契约的 `operator` 字段必须逐字取该观察的 `session`（provider=trae、terminal、incarnation、
+   session、workspace），不得从 pi 会话或其他 pane 反推；请求、config、review 里同一个
+   Operator 身份必须一致。
+5. `strict-config-review` 与 `strict-config-publish --execute` 只在上述 Operator pane 的
+   `ORCA_TERMINAL_HANDLE` 下执行；session gate 会在同一 pane 复核 runtime/terminal/
+   incarnation/精确 hook 与日志前缀，gate 回执 TTL 默认 180 秒，过期只能按原授权重做，
+   不续期、不换目录。
+6. 没有 Trae Operator 会话时，strict 链路停在这里是**预期**结果：不要改用 pi、exec 流或
+   手工 JSON 续跑；先按现有任务授权准备该会话，或改用无 Operator gate 的非 strict 路径。
+
 ## 固定配置与命令
 
 这是单次已授权 attempt 的配置，不是新的用户授权文件；占位符必须从独立核验来源填写。

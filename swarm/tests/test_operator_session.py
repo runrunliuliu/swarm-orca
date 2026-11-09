@@ -166,19 +166,28 @@ class OperatorSessionTests(unittest.TestCase):
         self.assertEqual(result["session"]["session"], tui_tests.legacy.SID)
         self.assertEqual(result["effective"], {"effort": "xhigh"})
 
-    def test_pi_operator_identity_reuses_runtime_state_without_trae_launch_commitment(self):
+    def test_pi_operator_identity_is_rejected_before_any_native_query(self):
         self.tui.term["agentIdentity"] = "pi"
         self.tui.entry.update(source="pi", payload={"agentType": "pi"})
         self.tui.write_state()
         op_ref = self.operator_input(provider="pi", expected={"cwd": str(self.f.cwd)},
                                      output=self.directory / "pi-operator.json")
-        with patch("trae_tui.native", side_effect=self.tui.query):
-            result = observe_operator(op_ref)
-        self.assertEqual(result["session"]["provider"], "pi")
-        self.assertEqual(result["session"]["session"], tui_tests.legacy.SID)
-        self.assertEqual(result["effective"], {"cwd": str(self.f.cwd)})
-        raw = parse(pinned(result["observation"]))
-        self.assertNotIn("launch_token_hash", raw["identity"])
+        # An Orca 1.4.219 Pi pane writes no agent-hooks row and the Pi session log has
+        # no session_meta/turn_context, so the adapter cannot bind it: fail closed and
+        # report the supported provider instead of a generic unverifiable state.
+        with patch("trae_tui.native") as query, \
+                self.assertRaisesRegex(ValueError, "operator_session_pi_operator_unverifiable"):
+            observe_operator(op_ref)
+        query.assert_not_called()
+        self.assertFalse((self.directory / "pi-operator.json").exists())
+
+    def test_unsupported_operator_provider_keeps_its_own_error_code(self):
+        op_ref = self.operator_input(provider="codex", output=self.directory / "codex-operator.json")
+        with patch("trae_tui.native") as query, \
+                self.assertRaisesRegex(ValueError, "operator_session_provider_unsupported"):
+            observe_operator(op_ref)
+        query.assert_not_called()
+        self.assertFalse((self.directory / "codex-operator.json").exists())
 
     def test_operator_identity_read_only_verifier_accepts_existing_observation_pin(self):
         output = self.directory / "operator-existing-observation.json"

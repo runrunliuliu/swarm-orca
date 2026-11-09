@@ -85,15 +85,16 @@ class OperatorStartupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "operator_session_runtime_state_unverifiable"):
             self.s.gate()
 
-    def test_pi_operator_uses_explicit_pi_runtime_state_root(self):
+    def test_pi_operator_is_rejected_before_native_identity_queries(self):
         self.s.contract["operator"]["provider"] = "pi"
         self.t.term["agentIdentity"] = "pi"
         self.t.entry.update(source="pi", payload={"agentType": "pi"})
         self.t.write_state()
-        receipt = self.s.gate()
-        self.assertTrue(receipt["ok"])
-        self.assertEqual(receipt["operator_session_trust"], "runtime-state-not-process-attested")
-        self.assertFalse(any(args[:2] == ["terminal", "read"] for args in self.t.calls))
+        # A Pi pane has no agent-hooks row on this runtime, so the session gate must
+        # stop on the provider before it queries or reports a stale-hook style state.
+        with self.assertRaisesRegex(ValueError, "operator_session_pi_operator_unverifiable"):
+            self.s.gate()
+        self.assertEqual(self.t.calls, [])
 
     def test_unsupported_provider_does_not_guess_another_log_root(self):
         self.s.contract["operator"]["provider"] = "codex"
