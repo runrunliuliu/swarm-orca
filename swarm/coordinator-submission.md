@@ -100,7 +100,7 @@ ACK 回包丢失但请求已记录为 attempted 时，只查询原 request-show�
 
 ## 验证与性能口径
 
-定向离线用例见 `tests/test_coordinator_tui_submission.py`，并需回归既有 TUI workflow/scheduler、
+定向离线用例见 `tests/coordinator/test_coordinator_tui_submission.py`，并需回归既有 TUI workflow/scheduler、
 monitor/recovery、terminal-idle 管道。报告见
 本次离线验证记录（部署方私有历史材料，不随公开仓库分发）。
 离线 fixtures 不证明真实消息唤醒、长期自治或 11 项 live 验收通过。本批未部署、未启动新 Agent、

@@ -111,7 +111,7 @@ def query(args, runtime, timeout=12, *, start_new_session=False):
     through this module (progress_watch itself, operator_monitor.native and the
     bootstrap/lifecycle fences). Adding a verb here is a reviewable widening of
     what those callers may query; keep it to read-only verbs and pin the routing
-    with a test in tests/test_progress_watch.py so the widening is deliberate.
+    with a test in tests/core/test_progress_watch.py so the widening is deliberate.
     """
     approved = (("status",), ("orchestration", "run-show"),
                 ("orchestration", "worker-list"), ("orchestration", "task-list"),

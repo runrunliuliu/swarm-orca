@@ -31,7 +31,7 @@ def main():
     source = Path(__file__).resolve().parents[1]
     print(str(root), flush=True)
     sources = [file_ref(p) for p in sorted(source.glob("*.py"))] + [
-        file_ref(p) for p in sorted((source / "tests").glob("*.py"))]
+        file_ref(p) for p in sorted((source / "tests").rglob("*.py"))]
     mount = subprocess.run(["findmnt", "-T", str(root), "-J", "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"],
                            check=True, stdout=subprocess.PIPE, timeout=10)
     results = []

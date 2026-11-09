@@ -371,6 +371,6 @@ lifecycle 保存已知退出码和空 receipt。耗尽后的 lifecycle 重启仍
 
 验证与尚未完成项见 运行期边界开发报告（部署方私有历史材料，不随公开仓库分发）
 及前序生命周期交接报告（部署方私有历史材料，不随公开仓库分发）。
-回归入口为 `tests/test_startup_handoff.py`、`tests/test_operator_startup.py` 和
-`tests/test_bootstrap_production.py`；生产 helpers 的离线纵向测试不替代真实 provider、
+回归入口为 `tests/core/test_startup_handoff.py`、`tests/operators/test_operator_startup.py` 和
+`tests/bootstrap/test_bootstrap_production.py`；生产 helpers 的离线纵向测试不替代真实 provider、
 NAS 新链实测、独立审查或 live 验收。

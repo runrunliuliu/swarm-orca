@@ -40,12 +40,12 @@
 
 | 能力或风险 | 必测层 / 用例 | 主要判据及现有回归入口 |
 | --- | --- | --- |
-| bootstrap 到运行期的责任交接 | D-contract、L-flow | 缺 Operator gate、提前 idle、缺 continuation/monitor 时准确阻断；正常路径有责任接收证据。[handoff](../../tests/test_startup_handoff.py)、[bootstrap](../../tests/test_bootstrap_production.py) |
-| 身份、授权、模式隔离与首派时效 | D-contract、I-gate-expiry；全部 L 的准入 | 原身份/pins 不变；过期、STOP、错误角色/路径、缺 lifecycle 不产生非法副作用。[native preflight](../../tests/test_native_preflight.py) |
-| 并发、依赖汇合、独立审查与集成 | D-control、L-collaboration | 不超上限；乱序完成不提前集成；拒绝后返工、单写入者集成并复测。[worker plan](../../tests/test_coordinator_worker_plan.py) |
+| bootstrap 到运行期的责任交接 | D-contract、L-flow | 缺 Operator gate、提前 idle、缺 continuation/monitor 时准确阻断；正常路径有责任接收证据。[handoff](../../tests/core/test_startup_handoff.py)、[bootstrap](../../tests/bootstrap/test_bootstrap_production.py) |
+| 身份、授权、模式隔离与首派时效 | D-contract、I-gate-expiry；全部 L 的准入 | 原身份/pins 不变；过期、STOP、错误角色/路径、缺 lifecycle 不产生非法副作用。[native preflight](../../tests/core/test_native_preflight.py) |
+| 并发、依赖汇合、独立审查与集成 | D-control、L-collaboration | 不超上限；乱序完成不提前集成；拒绝后返工、单写入者集成并复测。[worker plan](../../tests/coordinator/test_coordinator_worker_plan.py) |
 | 忙时消息、空闲原生唤醒 | I-pending-history、L-events 的三个子项 | 不丢消息；逐条处理后完整 ACK；两种 idle 唤醒独立归因。 |
-| 等待、发送竞争、未知结果与防重 | D-control、I-wait-boundary、I-presend-race、I-unknown-result | 未就绪不发送；未知结果先对账；恢复不重复副作用。[scheduler](../../tests/test_coordinator_tui_scheduler.py) |
-| 自动续跑、停滞止损与恢复 | D-control、L-flow、L-safety 的三个子项 | 有真实进展和合法 checkpoint；无进展有界停止；monitor 恢复后可继续且不重复。[recovery](../../tests/test_operator_monitor_recovery.py)、[STOP](../../tests/test_monitor_stop_signals.py) |
+| 等待、发送竞争、未知结果与防重 | D-control、I-wait-boundary、I-presend-race、I-unknown-result | 未就绪不发送；未知结果先对账；恢复不重复副作用。[scheduler](../../tests/coordinator/test_coordinator_tui_scheduler.py) |
+| 自动续跑、停滞止损与恢复 | D-control、L-flow、L-safety 的三个子项 | 有真实进展和合法 checkpoint；无进展有界停止；monitor 恢复后可继续且不重复。[recovery](../../tests/operators/test_operator_monitor_recovery.py)、[STOP](../../tests/core/test_monitor_stop_signals.py) |
 | 业务验收、结算、释放与用量 | 全部 I/L 的共享收尾；L-flow/collaboration 正常完成 | 独立业务判据、完整资源盘点、角色/尝试台账及归档回读；失败/安全停止也必须交代资源去向。 |
 
 **完整核心 suite PASS** 要求：D-contract、D-control 的全部必测分支，五项 I 的全部子场景，

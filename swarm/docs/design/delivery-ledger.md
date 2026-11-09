@@ -134,7 +134,7 @@
 | W3 | 发送路径接线 | `operator_monitor.py`、`coordinator_tui_scheduler.py` 的最小插入 | 重试/对账语义、发送顺序、门禁判断 |
 | W4 | 只读查询 | 新增 `delivery_cli.py`（`show` / `since` / `cursor-at`） | 任何写入路径 |
 | W7 | 观察者只读模式 | `delivery_cli.py` 增加 `--read-only` 入口：同一实现以只读模式启动，不写事件与游标、不生成回执 | 写路径；不得以只读模式伪造 `accepted` |
-| W5 | 测试 | 新增 `tests/test_delivery_ledger.py`、`tests/test_delivery_compat.py` | 改动既有测试以迁就新实现 |
+| W5 | 测试 | 新增 `tests/core/test_delivery_ledger.py`、`tests/core/test_delivery_compat.py` | 改动既有测试以迁就新实现 |
 | W6 | 文档 | `operator-monitor.md`、`coordinator-tui.md` 各增一节"投递台账" | 改写既有语义段落 |
 
 落地顺序：W1 → W2 → W5(确定性) → M1 只读 → W3 → W5(兼容) → W4 → W7 → W6。

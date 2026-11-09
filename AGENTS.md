@@ -73,6 +73,14 @@ env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
 
 `env -u SWARM_WORKER_PROFILES` is deliberate: a private profile file changes the pinned
 `worker-model-profiles.json` hash and makes unrelated suites fail with `file_pin_changed`.
+
+The suite is grouped into `tests/bootstrap/`, `tests/coordinator/`, `tests/operators/`,
+`tests/trae/`, `tests/worker/` and `tests/core/` (everything without a matching prefix). Each
+area is a package, so a module's unittest name is `area.test_name` and `run_offline.sh --list`
+prints exactly the names discovery reports; `tests/core/test_offline_baseline.py` fails if the
+two ever diverge. Single-module runs therefore look like
+`PYTHONPATH=.:tests python3 -B -m unittest operators.test_operator_monitor -v`, and a pattern
+such as `-p "test_coordinator_*"` still matches basenames across areas.
 `RSI_CHECKER_TEST_ROOT` decides whether the 18 explicitly gated real-RSI cases run or skip;
 neither variable should be set by hand for a baseline run.
 
@@ -90,6 +98,11 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 - Put regression tests next to the source they cover. Where practical, demonstrate a bug test
   against the old baseline in an isolated fixture/checkout; never revert an active shared checkout
   or invalidate a running source pin just to obtain a red test.
+- Put the file in the area directory matching its source prefix, keeping the basename equal to the
+  module under test: `tests/<area>/test_<module>.py`. Shared helpers (`offline_env.py`,
+  `*_fixture.py`, `fixtures/`) stay at the `tests/` top level because `tests` is on
+  `PYTHONPATH`; an area name must therefore not collide with an importable top-level module
+  (that is why the Operator area is `operators/`, not `operator/`).
 - Report "tests added" and "tests executed" separately, and name what did not run.
 
 ## Git
