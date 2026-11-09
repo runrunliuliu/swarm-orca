@@ -2,6 +2,13 @@
 
 No raw hook JSON, credential fields, TUI transcript or live-authority claim is
 returned. The immutable full observation remains consumable by existing gates.
+
+Only a Trae Operator session is verifiable today. An Orca 1.4.219 Pi pane gets no
+`agent-hooks/last-status.json` row, and the local Pi session log carries neither the
+`session_meta` root nor `turn_context` records this reader verifies, so a Pi Operator
+cannot be bound to a pane. That gap is an Orca status-channel problem, not a swarm
+reader option; reject it before any native query instead of reporting a generic
+unverifiable state. See [Agent/adapter support](operator-prepare.md#agent--adapter-支持范围).
 """
 
 import argparse
@@ -23,6 +30,16 @@ from trae_coordinator import ContextFreshnessError
 import trae_tui
 
 
+def _require_operator_provider(operator):
+    """Fail closed on the Operator provider before any native query.
+
+    Pi is rejected with its own code so the caller learns the supported
+    Operator provider instead of a generic unverifiable runtime state.
+    """
+    require(operator["provider"] != "pi", "operator_session_pi_operator_unverifiable")
+    require(operator["provider"] == "trae", "operator_session_provider_unsupported")
+
+
 def observe_identity(*, cli, runtime, operator, workspace, profile, log_root,
                      max_age_seconds, previous=None):
     """Observe the Operator, without imposing Coordinator settings or borrowing its caller.
@@ -31,7 +48,7 @@ def observe_identity(*, cli, runtime, operator, workspace, profile, log_root,
     need their own explicit root; never guess one from the local HOME.
     The capture validates root session_meta as well as the native pane mapping.
     """
-    require(operator["provider"] in ("trae", "pi"), "operator_session_provider_unsupported")
+    _require_operator_provider(operator)
     options = dict(provider=operator["provider"], format="runtime-state", host=socket.gethostname(),
                    terminal_handle=operator["terminal"], worktree_id=workspace,
                    profile=profile, log_root=log_root, max_hook_age_seconds=max_age_seconds)
@@ -111,6 +128,9 @@ def verify_operator_identity(ref, *, require_output_available=False):
         "provider", "terminal", "incarnation", "session"}
         and all(isinstance(operator[k], str) and operator[k].strip() for k in operator),
         "operator_session_identity_required")
+    # Cheapest decisive check: never reach the native CLI for an adapter this
+    # build cannot verify, and never let a wrong provider look like stale hooks.
+    _require_operator_provider(operator)
     for key in ("cli", "runtime", "workspace"):
         require(isinstance(source[key], str) and source[key].strip(), "operator_session_identity_required")
     require(Path(source["cli"]).is_absolute() and Path(source["cli"]).is_file(),
