@@ -39,6 +39,7 @@ export function buildHeadlessMobileSessionTerminalTabs(
             ...(ptyId ? { ptyId } : {}),
             ...(tab.startupCwd ? { startupCwd: tab.startupCwd } : {}),
             ...(tab.launchAgent ? { launchAgent: tab.launchAgent } : {}),
+            ...(tab.spawnedFromPaneKey ? { spawnedFromPaneKey: tab.spawnedFromPaneKey } : {}),
             ...(layout ? { parentLayout: cloneTerminalLayoutSnapshot(layout) } : {}),
             ...(tab.color != null ? { color: tab.color } : {}),
             ...(tab.isPinned ? { isPinned: true } : {}),

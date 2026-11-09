@@ -194,6 +194,28 @@ describe('launchAgentInNewTab', () => {
       launchAgent: 'codex'
     })
   })
+
+  it('writes explicit spawned-from provenance to locally launched agent tabs', async () => {
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const parentPaneKey = `parent-tab:${LEAF_ID}`
+
+    launchAgentInNewTab({
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      spawnedFromPaneKey: parentPaneKey
+    })
+
+    expect(mockCreateTab).toHaveBeenCalledWith(
+      'wt-1',
+      undefined,
+      undefined,
+      expect.objectContaining({
+        launchAgent: 'codex',
+        spawnedFromPaneKey: parentPaneKey
+      })
+    )
+  })
+
   it('keeps Floating Workspace authority on native Windows beside an active WSL project', async () => {
     store.projects = [
       {

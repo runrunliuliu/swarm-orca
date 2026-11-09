@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import type { DashboardAgentRow } from './useDashboardData'
-import { buildAgentRowLineageTree } from './agent-row-lineage-model'
+import {
+  buildAgentRowLineageTree,
+  collectAgentLineageAttentionCounts
+} from './agent-row-lineage-model'
 
 function makeTab(id: string): TerminalTab {
   return {
@@ -210,6 +213,39 @@ describe('buildAgentRowLineageTree', () => {
       ['first', [second]],
       ['second', [duplicate]]
     ])
+  })
+})
+
+describe('collectAgentLineageAttentionCounts', () => {
+  it('counts an attention parent and its attention children once', () => {
+    const parent = makeRow('parent:1')
+    const child = makeRow('child:1', { parentPaneKey: parent.paneKey })
+    const sibling = makeRow('sibling:1', { parentPaneKey: parent.paneKey })
+    const standalone = makeRow('standalone:1')
+    const attentionRows = new Set([parent, child, sibling, standalone])
+
+    const counts = collectAgentLineageAttentionCounts(
+      [parent, child, sibling, standalone],
+      (row) => attentionRows.has(row)
+    )
+
+    expect([...counts.countedPaneKeys]).toEqual(['parent:1', 'standalone:1'])
+    expect(counts.count).toBe(2)
+  })
+
+  it('counts attention siblings separately when their parent does not need attention', () => {
+    const parent = makeRow('parent:1')
+    const firstChild = makeRow('child-a:1', { parentPaneKey: parent.paneKey })
+    const secondChild = makeRow('child-b:1', { parentPaneKey: parent.paneKey })
+    const attentionRows = new Set([firstChild, secondChild])
+
+    const counts = collectAgentLineageAttentionCounts(
+      [parent, firstChild, secondChild],
+      (row) => attentionRows.has(row)
+    )
+
+    expect([...counts.countedPaneKeys]).toEqual(['child-a:1', 'child-b:1'])
+    expect(counts.count).toBe(2)
   })
 })
 

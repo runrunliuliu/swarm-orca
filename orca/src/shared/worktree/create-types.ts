@@ -151,6 +151,10 @@ export type CreateWorktreeArgs = {
    *  legitimately contains `/` while the worktree directory must not. */
   branchNameOverride?: string
   setupDecision?: SetupDecision
+  /** Legacy per-hook opt-in that travels beside `setupDecision` on the wire. Kept as its own field
+   *  rather than folded into the decision because the task sparse contract refuses it explicitly
+   *  (`assertSparseTaskSetupSkipped`) and old callers' `--run-hooks` must keep its exact meaning. */
+  runHooks?: boolean
   sparseCheckout?: CreateSparseCheckoutRequest
   linkedIssue?: number
   linkedPR?: number

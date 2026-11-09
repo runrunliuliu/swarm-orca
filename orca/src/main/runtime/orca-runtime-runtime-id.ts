@@ -223,6 +223,7 @@ export class OrcaRuntimeWithRuntimeId {
       paired: boolean
       selectIfNoActiveTab: boolean
       viewMode?: 'terminal' | 'chat'
+      spawnedFromPaneKey?: string
       /** Resolved agent launch command, kept so a settle over a bare renderer
        *  PTY can still deliver the launch instead of succeeding silently (STA-3214). */
       startupCommand?: string

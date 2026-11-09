@@ -70,6 +70,9 @@ export const SESSION_TAB_METHODS = [
         ...(params.launchConfig ? { launchConfig: params.launchConfig } : {}),
         ...(params.launchToken ? { launchToken: params.launchToken } : {}),
         ...(params.launchAgent ? { launchAgent: params.launchAgent } : {}),
+        ...(params.spawnedFromPaneKey
+          ? { spawnedFromPaneKey: params.spawnedFromPaneKey }
+          : {}),
         ...(params.viewMode ? { viewMode: params.viewMode } : {}),
         activate: params.activate,
         select: params.select,

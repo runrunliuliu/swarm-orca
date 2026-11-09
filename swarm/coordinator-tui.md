@@ -74,7 +74,7 @@ python3 -B /absolute/swarm/trae_tui.py \
 输出不含 discovery authToken 或 launch token。不会绕过权限、不读 `/proc`。
 
 TUI metadata 限 `originator=traex-tui`、source 为 cli/缺省、无 parent/agent_id；
-版本必须 0.211.1。后续观察传 `--expected-thread` 和 anchor path/hash，重验原文件
+版本必须 0.211.1 / 0.212.1 / 0.213.1 / 0.214.1（0.214.1 于 2026-11-09 用真实 TUI 会话核验过 metadata 与 turn_context 字段，见 [Trae Coordinator 文档](trae-coordinator.md)）。后续观察传 `--expected-thread` 和 anchor path/hash，重验原文件
 inode/完整历史前缀、映射和实际配置。变化或证据缺失就停，不降级为 exec 观察器。
 
 新 v2 startup contract 的 observation 固定为：

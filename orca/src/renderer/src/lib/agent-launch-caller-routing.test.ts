@@ -155,6 +155,20 @@ describe('agent launch caller routing', () => {
     }
   )
 
+  it('refuses a spawn provenance pin on the structured route instead of downgrading it', async () => {
+    store.settings = { ...store.settings, ...CHAT_DEFAULT_SETTINGS }
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    // Why: the structured launch/settlement contract in this snapshot cannot carry provenance, so
+    // the sidebar hides the affordance. A caller that pins provenance anyway must fail loudly rather
+    // than silently fall back to a legacy terminal and lose session/recovery behavior.
+    expect(() =>
+      launchAgentInNewTab({ agent: 'codex', worktreeId: 'wt-1', spawnedFromPaneKey: 'tab-1:leaf-1' })
+    ).toThrow(/structured-native-chat/)
+    expect(store.createTab).not.toHaveBeenCalled()
+    expect(mockLaunchAgentInStructuredNewTab).not.toHaveBeenCalled()
+  })
+
   it('aborts a terminal open when beforeSurfaceOpen refuses', async () => {
     const beforeSurfaceOpen = vi.fn(() => false)
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')

@@ -44,6 +44,7 @@ export function launchAgentInWebHostTab(args: {
   pastePromptAfterReady: string | null
   submitPastedPrompt: boolean
   agentArgs?: string | null
+  spawnedFromPaneKey?: string
   viewMode?: Tab['viewMode']
   onPromptDelivered?: () => void
 }): Promise<{ delivered: boolean; failureNotified: boolean }> {
@@ -59,6 +60,7 @@ export function launchAgentInWebHostTab(args: {
     pastePromptAfterReady,
     submitPastedPrompt,
     agentArgs,
+    spawnedFromPaneKey,
     viewMode,
     onPromptDelivered
   } = args
@@ -91,6 +93,7 @@ export function launchAgentInWebHostTab(args: {
       ? { promptDelivery: structuredPromptDelivery }
       : {}),
     ...(agentArgs !== undefined ? { agentArgs } : {}),
+    ...(spawnedFromPaneKey ? { spawnedFromPaneKey } : {}),
     ...(launchPreferences ? { launchPreferences } : {})
   } as const
 

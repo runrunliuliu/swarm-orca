@@ -107,6 +107,32 @@ describe('launchAgentInNewTab paired web runtime', () => {
     expect(mocks.closeTab).toHaveBeenCalledWith('stale-agent-tab', { reason: 'cleanup' })
   })
 
+  it('forwards explicit spawned-from provenance to paired host runtime launches', async () => {
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const parentPaneKey = 'parent-tab:11111111-1111-4111-8111-111111111111'
+
+    const result = launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      spawnedFromPaneKey: parentPaneKey
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        surface: { kind: 'host-published' }
+      })
+    )
+    expect(mocks.createWebRuntimeSessionTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreeId: 'wt-1',
+        agentSessionKind: 'fresh',
+        agent: 'claude',
+        spawnedFromPaneKey: parentPaneKey
+      })
+    )
+    expect(mocks.createTab).not.toHaveBeenCalled()
+  })
+
   it('forwards prompt launch env and captured config to the host runtime', async () => {
     store.settings.agentDefaultArgs = { codex: '--model gpt-5 --reasoning-effort high' }
     store.settings.agentDefaultEnv = { codex: { CODEX_PROFILE: 'captured' } }

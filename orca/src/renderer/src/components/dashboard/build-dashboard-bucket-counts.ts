@@ -8,6 +8,7 @@ import {
 import { selectDashboardOrchestration } from './dashboard-orchestration-selection'
 import { dashboardRowBucketProjection } from './dashboard-row-bucket'
 import type { DashboardAgentRowWithLineage } from './agent-row-lineage'
+import { collectAgentLineageAttentionCounts } from './agent-row-lineage-model'
 import { EMPTY_WORKTREE_AGENT_ORCHESTRATION } from '../sidebar/worktree-agent-orchestration-batch'
 import {
   createWorktreeAgentRowsCache,
@@ -127,11 +128,26 @@ function tallyWorktreeRows(
     DashboardBucket,
     number
   >
+  const bucketByPaneKey = new Map<string, DashboardBucket>()
+  const attentionPaneKeys = collectAgentLineageAttentionCounts(rows, (row) => {
+    if (row.rowSource === 'subagent') {
+      return false
+    }
+    const bucket = dashboardRowBucketProjection(row, acknowledgedAgentsByPaneKey).bucket
+    bucketByPaneKey.set(row.paneKey, bucket)
+    return bucket === 'attention'
+  }).countedPaneKeys
   for (const row of rows) {
     if (row.rowSource === 'subagent') {
       continue
     }
-    tally[dashboardRowBucketProjection(row, acknowledgedAgentsByPaneKey).bucket] += 1
+    const bucket =
+      bucketByPaneKey.get(row.paneKey) ??
+      dashboardRowBucketProjection(row, acknowledgedAgentsByPaneKey).bucket
+    if (bucket === 'attention' && !attentionPaneKeys.has(row.paneKey)) {
+      continue
+    }
+    tally[bucket] += 1
   }
   cache?.tallyByWorktree.set(worktreeId, {
     rows,

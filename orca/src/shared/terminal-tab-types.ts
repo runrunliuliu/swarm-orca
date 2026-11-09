@@ -76,6 +76,10 @@ export type TerminalTab = {
   /** Per-tab view preference (terminal xterm vs native chat); host-persisted so
    *  paired clients converge. Optional: older persisted tabs default to 'terminal'. */
   viewMode?: 'terminal' | 'chat'
+  /** Source pane for a user-launched agent child tab. Set only when the tab is
+   *  explicitly spawned from an existing agent pane; CLI, shortcut, and
+   *  external creates leave it undefined. */
+  spawnedFromPaneKey?: string
   sortOrder: number
   createdAt: number
   /** Bumped on shutdown so TerminalPane remounts with a fresh PTY. */

@@ -95,6 +95,7 @@ export function createTerminalTabCreationActions(
         const nextOrdinal = getNextTerminalOrdinal(existing)
         const defaultTitle = `Terminal ${nextOrdinal}`
         const quickCommandLabel = options?.quickCommandLabel?.trim()
+        const spawnedFromPaneKey = options?.spawnedFromPaneKey?.trim()
         const startupCwd = options?.startupCwd
         const remoteConnectionId = getRemoteConnectionIdForWorktree(s, worktreeId)
         const isRemoteWorktree = Boolean(remoteConnectionId)
@@ -131,6 +132,7 @@ export function createTerminalTabCreationActions(
           ...(startupCwd && startupCwd.length > 0 ? { startupCwd } : {}),
           ...(options?.forceHostRuntime ? { forceHostRuntime: true } : {}),
           ...(options?.launchAgent ? { launchAgent: options.launchAgent } : {}),
+          ...(spawnedFromPaneKey ? { spawnedFromPaneKey } : {}),
           // Why: mark click-caused (not work-caused) spawns so updateTabPtyId skips the activity/sortEpoch bump that would reorder Recent/Smart on click.
           ...(options?.pendingActivationSpawn ? { pendingActivationSpawn: true } : {})
         }

@@ -250,6 +250,9 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
             activate: presentation === 'focused',
             selectIfNoActiveTab: presentation !== 'background',
             ...(launchOpts.viewMode ? { viewMode: launchOpts.viewMode } : {}),
+            ...(launchOpts.spawnedFromPaneKey
+              ? { spawnedFromPaneKey: launchOpts.spawnedFromPaneKey }
+              : {}),
             ...(cwd !== workspace.path ? { startupCwd: cwd } : {})
           })
         }

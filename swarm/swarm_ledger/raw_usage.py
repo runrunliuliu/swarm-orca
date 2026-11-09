@@ -12,6 +12,7 @@ TRAE_JSONL_CONTRACTS = {
     "0.211.1": "trae-jsonl-0.211.1-token_usage_record",
     "0.212.1": "trae-jsonl-0.212.1-token_usage_record",
     "0.213.1": "trae-jsonl-0.213.1-token_usage_record",
+    "0.214.1": "trae-jsonl-0.214.1-token_usage_record",
 }
 CONTRACT = TRAE_JSONL_CONTRACTS["0.209.1"]  # Historical import compatibility.
 FIELDS = ("input_tokens", "output_tokens", "cached_input_tokens",

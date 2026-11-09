@@ -337,6 +337,34 @@ describe('setActiveWorktree', () => {
     )
   })
 
+  it('stores explicit spawned-from pane provenance only on terminal tabs', () => {
+    const store = createTestStore()
+    const wt = 'repo1::/path/wt1'
+    const parentPaneKey = 'parent-tab:11111111-1111-4111-8111-111111111111'
+
+    seedStore(store, {
+      worktreesByRepo: {
+        repo1: [makeWorktree({ id: wt, repoId: 'repo1', path: '/path/wt1' })]
+      }
+    })
+
+    const spawned = store
+      .getState()
+      .createTab(wt, undefined, undefined, { spawnedFromPaneKey: ` ${parentPaneKey} ` })
+    const unspawned = store.getState().createTab(wt)
+    const state = store.getState()
+
+    expect(state.tabsByWorktree[wt].find((tab) => tab.id === spawned.id)?.spawnedFromPaneKey).toBe(
+      parentPaneKey
+    )
+    expect(state.tabsByWorktree[wt].find((tab) => tab.id === unspawned.id)).not.toHaveProperty(
+      'spawnedFromPaneKey'
+    )
+    expect(
+      state.unifiedTabsByWorktree[wt].find((tab) => tab.entityId === spawned.id)
+    ).not.toHaveProperty('spawnedFromPaneKey')
+  })
+
   it('stores terminal startup cwd exactly and omits empty values', () => {
     const store = createTestStore()
     const wt = 'repo1::/path/wt1'

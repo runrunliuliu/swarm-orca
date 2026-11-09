@@ -314,6 +314,52 @@ describe('createWebRuntimeSessionTerminal', () => {
     ])
   })
 
+  it('uses legacy terminal create when an agent launch carries spawned-from provenance', async () => {
+    const parentPaneKey = 'parent-tab:11111111-1111-4111-8111-111111111111'
+    const runtimeCall = vi.fn(async (request: { method: string }) => ({
+      id: request.method,
+      ok: true,
+      result:
+        request.method === 'session.tabs.createTerminal'
+          ? { tab: { id: 'host-tab-2::leaf-2' }, publicationEpoch: 'epoch-1', snapshotVersion: 2 }
+          : makeSnapshot()
+    }))
+    vi.stubGlobal('window', { api: { runtimeEnvironments: { call: runtimeCall } } })
+
+    await expect(
+      createWebRuntimeSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        agentSessionKind: 'fresh',
+        agent: 'codex',
+        spawnedFromPaneKey: parentPaneKey,
+        activate: true
+      })
+    ).resolves.toEqual({ status: 'created' })
+
+    expect(runtimeCall).toHaveBeenNthCalledWith(1, {
+      selector: ENVIRONMENT_ID,
+      method: 'session.tabs.createTerminal',
+      params: {
+        worktree: `id:${WORKTREE_ID}`,
+        afterTabId: undefined,
+        targetGroupId: undefined,
+        command: undefined,
+        cwd: undefined,
+        startupCommandDelivery: undefined,
+        agent: 'codex',
+        spawnedFromPaneKey: parentPaneKey,
+        activate: false,
+        select: true,
+        navigation: 'caller'
+      },
+      timeoutMs: 15_000
+    })
+    expect(runtimeCall.mock.calls.map(([request]) => request.method)).toEqual([
+      'session.tabs.createTerminal',
+      'session.tabs.list'
+    ])
+  })
+
   it('preserves the opaque legacy resume payload on an old host', async () => {
     const runtimeCall = vi.fn(async (request: { method: string }) => {
       if (request.method === 'status.get') {

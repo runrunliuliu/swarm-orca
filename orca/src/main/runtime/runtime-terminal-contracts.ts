@@ -42,6 +42,8 @@ export type TerminalCreateOptions = {
   resumeProviderSession?: AgentProviderSessionMetadata
   launchToken?: string
   launchAgent?: TuiAgent
+  /** Explicit source pane for a user-spawned agent tab; omitted when unknown. */
+  spawnedFromPaneKey?: string
   startupAgent?: TuiAgent
   /**
    * Initial text folded into `startupAgent`'s launch command, for an agent whose CLI takes a prompt

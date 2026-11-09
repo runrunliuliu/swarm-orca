@@ -139,6 +139,45 @@ function markCompletedWorkerParentPaneKeysSeen(args: {
   }
 }
 
+function spawnedLineageForTab(
+  tab: TerminalTab,
+  currentTabsById: ReadonlyMap<string, TerminalTab>
+): Pick<DashboardAgentRow, 'lineageParentPaneKey' | 'originClosed'> {
+  const parentPaneKey = tab.spawnedFromPaneKey
+  if (!parentPaneKey) {
+    return {}
+  }
+  const parsedParent = parsePaneKey(parentPaneKey)
+  if (!parsedParent) {
+    return {}
+  }
+  const parentTab = currentTabsById.get(parsedParent.tabId)
+  if (!parentTab) {
+    return { originClosed: true }
+  }
+  if (parentTab.worktreeId !== tab.worktreeId) {
+    return {}
+  }
+  return { lineageParentPaneKey: parentPaneKey }
+}
+
+function attachSpawnedLineage(
+  row: DashboardAgentRow,
+  currentTabsById: ReadonlyMap<string, TerminalTab>
+): DashboardAgentRow {
+  const { lineageParentPaneKey, originClosed } = spawnedLineageForTab(row.tab, currentTabsById)
+  if ((!lineageParentPaneKey || lineageParentPaneKey === row.paneKey) && !originClosed) {
+    return row
+  }
+  return {
+    ...row,
+    ...(lineageParentPaneKey && lineageParentPaneKey !== row.paneKey
+      ? { lineageParentPaneKey, lineageSortAt: row.tab.createdAt }
+      : {}),
+    ...(originClosed ? { originClosed } : {})
+  }
+}
+
 export function buildWorktreeAgentRows(args: {
   tabs: TerminalTab[]
   entries: AgentStatusEntry[]
@@ -182,15 +221,20 @@ export function buildWorktreeAgentRows(args: {
           rowEntry.state === 'blocked' ||
           rowEntry.state === 'waiting')
       const startedAt = effectiveWorktreeAgentRowStartedAt(rowEntry)
-      rows.push({
-        paneKey: rowEntry.paneKey,
-        entry: rowEntry,
-        tab,
-        agentType: resolveRowAgentType(rowEntry, tab),
-        rowSource: 'live',
-        state: shouldDecay ? resolveDecayedAgentRowState(rowEntry, hasLivePty) : rowEntry.state,
-        startedAt
-      })
+      rows.push(
+        attachSpawnedLineage(
+          {
+            paneKey: rowEntry.paneKey,
+            entry: rowEntry,
+            tab,
+            agentType: resolveRowAgentType(rowEntry, tab),
+            rowSource: 'live',
+            state: shouldDecay ? resolveDecayedAgentRowState(rowEntry, hasLivePty) : rowEntry.state,
+            startedAt
+          },
+          currentTabsById
+        )
+      )
       rows.push(...buildSubagentChildRows({ parentEntry: rowEntry, tab, parentIsFresh: isFresh }))
       seenPaneKeys.add(rowEntry.paneKey)
     }
@@ -205,7 +249,11 @@ export function buildWorktreeAgentRows(args: {
     seenPaneKeys
   })
 
-  rows.push(...buildTitleDerivedAgentRows({ ...args, seenPaneKeys }))
+  rows.push(
+    ...buildTitleDerivedAgentRows({ ...args, seenPaneKeys }).map((row) =>
+      attachSpawnedLineage(row, currentTabsById)
+    )
+  )
 
   // Why: orchestration workers can be attributed to a worktree by main before
   // their tab is present in this renderer. Keep those live rows visible in the
@@ -259,15 +307,20 @@ export function buildWorktreeAgentRows(args: {
       args.runtimeAgentOrchestrationByPaneKey
     )
     const tab = currentTabsById.get(ra.tab.id) ?? ra.tab
-    rows.push({
-      paneKey: rowEntry.paneKey,
-      entry: rowEntry,
-      tab,
-      agentType: resolveRowAgentType(rowEntry, tab),
-      rowSource: 'retained',
-      state: 'done',
-      startedAt: ra.startedAt
-    })
+    rows.push(
+      attachSpawnedLineage(
+        {
+          paneKey: rowEntry.paneKey,
+          entry: rowEntry,
+          tab,
+          agentType: resolveRowAgentType(rowEntry, tab),
+          rowSource: 'retained',
+          state: 'done',
+          startedAt: ra.startedAt
+        },
+        currentTabsById
+      )
+    )
   }
 
   // Why: hook pings can rebuild the live entry list in a different iteration

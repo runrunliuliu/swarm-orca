@@ -15,7 +15,12 @@ export class OrcaRuntimeWithPersistHeadlessSessionTabProps extends OrcaRuntimeWi
   protected persistHeadlessSessionTabProps(
     worktreeId: string,
     tabId: string,
-    props: { color?: string | null; isPinned?: boolean; viewMode?: 'terminal' | 'chat' }
+    props: {
+      color?: string | null
+      isPinned?: boolean
+      viewMode?: 'terminal' | 'chat'
+      spawnedFromPaneKey?: string
+    }
   ): void {
     const session = this.getWorkspaceSessionForWorktree(worktreeId)
     if (!session || !this.store?.setWorkspaceSession) {
@@ -34,7 +39,10 @@ export class OrcaRuntimeWithPersistHeadlessSessionTabProps extends OrcaRuntimeWi
                 ...tab,
                 ...(props.color !== undefined ? { color: props.color } : {}),
                 ...(props.isPinned !== undefined ? { isPinned: props.isPinned } : {}),
-                ...(props.viewMode !== undefined ? { viewMode: props.viewMode } : {})
+                ...(props.viewMode !== undefined ? { viewMode: props.viewMode } : {}),
+                ...(props.spawnedFromPaneKey !== undefined
+                  ? { spawnedFromPaneKey: props.spawnedFromPaneKey }
+                  : {})
               }
             : tab
         )
@@ -67,7 +75,12 @@ export class OrcaRuntimeWithPersistHeadlessSessionTabProps extends OrcaRuntimeWi
   protected applyHeadlessSessionTabPropsToSnapshot(
     worktreeId: string,
     tabId: string,
-    props: { color?: string | null; isPinned?: boolean; viewMode?: 'terminal' | 'chat' }
+    props: {
+      color?: string | null
+      isPinned?: boolean
+      viewMode?: 'terminal' | 'chat'
+      spawnedFromPaneKey?: string
+    }
   ): void {
     const snapshot = this.mobileSessionTabsByWorktree.get(worktreeId)
     if (!snapshot) {
@@ -83,7 +96,10 @@ export class OrcaRuntimeWithPersistHeadlessSessionTabProps extends OrcaRuntimeWi
         ...tab,
         ...(props.color !== undefined ? { color: props.color } : {}),
         ...(props.isPinned !== undefined ? { isPinned: props.isPinned } : {}),
-        ...(props.viewMode !== undefined ? { viewMode: props.viewMode } : {})
+        ...(props.viewMode !== undefined ? { viewMode: props.viewMode } : {}),
+        ...(props.spawnedFromPaneKey !== undefined
+          ? { spawnedFromPaneKey: props.spawnedFromPaneKey }
+          : {})
       }
     })
     if (!changed) {

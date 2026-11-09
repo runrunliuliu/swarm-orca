@@ -190,6 +190,27 @@ describe('DashboardAgentRow', () => {
     expect(markup).not.toContain('aria-label="Dismiss agent"')
   })
 
+  it('renders an explicit spawn action when a row can launch a child agent', () => {
+    const markup = renderToStaticMarkup(
+      <TooltipProvider>
+        <DashboardAgentRow
+          agent={makeAgent()}
+          onDismiss={vi.fn()}
+          onActivate={vi.fn()}
+          now={NOW}
+          hideIdentityIcon
+          hideExpand
+          onSpawnAgent={vi.fn()}
+          spawnAgentLabel="Spawn another Codex from this agent"
+        />
+      </TooltipProvider>
+    )
+
+    expect(markup).toContain('aria-label="Spawn another Codex from this agent"')
+    expect(markup).toContain('lucide-git-fork')
+    expect(markup).toContain('aria-label="Dismiss agent"')
+  })
+
   it('marks disabled send-target rows as muted without an eligibility ring', () => {
     const markup = renderSendTargetRow({
       sendTargetStatus: 'disabled',
@@ -382,6 +403,21 @@ describe('DashboardAgentRow', () => {
     expect(markup).toContain('lucide-wrench')
     expect(markup).toContain('bash')
     expect(markup).toContain('rm -rf build/')
+  })
+
+  it('renders the closed origin marker on the secondary line', () => {
+    const markup = renderRow(
+      makeAgent(
+        { originClosed: true },
+        {
+          lastAssistantMessage: 'Still checking the branch'
+        }
+      )
+    )
+
+    expect(markup).toContain('◇ 来源已关闭')
+    expect(markup).toContain('Still checking the branch')
+    expect(markup).toContain('aria-label="Working"')
   })
 
   it('leaves a wait without tool metadata unchanged', () => {

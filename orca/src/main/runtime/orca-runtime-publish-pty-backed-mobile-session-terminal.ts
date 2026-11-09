@@ -31,6 +31,7 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
       activate: boolean
       selectIfNoActiveTab?: boolean
       startupCwd?: string
+      spawnedFromPaneKey?: string
       viewMode?: 'terminal' | 'chat'
       split?: { splitFromLeafId: string; direction: 'horizontal' | 'vertical' }
       notify?: boolean
@@ -81,6 +82,7 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
           candidate.parentTabId === args.tabId &&
           candidate.viewMode !== undefined
       )?.viewMode
+    const spawnedFromPaneKey = args.spawnedFromPaneKey ?? existingTab?.spawnedFromPaneKey
     const tab: RuntimeMobileSessionTerminalTab = {
       type: 'terminal',
       id: `${args.tabId}::${args.leafId}`,
@@ -90,6 +92,7 @@ export class OrcaRuntimeWithPublishPtyBackedMobileSessionTerminal extends OrcaRu
       incarnationId: pty.incarnationId,
       title,
       ...(pty.launchAgent ? { launchAgent: pty.launchAgent } : {}),
+      ...(spawnedFromPaneKey ? { spawnedFromPaneKey } : {}),
       ...(args.startupCwd ? { startupCwd: args.startupCwd } : {}),
       ...(viewMode ? { viewMode } : {}),
       parentLayout,

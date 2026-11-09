@@ -78,29 +78,48 @@ let capturedRowActivations: {
 
 const activationMocks = vi.hoisted(() => ({
   activateAndRevealWorktree: vi.fn(),
-  activateTabAndFocusPane: vi.fn()
+  activateTabAndFocusPane: vi.fn(),
+  launchAgentInNewTab: vi.fn()
 }))
 
-vi.mock('@/store', () => ({
-  useAppStore: (selector: (state: unknown) => unknown) =>
-    selector({
-      agentActivityDisplayMode: mockAgentActivityDisplayMode,
-      acknowledgedAgentsByPaneKey: {},
-      cacheTimerByKey: mockCacheTimerByKey,
-      dropAgentStatus: vi.fn(),
-      dismissRetainedAgent: vi.fn(),
-      acknowledgeAgents: vi.fn(),
-      agentSendPopoverTargetMode: null,
-      agentStatusByPaneKey: {},
-      tabsByWorktree: {},
-      terminalLayoutsByTabId: {},
-      sendPromptToSidebarAgentTarget: vi.fn(),
-      settings: {
-        promptCacheTimerEnabled: mockPromptCacheTimerEnabled,
-        promptCacheTtlMs: mockPromptCacheTtlMs
-      }
-    })
+const routeMocks = vi.hoisted(() => ({
+  getRuntimeEnvironmentIdForWorktree: vi.fn(() => null as string | null),
+  isWebRuntimeSessionActive: vi.fn(() => false),
+  planAgentSessionLaunch: vi.fn<
+    () => { route: 'terminal-tui' | 'legacy-native-chat' | 'structured-native-chat' }
+  >(() => ({ route: 'terminal-tui' }))
 }))
+
+function mockStoreState() {
+  return {
+    agentActivityDisplayMode: mockAgentActivityDisplayMode,
+    acknowledgedAgentsByPaneKey: {},
+    cacheTimerByKey: mockCacheTimerByKey,
+    dropAgentStatus: vi.fn(),
+    dismissRetainedAgent: vi.fn(),
+    acknowledgeAgents: vi.fn(),
+    agentSendPopoverTargetMode: null,
+    agentStatusByPaneKey: {},
+    activeGroupIdByWorktree: {},
+    groupsByWorktree: {},
+    tabsByWorktree: {},
+    terminalLayoutsByTabId: {},
+    sendPromptToSidebarAgentTarget: vi.fn(),
+    settings: {
+      disabledTuiAgents: [],
+      promptCacheTimerEnabled: mockPromptCacheTimerEnabled,
+      promptCacheTtlMs: mockPromptCacheTtlMs
+    }
+  }
+}
+
+vi.mock('@/store', () => {
+  const useAppStore = Object.assign(
+    (selector: (state: unknown) => unknown) => selector(mockStoreState()),
+    { getState: () => mockStoreState() }
+  )
+  return { useAppStore }
+})
 
 vi.mock('@/lib/worktree-activation', () => ({
   activateAndRevealWorktree: activationMocks.activateAndRevealWorktree
@@ -108,6 +127,26 @@ vi.mock('@/lib/worktree-activation', () => ({
 
 vi.mock('@/lib/activate-tab-and-focus-pane', () => ({
   activateTabAndFocusPane: activationMocks.activateTabAndFocusPane
+}))
+
+vi.mock('@/lib/launch-agent-in-new-tab', () => ({
+  launchAgentInNewTab: activationMocks.launchAgentInNewTab
+}))
+
+vi.mock('@/lib/agent-session-launch-plan', () => ({
+  planAgentSessionLaunch: routeMocks.planAgentSessionLaunch
+}))
+
+vi.mock('@/lib/worktree-runtime-owner', () => ({
+  getRuntimeEnvironmentIdForWorktree: routeMocks.getRuntimeEnvironmentIdForWorktree
+}))
+
+vi.mock('@/runtime/web-runtime-session', () => ({
+  isWebRuntimeSessionActive: routeMocks.isWebRuntimeSessionActive
+}))
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn() }
 }))
 
 vi.mock('./useWorktreeAgentRows', () => ({
@@ -129,6 +168,8 @@ vi.mock('@/components/dashboard/DashboardAgentRow', () => ({
     sendTargetStatus,
     sendTargetDisabledReason,
     onSendTargetClick,
+    onSpawnAgent,
+    spawnAgentLabel,
     childAgentCount,
     childAgentsExpanded,
     onToggleChildAgents,
@@ -139,6 +180,8 @@ vi.mock('@/components/dashboard/DashboardAgentRow', () => ({
     sendTargetStatus?: 'eligible' | 'disabled' | 'sending'
     sendTargetDisabledReason?: string
     onSendTargetClick?: (paneKey: string) => void
+    onSpawnAgent?: () => void
+    spawnAgentLabel?: string
     childAgentCount?: number
     childAgentsExpanded?: boolean
     onToggleChildAgents?: () => void
@@ -152,6 +195,8 @@ vi.mock('@/components/dashboard/DashboardAgentRow', () => ({
         data-agent-send-target={sendTargetStatus}
         data-disabled-reason={sendTargetDisabledReason}
         data-has-send-handler={typeof onSendTargetClick === 'function' ? 'true' : 'false'}
+        data-has-spawn-handler={typeof onSpawnAgent === 'function' ? 'true' : 'false'}
+        data-spawn-label={spawnAgentLabel}
         data-pane-key={agent.paneKey}
       >
         {agent.paneKey}
@@ -192,6 +237,9 @@ describe('WorktreeCardAgents', () => {
     mockPromptCacheTtlMs = 60_000
     mockCacheTimerByKey = {}
     capturedRowActivations = []
+    routeMocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue(null)
+    routeMocks.isWebRuntimeSessionActive.mockReturnValue(false)
+    routeMocks.planAgentSessionLaunch.mockReturnValue({ route: 'terminal-tui' })
   })
 
   it('renders ordinary rows in full mode without a child disclosure', async () => {
@@ -207,6 +255,64 @@ describe('WorktreeCardAgents', () => {
     expect(markup).not.toContain('aria-expanded')
   }, 30_000)
 
+  it('passes an explicit spawn handler to launchable full agent rows', async () => {
+    mockAgentActivityDisplayMode = 'full'
+    mockAgents = [mockAgent({ agentType: 'codex', prompt: 'Parent task' })]
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-has-spawn-handler="true"')
+    expect(markup).toContain('data-spawn-label="Spawn another Codex from this agent"')
+  })
+
+  it('does not expose spawn handlers for non-launchable agent row labels', async () => {
+    mockAgentActivityDisplayMode = 'full'
+    mockAgents = [mockAgent({ agentType: 'reviewer', prompt: 'Child review' })]
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-has-spawn-handler="false"')
+    expect(markup).not.toContain('data-spawn-label="Spawn another')
+  })
+
+  it('does not expose spawn handlers for synthetic subagent rows', async () => {
+    mockAgentActivityDisplayMode = 'full'
+    mockAgents = [mockAgent({ agentType: 'codex', rowSource: 'subagent', prompt: 'Child review' })]
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-has-spawn-handler="false"')
+    expect(markup).not.toContain('data-spawn-label="Spawn another Codex from this agent"')
+  })
+
+  it('does not expose spawn handlers when a local launch would use structured chat', async () => {
+    mockAgentActivityDisplayMode = 'full'
+    mockAgents = [mockAgent({ agentType: 'codex', prompt: 'Structured parent' })]
+    routeMocks.planAgentSessionLaunch.mockReturnValue({ route: 'structured-native-chat' })
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-has-spawn-handler="false"')
+    expect(markup).not.toContain('data-spawn-label="Spawn another Codex from this agent"')
+  })
+
+  it('does not expose spawn handlers when a paired host owns the launch surface', async () => {
+    mockAgentActivityDisplayMode = 'full'
+    mockAgents = [mockAgent({ agentType: 'codex', prompt: 'Remote parent' })]
+    routeMocks.getRuntimeEnvironmentIdForWorktree.mockReturnValue('runtime-1')
+    routeMocks.isWebRuntimeSessionActive.mockReturnValue(true)
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-has-spawn-handler="false"')
+    expect(markup).not.toContain('data-spawn-label="Spawn another Codex from this agent"')
+  })
+
   it('uses compact mode when the display preference is absent', async () => {
     mockAgents = [mockAgent({ agentType: 'codex', startedAt: 1000, prompt: 'Run tests' })]
     const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
@@ -216,6 +322,7 @@ describe('WorktreeCardAgents', () => {
     expect(markup).toContain('role="group"')
     expect(markup).toContain('Run tests')
     expect(markup).toContain('title="Codex"')
+    expect(markup).toContain('aria-label="Spawn another Codex from this agent"')
     expect(markup).not.toContain('data-testid="agent-row"')
   })
 

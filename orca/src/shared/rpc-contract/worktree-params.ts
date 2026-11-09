@@ -8,7 +8,8 @@ import {
   OptionalFiniteNumber,
   OptionalPlainString,
   OptionalString,
-  TriStateLinkedIssue
+  TriStateLinkedIssue,
+  requiredString
 } from './rpc-param-primitives'
 import { RUNTIME_NAVIGATION_TARGETS } from '../runtime-navigation'
 import { WorkspaceLinkedItemSchema } from '../workspace-linked-item-schema'
@@ -231,4 +232,12 @@ export const WorktreeResolveMrBase = z.object({
   sourceBranch: OptionalString,
   targetBranch: OptionalString,
   isCrossRepository: OptionalBoolean
+})
+
+/** M4: which repo's task-create journal to inspect, and how many attempts to look at.
+ *  Why in the shared contract: `orca worktree create-status` is a public CLI call, so its params
+ *  are a client-facing wire shape and belong in the RPC catalog rather than main-only code. */
+export const WorktreeCreateStatusParams = z.object({
+  repo: requiredString('Missing repo selector'),
+  limit: z.number().int().positive().max(50).optional()
 })

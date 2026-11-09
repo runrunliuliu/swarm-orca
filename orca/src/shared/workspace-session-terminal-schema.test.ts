@@ -143,4 +143,49 @@ describe('parseWorkspaceSession terminal fields', () => {
       expect(parseRow({ viewMode: 'holographic' })?.viewMode).toBe('terminal')
     })
   })
+
+  describe('terminal row spawnedFromPaneKey', () => {
+    function parseRow(row: Record<string, unknown>): Record<string, unknown> | undefined {
+      const result = parseWorkspaceSession({
+        activeRepoId: null,
+        activeWorktreeId: 'wt',
+        activeTabId: 'tab1',
+        tabsByWorktree: {
+          wt: [
+            {
+              id: 'tab1',
+              ptyId: null,
+              worktreeId: 'wt',
+              title: 'Terminal 1',
+              customTitle: null,
+              color: null,
+              sortOrder: 0,
+              createdAt: 0,
+              ...row
+            }
+          ]
+        },
+        terminalLayoutsByTabId: {}
+      })
+      expect(result.ok).toBe(true)
+      return result.ok ? result.value.tabsByWorktree.wt[0] : undefined
+    }
+
+    it('preserves an explicit source pane pointer', () => {
+      expect(parseRow({ spawnedFromPaneKey: 'parent-tab:11111111-1111-4111-8111-111111111111' }))
+        .toMatchObject({
+          spawnedFromPaneKey: 'parent-tab:11111111-1111-4111-8111-111111111111'
+        })
+    })
+
+    it('keeps a source-unknown terminal row unparented', () => {
+      expect(parseRow({})?.spawnedFromPaneKey).toBeUndefined()
+    })
+
+    it('round-trips an older terminal row that has no source pointer', () => {
+      const parsed = parseRow({})
+      const reparsed = parseRow(JSON.parse(JSON.stringify(parsed)))
+      expect(reparsed?.spawnedFromPaneKey).toBeUndefined()
+    })
+  })
 })

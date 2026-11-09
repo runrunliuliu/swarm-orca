@@ -667,5 +667,16 @@ class TraeJsonl02131Tests(TraeJsonl02121Tests):
     cli_version = "0.213.1"
 
 
+class TraeJsonl02141Tests(TraeJsonl02121Tests):
+    """0.214.1 keeps the same token-only TUI JSONL shape.
+
+    Checked 2026-11-09 against a live 0.214.1 transcript: `token_usage_record.usage`
+    still uses the same counter names, `turn_context` still carries
+    `model_backend_variant="max"`, and `session_meta` still has
+    `originator=traex-tui`, `source=cli`, `cli_version=0.214.1`.
+    """
+    cli_version = "0.214.1"
+
+
 if __name__ == "__main__":
     unittest.main()

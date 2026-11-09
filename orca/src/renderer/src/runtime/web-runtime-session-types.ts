@@ -33,6 +33,7 @@ export type CreateWebRuntimeSessionTerminalArgs = {
   agentSessionKind?: 'fresh' | 'resume'
   prompt?: string
   promptDelivery?: AgentPromptDelivery
+  spawnedFromPaneKey?: string
   /** Explicit CLI override; omission leaves the remote host's defaults authoritative. */
   agentArgs?: string | null
   launchPreferences?: AgentLaunchPreferences

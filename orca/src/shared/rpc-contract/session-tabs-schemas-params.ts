@@ -162,6 +162,9 @@ export const CreateTerminalTab = WorktreeTabSelector.extend({
       message: 'Unknown launch agent'
     })
     .optional(),
+  // Optional provenance from an explicit "spawn from this agent pane" action.
+  // Omitted for ordinary CLI, shortcut, and external creates where the source is unknown.
+  spawnedFromPaneKey: z.string().min(1).max(256).optional(),
   viewMode: z.enum(['terminal', 'chat']).optional(),
   activate: z.boolean().optional(),
   select: z.boolean().optional(),

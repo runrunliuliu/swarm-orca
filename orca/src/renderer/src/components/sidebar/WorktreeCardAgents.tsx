@@ -1,5 +1,6 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
@@ -23,17 +24,58 @@ import {
 } from './worktree-card-compact-agents'
 import { buildAgentRowLineageTree } from '@/components/dashboard/agent-row-lineage-model'
 import { DEFAULT_AGENT_ACTIVITY_DISPLAY_MODE } from '../../../../shared/constants'
+import { isTuiAgent } from '../../../../shared/tui-agent-config'
+import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
+import type { TuiAgent } from '../../../../shared/tui-agent'
 import { revealElementInScrollContainer } from './worktree-sidebar-reveal'
 import { useWorktreeAgentExpansionState } from './worktree-card-agents-expansion-state'
 import { translate } from '@/i18n/i18n'
 import { activateStructuredAgentSessionTab } from '@/lib/structured-agent-session-tab-activation'
 import { selectAcknowledgedAgentTimes } from './worktree-card-agent-ack-inputs'
+import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
+import { formatAgentTypeLabel } from '@/lib/agent-status'
+import { workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
+import { planAgentSessionLaunch } from '@/lib/agent-session-launch-plan'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session'
 
 export const SUPPRESS_WORKTREE_LIST_SCROLL_ADJUSTMENT_EVENT =
   'orca-suppress-worktree-list-scroll-adjustment'
 
 const dispatchSuppressScrollAdjustment = () => {
   window.dispatchEvent(new CustomEvent(SUPPRESS_WORKTREE_LIST_SCROLL_ADJUSTMENT_EVENT))
+}
+
+function spawnableTuiAgent(
+  agent: DashboardAgentRowData,
+  worktreeId: string,
+  disabledAgents: Iterable<unknown> | null | undefined
+): TuiAgent | null {
+  if (
+    agent.rowSource === 'subagent' ||
+    !isTuiAgent(agent.agentType) ||
+    !isTuiAgentEnabled(agent.agentType, disabledAgents)
+  ) {
+    return null
+  }
+  if (agentSpawnWouldUseStructuredRoute(worktreeId, agent.agentType)) {
+    return null
+  }
+  return agent.agentType
+}
+
+function agentSpawnWouldUseStructuredRoute(worktreeId: string, agent: TuiAgent): boolean {
+  const store = useAppStore.getState()
+  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)
+  if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
+    return true
+  }
+  return (
+    planAgentSessionLaunch(store, {
+      agent,
+      workspace: { kind: workspaceKindForWorktreeId(worktreeId), worktreeId }
+    }).route === 'structured-native-chat'
+  )
 }
 
 function revealCompactAgentCard(agentListRoot: HTMLElement | null): void {
@@ -88,6 +130,10 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
   // Why: return a stable empty constant unless the send-target popover is ours, so churny pane-title/agent-status maps don't re-render idle bodies.
   const sendTargetInputs = useAppStore(useShallow((s) => selectSendTargetInputs(s, worktreeId)))
   const sendPromptToSidebarAgentTarget = useAppStore((s) => s.sendPromptToSidebarAgentTarget)
+  const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents)
+  const targetGroupId = useAppStore(
+    (s) => s.activeGroupIdByWorktree[worktreeId] ?? s.groupsByWorktree[worktreeId]?.[0]?.id
+  )
   const focusedAgentPaneKey = useFocusedAgentPaneKey(worktreeId)
   const compactAgentListRootRef = useRef<HTMLDivElement | null>(null)
 
@@ -150,6 +196,36 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
       void sendPromptToSidebarAgentTarget(paneKey)
     },
     [sendPromptToSidebarAgentTarget]
+  )
+  const handleSpawnAgent = useCallback(
+    (agent: DashboardAgentRowData, spawnAgent: TuiAgent) => {
+      const result = launchAgentInNewTab({
+        agent: spawnAgent,
+        worktreeId,
+        groupId: targetGroupId,
+        launchSource: 'sidebar',
+        spawnedFromPaneKey: agent.paneKey
+      })
+      if (!result) {
+        toast.error(
+          translate(
+            'auto.components.sidebar.WorktreeCardAgents.spawnFailed',
+            'Could not build launch command for {{value0}}.',
+            { value0: formatAgentTypeLabel(spawnAgent) }
+          )
+        )
+      }
+    },
+    [targetGroupId, worktreeId]
+  )
+  const spawnAgentLabel = useCallback(
+    (spawnAgent: TuiAgent) =>
+      translate(
+        'auto.components.sidebar.WorktreeCardAgents.spawnAgent',
+        'Spawn another {{value0}} from this agent',
+        { value0: formatAgentTypeLabel(spawnAgent) }
+      ),
+    []
   )
 
   const handleActivateAgentTab = useCallback(
@@ -253,6 +329,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           disabledReason: 'Agent is not available'
         })
       : undefined
+    const spawnAgent = spawnableTuiAgent(agent, worktreeId, disabledTuiAgents)
     const descendantAncestorPaneKeys = new Set(ancestorPaneKeys)
     descendantAncestorPaneKeys.add(agent.paneKey)
     return (
@@ -280,6 +357,8 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           sendTargetStatus={sendTarget?.status}
           sendTargetDisabledReason={sendTarget?.disabledReason}
           onSendTargetClick={isAgentSendTargetModeActive ? handleSendTargetClick : undefined}
+          onSpawnAgent={spawnAgent ? () => handleSpawnAgent(agent, spawnAgent) : undefined}
+          spawnAgentLabel={spawnAgent ? spawnAgentLabel(spawnAgent) : undefined}
           // Why: hierarchy shows via chevron + indent; legacy L-connectors use a fixed offset that mismatches the column and reads as floating fragments.
           hideLineageConnectors
         />
@@ -311,6 +390,7 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           disabledReason: 'Agent is not available'
         })
       : undefined
+    const spawnAgent = spawnableTuiAgent(agent, worktreeId, disabledTuiAgents)
     const descendantAncestorPaneKeys = new Set(ancestorPaneKeys)
     descendantAncestorPaneKeys.add(agent.paneKey)
     return (
@@ -325,6 +405,8 @@ const WorktreeCardAgentsBody = React.memo(function WorktreeCardAgentsBody({
           sendTargetStatus={sendTarget?.status}
           sendTargetDisabledReason={sendTarget?.disabledReason}
           onSendTargetClick={isAgentSendTargetModeActive ? handleSendTargetClick : undefined}
+          onSpawnAgent={spawnAgent ? () => handleSpawnAgent(agent, spawnAgent) : undefined}
+          spawnAgentLabel={spawnAgent ? spawnAgentLabel(spawnAgent) : undefined}
           childAgentCount={hasChildAgents ? childAgents.length : undefined}
           childAgentsExpanded={expanded}
           onToggleChildAgents={
