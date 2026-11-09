@@ -43,9 +43,10 @@ const INHERITING_PRESETS: readonly AgentTrustPreset[] = ['claude', 'copilot', 'q
 const EXACT_OR_SELF_LIMITING_PRESETS: readonly AgentTrustPreset[] = [
   'codex',
   'cursor',
-  'antigravity',
-  'codex-ark'
+  'antigravity'
 ]
+// Why: granted only to dispatched Workers, so these refuse a home or a root like an inheriting one.
+const ORCHESTRATION_ONLY_PRESETS: readonly AgentTrustPreset[] = ['trae', 'codex-ark']
 
 let root: string
 
@@ -112,15 +113,18 @@ describe('applyWorkspaceTrustOnThisHost', () => {
     ]
   ]
   describe.each(tooBroad)('for %s', (_label, arrange) => {
-    it.each([...INHERITING_PRESETS, 'trae'] as const)('writes no %s trust', async (preset) => {
-      const { workspace, homes } = arrange()
-      await applyWorkspaceTrustOnThisHost(
-        preset,
-        workspace,
-        thisHost(homes ? { homes } : undefined)
-      )
-      expect(trustWritten(preset)).toBe(false)
-    })
+    it.each([...INHERITING_PRESETS, ...ORCHESTRATION_ONLY_PRESETS] as const)(
+      'writes no %s trust',
+      async (preset) => {
+        const { workspace, homes } = arrange()
+        await applyWorkspaceTrustOnThisHost(
+          preset,
+          workspace,
+          thisHost(homes ? { homes } : undefined)
+        )
+        expect(trustWritten(preset)).toBe(false)
+      }
+    )
   })
 
   it('guards exactly the agents that inherit trust from a home', () => {
@@ -200,7 +204,7 @@ describe('applyWorkspaceTrustOnThisHost', () => {
     )
   })
 
-  it.each([...INHERITING_PRESETS, 'trae'] as const)(
+  it.each([...INHERITING_PRESETS, ...ORCHESTRATION_ONLY_PRESETS] as const)(
     'writes no %s trust when the host knows no home',
     async (preset) => {
       const workspace = join(root, 'projects', 'app')

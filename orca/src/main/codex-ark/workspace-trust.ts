@@ -41,6 +41,9 @@ export function markCodexArkWorkspaceTrusted(
   workspacePath: string,
   configFile: string
 ): Promise<void> {
+  // Why realpath: Ark compares the stored key against the launched folder after resolving links,
+  // so a worktree under a symlinked parent would otherwise be asked again.
+  const key = canonicalizeWorkspace(workspacePath)
   return runExclusivelyForCodexTrustConfig(configFile, async () => {
     let existing: string
     try {
@@ -50,9 +53,17 @@ export function markCodexArkWorkspaceTrusted(
       // Why fail closed: the wrapper owns creation, and an Ark config this side invented is invalid.
       return
     }
-    const updated = upsertProjectTrustLevelInContent(existing, workspacePath, 'trusted')
+    const updated = upsertProjectTrustLevelInContent(existing, key, 'trusted')
     if (updated !== existing) {
       writeConfigAtomically(configFile, updated)
     }
   })
+}
+
+function canonicalizeWorkspace(workspacePath: string): string {
+  try {
+    return realpathSync.native(workspacePath)
+  } catch {
+    return workspacePath
+  }
 }

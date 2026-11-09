@@ -147,8 +147,13 @@ export async function applyWorkspaceTrustOnThisHost(
 ): Promise<void> {
   try {
     const host = describeHost()
-    // Why: Swarm's default Trae grant must never target a home or a root either.
-    if (AGENT_TRUST_INHERITS_FROM_A_HOME[preset] || preset === 'trae') {
+    // Why: orchestration-only grants (Trae, Codex Ark) must never target a home or a root either,
+    // even though those agents match the exact folder they are given.
+    if (
+      AGENT_TRUST_INHERITS_FROM_A_HOME[preset] ||
+      preset === 'trae' ||
+      preset === 'codex-ark'
+    ) {
       const homes = host.homes.filter((home): home is string => Boolean(home))
       if (homes.length === 0 || wouldTrustAHome(workspacePath, homes)) {
         return

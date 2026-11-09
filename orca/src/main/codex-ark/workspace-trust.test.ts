@@ -5,6 +5,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -88,6 +89,17 @@ describe('markCodexArkWorkspaceTrusted', () => {
     const once = readFileSync(config, 'utf-8')
     await markCodexArkWorkspaceTrusted(workspace, config)
     expect(readFileSync(config, 'utf-8')).toBe(once)
+  })
+
+  it('stores the resolved path when the worktree hangs off a symlinked parent', async () => {
+    writeArkConfig()
+    const realParent = join(root, 'real-parent')
+    mkdirSync(join(realParent, 'feature'), { recursive: true })
+    symlinkSync(realParent, join(root, 'linked-parent'), 'junction')
+    await markCodexArkWorkspaceTrusted(join(root, 'linked-parent', 'feature'), config)
+    const written = readFileSync(config, 'utf-8')
+    expect(written).toContain(`[projects."${join(realParent, 'feature')}"]`)
+    expect(written).not.toContain(`[projects."${join(root, 'linked-parent', 'feature')}"]`)
   })
 
   it('never creates the config, which the wrapper alone may write', async () => {
