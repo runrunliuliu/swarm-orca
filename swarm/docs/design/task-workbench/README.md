@@ -594,6 +594,12 @@ TaskWorkspaceBinding {
 
 工作包、文件所有权、测试矩阵、回滚与阶段状态见[开发计划](development-plan.md)；本节只保留阶段划分。
 
+**验证前提（依赖树）**：新 worktree 不含 `node_modules`，但不需要重新安装——按
+[worktree-delivery 技能](../../../skills/worktree-delivery/SKILL.md) 的"Reusing a prepared dependency tree"
+复用同机同一 lockfile 的已准备依赖树（软链 + `--check-only` 只读核验 + 串行测试）。
+因此"要跑 tsc/vitest"**不再是**拒绝任务 sparse 模式的理由；拒绝的理由只剩"必须在创建期跑
+setup 钩子"或"需要新装/重建依赖"。
+
 ---
 
 ## 10. 契约与门禁影响

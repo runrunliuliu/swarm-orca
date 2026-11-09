@@ -39,6 +39,49 @@ Inspect actual dependencies and documented test environments before assuming pac
 Do not download, install or replace dependency links silently. Reuse only verified compatible inputs.
 Obtain independent review of the actual change and fix findings before integration.
 
+### Reusing a prepared dependency tree
+
+A fresh Orca worktree never contains `node_modules` (pnpm's virtual store and native builds are
+untracked). Installing another copy is not the default: first reuse the prepared tree from a
+checkout of the same repository, which is what this workspace already does on its build hosts.
+
+Preconditions — all four, or report the gap instead of linking:
+
+1. same execution host, OS and CPU architecture as the prepared checkout;
+2. same Node ABI: compare `node -v` and the pnpm version from `packageManager`;
+3. identical lockfile: compare `sha256sum pnpm-lock.yaml` in both trees;
+4. the prepared tree's own native check passes before linking (see step 3).
+
+Steps (repository-relative; adapt paths, never copy private host paths into a public repo):
+
+```bash
+# 1. confirm the source tree, then link the prepared tree into the new worktree
+readlink -f <prepared>/node_modules && sha256sum <prepared>/pnpm-lock.yaml pnpm-lock.yaml
+ln -s <prepared>/node_modules node_modules
+
+# 2. prove the link resolves where the tools look (repo scripts resolve under projectDir)
+ls -l node_modules/node-pty node_modules/electron
+
+# 3. read-only native/runtime check BEFORE running any suite; it may want to rebuild
+node config/scripts/ensure-native-runtime.mjs --check-only
+
+# 4. verify, serially against the shared tree
+corepack pnpm tc
+corepack pnpm test <targeted paths>
+```
+
+Do not:
+
+- let a check or test run a rebuild into the shared tree (`pnpm install`, `node-gyp`) without
+  explicit authorization — if `--check-only` reports a rebuild is needed, stop and ask;
+- run suites in two worktrees at once against the same `node_modules` (shared `.vite`/`.cache`);
+- edit the prepared tree to make the link work; report the incompatibility instead.
+
+Record as evidence: `readlink -f` result, both lockfile hashes, `node -v`, pnpm version and the
+`--check-only` output. If linking is refused or the check fails, the fallback is a store-reusing
+install (`corepack pnpm install --offline --frozen-lockfile`), which still needs authorization
+because it writes into the worktree and may rebuild native modules.
+
 ## 3. Integrate with one writer
 
 Use the repository's approved PR/MR, merge, fast-forward or squash workflow. Verify both source and
