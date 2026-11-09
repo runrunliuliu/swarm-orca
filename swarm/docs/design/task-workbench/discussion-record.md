@@ -18,6 +18,8 @@
 | 偏离 1 | `codex-ark` 被本 runtime 拒绝：`terminal create --agent codex-ark` → `invalid_argument: Unknown TUI agent: codex-ark`；白名单也标注其受监督/readiness 未验收。故 B 改用 `trae/gpt-5.5`。**结论：codex-ark 在当前 runtime 不可用于本类派发** |
 | 偏离 2 | `terminal wait --for tui-idle` 对 trae TUI 两次超时；改以终端内容（输入提示符可见）为就绪证据后发送。send 回执只有 `input_accepted`，无 `turn_started`（`provider: unsupported`）。属已知限制，不是任务失败 |
 | 用量 | 未接入台账采集。终端计数（`↓ 3.06K / 6.41K / 14.3K` tokens）**不可当账**；本轮用量记为**未知**，不记 0 |
+| 终端清理 | 3 个评审终端已 `terminal close --tab`（各回执 `ok:true`，但 `ptyKilled:false` → 收据状态为 **unverifiable**）；
+  事后进程表观测无 trae 残留。同工作区其他会话（pi、codex）未触碰 |
 
 ## 1. decision and baseline
 
