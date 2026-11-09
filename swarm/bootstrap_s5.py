@@ -20,31 +20,67 @@ current = ContextVar("strict_bootstrap_s5", default=None)
 # Non-execution replies mean the owner admitted nothing: the same intent may be
 # retried in place. Anything else (including an unknown outcome) must reconcile.
 NON_EXECUTION_RETRY_SECONDS = 20
+# The owner rejects a mutation with `bootstrap_rpc_rejected:<code>`, so the bare
+# exception classes never arrive on that path. A code is retryable only when the
+# owner cannot have written a byte before raising it (lock not acquired, identity
+# lease not verified, snapshot expired and re-acquired): all three precede the
+# `attempted[target]` record and `publish_new` in CommitOwner.commit_new().
+NON_EXECUTION_CODES = frozenset({"bootstrap_owner_busy_not_executed",
+                                "bootstrap_native_identity_timeout",
+                                "bootstrap_identity_snapshot_expired"})
+RPC_REJECTED = "bootstrap_rpc_rejected:"
+CONFIRMATION_PENDING = "bootstrap_commit_confirmation_pending_requires_reconciliation"
 
 
 def non_execution(exc):
-    from observation_budget import ObservationBusy
-    from bootstrap_identity import IdentityVerificationPending
-    # Both mean "nothing was admitted"; the identity lease expiry is the same
-    # class because it is re-acquired by the next admission attempt.
-    return (isinstance(exc, (ObservationBusy, IdentityVerificationPending))
-            or str(exc) == "bootstrap_identity_snapshot_expired")
+    from observation_budget import ObservationBusy, ObservationTimeout
+    from bootstrap_identity import IdentitySnapshotExpired, IdentityVerificationPending
+    if isinstance(exc, (ObservationBusy, ObservationTimeout,
+                        IdentityVerificationPending, IdentitySnapshotExpired)):
+        return True
+    code = str(exc)
+    if code.startswith(RPC_REJECTED):
+        code = code[len(RPC_REJECTED):]
+    return code in NON_EXECUTION_CODES
 
 
 def commit_confirmed(authority, control, *, actor, target, raw, prerequisites, recheck,
                      retry_seconds=NON_EXECUTION_RETRY_SECONDS):
-    """Commit once, retrying only replies that prove nothing was admitted."""
+    """Admit once, retrying only replies that prove nothing was admitted.
+
+    The confirmation query stays OUTSIDE the retry loop: a transient read after a
+    successful commit is an unknown outcome, never permission to commit again.
+    """
     end = time.monotonic() + retry_seconds
     while True:
         try:
             recheck()
             reply = authority.commit_new(control, actor=actor, target=target, raw=raw,
                                          prerequisites=list(prerequisites), recheck=recheck)
-            return confirmed(authority, control, reply.target)
+            break
         except (OSError, ValueError) as exc:
             # A busy owner or a throwaway identity lease admitted nothing. An
             # unknown outcome is NOT in that class and must reconcile instead.
             if not non_execution(exc) or time.monotonic() >= end:
+                raise
+            time.sleep(0.2)
+    return confirmation(authority, control, reply.target, retry_seconds=retry_seconds)
+
+
+def confirmation(authority, control, target, *, retry_seconds=NON_EXECUTION_RETRY_SECONDS):
+    """Read-only follow-up after a commit landed; retries only the read.
+
+    On exhaustion this reports an unknown outcome instead of a retryable reply:
+    the bytes are already admitted, so a caller must reconcile, not commit again.
+    """
+    end = time.monotonic() + retry_seconds
+    while True:
+        try:
+            return confirmed(authority, control, target)
+        except ValueError as exc:
+            if time.monotonic() >= end and non_execution(exc):
+                raise ValueError(CONFIRMATION_PENDING) from None
+            if not non_execution(exc):
                 raise
             time.sleep(0.2)
 

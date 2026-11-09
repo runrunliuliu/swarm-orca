@@ -289,6 +289,13 @@ Phase 2 的 `bootstrap_admission.commit_request` 已生成并确认此关联记�
 原 builder 生成的精确 request bytes；关联后发生 STOP 时保留 intent，但不发布 request。
 关联存在而 request 缺失/未确认时阻断，不重跑 builder、不刷新 handshake 时间。
 
+S5 及其它 mutation 的重试只覆盖“证明未写入”的回执。owner 以
+`bootstrap_rpc_rejected:<code>` 返回，只有 `bootstrap_owner_busy_not_executed`、
+`bootstrap_native_identity_timeout`、`bootstrap_identity_snapshot_expired` 属于该类：三者都发生在
+`attempted[target]` 记录与 `publish_new` 之前，所以同一 intent 可在原地重试。commit 成功后的
+确认查询另外进行，只用尽时返回 `bootstrap_commit_confirmation_pending_requires_reconciliation`；
+它表示字节已准入、结果未知，只能对账原 pin，不能再次 commit、覆盖固定槽或生成新 bytes。
+
 S5 后继续传递**同一控制实例和 request/S4 绑定**，禁止自动 disarm 或新 owner 无回执接管。
 后续受支持 prepare / review-result publish / config publish / wait-return / gate / create 必须分别
 接入准入或 intent：文件提交仍在同域；不可撤销的原生调用先固定 intent、退出短锁执行、原 ID 对账。

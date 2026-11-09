@@ -257,15 +257,20 @@ class WorkflowTests(unittest.TestCase):
 class NonExecutionRetryTests(unittest.TestCase):
     """A busy owner admitted nothing, so the same intent may be retried in place."""
 
-    def authority(self, replies):
+    def authority(self, replies, queries=None):
         from bootstrap_protocol import Confirmation
         from coordinator_io import digest
 
         class Stub:
             def __init__(self):
                 self.calls = 0
+                self.queries = list(queries or [])
 
             def query(self, control, target):
+                if self.queries:
+                    outcome = self.queries.pop(0)
+                    if outcome is not None:
+                        raise outcome
                 return Confirmation(control, target, "confirmed")
 
             def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
@@ -310,6 +315,47 @@ class NonExecutionRetryTests(unittest.TestCase):
         authority = self.authority([ObservationBusy()] * 3)
         with patch("bootstrap_s5.time.sleep"), self.assertRaises(ValueError):
             self.run_commit(authority, retry_seconds=-1)
+        self.assertEqual(authority.calls, 1)
+
+    def test_rpc_prefixed_non_execution_codes_are_retried(self):
+        # The owner rejects a mutation as bootstrap_rpc_rejected:<code>, so the
+        # bare exception classes never reach the client on that path.
+        for code in ("bootstrap_owner_busy_not_executed", "bootstrap_native_identity_timeout",
+                     "bootstrap_identity_snapshot_expired"):
+            with self.subTest(code=code):
+                authority = self.authority([ValueError("bootstrap_rpc_rejected:" + code), None])
+                with patch("bootstrap_s5.time.sleep"):
+                    self.assertEqual(self.run_commit(authority)["path"], str(self.target))
+                self.assertEqual(authority.calls, 2)
+
+    def test_reconciliation_codes_are_never_retried(self):
+        for code in ("bootstrap_commit_requires_reconciliation",
+                     "bootstrap_tool_timeout_requires_reconciliation",
+                     "bootstrap_role_or_path_mismatch", "bootstrap_new_bytes_changed"):
+            with self.subTest(code=code):
+                authority = self.authority([ValueError("bootstrap_rpc_rejected:" + code), None])
+                with self.assertRaises(ValueError):
+                    self.run_commit(authority)
+                self.assertEqual(authority.calls, 1)
+
+    def test_confirmation_after_commit_never_recommits(self):
+        # The bytes are already admitted, so only the read-only confirmation may
+        # be retried; re-entering commit_new would report a reconciliation error
+        # for work that actually landed.
+        from observation_budget import ObservationBusy
+        authority = self.authority([None], queries=[ObservationBusy(), ObservationBusy(), None])
+        with patch("bootstrap_s5.time.sleep"):
+            self.assertEqual(self.run_commit(authority)["path"], str(self.target))
+        self.assertEqual(authority.calls, 1)
+        self.assertEqual(authority.queries, [])
+
+    def test_exhausted_confirmation_reports_an_unknown_outcome(self):
+        from observation_budget import ObservationBusy
+        from bootstrap_s5 import CONFIRMATION_PENDING
+        authority = self.authority([None], queries=[ObservationBusy()] * 4)
+        with patch("bootstrap_s5.time.sleep"), self.assertRaises(ValueError) as caught:
+            self.run_commit(authority, retry_seconds=-1)
+        self.assertEqual(str(caught.exception), CONFIRMATION_PENDING)
         self.assertEqual(authority.calls, 1)
 
 
