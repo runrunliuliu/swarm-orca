@@ -1,4 +1,5 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -34,14 +35,16 @@ const PRESETS: readonly AgentTrustPreset[] = [
   'copilot',
   'qoder',
   'trae',
-  'antigravity'
+  'antigravity',
+  'codex-ark'
 ]
 // Why these three: each accepts trust from any ancestor folder, so trust on a home covers it all.
 const INHERITING_PRESETS: readonly AgentTrustPreset[] = ['claude', 'copilot', 'qoder']
 const EXACT_OR_SELF_LIMITING_PRESETS: readonly AgentTrustPreset[] = [
   'codex',
   'cursor',
-  'antigravity'
+  'antigravity',
+  'codex-ark'
 ]
 
 let root: string
@@ -51,6 +54,9 @@ beforeEach(() => {
   state.home = join(root, 'home', 'me')
   mkdirSync(state.home, { recursive: true })
   writeFileSync(join(state.home, '.claude.json'), '{}')
+  // Why: the Ark wrapper writes and validates its own config; Orca only ever appends to it.
+  mkdirSync(join(state.home, '.codex-ark'), { recursive: true })
+  writeFileSync(join(state.home, '.codex-ark', 'config.toml'), 'model = "ark"\n')
 })
 
 afterEach(() => {
@@ -63,6 +69,7 @@ function thisHost(overrides: Partial<WorkspaceTrustHost> = {}): () => WorkspaceT
     agentHome: state.home,
     claudeConfig: () => ({ configFile: join(state.home, '.claude.json'), keyStyle: 'posix' }),
     codexConfigFiles: () => [join(state.home, '.codex', 'config.toml')],
+    codexArkConfigFile: () => join(state.home, '.codex-ark', 'config.toml'),
     deadlineMs: 1_500,
     ...overrides
   })
@@ -135,6 +142,34 @@ describe('applyWorkspaceTrustOnThisHost', () => {
     expect(readFileSync(join(state.home, '.codex', 'config.toml'), 'utf-8')).toContain(
       `[projects."${state.home}"]`
     )
+  })
+
+  it("writes Codex Ark trust into the wrapper's own config, not the inherited CODEX_HOME", async () => {
+    const workspace = join(root, 'projects', 'app')
+    mkdirSync(workspace, { recursive: true })
+    await applyWorkspaceTrustOnThisHost('codex-ark', workspace, thisHost())
+    expect(readFileSync(join(state.home, '.codex-ark', 'config.toml'), 'utf-8')).toContain(
+      `[projects."${workspace}"]`
+    )
+    expect(existsSync(join(state.home, '.codex', 'config.toml'))).toBe(false)
+  })
+
+  it('never creates an Ark config the wrapper has not written', async () => {
+    const emptyHome = join(root, 'empty-home')
+    mkdirSync(emptyHome, { recursive: true })
+    const workspace = join(root, 'projects', 'app')
+    mkdirSync(workspace, { recursive: true })
+    await applyWorkspaceTrustOnThisHost(
+      'codex-ark',
+      workspace,
+      thisHost({
+        homes: [emptyHome],
+        agentHome: emptyHome,
+        claudeConfig: () => null,
+        codexArkConfigFile: () => null
+      })
+    )
+    expect(existsSync(join(emptyHome, '.codex-ark'))).toBe(false)
   })
 
   it.each(PRESETS)(

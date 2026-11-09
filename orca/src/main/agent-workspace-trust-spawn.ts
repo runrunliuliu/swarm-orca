@@ -1,4 +1,5 @@
 import { TUI_AGENT_CONFIG, isTuiAgent } from '../shared/tui-agent-config'
+import type { AgentTrustPreset } from './agent-trust-presets'
 import type { GlobalSettings } from '../shared/global-settings-types'
 import { resolveTerminalWorkspacePath } from '../shared/terminal-startup-cwd'
 import {
@@ -16,6 +17,13 @@ type AgentWorkspaceTrustSetting =
 function isAgentWorkspaceTrustOn(settings: AgentWorkspaceTrustSetting): boolean {
   return settings?.agentWorkspaceTrustEnabled !== false
 }
+
+/**
+ * Presets granted only to orchestration-dispatched workers: an unattended launch cannot answer the
+ * prompt, while a person's own terminal still can. Manual launches, floating terminals,
+ * reattaches and restores never get these grants.
+ */
+const ORCHESTRATION_ONLY_TRUST_PRESETS = new Set<AgentTrustPreset>(['trae', 'codex-ark'])
 
 /**
  * The one place Orca pre-trusts a workspace: every Orca-started agent PTY passes
@@ -51,8 +59,11 @@ export function applyAgentWorkspaceTrustToSpawn(
     args.worktreeId,
     (folderWorkspaceId) => args.store?.getFolderWorkspace(folderWorkspaceId)?.folderPath
   )
-  // Why: default Trae trust is for dispatched workers, not manual or floating terminals.
-  if (preset === 'trae' && (args.launchSource !== 'orchestration' || !workspaceRoot)) {
+  // Why: default Trae and Ark trust is for dispatched workers, not manual or floating terminals.
+  if (
+    ORCHESTRATION_ONLY_TRUST_PRESETS.has(preset) &&
+    (args.launchSource !== 'orchestration' || !workspaceRoot)
+  ) {
     return null
   }
   const workspacePath = AGENT_TRUST_KEYED_BY_START_FOLDER[preset]

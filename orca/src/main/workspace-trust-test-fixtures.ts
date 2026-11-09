@@ -19,6 +19,11 @@ export function workspaceTrustWritten(home: string, preset: AgentTrustPreset): b
       return existsSync(join(home, '.qoder', 'settings.json'))
     case 'trae':
       return existsSync(join(home, '.trae', 'traecli.toml'))
+    case 'codex-ark': {
+      // Why not mere existence: the wrapper owns this file, so only an appended record proves a write.
+      const config = join(home, '.codex-ark', 'config.toml')
+      return existsSync(config) && readFileSync(config, 'utf-8').includes('trust_level = "trusted"')
+    }
     case 'antigravity':
       return existsSync(join(home, '.gemini', 'antigravity-cli', 'settings.json'))
   }

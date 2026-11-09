@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { markQoderWorkspaceTrusted } from './qoder/workspace-trust'
 import { markTraeWorkspaceTrusted } from './trae/workspace-trust'
+import { markCodexArkWorkspaceTrusted } from './codex-ark/workspace-trust'
 import {
   type AgentTrustPreset,
   markAntigravityWorkspaceTrusted,
@@ -32,6 +33,8 @@ export type WorkspaceTrustHost = {
   codexConfigFiles: () => readonly string[]
   /** Trae's config on this host, including any launch-specific TRAE_HOME. */
   traeConfigFile?: () => string
+  /** The Ark wrapper's own config on this host, or null when it has not written one yet. */
+  codexArkConfigFile?: () => string | null
   deadlineMs: number
 }
 
@@ -56,7 +59,8 @@ export const AGENT_TRUST_INHERITS_FROM_A_HOME: Record<AgentTrustPreset, boolean>
   copilot: true,
   qoder: true,
   trae: false,
-  antigravity: false
+  antigravity: false,
+  'codex-ark': false
 }
 
 /**
@@ -71,7 +75,8 @@ export const AGENT_TRUST_KEYED_BY_START_FOLDER: Record<AgentTrustPreset, boolean
   copilot: false,
   qoder: false,
   trae: true,
-  antigravity: false
+  antigravity: false,
+  'codex-ark': true
 }
 
 // Why resolve() too: Claude stores it, and it collapses `..` even where realpath fails.
@@ -121,6 +126,12 @@ async function writePreset(
       )
     case 'antigravity':
       return markAntigravityWorkspaceTrusted(storedPath, host.agentHome)
+    case 'codex-ark': {
+      // Why: no readable Ark config means the wrapper has not written (or has moved) its home —
+      // writing a fresh one would make `codex-ark` refuse to start, so leave the CLI to ask.
+      const configFile = host.codexArkConfigFile?.()
+      return configFile ? markCodexArkWorkspaceTrusted(storedPath, configFile) : undefined
+    }
   }
 }
 

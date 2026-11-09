@@ -12,6 +12,7 @@ import { applyWorkspaceTrustOnThisHost, launchedAgentHome } from './execution-ho
 import { getLocalCodexTrustConfigFiles } from './codex/codex-home-paths'
 import { getCachedWslHome } from './wsl-home-cache'
 import { resolveTraeTrustConfigFile } from './trae/workspace-trust'
+import { resolveCodexArkTrustConfigFile } from './codex-ark/workspace-trust'
 
 /** What a trust writer needs to reach the file the launched agent will read. */
 export type AgentTrustLaunchContext = {
@@ -78,6 +79,8 @@ export async function applyAgentWorkspaceTrust(
       codexConfigFiles: () => getLocalCodexTrustConfigFiles(agentHome),
       traeConfigFile: () =>
         resolveTraeTrustConfigFile(agentHome, { ...process.env, ...context.env }),
+      codexArkConfigFile: () =>
+        resolveCodexArkTrustConfigFile(agentHome, { ...process.env, ...context.env }),
       // Why: Codex queues behind a config lane it shares with Orca's hook installs.
       deadlineMs:
         preset === 'codex' ? AGENT_TRUST_WRITE_DEADLINE_MS : SHORT_AGENT_TRUST_WRITE_DEADLINE_MS

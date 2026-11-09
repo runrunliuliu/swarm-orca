@@ -36,7 +36,8 @@ const AGENTS_WITH_A_RELAY_WRITER: [TuiAgent, AgentTrustPreset][] = [
   ['cursor', 'cursor'],
   ['copilot', 'copilot'],
   ['qoder', 'qoder'],
-  ['trae', 'trae']
+  ['trae', 'trae'],
+  ['codex-ark', 'codex-ark']
 ]
 const AGENTS_THAT_INHERIT_TRUST = AGENTS_WITH_A_RELAY_WRITER.filter(([, preset]) =>
   ['claude', 'copilot', 'qoder', 'trae'].includes(preset)
@@ -48,7 +49,8 @@ const ALL_PRESETS: AgentTrustPreset[] = [
   'copilot',
   'qoder',
   'trae',
-  'antigravity'
+  'antigravity',
+  'codex-ark'
 ]
 
 let root: string
@@ -61,6 +63,9 @@ beforeEach(() => {
   mkdirSync(home, { recursive: true })
   state.home = home
   writeFileSync(join(home, '.claude.json'), ORIGINAL_CLAUDE_CONFIG, { mode: 0o600 })
+  // Why: the Ark wrapper writes and validates its own config; Orca only appends to an existing one.
+  mkdirSync(join(home, '.codex-ark'), { recursive: true })
+  writeFileSync(join(home, '.codex-ark', 'config.toml'), 'model = "ark"\n')
   workspace = join(root, 'wt')
   mkdirSync(workspace)
 })
