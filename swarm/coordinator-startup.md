@@ -11,7 +11,7 @@ Run owner 必须是事先独立核验的 Coordinator，而不是两个都填成 
 `coordinator_launch.py startup-gate` 是只读、失败即停止的核验入口，不创建或恢复会话、
 Run、Task、Worker，不修改 owner，不授予权限。当前实现复用 `trae-exec-stream-v1`
 观察器，也显式支持 [Trae TUI](coordinator-tui.md) 的 runtime-state 适配；仅支持 Orca 1.4.219，
-exec 为本机 Trae 0.210.1 或 0.211.1，TUI 使用其独立版本配置；其他 Agent 明确拒绝，不能回退到
+exec 为本机 Trae 0.210.1 或 0.211.1，TUI 接受 0.211.1 / 0.212.1 / 0.213.1 / 0.214.1 且须使用对应版本的独立配置；其他 Agent 明确拒绝，不能回退到
 Codex。Codex `native-preflight` 仍是另一条检查路径，**不因此获得独立 Operator 启动门**。
 
 这是本地工作流门，不是 runtime 拦截器。直接调用原生派发仍可能绕过它；只有把所有派发

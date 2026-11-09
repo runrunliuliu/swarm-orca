@@ -1,6 +1,6 @@
 # Trae Coordinator：原生 strict 启动 / 历史 exec resume
 
-本适配器按 Trae CLI 0.210.1 / 0.211.1 的 exec、0.211.1 / 0.212.1 的 TUI 契约实现，独立于 Codex 的
+本适配器按 Trae CLI 0.210.1 / 0.211.1 的 exec、0.211.1 / 0.212.1 / 0.213.1 / 0.214.1 的 TUI 契约实现，独立于 Codex 的
 `coordinator_prepare.py/js` 和 `native_preflight.py`，不冒充其验证结果。
 它不改全局配置、不部署 hook、不重启 Orca，不使用 `/proc`。
 

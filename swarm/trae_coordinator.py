@@ -25,7 +25,7 @@ from coordinator_write_roots import observe_write_roots
 
 VERSION = "0.210.1"
 EXEC_VERSIONS = (VERSION, "0.211.1")
-TUI_VERSIONS = ("0.211.1", "0.212.1", "0.213.1")
+TUI_VERSIONS = ("0.211.1", "0.212.1", "0.213.1", "0.214.1")
 SUPPORTED_VERSIONS = tuple(dict.fromkeys((*EXEC_VERSIONS, *TUI_VERSIONS)))
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 LEGACY_EXECUTION = {"sandbox_mode": "workspace-write", "approval_policy": "never",
@@ -73,7 +73,7 @@ def read_trae_runtime(runtime_config):
             and execution.get("network_access") is True,
             "unsupported Trae execution policy")
     require(config["cli_version"] in (TUI_VERSIONS if execution == TUI_EXECUTION else EXEC_VERSIONS),
-            "TUI adapter requires Trae 0.211.1, 0.212.1 or 0.213.1; exec requires 0.210.1 or 0.211.1")
+            "TUI adapter requires Trae 0.211.1, 0.212.1, 0.213.1 or 0.214.1; exec requires 0.210.1 or 0.211.1")
     return config["cli_version"], execution
 
 
