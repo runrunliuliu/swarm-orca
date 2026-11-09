@@ -568,6 +568,9 @@ describe('buildWorktreeAgentRows', () => {
 
     expect(missingParentRows[0].lineage).toMatchObject({ depth: 0, childCount: 0 })
     expect(missingParentRows[0].lineageParentPaneKey).toBeUndefined()
+    expect(missingParentRows[0].originClosed).toBe(true)
+    expect(missingParentRows[0].tab.id).toBe('tab-2')
+    expect(missingParentRows[0].activationPaneKey).toBeUndefined()
 
     const parentInOtherWorktree = makeEntry(PANE_KEY_1, 900, {
       prompt: 'other worktree parent'
@@ -594,6 +597,9 @@ describe('buildWorktreeAgentRows', () => {
     })
     expect(
       crossWorktreeRows.find((row) => row.paneKey === PANE_KEY_2)?.lineageParentPaneKey
+    ).toBeUndefined()
+    expect(
+      crossWorktreeRows.find((row) => row.paneKey === PANE_KEY_2)?.originClosed
     ).toBeUndefined()
   })
 

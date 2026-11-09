@@ -384,6 +384,21 @@ describe('DashboardAgentRow', () => {
     expect(markup).toContain('rm -rf build/')
   })
 
+  it('renders the closed origin marker on the secondary line', () => {
+    const markup = renderRow(
+      makeAgent(
+        { originClosed: true },
+        {
+          lastAssistantMessage: 'Still checking the branch'
+        }
+      )
+    )
+
+    expect(markup).toContain('◇ 来源已关闭')
+    expect(markup).toContain('Still checking the branch')
+    expect(markup).toContain('aria-label="Working"')
+  })
+
   it('leaves a wait without tool metadata unchanged', () => {
     const markup = renderRow(makeAgent({ state: 'waiting' }, { state: 'waiting' }))
 

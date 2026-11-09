@@ -18,6 +18,8 @@ export type DashboardAgentRow = {
   /** Renderer-only parent for visual lineage. Unlike `entry.orchestration`, this
    *  is not a Dispatch identity and must not be read as lifecycle state. */
   lineageParentPaneKey?: string
+  /** The spawning pane points at a tab that is no longer visible in this renderer. */
+  originClosed?: boolean
   /** Optional sibling order inside one visual lineage parent. */
   lineageSortAt?: number
   /** When this agent first began reporting status. Derived from the oldest

@@ -15,6 +15,11 @@ export type AgentRowLineageTree<T extends AgentLineageSourceRow> = {
   childPaneKeys: Set<string>
 }
 
+export type AgentLineageAttentionCounts = {
+  countedPaneKeys: Set<string>
+  count: number
+}
+
 function buildPaneKeyByTerminalHandle<T extends AgentLineageSourceRow>(
   rows: readonly T[]
 ): Map<string, string> {
@@ -159,4 +164,46 @@ export function buildAgentRowLineageTree<T extends AgentLineageSourceRow>(
     childrenByParentPaneKey: normalizedChildrenByParentPaneKey,
     childPaneKeys: normalizedChildPaneKeys
   }
+}
+
+export function collectAgentLineageAttentionCounts<T extends AgentLineageSourceRow>(
+  rows: readonly T[],
+  isAttentionRow: (row: T) => boolean
+): AgentLineageAttentionCounts {
+  const countedPaneKeys = new Set<string>()
+  if (rows.length === 0) {
+    return { countedPaneKeys, count: 0 }
+  }
+
+  const { rootRows, childrenByParentPaneKey } = buildAgentRowLineageTree(rows)
+  const visitedPaneKeys = new Set<string>()
+  const stack = rootRows
+    .slice()
+    .reverse()
+    .map((row) => ({ row, hasAttentionAncestor: false }))
+
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current || visitedPaneKeys.has(current.row.paneKey)) {
+      continue
+    }
+    visitedPaneKeys.add(current.row.paneKey)
+    const rowNeedsAttention = isAttentionRow(current.row)
+    if (rowNeedsAttention && !current.hasAttentionAncestor) {
+      countedPaneKeys.add(current.row.paneKey)
+    }
+
+    const children = childrenByParentPaneKey.get(current.row.paneKey) ?? []
+    for (let index = children.length - 1; index >= 0; index--) {
+      const child = children[index]
+      if (child) {
+        stack.push({
+          row: child,
+          hasAttentionAncestor: current.hasAttentionAncestor || rowNeedsAttention
+        })
+      }
+    }
+  }
+
+  return { countedPaneKeys, count: countedPaneKeys.size }
 }

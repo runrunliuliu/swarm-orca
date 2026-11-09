@@ -139,37 +139,42 @@ function markCompletedWorkerParentPaneKeysSeen(args: {
   }
 }
 
-function spawnedLineageParentPaneKeyForTab(
+function spawnedLineageForTab(
   tab: TerminalTab,
   currentTabsById: ReadonlyMap<string, TerminalTab>
-): string | undefined {
+): Pick<DashboardAgentRow, 'lineageParentPaneKey' | 'originClosed'> {
   const parentPaneKey = tab.spawnedFromPaneKey
   if (!parentPaneKey) {
-    return undefined
+    return {}
   }
   const parsedParent = parsePaneKey(parentPaneKey)
   if (!parsedParent) {
-    return undefined
+    return {}
   }
   const parentTab = currentTabsById.get(parsedParent.tabId)
-  if (!parentTab || parentTab.worktreeId !== tab.worktreeId) {
-    return undefined
+  if (!parentTab) {
+    return { originClosed: true }
   }
-  return parentPaneKey
+  if (parentTab.worktreeId !== tab.worktreeId) {
+    return {}
+  }
+  return { lineageParentPaneKey: parentPaneKey }
 }
 
 function attachSpawnedLineage(
   row: DashboardAgentRow,
   currentTabsById: ReadonlyMap<string, TerminalTab>
 ): DashboardAgentRow {
-  const lineageParentPaneKey = spawnedLineageParentPaneKeyForTab(row.tab, currentTabsById)
-  if (!lineageParentPaneKey || lineageParentPaneKey === row.paneKey) {
+  const { lineageParentPaneKey, originClosed } = spawnedLineageForTab(row.tab, currentTabsById)
+  if ((!lineageParentPaneKey || lineageParentPaneKey === row.paneKey) && !originClosed) {
     return row
   }
   return {
     ...row,
-    lineageParentPaneKey,
-    lineageSortAt: row.tab.createdAt
+    ...(lineageParentPaneKey && lineageParentPaneKey !== row.paneKey
+      ? { lineageParentPaneKey, lineageSortAt: row.tab.createdAt }
+      : {}),
+    ...(originClosed ? { originClosed } : {})
   }
 }
 

@@ -187,4 +187,25 @@ describe('buildDashboardBucketCounts per-worktree cache', () => {
     // Rows don't depend on acks — the recount must not rebuild any row pipeline.
     expect(cache.lastComputedWorktreeIds).toEqual([])
   })
+
+  it('counts a spawned attention child under an attention parent once', () => {
+    const state: DashboardSnapshotState = {
+      ...baseState(),
+      worktreesByRepo: { r1: [worktree('w1')] },
+      tabsByWorktree: {
+        w1: [tab('tab1', 'w1'), { ...tab('tab2', 'w1'), spawnedFromPaneKey: PANE_1 }]
+      },
+      agentStatusByPaneKey: {
+        [PANE_1]: { ...entry(PANE_1, 'tab1', 'w1'), state: 'waiting' },
+        [PANE_2]: { ...entry(PANE_2, 'tab2', 'w1'), state: 'blocked' }
+      }
+    }
+
+    expect(buildDashboardBucketCounts(state, NOW)).toEqual({
+      attention: 1,
+      working: 0,
+      done: 0,
+      idle: 0
+    })
+  })
 })

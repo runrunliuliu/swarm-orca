@@ -20,6 +20,8 @@ import {
   agentChildRowNoUpdateLabel
 } from '@/components/agent-child-row-text'
 
+const ORIGIN_CLOSED_MESSAGE = '◇ 来源已关闭'
+
 function formatTimeAgo(ts: number, now: number): string {
   const delta = now - ts
   if (delta < 60_000) {
@@ -151,9 +153,12 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
   const toolName = showsTool ? (agent.entry.toolName?.trim() ?? '') : ''
   const toolInput = showsTool ? (agent.entry.toolInput?.trim() ?? '') : ''
   // Why: a child row's message line is the model's, so a child that ended without an outcome says so.
-  const lastAssistantMessage = agent.childRow
+  const rawLastAssistantMessage = agent.childRow
     ? agentChildRowMessageLine(agent.childRow)
     : (agent.entry.lastAssistantMessage?.trim() ?? '')
+  const lastAssistantMessage = agent.originClosed
+    ? [ORIGIN_CLOSED_MESSAGE, rawLastAssistantMessage].filter(Boolean).join(' · ')
+    : rawLastAssistantMessage
   const isInterrupted = agentVerdictDisplayMark(agent.entry) === 'interrupted'
   const lineage = agent.lineage
   const isLineageChild = lineage?.depth === 1
