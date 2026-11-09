@@ -92,9 +92,82 @@
 - 反查升级：`find*Attachment` → 列表版；GitLab/Jira 补同构 collector。
 - 前置门槛：**M2a 判决通过**，且设计文档 §8.9 的第 2–3 条（revision CAS、记录级迁移）跑通；
   不通过则不引入 domain，退回纯投影。
-- 退出：§8.9 的 1–7 全绿；投影一致性用例；1000 工作区规模下列表构建复用缓存 pass、无逐行扫描；
-  任务归档时结算快照三态正确。
+- 退出：上文 **H 的 1–7 全绿**（覆盖设计文档 §8.9 的存储专项与评审补充）；投影一致性用例；
+  1000 工作区规模下列表构建复用缓存 pass、无逐行扫描；G 的三项数字留证。
 - 不做：跨 runtime、跨仓库联合验收、移动端。
+
+#### M2b 存储交付细则（WP4 必须逐项落地）
+
+设计理由见[设计文档 §8](README.md#8-关系怎么存持久化设计)，本节只写"实现时要交出什么"。
+
+**A. domain 合同**
+
+| 项 | 要求 |
+| --- | --- |
+| 位置 | profile-state 的 top-level JSON domain `taskRecords`；**不加 DDL、不改 `PROFILE_STATE_DATABASE_SCHEMA_VERSION`** |
+| 顶层 | `{ recordsVersion: 1, byId, externalIndex }`；未知顶层字段读入后原样保留 |
+| 记录不变量 | `taskId` 非空且唯一；`bindings[].worktreeId` 非空、同一任务内不重复；`primaryWorktreeId` 必须在 `bindings` 中 |
+| `externalIndex` | `provider · host · repo · number` → `taskId`，**0..1**；重复绑定必须**拒绝并报冲突**，不得覆盖或静默合并 |
+| 上限 | 单任务 ≤ 64 个绑定；单记录 JSON ≤ 8 KiB；整个 domain ≤ 8 MiB；超限拒绝写入并报错（不静默截断） |
+| 枚举 | `unavailableReason` 只用既有语汇：`usage_not_enabled` / `remote_usage_unavailable` / `scan_failed` / `no_matching_session` / `ambiguous_session` |
+
+**B. 写入路径与并发**
+
+- 写入者只有 main 的 Store；renderer 通过 IPC 提交意图（新增/绑定/解绑/归档/改 primary），**不得**拼整个 domain 覆盖写。
+- 一律走 `writeProfileStateDomain({ domain:'taskRecords', payload, expectedRevision })`。
+- revision 冲突（`ProfileStateRevisionConflictError`）：重读 → 重放意图 → 最多重试 3 次；仍冲突则失败上报，不降级为"最后写入者胜"。
+- 变更只重写 `taskRecords` 一行；不连带写 `worktreeMeta` / `settings`。
+
+**C. `usageSettlement` 触发与幂等**
+
+| 触发 | 时点 | 约束 |
+| --- | --- | --- |
+| 任务归档 | 写入 `intent.archived = true` **之前** | 先结算成功再置归档；结算失败则保留原状态并报错 |
+| 绑定移除 / 工作区删除 | 该 binding 标记前 | 只结算被移除 binding 对应的工作区聚合 |
+| 显式"重新结算" | 用户动作 | 覆盖旧快照并更新 `collectedAt`；保留 `unavailableReason` |
+
+- 幂等键：`(taskId, worktreeId, collectedAt)`；重放不产生第二份快照。
+- 结算读的是 `*UsageProjectBreakdown` 的 `worktree:<id>` 聚合；**拿不到就记 `unavailableReason`，不记 0、不按比例拆分**。
+- 结算不触发强制重扫（不因打开任务页而拉 `refresh(force)`）。
+
+**D. binding 解析与对账**
+
+- 解析顺序：locator `worktreeId` → `worktreeIdentityAliases` → `priorWorktreeIds`；命中即回填 `resolvedVia`。
+- 解析失败：`lastVerifiedAt = null`，列表显示 unresolved；**不删记录、不改绑定的 `boundBy`**。
+- 启动对账一次、有界（受单次预算与并发约束）；不做后台 watcher、不自动重试。
+- 对账只写 `lastVerifiedAt` / `resolvedVia`，不写 `intent`、不写 `usageSettlement`。
+
+**E. 生命周期与 GC 解耦**
+
+| 事件 | 必须的行为 |
+| --- | --- |
+| 工作区被 Orca 删除 | binding unresolved + 结算；任务记录保留 |
+| 工作区被外部删除 | 只读对账标记，不自动删 |
+| 目录改名 | 别名解析并改写 `worktreeId`，保留旧 id 于 `resolvedVia` 记录 |
+| 仓库移除（`gcStaleWorktreeMeta` 会清 meta） | 记录仍可读，binding unresolved；不跟随 meta 一起清 |
+| 任务删除 | 显式动作，先结算后删；**不级联删工作区** |
+
+**F. 失败与降级行为**
+
+- domain payload 损坏 / `recordsVersion` 未知：**fail-closed**（拒写、上报、不清空、不重建空 domain）。
+- 单条记录字段未知或类型不符：丢弃该条并计数上报，其余记录照常加载；不得整 domain 判死。
+- 读取路径不得因任务记录缺失而阻塞工作区列表或 Agent 状态展示。
+
+**G. 体量 / 写入频率门禁（退出前实测）**
+
+- 1000 任务 × 3 绑定：domain 序列化 + 读入耗时基线（给出数字，不写"应该很快"）。
+- 运行态变化（Agent working/idle、消息流）**不得**触发 `taskRecords` 写入（用写入计数器证明）。
+- 单次绑定/归档/结算只产生 1 次 domain 写。
+
+**H. M2b 退出条件（与上表一一对应）**
+
+1. A 表全部有单测（含重复 `externalIndex` 拒绝、上限拒绝、primary 不在 bindings 时拒绝）。
+2. B 的 CAS 冲突路径有并发用例，且验证"重试 3 次后失败上报"。
+3. C 的三条触发各有用例，且幂等键重放不产生第二份快照；未启用/远端/歧义三态都覆盖。
+4. D 的四条解析路径与 unresolved 分支各有用例。
+5. E 的五种事件各有断言（含 `worktreeMeta` 被 GC 后记录仍可读）。
+6. F 的三类损坏输入各有一条 fail-closed 或逐条降级用例。
+7. G 三项数字与写入计数器结果记录在 §9 证据列。
 
 ### M3 交付证据聚合（2–3 天，可与 M2 并行收尾）
 
@@ -113,7 +186,9 @@
 | WP1 | 任务投影（`taskKey`、分组、一任务多工作区） | `orca/src/renderer/src/components/task-workbench/*`、`orca/src/renderer/src/lib/` | M0 | 与 WP2 并行 |
 | WP2 | 用量聚合与三态收敛 | 同上 + `orca/src/shared/task-workbench-*.ts` | M0 | 与 WP1 并行 |
 | WP3 | UI（面板 / 列表 / 空态 / 动作） | `task-workbench/` 组件与 `use-task-workbench-*` | WP1、WP2 | 否（串行收口） |
-| WP4 | `taskRecords` 持久化与对账（main） | `orca/src/main/task-records/*`、`orca/src/main/persistence/loading-store/normalize-loaded-task-records.ts` | M0 + §8.9 前置用例 | 与 WP1/WP2 并行 |
+| WP4a | `taskRecords` domain + 归一化 + 上限/不变量校验（main） | `orca/src/main/task-records/*`、`orca/src/main/persistence/loading-store/normalize-loaded-task-records.ts` | M0 字段表 | 与 WP1/WP2 并行 |
+| WP4b | 写入意图 + revision CAS 重试（main/IPC） | 同上 + IPC 意图层 | WP4a | 否（串行） |
+| WP4c | 启动对账 + `usageSettlement` 结算 | 同上 | WP4a、M2a 判决 | 与 WP5 并行 |
 | WP5 | 反查索引升级（四 provider） | 现有 `*workspace-attachment*`、`task-page-linear-in-orca-issues.ts` | WP4 字段表 | 是 |
 | WP0 | M2a 存储兼容验证（只读 fixture，不写生产库） | 独立 fixture + 手写旧 build 快照 | M0 | 是 |
 | WP6 | 测试与基准 | 与各项同目录 `*.test.ts` | 全程 | 是 |
