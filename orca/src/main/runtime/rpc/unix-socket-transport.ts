@@ -60,8 +60,14 @@ export class UnixSocketTransport implements RpcTransport {
   }: UnixSocketTransportOptions) {
     this.endpoint = endpoint
     this.kind = kind
-    this.keepaliveIntervalMs = keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS
     this.idleTimeoutMs = idleTimeoutMs ?? RUNTIME_RPC_SOCKET_IDLE_TIMEOUT_MS
+    // Why clamp the interval too: the first frame lands on time regardless, but a steady
+    // state slower than the idle timeout would starve the connection between frames, so
+    // the interval must stay strictly inside one idle window.
+    this.keepaliveIntervalMs = Math.min(
+      keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS,
+      Math.max(1, this.idleTimeoutMs - 1)
+    )
     // Why half the idle timeout (the default): a dispatch still running half an idle
     // period later has already provably outlived every fast RPC, so it gets a keepalive
     // before the socket's idle timer can fire. Node refreshes that timer on write as well

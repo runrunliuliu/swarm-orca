@@ -255,9 +255,33 @@ describe('UnixSocketTransport', () => {
     expect(socket.writes.length).toBeGreaterThan(atCeiling)
   })
 
+  it('clamps the keepalive interval inside the idle window', () => {
+    // Why: a steady-state interval slower than the idle timeout would starve the socket
+    // between frames even though the first frame now lands on time.
+    const transport = new UnixSocketTransport({
+      endpoint: 'test-pipe',
+      kind: 'named-pipe',
+      idleTimeoutMs: 60,
+      keepaliveIntervalMs: 1_000,
+      keepaliveArmDelayMs: 10
+    })
+    const socket = new FakeSocket()
+    transport.onMessage(() => {})
+    ;(transport as unknown as UnixSocketTransportInternals).handleConnection(
+      socket as unknown as Socket
+    )
+    socket.emit('data', '{"id":"slow","method":"worktree.create"}\n')
+
+    vi.advanceTimersByTime(10)
+    expect(socket.writes).toEqual(['{"_keepalive":true}\n'])
+    // Clamped to 59 ms, so another frame is due well before the caller's 1000 ms.
+    vi.advanceTimersByTime(59)
+    expect(socket.writes.length).toBe(2)
+  })
+
   it('writes the first implicit frame on time even with a long keepalive interval', () => {
-    // Why: with interval 60 s and a 30 s idle timeout, waiting one interval before the
-    // first frame would land after the timeout this path exists to prevent.
+    // Why: with a caller interval of 60 s and a 30 s idle timeout, waiting one interval
+    // before the first frame would land after the timeout this path exists to prevent.
     const transport = new UnixSocketTransport({
       endpoint: 'test-pipe',
       kind: 'named-pipe',
