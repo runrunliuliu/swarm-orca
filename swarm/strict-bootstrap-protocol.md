@@ -299,6 +299,10 @@ provider → （证据格式、必须字段、transcript 记录、TUI adapter）
   `pi_session_chain_broken`；freshness 以**被采纳的 assistant 设置记录**的时间戳为准
   （追加一条新的非 assistant 记录不能让陈旧设置变“新鲜”）；policy 以**已 pin 的 Ref** 传入，
   读取前后与观察结束后各重验一次，anchor 记录该 Ref，换文件或换字节即拒绝。
+  滚到这里的行还必须是**在跑的归属**：单独的 `session_start` 快照按 resume 身份落盘
+  （`providerSessionOnly`），读取器拒绝；面板所在宿主的投递也可能根本没到（见
+  [operator-prepare.md「Pi Operator 的核验通道」](operator-prepare.md#agent--adapter-支持范围) 的两种成因与只读诊断
+  `pi_hook_preflight.py`）。两者都只影响“能不能拿到行”，不放宽任何身份/commitment 门。
 
 pi runtime policy（schema v1，精确字段 `schema_version,scope,provider,model,thinking_level`，
 `provider` 固定 `pi`，`model` 为 `{provider,id}`，示例见

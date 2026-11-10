@@ -59,11 +59,32 @@ provider 可以不同。Pi Coordinator 的 `runtime_config` 必须是
   要求 `effort`/`approval_policy`/`sandbox_policy`/`approvals_reviewer`/`writable_roots` 会以
   `operator_session_expected_effective_provider_unsupported` 明确拒绝，不做跨 provider 映射。
 
-2026-11-09 记录的现象（`last-status.json` 只有 `source=trae`、活跃 pi pane 无记录）仍然成立，
-但结论是**操作前提**而不是能力缺口：那些 pane 不是经 Orca + 托管扩展启动的。Pi gate 角色要求
-pi 会话由 Orca 起（`terminal create --agent pi`），并实际存在 `source=pi` 的 hook 行。
-本仓库无法验证目标宿主上的扩展安装状态；没有该行时错误是 `runtime_state_missing_pane`
-（经 `operator_session_runtime_state_unverifiable` 归一），不是静默回退。
+2026-11-09 记录的现象（`last-status.json` 只有 `source=trae`、活跃 pi pane 无记录）在
+2026-11-11 被重新归因：**它不等于「那些 pane 不是 Orca 起的」**。一次 `terminal create --agent pi`
+的 pane 可以活着、`agentIdentity=pi`、托管扩展确实加载，却仍然一条 `source=pi` 行都没有。已核实的
+两种成因都不是 provider 能力缺口，也都不是读取器可以放宽的理由：
+
+1. **投递被宿主代理吞掉。** 托管扩展用运行时全局 `fetch` 发 loopback POST；pi 运行时给全局
+   `fetch` 装了环境代理 dispatcher，而它的 no-proxy 匹配只认精确主机、`.后缀` 和 `*`，**不认 CIDR**。
+   于是只写 `127.0.0.0/8` 的 no-proxy 列表会让 `127.0.0.1` 被送进代理，投递失败；pi 侧没有 curl
+   兜底，错误被扩展按设计吞掉，pane 静默无行。同一宿主上其它 agent 家族的 hook 由会绕过代理的
+   shell 客户端发送，所以它们的行存在（`source=trae` 行就是这样来的）。
+2. **只到了 resume 身份。** 单独的 `session_start` 快照按 `providerSessionOnly` 落盘，是 resume
+   身份而不是在跑的归属，严格读取器会拒绝；gate 需要至少一个 turn 事件落的行。
+
+诊断（只读、不授权）：[pi_hook_preflight.py](pi_hook_preflight.py) 读 pane 的 env 与 hook 行，
+回答“通道看起来能不能投递”，并给出 `pi_hook_transport_proxied_loopback` /
+`pi_hook_row_provider_session_only` / `pi_hook_row_missing` 之一：
+
+```text
+python3 -B /absolute/swarm/pi_hook_preflight.py --pane-env /proc/<pid>/environ \
+  --hook-store /absolute/orca-user-data/agent-hooks/last-status.json \
+  --pane-key <tabId:leafId> --worktree-id <worktreeId> --tab-id <tabId> --json
+```
+
+它**不是证据**：`execution_authorized` 恒为 false，`channel_plausible` 只说明可能投递，任何 gate 都
+不能据此放行。没有 hook 行时读取器给出的仍然是 `runtime_state_missing_pane`（经
+`operator_session_runtime_state_unverifiable` 归一），不是静默回退，也不换 provider。
 
 能力表与拒绝码见 [strict-bootstrap-protocol.md §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)。
 未知名（如 `codex`）仍是 `operator_session_provider_unsupported`，在原生查询前停止。
