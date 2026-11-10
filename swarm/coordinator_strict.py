@@ -256,7 +256,10 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
     prompt = strict_bootstrap_prompt(plan)
     require("\0" not in prompt, "strict_native_prompt_too_large_or_invalid")
     # Check the final quoted UTF-8 payload against the native RPC contract.
-    args = [*plan["argv"][1:-1], prompt]
+    # Trae's argv ends with its "-" stdin sentinel; a Pi argv has no sentinel, so its
+    # provider/model/thinking flags are all real and must survive the slice.
+    tail = plan["argv"][1:-1] if agent == "trae" else plan["argv"][1:]
+    args = [*tail, prompt]
     agent_args = shlex.join(args)
     require("\0" not in agent_args and len(agent_args.encode()) <= MAX_AGENT_ARGS_BYTES,
             "strict_native_prompt_too_large_or_invalid")

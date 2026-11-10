@@ -102,8 +102,13 @@ def build_pi_plan(*, pi, cwd, bootstrap_dir, write_dirs, selection, runtime_conf
     # The materials pipeline passes a Path for the generated handoff; the plan stores text.
     require(prompt_file is not None and Path(prompt_file).is_absolute(),
             "pi_plan_prompt_file_required")
+    # The recipe must *start* the pane with the settings the policy pins, otherwise the
+    # S2 observation compares a transcript this plan never asked for. Pi takes provider,
+    # model and thinking level on its own argv; there is no sentinel argument.
+    argv = [pi, "--provider", policy["model_provider"],
+            "--model", policy["model"] + ":" + policy["thinking_level"]]
     return {"schema_version": 1, "scope": "swarm_coordinator_only", "adapter": ADAPTER,
             "phase": "bootstrap", "cli_version": cli_version, "selection": selection,
             "execution": execution, "cwd": cwd, "runtime_config": runtime_config,
             "artifact_dirs": {"archive": bootstrap_dir}, "task_write_roots": list(write_dirs),
-            "resume_session": None, "prompt_file": str(prompt_file), "argv": [pi]}
+            "resume_session": None, "prompt_file": str(prompt_file), "argv": argv}

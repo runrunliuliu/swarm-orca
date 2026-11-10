@@ -51,7 +51,8 @@ class PiPlanTests(unittest.TestCase):
         self.assertEqual(plan["execution"], {"launch_mode": "tui"})
         self.assertEqual(plan["phase"], "bootstrap")
         self.assertIsNone(plan["resume_session"])
-        self.assertEqual(plan["argv"], [str(self.executable)])
+        self.assertEqual(plan["argv"], [str(self.executable), "--provider", "platform",
+                                       "--model", "ep-20261022142731-wnrq6:medium"])
 
     def test_selection_must_equal_the_pinned_policy(self):
         for change in ({"model": "other"}, {"thinking_level": "low"},
@@ -82,7 +83,10 @@ class PiPlanTests(unittest.TestCase):
         fragment = strict["prompt_fragment"]
         self.assertIn("Pi model provider, model selector and thinking level", fragment)
         self.assertNotIn("Max, sandbox", fragment)
-        prompt = shlex.split(strict["native_launch"]["agent_args"])[-1]
+        argv_tail = shlex.split(strict["native_launch"]["agent_args"])
+        self.assertEqual(argv_tail[:4], ["--provider", "platform", "--model",
+                                         "ep-20261022142731-wnrq6:medium"])
+        prompt = argv_tail[-1]
         self.assertEqual(strict["native_launch"]["short_prompt_sha256"],
                          coordinator_strict.digest(prompt.encode("utf-8")))
 
