@@ -104,6 +104,11 @@ Before deciding *whether* a task should use the task sparse workspace mode, use 
 --sparse-task-dir` triggers it today), and using it for a small repo or a one-line fix buys friction
 rather than safety.
 
+For the strict bootstrap path, the known gaps (exit-classification, progression ownership, gate
+proportionality) and the draft repair plan live in
+[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md); it is a draft and
+authorizes nothing.
+
 For the Orca-side view of a task (workspaces, agents, spend), read
 [the Tasks workbench design](swarm/docs/design/task-workbench/README.md) and its
 [development plan](swarm/docs/design/task-workbench/development-plan.md). The relationship storage

@@ -4,6 +4,10 @@
 
 本文保留通用状态机、双侧工具交接及生产适配边界，不包含部署方的内部路径、真实身份
 或历史验收报告。协议与同版代码共同维护；发布源码不表示已部署或通过 live 验收。
+
+已知缺口（**非规范**）：退出结果到 {未生效, 已生效, 未知} 的映射尚不闭合，推进责任仍在模型回合，
+门数与任务权限不相称。诊断、修复包 P0–P2 与验收判据见草案
+[strict-bootstrap-liveness.md](docs/design/strict-bootstrap-liveness.md)；本文与它冲突时以本文为准。
 存储使用任务已批准的规范路径，按第 5 节核验文件系统能力，不仅凭 NFS 类型要求迁盘。
 
 
@@ -241,7 +245,23 @@ Confirmation 绑定同一 control 和 exact target；状态含义如下：
 | 可查询该责任者，检查时目标不存在 | `not_committed`（瞬时诊断，不是永不提交的保证） |
 | 已可见但未完成确认、fsync 失败、原确认者不可达/已崩溃、代次不匹配、hash 不同 | `durability_unverified` |
 
-准入失败可以直接抛出明确错误；消费者不得将异常/超时转换成 confirmed。
+Confirmation 另带 `state`（`not_admitted` / `committed` / `needs_reconcile` / `unknown`），
+由责任者在本代次内存记录上判定；它是分类，不是许可，也不替代确认查询：
+
+| state | 判定条件 | `may_replay` |
+| --- | --- | --- |
+| `not_admitted` | 未取锁、未进入 dispatch、未记录 `attempted[target]`，且目标不存在 | true（同一 intent 可原地重试） |
+| `committed` | 本代次已记录 `attempted` 且发布并确认 | false |
+| `needs_reconcile` | 已记录 `attempted`，但没有完成的发布记录（可见文件不是确认） | false，只能对账原 pin |
+| `unknown` | 记录存在但意图/字节不一致、发布结果无法判定、回复丢失、或目标存在而本代次从未写过 | false，只能对账 |
+
+`attempted[target]` 记录先于 `publish_new`，因此“已记录但未发布”是一个可查类别，而不是从
+`publish_new` 抛错反推。记录的意图优先于任何后续拒绝：已 disarm 的责任者对同一 target 的
+再次提交必须报告 `needs_reconcile`，不得退化成“未 arm 可重试”。同一存活责任者之外的代次
+不会被 arm 到前任文件上，所以 `not_admitted` 只覆盖“本代次没有写过且目标不存在”。
+
+准入失败可以直接抛出明确错误；消费者不得将异常/超时转换成 confirmed。异常与回执同样携带
+`state`/`may_replay`（`bootstrap_control.stated`），S5 在 `may_replay` 为 false 时绝不重试。
 仅 `query` 返回值不能当作稍后 `commit_new` 的许可，最终调用必须重新准入。
 
 ## 6. 显式恢复：不继承内存成功、不重跑生产
@@ -289,12 +309,17 @@ Phase 2 的 `bootstrap_admission.commit_request` 已生成并确认此关联记�
 原 builder 生成的精确 request bytes；关联后发生 STOP 时保留 intent，但不发布 request。
 关联存在而 request 缺失/未确认时阻断，不重跑 builder、不刷新 handshake 时间。
 
-S5 及其它 mutation 的重试只覆盖“证明未写入”的回执。owner 以
-`bootstrap_rpc_rejected:<code>` 返回，只有 `bootstrap_owner_busy_not_executed`、
+S5 及其它 mutation 的重试只覆盖 `not_admitted`（`may_replay` 为 true）的回执。owner 以
+`bootstrap_rpc_rejected:<code>` 返回，历史实现里只有 `bootstrap_owner_busy_not_executed`、
 `bootstrap_native_identity_timeout`、`bootstrap_identity_snapshot_expired` 属于该类：三者都发生在
-`attempted[target]` 记录与 `publish_new` 之前，所以同一 intent 可在原地重试。commit 成功后的
+`attempted[target]` 记录与 `publish_new` 之前，所以同一 intent 可在原地重试。判定以回执的
+`state` 为准，错误码只作为责任人自报的细节；重试预算用尽时返回
+`bootstrap_commit_unknown_requires_reconciliation`，不再回抛可重试的 busy 码。commit 成功后的
 确认查询另外进行，只用尽时返回 `bootstrap_commit_confirmation_pending_requires_reconciliation`；
-它表示字节已准入、结果未知，只能对账原 pin，不能再次 commit、覆盖固定槽或生成新 bytes。
+两者都表示“结果未知，只能对账原 pin”，不能再次 commit、覆盖固定槽或生成新 bytes。
+`needs_reconcile` / `unknown` 在客户端统一映射为
+`bootstrap_commit_requires_reconciliation` / `bootstrap_commit_unknown_requires_reconciliation`，
+不保留原始错误码，以免调用方把未知结果当成分类型的失败去猜。
 
 S5 后继续传递**同一控制实例和 request/S4 绑定**，禁止自动 disarm 或新 owner 无回执接管。
 后续受支持 prepare / review-result publish / config publish / wait-return / gate / create 必须分别

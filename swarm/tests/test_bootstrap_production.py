@@ -428,11 +428,15 @@ class ProductionTests(unittest.TestCase):
     def test_fsync_gap_exact_same_owner_reconciliation_without_rewrite(self):
         with production() as (f, owner, identity, client, _):
             with patch("coordinator_io.fsync_dir", side_effect=OSError("test barrier")):
-                with self.assertRaisesRegex(ValueError, "rpc_rejected"):
+                # A failed publish is an unknown outcome, never a retryable reply.
+                with self.assertRaises(ValueError) as caught:
                     self.emit(f, client)
+            self.assertEqual((caught.exception.commit_state, caught.exception.may_replay),
+                             ("unknown", False))
             ref = file_ref(f.paths["caller_receipt"])
             before = Path(ref["path"]).stat().st_mtime_ns
             self.assertEqual(client.query(f.control, ref).status, "durability_unverified")
+            self.assertEqual(client.query(f.control, ref).state, "needs_reconcile")
             identity.actor = "operator"
             self.assertEqual(client.rpc("reconcile", target=ref)["status"], "confirmed")
             self.assertFalse(owner.armed)

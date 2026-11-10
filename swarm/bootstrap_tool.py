@@ -661,6 +661,9 @@ def cli_main(argv=None):
     except (OSError, ValueError, KeyError, TypeError) as exc:
         result = dict(ok=False, error="bootstrap_tool_failed", error_type=type(exc).__name__,
                       reason=safe_reason(exc), execution_authorized=False)
+        if getattr(exc, "commit_state", None) is not None:
+            result["state"] = exc.commit_state
+            result["may_replay"] = getattr(exc, "may_replay", exc.commit_state == "not_admitted")
         if hasattr(exc, "diagnostics"):
             result["diagnostics"] = exc.diagnostics
         print(json.dumps(result))

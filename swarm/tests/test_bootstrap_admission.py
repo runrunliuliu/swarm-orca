@@ -15,12 +15,12 @@ from bootstrap_transport import safe_reason
 class StubAuthority:
     """Read-only stand-in: records the exact target and returns one status."""
 
-    def __init__(self, status, target=None):
-        self.status, self.target, self.asked = status, target, []
+    def __init__(self, status, target=None, state=None):
+        self.status, self.target, self.asked, self.state = status, target, [], state
 
     def query(self, control, target):
         self.asked.append(target)
-        return Confirmation(control, self.target or target, self.status)
+        return Confirmation(control, self.target or target, self.status, state=self.state)
 
 
 class ConfirmationDiagnosticTests(unittest.TestCase):
@@ -40,9 +40,18 @@ class ConfirmationDiagnosticTests(unittest.TestCase):
         self.assertEqual(str(error), "bootstrap_confirmation_unavailable")
         self.assertEqual(safe_reason(error), "bootstrap_confirmation_unavailable")
         self.assertEqual(error.diagnostics, dict(target=self.ref["path"], sha256=self.ref["sha256"],
-                                                status="durability_unverified",
+                                                status="durability_unverified", state=None,
                                                 execution_authorized=False))
         self.assertEqual(authority.asked, [self.ref])
+
+    def test_owner_outcome_state_routes_the_exact_unconfirmed_target(self):
+        # A recorded intent that never published is a reconciliation case, not an
+        # absent slot: the diagnostics must carry the owner's own class.
+        for state in ("not_admitted", "needs_reconcile", "unknown"):
+            with self.subTest(state=state):
+                error = self.reject(StubAuthority("durability_unverified", state=state))
+                self.assertEqual(error.diagnostics["state"], state)
+                self.assertEqual(error.diagnostics["target"], self.ref["path"])
 
     def test_absent_target_reports_not_committed(self):
         error = self.reject(StubAuthority("not_committed"))

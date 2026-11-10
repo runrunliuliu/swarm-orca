@@ -23,12 +23,17 @@ def json_ref(target, value):
 
 
 class ConfirmationUnavailable(ValueError):
-    """Unconfirmed exact target; diagnostics route the caller, they grant nothing."""
+    """Unconfirmed exact target; diagnostics route the caller, they grant nothing.
 
-    def __init__(self, ref, status):
+    `state` is the owner's explicit outcome class when it supplied one, so the
+    caller can tell a caller receipt that was never attempted from an intent that
+    was recorded and then failed to publish.
+    """
+
+    def __init__(self, ref, status, state=None):
         super().__init__("bootstrap_confirmation_unavailable")
         self.diagnostics = dict(target=ref["path"], sha256=ref["sha256"], status=status,
-                                execution_authorized=False)
+                                state=state, execution_authorized=False)
 
 
 def confirmed(authority, control, ref):
@@ -36,7 +41,7 @@ def confirmed(authority, control, ref):
     if not (reply.control == control and reply.target == ref and reply.status == "confirmed"):
         # The bare code cannot say WHICH fixed slot is unconfirmed; a caller then
         # guesses (and has guessed wrong) about the stage that is actually blocked.
-        raise ConfirmationUnavailable(ref, reply.status)
+        raise ConfirmationUnavailable(ref, reply.status, getattr(reply, "state", None))
     pinned(ref)
     return ref
 
