@@ -264,6 +264,42 @@ Confirmation 另带 `state`（`not_admitted` / `committed` / `needs_reconcile` /
 `state`/`may_replay`（`bootstrap_control.stated`），S5 在 `may_replay` 为 false 时绝不重试。
 仅 `query` 返回值不能当作稍后 `commit_new` 的许可，最终调用必须重新准入。
 
+### 5.1 provider 能力与拒绝码
+
+两个 gate 角色的 provider 是**被声明的、被核验的属性**，不是读取器里的常量：它在已审查并固定
+SHA 的 registration（每个 role 自带的 `provider`）或 Operator 身份输入里声明，再由
+`swarm_ledger.runtime_binding` 对照 native 证据核验（pane 的 `source`/`agentType`、provider
+`session`、transcript 根 `session_meta`）。`swarm/provider_capability.py` 是唯一的
+provider → （证据格式、必须字段、transcript 记录、TUI adapter）映射表；两个角色入口和 S2 观察
+都走它，因此不存在“另一处默认 trae”的旁路。
+
+规则：
+
+1. 只接受表里显式列出的 provider 名，逐字匹配（不折叠大小写、不去空格、不做别名）。未知名字
+   按 unsupported 拒绝，**不**视为 trae，也不换 log_root 或 format。
+2. 表中已知但本版本无法读取其证据的 provider 按 unavailable 拒绝，并在诊断里逐条列出缺失通道
+   （`agent_hooks_pane_status`、`terminal`、`session_id`、`transcript_path`、`launch_token_hash`、
+   `session_meta`、`turn_context`、`tui_adapter`），而不是只报一个笼统的 unverifiable。
+3. 表里的能力是声明，不是证明：capture 返回的 observation 还必须实际带有声明要求的字段，否则
+   同样按 unavailable 拒绝（不允许“provider 名对就算过”）。
+4. 身份/进程/incarnation/launch-token/独立性/STOP/pin 门一律不变；能力检查只决定“这个 provider
+   在本版本能不能核验”，不替代任何既有门，也不因为 provider 名字而放宽任何断言。
+
+当前表：只有 `trae`（`runtime-state`，含 `launch_token_hash`、`session_meta`、`turn_context`、
+TUI adapter `trae-tui-runtime-v1`）可端到端核验。`pi` 作为已知但本版本不可核验的 provider 入表：
+本机 Orca 1.4.219 不为 pi pane 写 `agent-hooks/last-status.json`，pi 会话日志也没有
+`session_meta`/`turn_context`；两处缺口都在 Orca/pi 侧。
+
+| 入口 | 缺失/未知声明 | 已知但证据不可读 |
+| --- | --- | --- |
+| `bootstrap_identity.py`（两个 gate role） | `bootstrap_registration_provider_required`；未知名 `bootstrap_registration_provider_unsupported` | `bootstrap_operator_provider_evidence_unavailable` / `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
+| `operator_session.py` | `operator_session_provider_required`；未知名 `operator_session_provider_unsupported` | `operator_session_<provider>_operator_unverifiable`（如 `operator_session_pi_operator_unverifiable`），带 `missing_evidence` |
+| `bootstrap_tool.py`（S2 观察 / S5 TUI 契约） | `bootstrap_registration_provider_required`；未知名 `bootstrap_coordinator_provider_unsupported` | `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
+
+拒绝发生在原生查询之前：不产生观察文件、不占输出目录、不发 gate、不 arm owner。
+`missing_evidence` 是路由诊断，不是权限，也不表示可以改用另一 provider。
+新增 provider 需同时提供可核验证据通道、对应 adapter 和离线回归，不能只加名字。
+
 ## 6. 显式恢复：不继承内存成功、不重跑生产
 
 首版无自动 takeover/re-arm。责任者断连、死亡或代次变化，旧确认不能由文件/锁重建为历史成功。
@@ -539,10 +575,13 @@ Phase 1 的隔离进程崩溃/新代次关闭仍在回归中；Phase 3 同链证
 ### 12.2 显式工具契约
 
 S0 的 binding、授权、registration 必须独立审查并固定 SHA；不由待验证角色自报来反推身份。
-registration schema v1 精确字段：`schema_version,attempt_binding,profile,log_root,roles`；
-roles 恰含 operator/coordinator，各为 `{process:{pid,start,boot,uid},session}`。
+registration schema v2 精确字段：`schema_version,attempt_binding,profile,log_root,roles`；
+roles 恰含 operator/coordinator，各为 `{provider,process:{pid,start,boot,uid},session}`。
+`provider` 是该角色真实 provider 的显式声明（不做大小写归一、不从 pane 标题或日志猜测）；
+v1 登记缺 `provider`，不会被静默升级，按 `bootstrap_registration_invalid` 拒绝。
 profile/log_root 为目标原 runtime 的规范绝对路径；process 是原 provider 根进程而不是 server PID。
-不提供自动发现/绑定生成器，不把不知道的 process/session 填成猜测值。
+不提供自动发现/绑定生成器，不把不知道的 process/session/provider 填成猜测值。
+provider 能力表与拒绝码见 §5.1。
 
 统一入口：`python3 -B swarm/coordinator_launch.py strict-bootstrap <mode>`。
 

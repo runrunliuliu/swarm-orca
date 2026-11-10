@@ -26,6 +26,10 @@ def failure(exc, fallback):
                       recovery="preserve_receipts_audit_incomplete_no_business_or_ack_replay")
     elif isinstance(exc, TuiError):
         result["error"] = str(exc)
+        if getattr(exc, "missing_evidence", None):
+            # Provider refusals name the absent evidence channels; they are
+            # diagnostics for routing, not an alternative success path.
+            result["missing_evidence"] = list(exc.missing_evidence)
         recovery = {
             "tui_action_window_insufficient": "checkpoint_enqueue_end_turn_no_new_business_action",
             "tui_continuation_new_real_turn_required": "end_current_turn_keep_tui_and_original_pins",

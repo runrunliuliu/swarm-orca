@@ -194,7 +194,7 @@ Worker 已完成/释放，也不能补写本门通过；它不自动重开 Run �
 | `cli` | 已选 runtime 的固定 CLI 文件引用 |
 | `runtime` | 实时核验的 runtime ID |
 | `workspace` | `{id,path}`，目标 worktree 完整 ID 与规范路径 |
-| `operator` | `{terminal,incarnation,provider,session}`，启动操作者自身的已独立核验身份。`provider` 目前只接受 `trae`：契约校验非空字符串，`operator_session.py` 在原生查询前拒绝 `pi`（`operator_session_pi_operator_unverifiable`）和其他值（`operator_session_provider_unsupported`），不猜另一日志根或回退 Trae；原因与 Trae Operator 清单见 [支持范围](operator-prepare.md#agent--adapter-支持范围) |
+| `operator` | `{terminal,incarnation,provider,session}`，启动操作者自身的已独立核验身份。`provider` 是显式声明，经 `provider_capability.py` 能力表解析后再由 native 证据核验，本版本只有 `trae` 可端到端核验：契约校验非空字符串，`operator_session.py` 在原生查询前拒绝 `pi`（`operator_session_pi_operator_unverifiable`，附 `missing_evidence`）和其他未知名（`operator_session_provider_unsupported`），不猜另一日志根或回退 Trae；能力表与拒绝码见 [协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)，原因与 Trae Operator 清单见表后的支持范围 |
 | `coordinator` | `{terminal,incarnation,session}`，独立 Trae 会话，不能与 Operator 同 terminal 或同 provider/session |
 | `runtime_config` | 本任务明确的 Trae 执行配置文件引用，与观察器核验的实际设置一致 |
 | `role_skill` | 目标 worktree 内适用 Coordinator `SKILL.md` 的固定引用 |

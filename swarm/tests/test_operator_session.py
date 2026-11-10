@@ -189,6 +189,78 @@ class OperatorSessionTests(unittest.TestCase):
         query.assert_not_called()
         self.assertFalse((self.directory / "codex-operator.json").exists())
 
+    def test_pi_cli_refusal_names_the_missing_evidence_channels(self):
+        # The typed code names the provider; the diagnostic names the channels
+        # this build cannot read, so the gap is not mistaken for a Trae default.
+        self.tui.term["agentIdentity"] = "pi"
+        self.tui.entry.update(source="pi", payload={"agentType": "pi"})
+        self.tui.write_state()
+        op_ref = self.operator_input(provider="pi", expected={"cwd": str(self.f.cwd)},
+                                     output=self.directory / "pi-operator-cli.json")
+        with patch("trae_tui.native") as query:
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        query.assert_not_called()
+        self.assertEqual(result["decision"], "stop")
+        self.assertEqual(result["error"], "operator_session_pi_operator_unverifiable")
+        self.assertEqual(result["missing_evidence"], ["agent_hooks_pane_status", "session_meta",
+                                                      "turn_context", "terminal"])
+        self.assertNotIn("effect", result)
+        self.assertFalse((self.directory / "pi-operator-cli.json").exists())
+
+    def test_unknown_provider_refusal_carries_no_missing_evidence_claim(self):
+        op_ref = self.operator_input(provider="codex", output=self.directory / "codex-claim.json")
+        with patch("trae_tui.native"):
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "operator_session_provider_unsupported")
+        self.assertNotIn("missing_evidence", result)
+
+    def test_missing_pane_hook_status_is_a_typed_refusal_not_a_key_error(self):
+        hook = self.tui.profile / "agent-hooks" / "last-status.json"
+        hook.write_text(json.dumps({"version": 2, "entries": {}}))
+        hook.chmod(0o600)
+        op_ref = self.operator_input(output=self.directory / "missing-hook.json")
+        with patch("trae_tui.native", side_effect=self.tui.query):
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "operator_session_runtime_state_unverifiable")
+        self.assertFalse((self.directory / "missing-hook.json").exists())
+
+    def test_missing_session_meta_root_is_a_typed_refusal(self):
+        # A transcript whose first record is not the root `session_meta` cannot
+        # bind a provider session, and must not degrade into a generic failure.
+        self.f.write_log([self.f.context])
+        op_ref = self.operator_input(output=self.directory / "missing-meta.json")
+        with patch("trae_tui.native", side_effect=self.tui.query):
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "operator_session_runtime_state_unverifiable")
+        self.assertFalse((self.directory / "missing-meta.json").exists())
+
+    def test_missing_turn_context_keeps_the_effective_settings_refusal(self):
+        self.f.write_log([self.f.meta])
+        op_ref = self.operator_input(output=self.directory / "missing-turn-context.json")
+        with patch("trae_tui.native", side_effect=self.tui.query):
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "operator_session_effective_settings_unavailable")
+        self.assertFalse((self.directory / "missing-turn-context.json").exists())
+
+    def test_observed_identity_must_carry_the_capability_fields(self):
+        # The declared table is rechecked against the real observation instead of
+        # trusting the provider name.
+        op_ref = self.operator_input(output=self.directory / "partial-observation.json")
+        partial = {"identity": {"terminal": {"incarnationId": "inc_test"},
+                                 "session_id": tui_tests.legacy.SID}}
+        with patch("trae_tui.native", side_effect=self.tui.query), \
+                patch("swarm_ledger.runtime_binding.capture", return_value=partial):
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "operator_session_trae_operator_unverifiable")
+        self.assertEqual(result["missing_evidence"], ["transcript_path"])
+        self.assertFalse((self.directory / "partial-observation.json").exists())
+
     def test_operator_identity_read_only_verifier_accepts_existing_observation_pin(self):
         output = self.directory / "operator-existing-observation.json"
         op_ref = self.operator_input(expected={"effort": "xhigh"}, output=output)

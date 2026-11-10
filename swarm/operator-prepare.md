@@ -32,8 +32,13 @@ Agent 不是可自由替换的配置项，也不能用 Worker 侧 profile 表达
 | Coordinator exec | Trae（`trae_coordinator.py`） | 既有路径 |
 | Coordinator TUI / strict | Trae（`trae_tui.py`） | 既有路径，`strict_plan` 固定 `--agent trae` |
 | Coordinator Codex | `native-preflight` 的 `codex-local` adapter（schema v2） | 仅用于已有 Codex Coordinator 的只读预检；不是 Operator 适配器，也没有 Pi 等价物 |
-| Operator（外层 gate 角色） | Trae TUI | `operator_session.py` 只接受 `provider: trae`；`provider: pi` 以 `operator_session_pi_operator_unverifiable` 在原生查询前停止，其他值是 `operator_session_provider_unsupported`。Pi 没有可核验通道，不回退 Trae |
+| Operator（外层 gate 角色） | Trae TUI | `provider` 是 Operator 身份输入里的显式声明，经 `provider_capability.py` 解析后再由 native 证据核验；本版本只有 `trae` 可端到端核验。`provider: pi` 以 `operator_session_pi_operator_unverifiable` 在原生查询前停止并附 `missing_evidence` 通道清单；其他未知名是 `operator_session_provider_unsupported`（未知名不声称具体证据通道）。Pi 没有可核验通道，不回退 Trae |
 | Worker | 由固定 [Worker 白名单](worker-model-candidates.md) 决定（Trae / Pi / codex-ark） | 与 Coordinator、Operator 配置分离 |
+
+bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` 声明
+（[registration schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），不继承上表也不从 pane
+推断：`bootstrap_identity.py` 按同一能力表解析它，未知/不可核验就停止。S2 观察与 S5 TUI 契约
+还需要表中该 provider 的 TUI adapter，目前只有 `trae-tui-runtime-v1`。
 
 Pi Operator 是曾计划过的候选，当前**不可核验**，因此不再作为可选适配器。2026-11-09
 在本机 Orca 1.4.219 / pi 1.5.0 实测：`agent-hooks/last-status.json` 的条目全部为
@@ -41,9 +46,14 @@ Pi Operator 是曾计划过的候选，当前**不可核验**，因此不再作�
 `runtime_state_missing_pane`；即使补上记录，本机 60 个 pi 会话日志首行均为
 `{"type":"session"}`，没有读取器要求的 `session_meta`/`turn_context`，仍会拒绝。
 两处缺口都在 Orca/pi 侧，`swarm/**` 无法补齐；放宽为“标题+任意 transcript”会削弱
-strict 身份门。因此 `operator_session.py` 在原生查询前就拒绝 `provider: pi`
-（`operator_session_pi_operator_unverifiable`），需要 gate 角色时使用可核验的 Trae TUI 会话
+strict 身份门。因此 `operator_session.py` 在原生查询前就按能力表拒绝 `provider: pi`
+（`operator_session_pi_operator_unverifiable`，诊断里列出 `agent_hooks_pane_status`/
+`session_meta`/`turn_context`/`terminal` 缺失），需要 gate 角色时使用可核验的 Trae TUI 会话
 （清单见 [strict 启动握手](coordinator-strict-start.md#operator-provider)）。
+provider 能力表与三类拒绝码写在
+[strict-bootstrap-protocol.md §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)：
+pi 是**已登记但本版本不可核验**的 provider，不是未知名，也不会被当成 trae 的别名；
+换成其他未知名（如 `codex`）得到的是 `operator_session_provider_unsupported`，同样在原生查询前停止。
 Worker 侧 `agent=pi` 仍是单独配置，不受此限制影响，也不能自动当作 Operator 适配器。
 
 ## 1. 启动会话前冻结明确的输入

@@ -3,7 +3,8 @@
 状态：**草案；P0（失败分类闭合）已按本文实现并通过离线回归，P1–P3 未实现**。本文只给诊断、修复包与
 验收判据，**不构成**部署、重启、启动 Agent、迁移既有 attempt/Run 或放宽任何 gate 的授权。协议正文仍以
 [strict-bootstrap-protocol.md](../../strict-bootstrap-protocol.md) 为准；本文与它冲突时以协议为准。
-实现记录与偏差见 [§9](#9-实现记录p0-2026-11-10)。
+实现记录与偏差见 [§9](#9-实现记录p0-2026-11-10)。gate role 的 provider 已改为显式声明
+（[§10](#10-实现记录gate-role-provider-声明化2026-11-10)），这同样不是 live 验收。
 
 关联：[协议正文](../../strict-bootstrap-protocol.md)、[strict 启动](../../coordinator-strict-start.md)、
 [Operator 启动](../../operator-startup.md)、[Operator 准备](../../operator-prepare.md)、
@@ -256,3 +257,57 @@ attempt 证据。
 - P2：`read-only`/`write` 类别字段与跳过规则，依赖 §7.1 决策。
 - P3：retirement 记录与四类失败类别的落盘观测。
 - §7 的四个决策一个都没有被这次实现替代或预判。
+
+## 10. 实现记录（gate role provider 声明化，2026-11-10）
+
+范围：只做“provider 是被声明、被核验的属性，而不是读取器里的常量”。P1–P3 与 §7 的四项决策
+仍然未实现；本文仍是草案，本节不构成 live 验收、部署或放宽任何 gate 的授权。
+
+### 10.1 改动
+
+| 位置 | 改动 |
+| --- | --- |
+| `provider_capability.py`（新增） | 唯一的 provider → 证据能力表：`evidence_format`、必须 identity 字段、必须 transcript 记录、TUI adapter、已知缺口通道。三类消费者需求 `BOOTSTRAP_ROLE` / `OPERATOR_IDENTITY` / `TUI_OBSERVATION`；`require()` 对缺失/空白声明、未知名、已知但证据不可读分别给出调用方的码，并把缺失通道放进 `missing_evidence`。模块无依赖，避免把 native 读取器拖进两个门 |
+| `bootstrap_identity.NativeIdentity` | registration 升到 schema v2，每个 role 必须自带 `provider`；`__init__` 在任何 `/proc`/native 探测前解析能力，`_refresh` 用该能力构造 capture 选项（原来的 `provider="trae"` 字面量已删除）并在每次刷新用**实际 observation** 复核声明字段 |
+| `operator_session.py` | 删掉 `provider == "trae"` / `!= "pi"` 的字面量判断，改用能力表；capture 的 `format` 也来自表；capture 后再用 observation 复核。既有码保持：`operator_session_pi_operator_unverifiable`、`operator_session_provider_unsupported` |
+| `bootstrap_tool.RoleTool` | S2 观察与 `fields` 模板不再是 `"trae-tui-runtime-v1"` 字面量：先解析 coordinator 的已声明 provider，adapter 取自表 |
+| `coordinator_tui_errors.failure` / `bootstrap_tool` CLI | typed 拒绝时额外输出 `missing_evidence`（路由诊断，不是权限） |
+| `strict-bootstrap-protocol.md` §5.1/§12.2 | 写入 provider 契约、能力表规则与全部拒绝码；registration schema v2 |
+
+### 10.2 provider 契约
+
+1. 只接受表中逐字列出的 provider 名；不折叠大小写、不去空格、不做别名，未知名字拒绝而不是
+   默认 trae。
+2. 已知但本版本读不到证据的 provider（当前 `pi`：无 pane hook 行，日志无
+   `session_meta`/`turn_context`）由能力表拒绝，并逐条给出缺失通道。
+3. 表是声明不是证明：observation 必须实际带有所需字段，否则同样拒绝。
+4. 身份、进程树独立性、incarnation、launch token、pin、STOP 门全部保留；能力检查只回答
+   “这个 provider 能不能被核验”，不替代任何既有断言。
+
+### 10.3 验证（离线；**不是** live 验收）
+
+新增：`tests/test_provider_capability.py`（8 例，纯表）、`tests/test_bootstrap_provider.py`
+（8 例，真实 pin 文件 + 生产 `NativeIdentity`）、`tests/test_operator_session.py` 新增 6 例
+（pi 拒绝的 `missing_evidence`、未知 provider、缺失 hook 行、缺失 `session_meta`、缺失
+`turn_context`、observation 缺字段）。既有用例只做 schema/字段适配：
+`test_bootstrap_production` 的 registration 改为 schema v2 带 `provider`，fake capture 返回
+`transcript_path`；未放宽任何断言。
+
+执行（均为离线，最终代码）：
+
+- `tests/run_offline.sh --full` → 2501 tests，OK，18 skipped，1356 s；这是本次唯一可报作
+  **offline PASS（full）** 的结果。
+- 迭代期 `tests/run_offline.sh --fast` 与单模块（`test_bootstrap_production` 50 OK）均为迭代反馈。
+
+未执行：live attempt、部署、重启、真实 pi/Trae 会话核验。本记录不证明目标宿主上的 provider
+证据可用。
+
+### 10.4 仍待处理
+
+- **S5 启动适配器仍是 Trae-only**：`operator_startup.py` / `coordinator_strict_start.py` 只接受
+  `trae-tui-runtime-v1`，`trae_tui.py` 本身是 Trae 读取器。本次只把 bootstrap 两个 gate role 与
+  Operator 观察的 provider 变成显式声明；一个未来 provider 要真正跑完 S5，还需要它的 TUI/
+  exec adapter 与对应契约值，否则会在 S5 契约校验处停止——这是已知边界，不是本次能完成的迁移。
+- `provider_capability` 目前只有 `trae` 一条可用路径；新增 provider 需要真实可核验通道 +
+  adapter + 离线回归，不能只加表项。
+- P1–P3 与 §7 四项决策不变。

@@ -26,6 +26,7 @@ from bootstrap_events import EvidenceReader, binding, contract_fields, review, v
 from coordinator_io import canonical, digest, file_ref, now, parse, pinned, require, timestamp, validate_ref
 from coordinator_strict import caller_result
 from coordinator_strict_request import observed_coordinator
+import provider_capability
 
 # Only these actions are produced mechanically by the tool itself (caller receipt
 # and session observation). Every other stage carries this role's own authored
@@ -169,6 +170,22 @@ class RoleTool(BootstrapMachine, ActionReader):
     def submission(self, name):
         return submission(self.b, name)
 
+    def coordinator_capability(self):
+        """Resolve the Coordinator's declared provider for the TUI observation.
+
+        The S2 observation and the S5 TUI contract read a provider transcript and
+        use one reviewed launch adapter; a registration that declares a provider
+        without them is refused here, before `trae_tui.observe` or the fields
+        template would assume an adapter it cannot verify.
+        """
+        registration = parse(pinned(self.authority.owner["registration"]))
+        return provider_capability.require(
+            registration["roles"]["coordinator"]["provider"],
+            provider_capability.TUI_OBSERVATION,
+            required="bootstrap_registration_provider_required",
+            unsupported="bootstrap_coordinator_provider_unsupported",
+            unavailable="bootstrap_coordinator_provider_evidence_unavailable")
+
     def operation(self, name):
         spec = ACTIONS[name]
         return dict(schema_version=1, action=name, **asdict(spec))
@@ -199,7 +216,8 @@ class RoleTool(BootstrapMachine, ActionReader):
         request = parse(pinned(request_ref))
         if stage == "fields":
             registration = parse(pinned(self.authority.owner["registration"]))
-            return dict(self.b["fixed_inputs"], adapter="trae-tui-runtime-v1", runtime=self.b["runtime"],
+            return dict(self.b["fixed_inputs"], adapter=self.coordinator_capability().tui_adapter,
+                runtime=self.b["runtime"],
                 workspace=self.b["workspace"], operator=self.b["operator"],
                 coordinator=parse(pinned(self.slot(EVENTS[1])))["coordinator"],
                 observation=dict(profile=registration["profile"], log_root=registration["log_root"],
@@ -237,6 +255,9 @@ class RoleTool(BootstrapMachine, ActionReader):
             caller_result(value, self.b["runtime"])
         else:
             registration = parse(pinned(self.authority.owner["registration"]))
+            # `trae_tui.observe` is the reviewed TUI reader: refuse a declared
+            # provider whose evidence/adapter it cannot verify before querying.
+            self.coordinator_capability()
             coordinator = self.b["coordinator"]
             value = observe(cli=self.b["fixed_inputs"]["cli"]["path"], runtime=self.b["runtime"],
                 terminal=coordinator["terminal"], incarnation=coordinator["incarnation"],
@@ -666,6 +687,10 @@ def cli_main(argv=None):
             result["may_replay"] = getattr(exc, "may_replay", exc.commit_state == "not_admitted")
         if hasattr(exc, "diagnostics"):
             result["diagnostics"] = exc.diagnostics
+        if getattr(exc, "missing_evidence", None):
+            # Provider refusals name the absent evidence channel(s); routing
+            # diagnostics only, never a grant or an alternative reader.
+            result["missing_evidence"] = list(exc.missing_evidence)
         print(json.dumps(result))
         return 2
 

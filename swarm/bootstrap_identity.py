@@ -15,6 +15,7 @@ import subprocess
 import time
 
 from coordinator_io import digest, parse, pinned, require, timestamp, now
+import provider_capability
 
 IDENTITY_LEASE_SECONDS = 30
 IDENTITY_REFRESH_MARGIN_SECONDS = 5
@@ -85,6 +86,9 @@ class NativeIdentity:
     """Acquire native evidence outside admission, check its short lease inside.
 
     registration is an independently reviewed Ref, never supplied by a peer.
+    Each role declares its own provider; the provider is resolved through
+    `provider_capability` and then verified against native evidence, so it is a
+    property of the observed session rather than a reader constant.
     roots must be the original provider process roots, not runtime/server PID.
     A surviving root alone is insufficient: every refresh checks native terminal
     incarnation, provider session, launch commitment and transcript attribution.
@@ -95,10 +99,15 @@ class NativeIdentity:
         self.b = parse(pinned(control.attempt_binding))
         self.value = parse(pinned(registration))
         require(set(self.value) == {"schema_version", "attempt_binding", "profile", "log_root", "roles"}
-                and type(self.value["schema_version"]) is int and self.value["schema_version"] == 1
+                and type(self.value["schema_version"]) is int and self.value["schema_version"] == 2
                 and self.value["attempt_binding"] == control.attempt_binding
                 and set(self.value["roles"]) == {"operator", "coordinator"},
                 "bootstrap_registration_invalid")
+        # Reject an unverifiable declared provider before probing any process.
+        for registered in self.value["roles"].values():
+            require(set(registered) == {"provider", "process", "session"},
+                    "bootstrap_role_registration_invalid")
+        self.capabilities = {role: self.role_capability(role) for role in self.value["roles"]}
         roots = [v["process"] for v in self.value["roles"].values()]
         require(roots[0] != roots[1], "bootstrap_roles_not_independent")
         # Neither role may contain the other role's process tree.
@@ -113,6 +122,21 @@ class NativeIdentity:
         self.snapshot = None
         self.evidence = {}
         self.mailbox = None
+
+    def role_capability(self, role, *, observed=None):
+        """Resolve this role's declared provider; never default to another one.
+
+        The registration names the provider and is pinned/reviewed, so it is a
+        property of the observed session rather than a reader constant. A name
+        this build cannot verify is refused here (and again against the actual
+        observation) with the missing evidence channels.
+        """
+        return provider_capability.require(
+            self.value["roles"][role]["provider"], provider_capability.BOOTSTRAP_ROLE,
+            required="bootstrap_registration_provider_required",
+            unsupported="bootstrap_registration_provider_unsupported",
+            unavailable="bootstrap_" + role + "_provider_evidence_unavailable",
+            observed=observed)
 
     def refresh(self):
         self._refresh_checked(runtime=False)
@@ -151,17 +175,20 @@ class NativeIdentity:
         evidence_by_role = {}
         self.expires = 0  # A failed refresh must invalidate a previous lease.
         for role, registered in self.value["roles"].items():
-            require(set(registered) == {"process", "session"}, "bootstrap_role_registration_invalid")
             anchor = registered["process"]
             unchanged(anchor)
             require(anchor["uid"] == os.getuid(), "bootstrap_process_uid_mismatch")
             identity = self.b[role]
+            capability = self.capabilities[role]
             evidence = runtime_binding.capture(BoundedQueries(self.b["fixed_inputs"]["cli"]["path"], self.b["runtime"]),
-                dict(provider="trae", format="runtime-state", host=socket.gethostname(),
+                dict(provider=capability.provider, format=capability.evidence_format,
+                     host=socket.gethostname(),
                      terminal_handle=identity["terminal"], worktree_id=self.b["workspace"]["id"],
                      profile=self.value["profile"], log_root=self.value["log_root"], max_hook_age_seconds=1800),
                 clock=time.time, previous=self.evidence.get(role))
             observed = evidence["identity"]
+            # The declared capability must also hold for what was observed.
+            self.role_capability(role, observed=observed)
             require(observed["terminal"]["incarnationId"] == identity["incarnation"]
                     and observed["session_id"] == registered["session"], "bootstrap_native_identity_changed")
             if role == "operator":

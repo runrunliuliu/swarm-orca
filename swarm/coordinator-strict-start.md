@@ -65,11 +65,19 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
 
 ## Operator provider
 
-strict 的 Operator 角色只接受可核验的 **Trae TUI 会话**。`operator_session.py` 对
-`provider: pi` 在原生查询前直接以 `operator_session_pi_operator_unverifiable` 停止：
+strict 的 Operator 角色只接受可核验的 **Trae TUI 会话**。`provider` 是 Operator 身份输入的
+显式声明，经 `provider_capability.py` 的能力表解析后再由 native 证据核验；本版本表中只有
+`trae` 可端到端核验。`operator_session.py` 对 `provider: pi` 在原生查询前直接以
+`operator_session_pi_operator_unverifiable` 停止（诊断附 `missing_evidence` 通道清单）：
 本机 Orca 1.4.219 不为 pi pane 写 `agent-hooks/last-status.json` 记录，且 pi 1.5.0 的会话
 日志没有读取器核验的 `session_meta`/`turn_context`，补通道属 Orca 侧改动而不是 swarm 选项。
+未知 provider 名（如 `codex`）是 `operator_session_provider_unsupported`；两者都不猜 log_root、
+不回退 Trae，能力表与全部拒绝码见
+[协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)。
 用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
+挂 bootstrap registration 的两个 gate role 同样各自声明 `provider`
+（[schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），非法/不可核验声明在启动 owner
+前停止（`bootstrap_<role>_provider_evidence_unavailable` 等）。
 
 用 Trae 会话当 Operator 的完整清单（每步都在**该 Operator 自己的 pane** 内执行）：
 
