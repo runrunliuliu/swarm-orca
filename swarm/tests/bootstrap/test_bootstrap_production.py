@@ -90,9 +90,9 @@ def production(*, armed=True, probe_names=None):
             f.b["file_tool_evidence_paths"] = [str(f.root / "coordinator" / name) for name in probe_names]
             Path(f.control.attempt_binding["path"]).write_bytes(canonical(f.b) + b"\n")
             f.control = replace(f.control, attempt_binding=file_ref(f.control.attempt_binding["path"]))
-        registration = f.base.tui.ref("tool-registration.json", dict(
+        registration = f.base.tui.ref("tool-registration.json", dict(schema_version=2,
             profile=str(f.base.tui.profile), log_root=str(f.base.tui.f.root),
-            roles={"coordinator": {"session": "test-session"}}))
+            roles={"coordinator": {"provider": "trae", "session": "test-session"}}))
         identity = TestIdentity(registration)
         owner = CommitOwner(f.control, identity)
         for role in ("operator", "coordinator"):
@@ -428,11 +428,15 @@ class ProductionTests(unittest.TestCase):
     def test_fsync_gap_exact_same_owner_reconciliation_without_rewrite(self):
         with production() as (f, owner, identity, client, _):
             with patch("coordinator_io.fsync_dir", side_effect=OSError("test barrier")):
-                with self.assertRaisesRegex(ValueError, "rpc_rejected"):
+                # A failed publish is an unknown outcome, never a retryable reply.
+                with self.assertRaises(ValueError) as caught:
                     self.emit(f, client)
+            self.assertEqual((caught.exception.commit_state, caught.exception.may_replay),
+                             ("unknown", False))
             ref = file_ref(f.paths["caller_receipt"])
             before = Path(ref["path"]).stat().st_mtime_ns
             self.assertEqual(client.query(f.control, ref).status, "durability_unverified")
+            self.assertEqual(client.query(f.control, ref).state, "needs_reconcile")
             identity.actor = "operator"
             self.assertEqual(client.rpc("reconcile", target=ref)["status"], "confirmed")
             self.assertFalse(owner.armed)
@@ -1133,15 +1137,17 @@ class ProductionTests(unittest.TestCase):
         with production() as (f, owner, identity, client, _):
             anchor = process(os.getpid())
             roots = {"coordinator": dict(anchor, pid=101), "operator": dict(anchor, pid=102)}
-            registration = f.base.tui.ref("production-registration.json", dict(schema_version=1,
+            registration = f.base.tui.ref("production-registration.json", dict(schema_version=2,
                 attempt_binding=f.control.attempt_binding, profile=str(f.base.tui.profile),
                 log_root=str(f.base.tui.f.root), roles={
-                    role: dict(process=roots[role], session=(f.b["operator"]["session"] if role == "operator" else "coordinator-session"))
+                    role: dict(provider="trae", process=roots[role],
+                               session=(f.b["operator"]["session"] if role == "operator" else "coordinator-session"))
                     for role in roots}))
             observations = {}
             for role in roots:
                 observations[role] = dict(session_id=(f.b["operator"]["session"] if role == "operator" else "coordinator-session"),
                     terminal=dict(incarnationId=f.b[role]["incarnation"], ptyId="pty", tabId="tab", leafId="leaf"),
+                    transcript_path=str(f.base.tui.f.log),
                     launch_token_hash=digest(b"test-only-token"))
             def capture(query, options, **kwargs):
                 role = "operator" if options["terminal_handle"] == "term_operator" else "coordinator"

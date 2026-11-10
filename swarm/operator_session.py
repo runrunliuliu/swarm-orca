@@ -3,12 +3,21 @@
 No raw hook JSON, credential fields, TUI transcript or live-authority claim is
 returned. The immutable full observation remains consumable by existing gates.
 
-Only a Trae Operator session is verifiable today. An Orca 1.4.219 Pi pane gets no
-`agent-hooks/last-status.json` row, and the local Pi session log carries neither the
-`session_meta` root nor `turn_context` records this reader verifies, so a Pi Operator
-cannot be bound to a pane. That gap is an Orca status-channel problem, not a swarm
-reader option; reject it before any native query instead of reporting a generic
-unverifiable state. See [Agent/adapter support](operator-prepare.md#agent--adapter-支持范围).
+The Operator's provider is a declared, independently reviewed property of the
+identity input, resolved through `provider_capability` and then verified against
+native evidence. Two providers are verifiable here:
+
+- `trae`: hook row plus transcript `session_meta` + per-turn `turn_context`.
+- `pi`: Orca's bundled Pi status extension posts `session_id`/`session_file` and
+  the pane launch token to `/hook/pi`, and the Pi transcript carries the session
+  id, `cwd` and per-turn `model`/`provider`/`thinkingLevel`.
+
+A provider that cannot supply this evidence is refused before any native query
+with its typed code and the missing channels. Pi has no approval/sandbox
+surface, so a reviewed Operator contract may only require `PI_SETTINGS`; other
+keys are refused (`operator_session_expected_effective_provider_unsupported`)
+rather than silently ignored. See
+[Agent/adapter support](operator-prepare.md#agent--adapter-支持范围).
 """
 
 import argparse
@@ -22,22 +31,36 @@ import sys
 import time
 
 from coordinator_io import file_ref, now, parse, path, pinned, publish_new, timestamp
-from coordinator_tui_errors import failure, require
+from coordinator_tui_errors import TuiError, failure, require
 from log_io import prefix_lines
+import provider_capability
 from swarm_ledger import runtime_binding
 from supervisor.config import SafetyError
 from trae_coordinator import ContextFreshnessError
 import trae_tui
 
 
-def _require_operator_provider(operator):
-    """Fail closed on the Operator provider before any native query.
+def _operator_capability(operator, *, observed=None):
+    """Resolve the declared Operator provider through the shared capability table.
 
-    Pi is rejected with its own code so the caller learns the supported
-    Operator provider instead of a generic unverifiable runtime state.
+    This answers the question before any native query: can this build verify the
+    declared provider at all? An unknown name keeps
+    `operator_session_provider_unsupported`; a known provider whose evidence
+    channel is absent keeps its own code
+    (`operator_session_<provider>_operator_unverifiable`) and names the missing
+    channels. Nothing guesses another provider, log root or format.
     """
-    require(operator["provider"] != "pi", "operator_session_pi_operator_unverifiable")
-    require(operator["provider"] == "trae", "operator_session_provider_unsupported")
+    try:
+        return provider_capability.require(
+            operator["provider"], provider_capability.OPERATOR_IDENTITY,
+            required="operator_session_provider_required",
+            unsupported="operator_session_provider_unsupported",
+            unavailable="operator_session_{provider}_operator_unverifiable",
+            observed=observed)
+    except provider_capability.ProviderRefused as exc:
+        error = TuiError(exc.code)
+        error.missing_evidence = exc.missing_evidence
+        raise error from None
 
 
 def observe_identity(*, cli, runtime, operator, workspace, profile, log_root,
@@ -46,10 +69,12 @@ def observe_identity(*, cli, runtime, operator, workspace, profile, log_root,
 
     This TUI path shares the explicitly selected provider log root. Providers
     need their own explicit root; never guess one from the local HOME.
-    The capture validates root session_meta as well as the native pane mapping.
+    The capture validates the provider's root session record as well as the
+    native pane mapping.
     """
-    _require_operator_provider(operator)
-    options = dict(provider=operator["provider"], format="runtime-state", host=socket.gethostname(),
+    capability = _operator_capability(operator)
+    options = dict(provider=capability.provider, format=capability.evidence_format,
+                   host=socket.gethostname(), require_launch_commitment=True,
                    terminal_handle=operator["terminal"], worktree_id=workspace,
                    profile=profile, log_root=log_root, max_hook_age_seconds=max_age_seconds)
     try:
@@ -60,9 +85,10 @@ def observe_identity(*, cli, runtime, operator, workspace, profile, log_root,
         code = ("operator_session_hook_stale_or_future"
                 if str(exc) == "runtime_state_stale_or_future_hook"
                 else "operator_session_runtime_state_unverifiable")
-        from coordinator_tui_errors import TuiError
         raise TuiError(code) from exc
     binding = evidence["identity"]
+    # The declared capability must also hold for what was actually observed.
+    _operator_capability(operator, observed=binding)
     require(binding["terminal"]["incarnationId"] == operator["incarnation"],
             "operator_session_incarnation_changed")
     require(binding["session_id"] == operator["session"], "operator_provider_session_mismatch")
@@ -85,11 +111,8 @@ def _latest_turn_context(transcript_path):
     return result
 
 
-def _verify_expected_effective(evidence, expected):
-    require(isinstance(expected, dict), "operator_session_expected_effective_required")
-    allowed = {"model", "model_provider", "effort", "model_backend_variant", "approval_policy",
-               "approvals_reviewer", "sandbox_policy", "cwd", "writable_roots"}
-    require(set(expected) <= allowed and expected, "operator_session_expected_effective_invalid")
+def _trae_effective(evidence, expected):
+    """Reviewed Trae semantics: per-turn `turn_context`, incl. the reviewer alias."""
     row = _latest_turn_context(evidence["identity"]["transcript_path"])
     actual = row["payload"]
     observed = {key: actual.get(key) for key in (
@@ -115,6 +138,39 @@ def _verify_expected_effective(evidence, expected):
     return {key: observed.get(key) for key in expected}
 
 
+def _pi_effective(evidence, expected):
+    """Pi semantics: transcript root cwd plus the newest assistant turn's settings.
+
+    Pi has no approval/sandbox surface at all, so its attestable keys come from
+    the capability row (`PI_SETTINGS`) and everything else was already refused.
+    """
+    from pi_transcript import read as read_pi_transcript
+    try:
+        transcript = read_pi_transcript(evidence["identity"]["transcript_path"])
+    except ValueError as exc:
+        # The transcript's own typed code is the useful one; keep it exportable
+        # instead of collapsing into the generic observation fallback.
+        raise TuiError(str(exc)) from None
+    require(transcript["session_id"] == evidence["identity"]["session_id"],
+            "operator_provider_session_mismatch")
+    observed = {**transcript["effective"], "cwd": transcript["cwd"]}
+    for key, expected_value in expected.items():
+        require(observed.get(key) == expected_value, "operator_session_effective_settings_mismatch")
+    return {key: observed.get(key) for key in expected}
+
+
+def _verify_expected_effective(evidence, expected, capability):
+    require(isinstance(expected, dict), "operator_session_expected_effective_required")
+    require(expected and set(expected) <= set(provider_capability.KNOWN_SETTINGS),
+            "operator_session_expected_effective_invalid")
+    # A reviewed contract may only require what this provider can attest; a key
+    # that belongs to another provider is refused, never silently ignored.
+    require(set(expected) <= set(capability.settings_fields),
+            "operator_session_expected_effective_provider_unsupported")
+    reader = _trae_effective if capability.provider == "trae" else _pi_effective
+    return reader(evidence, expected)
+
+
 def verify_operator_identity(ref, *, require_output_available=False):
     """Read and validate an Operator identity input without publishing evidence."""
     source = parse(pinned(ref))
@@ -130,7 +186,7 @@ def verify_operator_identity(ref, *, require_output_available=False):
         "operator_session_identity_required")
     # Cheapest decisive check: never reach the native CLI for an adapter this
     # build cannot verify, and never let a wrong provider look like stale hooks.
-    _require_operator_provider(operator)
+    capability = _operator_capability(operator)
     for key in ("cli", "runtime", "workspace"):
         require(isinstance(source[key], str) and source[key].strip(), "operator_session_identity_required")
     require(Path(source["cli"]).is_absolute() and Path(source["cli"]).is_file(),
@@ -153,7 +209,7 @@ def verify_operator_identity(ref, *, require_output_available=False):
     evidence = observe_identity(cli=source["cli"], runtime=source["runtime"], operator=operator,
         workspace=source["workspace"], profile=source["profile"], log_root=source["log_root"],
         max_age_seconds=max_age, previous=previous_evidence)
-    effective = _verify_expected_effective(evidence, source["expected_effective"])
+    effective = _verify_expected_effective(evidence, source["expected_effective"], capability)
     pinned(ref)
     if previous is not None:
         pinned(previous)

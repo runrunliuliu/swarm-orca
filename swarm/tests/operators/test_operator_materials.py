@@ -203,6 +203,26 @@ class OperatorMaterialsTests(unittest.TestCase):
         self.assertEqual(result["error"], "strict_config_task_source_invalid")
         self.assertEqual(list(self.directory.iterdir()), [])
 
+    def test_registered_bootstrap_flag_reaches_the_launch_plan(self):
+        # Without this the registered prompt is unreachable from the materials
+        # path, and a plan assembled after registration evidence exists would be
+        # rejected as strict_registered_bootstrap_required.
+        from operator_materials import launch_kwargs
+        kwargs = launch_kwargs({"agent": "trae", "trae": sys.executable, "cwd": str(self.cwd),
+                                "model_config": "/m/model.json",
+                                "trae_runtime_config": "/r/runtime.json",
+                                "strict_coordinator": True, "registered_bootstrap": True,
+                                "reviewed_inputs": {"path": "/approved/prepared.json",
+                                                    "sha256": "0" * 64}},
+                               self.directory / "handoff.md")
+        self.assertTrue(kwargs["registered_bootstrap"])
+        self.assertTrue(kwargs["strict_coordinator"])
+        self.assertEqual(kwargs["reviewed_inputs"]["path"], "/approved/prepared.json")
+        self.assertFalse(launch_kwargs({"agent": "trae", "trae": sys.executable, "cwd": str(self.cwd),
+                                        "model_config": "/m/model.json",
+                                        "trae_runtime_config": "/r/runtime.json"},
+                                       self.directory / "handoff.md")["registered_bootstrap"])
+
     def test_realistic_trae_strict_tui_materials_keep_native_args_bounded(self):
         bootstrap = self.root / "bootstrap"
         bootstrap.mkdir()

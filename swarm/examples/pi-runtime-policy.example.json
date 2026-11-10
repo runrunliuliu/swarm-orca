@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "scope": "swarm_coordinator_only",
+  "provider": "pi",
+  "model": {
+    "provider": "anthropic",
+    "id": "claude-sonnet"
+  },
+  "thinking_level": "high"
+}

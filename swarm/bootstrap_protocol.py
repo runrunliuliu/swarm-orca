@@ -42,11 +42,23 @@ class ControlBinding:
     generation: str
 
 
+# Outcome classes for one commit. `not_admitted` is provable non-execution (no
+# lock, no dispatch, no recorded intent) and is the only class a caller may
+# retry in place. `committed` is the owner's own publication. `needs_reconcile`
+# is a recorded intent whose exact bytes are absent or unverified. `unknown` is
+# everything the owner cannot classify, including any lost reply. No class other
+# than `not_admitted` grants a replay.
+COMMIT_STATES = ("not_admitted", "committed", "needs_reconcile", "unknown")
+COMMIT_OPS = frozenset({"commit", "settle", "runtime-review-input", "runtime-attest-trigger"})
+
+
 @dataclass(frozen=True)
 class Confirmation:
     control: ControlBinding
     target: dict
     status: Literal["confirmed", "not_committed", "durability_unverified"]
+    # Owner-lifetime outcome class; absent only for an authority that predates it.
+    state: str | None = None
 
 
 @dataclass(frozen=True)

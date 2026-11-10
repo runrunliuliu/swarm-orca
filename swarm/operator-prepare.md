@@ -32,18 +32,41 @@ Agent 不是可自由替换的配置项，也不能用 Worker 侧 profile 表达
 | Coordinator exec | Trae（`trae_coordinator.py`） | 既有路径 |
 | Coordinator TUI / strict | Trae（`trae_tui.py`） | 既有路径，`strict_plan` 固定 `--agent trae` |
 | Coordinator Codex | `native-preflight` 的 `codex-local` adapter（schema v2） | 仅用于已有 Codex Coordinator 的只读预检；不是 Operator 适配器，也没有 Pi 等价物 |
-| Operator（外层 gate 角色） | Trae TUI | `operator_session.py` 只接受 `provider: trae`；`provider: pi` 以 `operator_session_pi_operator_unverifiable` 在原生查询前停止，其他值是 `operator_session_provider_unsupported`。Pi 没有可核验通道，不回退 Trae |
+| Operator（外层 gate 角色） | Trae TUI / Pi TUI | `provider` 是 Operator 身份输入里的显式声明，经 `provider_capability.py` 解析后再由 native 证据核验。`trae` 与 `pi` 都有可核验证据（见下），未知名仍是 `operator_session_provider_unsupported`（不声称具体证据通道），缺证据按 provider 给出 `operator_session_<provider>_operator_unverifiable` + `missing_evidence`。两者都不回退另一个 provider |
 | Worker | 由固定 [Worker 白名单](worker-model-candidates.md) 决定（Trae / Pi / codex-ark） | 与 Coordinator、Operator 配置分离 |
 
-Pi Operator 是曾计划过的候选，当前**不可核验**，因此不再作为可选适配器。2026-11-09
-在本机 Orca 1.4.219 / pi 1.5.0 实测：`agent-hooks/last-status.json` 的条目全部为
-`source=trae`（`/hook/pi` 通道本身接受请求），两个活跃 pi pane 均无记录，读取器停在
-`runtime_state_missing_pane`；即使补上记录，本机 60 个 pi 会话日志首行均为
-`{"type":"session"}`，没有读取器要求的 `session_meta`/`turn_context`，仍会拒绝。
-两处缺口都在 Orca/pi 侧，`swarm/**` 无法补齐；放宽为“标题+任意 transcript”会削弱
-strict 身份门。因此 `operator_session.py` 在原生查询前就拒绝 `provider: pi`
-（`operator_session_pi_operator_unverifiable`），需要 gate 角色时使用可核验的 Trae TUI 会话
-（清单见 [strict 启动握手](coordinator-strict-start.md#operator-provider)）。
+bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` 声明
+（[registration schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），不继承上表也不从 pane
+推断：`bootstrap_identity.py` 按同一能力表解析它，未知/不可核验就停止。S2 观察与 S5 TUI 契约
+按该 role 的 provider 选择 adapter：`trae-tui-runtime-v1` 或 `pi-tui-runtime-v1`；两个 role 的
+provider 可以不同。Pi Coordinator 的 `runtime_config` 必须是
+[pi runtime policy](strict-bootstrap-protocol.md#51-provider-能力与拒绝码) 记录。
+
+**Pi Operator 的核验通道**（2026-11-10 复核 Orca 1.4.219 快照与本机 pi 日志格式后确认）：
+
+- Orca 会给经它启动的 pi pane 装托管状态扩展（`orca/src/main/pi/agent-status-extension-source.ts`），
+  该扩展把 pi 的 `session_id`、`session_file`（transcript 路径）、`model` 和 pi 进程 env 里的
+  `ORCA_AGENT_LAUNCH_TOKEN` POST 到 `/hook/pi`；服务端把 `launchTokenHash`、`evidenceObservedAt`
+  与 `providerSession{key:'session_id',id,transcriptPath}` 写进 `agent-hooks/last-status.json`
+  （`server-persistence.ts:50`、`server-status-application.ts:165`、`shared/agent-session-resume.ts:243`）。
+- Pi 的 transcript 根记录是 `{"type":"session","id":<uuid>,"cwd":…,"version":3}`，每条记录带
+  `id`/`parentId` 链与 ISO `timestamp`，assistant 消息带 `model`/`provider`/`thinkingLevel`。
+  `pi_transcript.py` 逐条核验这些形状、根 id 与 hook 的 `session_id` 一致、链不断裂、时间不减。
+- Pi Coordinator 用 `pi-tui-runtime-v1`：同样的 hook/transcript 证据 + 审查过的 pi runtime policy
+  （provider/model/thinking_level），没有 sandbox 面，故 `observation.roots` 只作为审查输入。
+- 因此 Pi Operator 的 `expected_effective` 只能要求 `PI_SETTINGS`
+  （`model`、`model_provider`、`thinking_level`、`cwd`）；pi 没有 approval/sandbox 概念，
+  要求 `effort`/`approval_policy`/`sandbox_policy`/`approvals_reviewer`/`writable_roots` 会以
+  `operator_session_expected_effective_provider_unsupported` 明确拒绝，不做跨 provider 映射。
+
+2026-11-09 记录的现象（`last-status.json` 只有 `source=trae`、活跃 pi pane 无记录）仍然成立，
+但结论是**操作前提**而不是能力缺口：那些 pane 不是经 Orca + 托管扩展启动的。Pi gate 角色要求
+pi 会话由 Orca 起（`terminal create --agent pi`），并实际存在 `source=pi` 的 hook 行。
+本仓库无法验证目标宿主上的扩展安装状态；没有该行时错误是 `runtime_state_missing_pane`
+（经 `operator_session_runtime_state_unverifiable` 归一），不是静默回退。
+
+能力表与拒绝码见 [strict-bootstrap-protocol.md §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)。
+未知名（如 `codex`）仍是 `operator_session_provider_unsupported`，在原生查询前停止。
 Worker 侧 `agent=pi` 仍是单独配置，不受此限制影响，也不能自动当作 Operator 适配器。
 
 ## 1. 启动会话前冻结明确的输入
@@ -111,6 +134,14 @@ python3 -B /absolute/swarm/operator_prepare.py prepare --input /absolute/reviewe
 原子最终发布之后时，磁盘清单可能已经完整，须对账，不能盲重试）。没有恢复/自动重试、
 自动补授权或 exactly-once 启动承诺：这里根本不启动。新 attempt 仍需沿用任务限制，
 不得靠改名清零预算或未决操作。
+
+对**已登记的 strict attempt**，`prepared.json` 现在是启动计划的一部分：`build_plan` /
+CLI 用 `--reviewed-inputs` + `--reviewed-inputs-sha256` pin 它，`strict_plan()` 调
+`verify_prepared()` 重验 kind/status、全部冻结 Ref（input/sources/authority/task 快照）以及每条 baseline 的
+HEAD/cleanliness 与摘要（快照或基线漂移即停），并在 registered 模式下
+缺这个 pin 时直接报 `strict_reviewed_inputs_required`。短 prompt 会引用该清单，让 Coordinator
+从 pin 读输入而不是从仓库重新推导；该 pin 是输入，不是授权，Operator 仍自行复核每条 pin 并拥有
+binding/registration/owner 发布权。
 
 ## 2. Operator 复用已有启动 argv
 

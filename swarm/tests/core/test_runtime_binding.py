@@ -164,15 +164,47 @@ class RuntimeBindingTests(RuntimeBindingFixture, unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(SafetyError):
                 binding.configuration({**self.options, key: value})
 
-    def test_pi_runtime_state_uses_generic_cli_session_binding(self):
+    def pi_root(self, **overrides):
+        root = {"type": "session", "id": "session-1", "cwd": "/tmp", "version": 3,
+                "timestamp": self.meta["payload"].get("timestamp", "2026-01-01T00:00:00.000Z")}
+        root.update(overrides)
+        return root
+
+    def test_pi_runtime_state_pins_its_own_root_session_record(self):
+        # Pi's transcript root is `{"type":"session","id":…}`, not the codex-style
+        # `session_meta`; the hook row's providerSession id must match it.
         self.options["provider"] = "pi"
         self.native.terminal["agentIdentity"] = "pi"
         self.entry.update(source="pi", payload={"agentType": "pi", "prompt": "SECRET prompt"})
+        self.write_states()
+        self.log.write_text(json.dumps(self.pi_root()) + "\n")
         self.write_states()
         result = self.capture()
         self.assertEqual(result["identity"]["session_id"], "session-1")
         self.assertEqual(result["identity"]["terminal"]["agentIdentity"], "pi")
         self.assertNotIn("launch_token_hash", result["identity"])
+        # A mismatched root id, or the codex-shaped root, is refused.
+        self.write_states()
+        for root in (self.pi_root(id="other-session"), self.meta):
+            with self.subTest(root=root.get("type")), self.assertRaisesRegex(
+                    SafetyError, "runtime_state_root_session_mismatch"):
+                self.log.write_text(json.dumps(root) + "\n")
+                self.capture()
+
+    def test_pi_gate_role_requires_a_launch_commitment(self):
+        self.options.update(provider="pi", require_launch_commitment=True)
+        self.native.terminal["agentIdentity"] = "pi"
+        self.entry.update(source="pi", payload={"agentType": "pi"}, launchTokenHash="a" * 64)
+        self.log.write_text(json.dumps(self.pi_root()) + "\n")
+        self.write_states()
+        self.assertEqual(self.capture()["identity"]["launch_token_hash"], "a" * 64)
+        self.entry.pop("launchTokenHash")
+        self.write_states()
+        with self.assertRaisesRegex(SafetyError, "runtime_state_invalid_launch_commitment"):
+            self.capture()
+        # The usage-accounting path reads the same row without the commitment.
+        self.options["require_launch_commitment"] = False
+        self.assertNotIn("launch_token_hash", self.capture()["identity"])
 
     def test_wrong_runtime_route_pid_and_terminal_identity(self):
         cases = [(self.runtime, "runtimeId", "other"), (self.runtime, "pid", 456),

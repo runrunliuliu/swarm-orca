@@ -211,6 +211,86 @@ def prepare(ref):
             "next_step": "independent_external_audit_of_sources_scope_and_baselines"}
 
 
+def _git_query(argv, timeout):
+    try:
+        return _default_runner(argv, timeout)
+    except OSError as error:
+        raise PrepareError("operator_prepare_git_unavailable") from error
+
+
+def manifest_refs(value):
+    """Every frozen Ref a completed manifest claims, in a fixed order.
+
+    Container shapes are checked before any attribute access: a malformed manifest
+    must fail with a stable prepare code, not an AttributeError from a later layer.
+    """
+    sources = value.get("sources") or []
+    snapshots = value.get("snapshots") or []
+    authority = value.get("authority_snapshots") or []
+    task = value.get("business_task") or {}
+    require(isinstance(sources, list) and isinstance(snapshots, list)
+            and isinstance(authority, list) and isinstance(task, dict),
+            "operator_prepare_manifest_snapshots_invalid")
+    refs = [value.get("input_snapshot")]
+    for item in [*sources, *snapshots]:
+        require(isinstance(item, dict), "operator_prepare_manifest_snapshots_invalid")
+        refs.append(item.get("snapshot"))
+    refs.extend(authority)
+    if task:
+        refs.append(task.get("task_source_snapshot"))
+        task_authority = task.get("authorization_snapshots") or []
+        require(isinstance(task_authority, list), "operator_prepare_manifest_snapshots_invalid")
+        refs.extend(task_authority)
+    return refs
+
+
+def verify_prepared(ref, *, check_baselines=True):
+    """Read-only: prove a completed static preparation still matches the reviewed bytes.
+
+    Used by launch planning so a plan cannot pin a partial attempt (intent without
+    manifest), a re-authorized manifest, a drifted snapshot, or a repository whose
+    baseline moved after the audit. Re-running the same read-only Git primitive is
+    the point: "prepared" is a claim about *now*, not only about the audit moment.
+    """
+    value = parse(pinned(ref))
+    require(value.get("schema_version") == 1 and value.get("kind") == "operator_static_prepared",
+            "operator_prepare_manifest_invalid")
+    require(value.get("status") == "awaiting_external_audit",
+            "operator_prepare_manifest_status_invalid")
+    require(value.get("execution_authorized") is False,
+            "operator_prepare_manifest_unauthorized")
+    snapshots = value.get("snapshots")
+    require(isinstance(snapshots, list) and snapshots, "operator_prepare_manifest_snapshots_missing")
+    refs = manifest_refs(value)
+    require(all(isinstance(item, dict) and set(item) == {"path", "sha256"} for item in refs),
+            "operator_prepare_manifest_snapshots_invalid")
+    for item in refs:
+        # Drift after the audit is a stop, not a refresh: the reviewed bytes are gone.
+        pinned(item)
+    baselines = value.get("baselines")
+    # `reviewed()`/`prepare()` require at least one baseline, so an empty list is
+    # not a completed prepare artifact and must not skip baseline-drift protection.
+    require(isinstance(baselines, list) and baselines,
+            "operator_prepare_manifest_baselines_missing")
+    if check_baselines:
+        require(not any(key in os.environ for key in (
+            "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")),
+            "operator_prepare_git_context_override")
+        for item in baselines:
+            require(isinstance(item, dict) and set(item) == {"expected", "observed"},
+                    "operator_prepare_manifest_baselines_invalid")
+            try:
+                # `_baseline_check` itself rejects a moved HEAD or cleanliness flip.
+                current = _baseline_check(item["expected"], 10, _git_query)
+            except PreflightError as error:
+                raise PrepareError(str(error)) from None
+            require(current == item["observed"], "operator_prepare_baseline_drift")
+    return {"preparation_id": value.get("preparation_id"),
+            "snapshot_count": len(snapshots),
+            "ref_count": len(refs),
+            "baseline_count": len(baselines)}
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "trust-workspace":

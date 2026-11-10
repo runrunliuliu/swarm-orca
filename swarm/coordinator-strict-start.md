@@ -36,6 +36,8 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
 4. Coordinator 完整读规则、核验任务授权和实际文件工具后，保存工具记录。
    Operator 独立审查其完整性和自身 provider/session 与 terminal 的真实关联。
    普通 shell 占位符不证明外层 Operator 身份，观察器 JSON 不替代 skill-read。
+   技能正文用 `orca skills get <name>` 获取（版本匹配、由可执行文件输出）；本 checkout 不含
+   `orca/skills/`，所以“该路径不存在”既不能当作已读证据，也不能当作不可读的 blocker。
    **等 Coordinator 写出最终 readiness 后**再审查并 pin；不能在它仍写入
    `readiness-current.json` 时生成契约，也不能在发现漂移后直接重新取 hash。
 5. Coordinator 用固定生成器将最终清单和契约字段 pin 纳入 request。Operator 使用下述
@@ -63,11 +65,28 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
 
 ## Operator provider
 
-strict 的 Operator 角色只接受可核验的 **Trae TUI 会话**。`operator_session.py` 对
-`provider: pi` 在原生查询前直接以 `operator_session_pi_operator_unverifiable` 停止：
-本机 Orca 1.4.219 不为 pi pane 写 `agent-hooks/last-status.json` 记录，且 pi 1.5.0 的会话
-日志没有读取器核验的 `session_meta`/`turn_context`，补通道属 Orca 侧改动而不是 swarm 选项。
+strict 的 Operator 角色接受可核验的 **Trae TUI 或 Pi TUI 会话**。`provider` 是 Operator 身份
+输入的显式声明，经 `provider_capability.py` 的能力表解析后再由 native 证据核验：`trae` 用
+hook 行 + `session_meta`/`turn_context`，`pi` 用 hook 行 + transcript 根
+`{"type":"session","id":<uuid>,"cwd":…}` + assistant 的 `model`/`provider`/`thinkingLevel`。
+未知 provider 名（如 `codex`）是 `operator_session_provider_unsupported`；缺证据按 provider 给
+`operator_session_<provider>_operator_unverifiable` 并附 `missing_evidence`，不猜 log_root、
+不回退另一个 provider，能力表与全部拒绝码见
+[协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)。
+
+**Pi Operator 的前提**是 pi 会话由 Orca 启动（托管状态扩展会写 `source=pi` 的 hook 行）。
+Pi 没有 approval/sandbox 面，Operator 的 `expected_effective` 只能要求
+`model`/`model_provider`/`thinking_level`/`cwd`；要求其余键会以
+`operator_session_expected_effective_provider_unsupported` 停止。
+**Pi Coordinator** 使用 `pi-tui-runtime-v1`：S2/S5 读取同一 hook/transcript 证据，并把契约
+`runtime_config` 作为审查过的 pi runtime policy（`provider`/`model`/`thinking_level`）与 transcript
+最新 assistant 轮次精确比对。没有 sandbox/approval 面，`observation.roots` 只作为审查输入，
+不当成已核实。Run 之后的 continuation/scheduler 仍是 Trae 路径（已知边界）。
 用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
+挂 bootstrap registration 的两个 gate role 同样各自声明 `provider`
+（[schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），非法/不可核验声明在启动 owner
+前停止（`bootstrap_<role>_provider_evidence_unavailable` 等）。两个 role 的 provider 可以不同
+（例如 Pi Operator + Trae Coordinator），各自按自己的证据核验。
 
 用 Trae 会话当 Operator 的完整清单（每步都在**该 Operator 自己的 pane** 内执行）：
 

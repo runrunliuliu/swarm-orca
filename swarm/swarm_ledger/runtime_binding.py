@@ -70,6 +70,8 @@ def configuration(options):
     require(profile.is_dir() and logs.is_dir() and logs != Path("/"), "runtime_state_invalid_roots")
     age = options.get("max_hook_age_seconds", 86400)
     require(type(age) is int and 0 < age <= 86400, "runtime_state_invalid_max_hook_age")
+    require(options.get("require_launch_commitment", False) in (True, False),
+            "runtime_state_invalid_launch_requirement")
     return profile, logs, age
 
 
@@ -116,6 +118,16 @@ def observe(native, options, now):
                 "runtime_state_invalid_launch_commitment")
         require(entry.get("connectionId") is None and not entry.get("providerSessionOnly") and
                 not entry.get("toolAgentId"), "runtime_state_trae_hook_unverifiable")
+    elif options["provider"] == "pi":
+        # A providerSessionOnly remnant is a resume identity, not a live attribution.
+        require(not entry.get("providerSessionOnly") and not entry.get("toolAgentId"),
+                "runtime_state_pi_hook_unverifiable")
+        # Gate roles bind the pane's launch token from the env; usage accounting
+        # reads the same row without claiming a launch commitment.
+        launch_hash = entry.get("launchTokenHash")
+        if options.get("require_launch_commitment", False):
+            require(isinstance(launch_hash, str) and re.fullmatch(r"[0-9a-f]{64}", launch_hash),
+                    "runtime_state_invalid_launch_commitment")
     received, observed = millis(entry.get("receivedAt")), millis(entry.get("evidenceObservedAt"))
     require(started <= observed <= received <= now + 5 and now - observed <= age,
             "runtime_state_stale_or_future_hook")
@@ -128,6 +140,8 @@ def observe(native, options, now):
                 "transcript_path": str(transcript), "host": options["host"], "uid": os.getuid(),
                 "profile": str(profile), "log_root": str(logs)}
     if options["provider"] == "trae":
+        identity["launch_token_hash"] = launch_hash
+    elif options["provider"] == "pi" and options.get("require_launch_commitment", False):
         identity["launch_token_hash"] = launch_hash
     return identity, {"received_at_ms": entry["receivedAt"], "evidence_observed_at_ms": entry["evidenceObservedAt"]}
 
@@ -151,11 +165,19 @@ def capture(native, options, *, clock, previous=None, since=None, until=None, sc
         require(newline >= 0, "runtime_state_incomplete_session_meta")
         first = content[:newline]
         meta = json.loads(first)
-        require(isinstance(meta, dict) and meta.get("type") == "session_meta" and
-                isinstance(meta.get("payload"), dict) and meta["payload"].get("id") == identity["session_id"],
-                "runtime_state_root_session_mismatch")
+        require(isinstance(meta, dict), "runtime_state_root_session_mismatch")
+        root_pins_session = (
+            (meta.get("type") == "session" and meta.get("id") == identity["session_id"])
+            if options["provider"] == "pi" else
+            (meta.get("type") == "session_meta" and isinstance(meta.get("payload"), dict)
+             and meta["payload"].get("id") == identity["session_id"]))
+        require(root_pins_session, "runtime_state_root_session_mismatch")
         if options["provider"] == "trae":
             runtime_trae.validate_meta(meta["payload"])
+        elif options["provider"] == "pi":
+            # Pi's root is `{"type":"session","id":<uuid>,"cwd":…}`; the session
+            # id must be the one the hook row named, never a filename guess.
+            pass
         else:
             require(meta["payload"].get("source") == "cli", "runtime_state_root_session_mismatch")
         file_identity = {"device": info.st_dev, "inode": info.st_ino}

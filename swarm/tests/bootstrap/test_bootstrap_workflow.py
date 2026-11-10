@@ -254,6 +254,201 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual((owner.attempted, owner.confirmations), before)
             self.assertFalse(owner.armed)
 
+class NonExecutionRetryTests(unittest.TestCase):
+    """A busy owner admitted nothing, so the same intent may be retried in place."""
+
+    def authority(self, replies, queries=None):
+        from bootstrap_protocol import Confirmation
+        from coordinator_io import digest
+
+        class Stub:
+            def __init__(self):
+                self.calls = 0
+                self.queries = list(queries or [])
+
+            def query(self, control, target):
+                if self.queries:
+                    outcome = self.queries.pop(0)
+                    if outcome is not None:
+                        raise outcome
+                return Confirmation(control, target, "confirmed")
+
+            def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
+                self.calls += 1
+                outcome = replies[self.calls - 1]
+                if outcome is not None:
+                    raise outcome
+                return Confirmation(control, {"path": target, "sha256": digest(raw)}, "confirmed")
+
+        return Stub()
+
+    def setUp(self):
+        import tempfile
+        self.temp = tempfile.TemporaryDirectory(prefix="s5-retry-")
+        self.addCleanup(self.temp.cleanup)
+        self.target = Path(self.temp.name) / "x.json"
+        self.target.write_bytes(b"{}\n")
+
+    def run_commit(self, authority, retry_seconds=5):
+        from bootstrap_s5 import commit_confirmed
+        return commit_confirmed(authority, "control", actor="operator", target=str(self.target),
+                                raw=b"{}\n", prerequisites=[], recheck=lambda: None,
+                                retry_seconds=retry_seconds)
+
+    def test_busy_replies_are_retried_until_the_commit_lands(self):
+        from observation_budget import ObservationBusy
+        authority = self.authority([ObservationBusy(), ObservationBusy(), None])
+        with patch("bootstrap_s5.time.sleep"):
+            self.assertEqual(self.run_commit(authority)["path"], str(self.target))
+        self.assertEqual(authority.calls, 3)
+
+    def test_unknown_or_failed_commit_is_never_retried(self):
+        for error in (ValueError("bootstrap_new_bytes_changed"), OSError("io")):
+            with self.subTest(error=error):
+                authority = self.authority([error, None])
+                with self.assertRaises((ValueError, OSError)):
+                    self.run_commit(authority)
+                self.assertEqual(authority.calls, 1)
+
+    def test_retry_budget_is_bounded(self):
+        from observation_budget import ObservationBusy
+        authority = self.authority([ObservationBusy()] * 3)
+        with patch("bootstrap_s5.time.sleep"), self.assertRaises(ValueError):
+            self.run_commit(authority, retry_seconds=-1)
+        self.assertEqual(authority.calls, 1)
+
+    def test_rpc_prefixed_non_execution_codes_are_retried(self):
+        # The owner rejects a mutation as bootstrap_rpc_rejected:<code>, so the
+        # bare exception classes never reach the client on that path.
+        for code in ("bootstrap_owner_busy_not_executed", "bootstrap_native_identity_timeout",
+                     "bootstrap_identity_snapshot_expired"):
+            with self.subTest(code=code):
+                authority = self.authority([ValueError("bootstrap_rpc_rejected:" + code), None])
+                with patch("bootstrap_s5.time.sleep"):
+                    self.assertEqual(self.run_commit(authority)["path"], str(self.target))
+                self.assertEqual(authority.calls, 2)
+
+    def test_reconciliation_codes_are_never_retried(self):
+        for code in ("bootstrap_commit_requires_reconciliation",
+                     "bootstrap_tool_timeout_requires_reconciliation",
+                     "bootstrap_role_or_path_mismatch", "bootstrap_new_bytes_changed"):
+            with self.subTest(code=code):
+                authority = self.authority([ValueError("bootstrap_rpc_rejected:" + code), None])
+                with self.assertRaises(ValueError):
+                    self.run_commit(authority)
+                self.assertEqual(authority.calls, 1)
+
+    def test_confirmation_after_commit_never_recommits(self):
+        # The bytes are already admitted, so only the read-only confirmation may
+        # be retried; re-entering commit_new would report a reconciliation error
+        # for work that actually landed.
+        from observation_budget import ObservationBusy
+        authority = self.authority([None], queries=[ObservationBusy(), ObservationBusy(), None])
+        with patch("bootstrap_s5.time.sleep"):
+            self.assertEqual(self.run_commit(authority)["path"], str(self.target))
+        self.assertEqual(authority.calls, 1)
+        self.assertEqual(authority.queries, [])
+
+    def test_exhausted_confirmation_reports_an_unknown_outcome(self):
+        from observation_budget import ObservationBusy
+        from bootstrap_s5 import CONFIRMATION_PENDING
+        authority = self.authority([None], queries=[ObservationBusy()] * 4)
+        with patch("bootstrap_s5.time.sleep"), self.assertRaises(ValueError) as caught:
+            self.run_commit(authority, retry_seconds=-1)
+        self.assertEqual(str(caught.exception), CONFIRMATION_PENDING)
+        self.assertEqual(authority.calls, 1)
+
+
+
+class AdvanceLoopTests(unittest.TestCase):
+    """The loop shape: one mechanical step, then stop at the judgement boundary."""
+
+    def tool(self, pulls, markers=()):
+        from bootstrap_tool import RoleTool
+        tool = object.__new__(RoleTool)
+        tool.actor = "operator"
+        tool.pull = lambda timeout: pulls.pop(0)
+        tool.local_check = lambda: {"validated_markers": list(markers)}
+        tool.submission = lambda name: {"outputs": [{"candidate_path": "/not-authored"}]}
+        tool.completed = []
+        tool.complete = lambda intent: (tool.completed.append(intent["path"]),
+                                       {"path": "/committed", "sha256": "z"})[1]
+        return tool
+
+    def action(self, name, path):
+        return {"state": "action", "action": name, "intent": {"path": path, "sha256": "x"}}
+
+    def test_completes_a_mechanical_step_then_stops_at_judgement(self):
+        tool = self.tool([self.action("observe-intent", "/i1"),
+                          self.action("fields-intent", "/i2")])
+        result = tool.advance(timeout=5, poll=1)
+        self.assertEqual(result["state"], "needs_role_judgement")
+        self.assertEqual(tool.completed, ["/i1"])
+        self.assertEqual([step["action"] for step in result["steps"]], ["observe-intent"])
+        self.assertFalse(result["execution_authorized"])
+
+    def test_never_completes_a_submit_stage_without_an_authored_candidate(self):
+        tool = self.tool([self.action("contract-intent", "/i1")])
+        self.assertEqual(tool.advance(timeout=5, poll=1)["state"], "needs_role_judgement")
+        self.assertEqual(tool.completed, [])
+
+    def test_reconciliation_required_stops_before_any_commit(self):
+        tool = self.tool([{"state": "reconciliation_required", "action": "observe-intent",
+                           "intent": {"path": "/i1", "sha256": "x"}}])
+        self.assertEqual(tool.advance(timeout=5, poll=1)["state"], "reconciliation_required")
+        self.assertEqual(tool.completed, [])
+
+    def test_stage_boundary_returns_before_pulling(self):
+        tool = self.tool([], markers=[0, 1, 2])
+        self.assertEqual(tool.advance(until_stage=2, timeout=5)["state"], "stage_reached")
+
+    def test_pending_pull_is_not_permission(self):
+        tool = self.tool([{"state": "pending", "reason": "waiting_stage"}])
+        self.assertEqual(tool.advance(timeout=5, poll=1)["state"], "pending")
+        self.assertEqual(tool.completed, [])
+
+
+class AdvanceDecisionTests(unittest.TestCase):
+    """A bounded advance may only complete what the tool itself would produce."""
+
+    class Spec:
+        def __init__(self, mode):
+            self.mode = mode
+
+    def decide(self, result, *, candidates=False):
+        from bootstrap_tool import advance_decision
+        modes = {"caller-intent": "produce", "observe-intent": "produce",
+                 "fields-intent": "submit", "contract-intent": "submit",
+                 "readiness-intent": "submit", "final-evidence-intent": "readiness"}
+        return advance_decision(result, spec_of=lambda name: self.Spec(modes[name]),
+                                candidates_exist=lambda name: candidates)
+
+    def test_stage_boundaries_and_pending_are_not_permission(self):
+        for result in ({}, {"state": "pending", "reason": "waiting_stage"},
+                       {"state": "request_ready"}, {"state": "s5_ready"}):
+            with self.subTest(result=result):
+                self.assertEqual(self.decide(result), "stop")
+
+    def test_reconciliation_required_never_advances(self):
+        self.assertEqual(self.decide({"state": "reconciliation_required",
+                                      "action": "caller-intent"}), "stop-reconciliation")
+
+    def test_only_mechanical_produce_actions_are_completed(self):
+        for name in ("caller-intent", "observe-intent"):
+            self.assertEqual(self.decide({"state": "action", "action": name}), "complete")
+
+    def test_submit_stages_stop_until_the_role_authored_the_candidate(self):
+        for name in ("fields-intent", "contract-intent", "readiness-intent",
+                     "final-evidence-intent"):
+            with self.subTest(name=name):
+                self.assertEqual(self.decide({"state": "action", "action": name}),
+                                 "stop-judgement")
+                self.assertEqual(self.decide({"state": "action", "action": name}, candidates=True),
+                                 "complete")
+
+    def test_unknown_action_stops(self):
+        self.assertEqual(self.decide({"state": "action", "action": "made-up"}), "stop-judgement")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ from types import SimpleNamespace
 from coordinator_io import (bound_lock, canonical, digest, file_ref, now, parse, pinned,
                             publish_new, read_json, replace_json, require, timestamp)
 from coordinator_startup import KIND, identity
+import tui_adapter
 from coordinator_creation_time import creation_bounds
 import coordinator_strict_start as strict
 import operator_monitor as monitor
@@ -54,7 +55,7 @@ def validate_inputs(data):
                 "startup_original_owner_required")
         require(timestamp(data["bootstrap_deadline"]) <= timestamp(read_json(directory.parent / "attempt-binding.json")["deadline"]),
                 "startup_deadline_exceeds_original_attempt")
-    require(contract["adapter"] == "trae-tui-runtime-v1", "startup_tui_contract_required")
+    require(tui_adapter.is_tui(contract["adapter"]), "startup_tui_contract_required")
     require(type(data["poll_seconds"]) is int and 1 <= data["poll_seconds"] <= 60,
             "startup_poll_invalid")
     timestamp(data["bootstrap_deadline"])

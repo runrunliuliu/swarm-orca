@@ -111,6 +111,52 @@ class OperatorPrepareTests(unittest.TestCase):
         for p in self.directory.iterdir():
             self.assertEqual(p.stat().st_mode & 0o777, 0o600)
 
+    def prepared(self):
+        code, result = self.cli("--execute")
+        self.assertEqual(code, 0, result)
+        return result["preparation"]
+
+    def test_verify_prepared_accepts_the_audited_manifest_and_every_frozen_ref(self):
+        from operator_prepare import verify_prepared
+        prepared = self.prepared()
+        checked = verify_prepared(prepared)
+        self.assertEqual(checked["preparation_id"], "task-attempt-1")
+        self.assertEqual(checked["baseline_count"], 1)
+        self.assertTrue(checked["ref_count"] > checked["snapshot_count"])
+
+    def test_verify_prepared_rejects_a_repository_that_moved_after_prepare(self):
+        # "Prepared" is a claim about now: a later commit in the baseline repo must
+        # stop planning instead of launching against reviewed-but-stale state.
+        from operator_prepare import verify_prepared
+        prepared = self.prepared()
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "after-audit")
+        with self.assertRaises(ValueError):
+            verify_prepared(prepared)
+
+    def test_verify_prepared_rejects_an_auxiliary_snapshot_rewritten_after_audit(self):
+        from coordinator_io import parse, pinned
+        from operator_prepare import verify_prepared
+        prepared = self.prepared()
+        value = parse(pinned(prepared))
+        target = Path(value["authority_snapshots"][0]["path"])
+        target.write_bytes(b"rewritten after audit\n")
+        with self.assertRaises(ValueError):
+            verify_prepared(prepared)
+
+    def test_verify_prepared_rejects_a_manifest_without_baselines(self):
+        # `prepare()` cannot emit an empty baseline list, so accepting one would let
+        # a hand-written manifest skip baseline-drift protection entirely.
+        from coordinator_io import file_ref, parse, pinned, publish_new
+        from operator_prepare import verify_prepared
+        prepared = self.prepared()
+        value = parse(pinned(prepared))
+        value["baselines"] = []
+        manifest = self.root / "hand-written.json"
+        publish_new(manifest, value)
+        with self.assertRaisesRegex(ValueError, "operator_prepare_manifest_baselines_missing"):
+            verify_prepared(file_ref(manifest))
+
     def test_cli_requires_explicit_local_write_and_returns_only_pins(self):
         code, result = self.cli()
         self.assertEqual(code, 2)

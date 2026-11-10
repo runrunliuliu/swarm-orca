@@ -276,9 +276,11 @@ def cli_main(argv=None, *, review=False):
         result = (review_request(ref, decision=args.decision, notes=args.notes, bootstrap_owner=cli_owner(args)) if review
                   else prepare_request(ref, bootstrap_owner=cli_owner(args)))
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        from bootstrap_transport import safe_reason
         result = dict(ok=False, decision="stop", error=(str(exc)
                       if isinstance(exc, (StrictCheckError, GateError))
                       else "strict_request_prepare_failed_preserve_attempt"),
+                      error_type=type(exc).__name__, reason=safe_reason(exc),
                       execution_authorized=False)
         if hasattr(exc, "prepare_diagnostic"):
             result["diagnostic"] = exc.prepare_diagnostic

@@ -92,14 +92,16 @@ def launch_kwargs(launch, handoff):
     if agent == "trae":
         allowed = {"agent", "trae", "cwd", "archive_dir", "bootstrap_dir", "write_dirs",
                    "model_config", "trae_runtime_config", "resume_session", "replacement_run",
-                   "strict_coordinator"}
+                   "strict_coordinator", "registered_bootstrap", "reviewed_inputs"}
         require(set(launch) <= allowed and {"trae", "cwd", "model_config", "trae_runtime_config"} <= set(launch),
                 "operator_materials_launch_invalid")
         return dict(trae=launch["trae"], archive_dir=launch.get("archive_dir"),
                     bootstrap_dir=launch.get("bootstrap_dir"), model_config=launch["model_config"],
                     trae_runtime_config=launch["trae_runtime_config"], prompt_file=handoff,
                     resume_session=launch.get("resume_session"), replacement_run=launch.get("replacement_run"),
-                    strict_coordinator=launch.get("strict_coordinator", False), **common)
+                    strict_coordinator=launch.get("strict_coordinator", False),
+                    registered_bootstrap=launch.get("registered_bootstrap", False),
+                    reviewed_inputs=launch.get("reviewed_inputs"), **common)
     raise MaterialsError("operator_materials_launch_invalid")
 
 

@@ -11,10 +11,102 @@ from pathlib import Path
 import os
 import shlex
 import sys
+import time
 
 from coordinator_io import canonical, file_ref, now, parse, pinned, require
 
 current = ContextVar("strict_bootstrap_s5", default=None)
+
+# Non-execution replies mean the owner admitted nothing: the same intent may be
+# retried in place. Anything else (including an unknown outcome) must reconcile.
+NON_EXECUTION_RETRY_SECONDS = 20
+# The owner rejects a mutation with `bootstrap_rpc_rejected:<code>`, so the bare
+# exception classes never arrive on that path. A code is retryable only when the
+# owner proved nothing was admitted: those raises all precede the
+# `attempted[target]` record and `publish_new` in CommitOwner.commit_new().
+NON_EXECUTION_CODES = frozenset({"bootstrap_owner_busy_not_executed",
+                                "bootstrap_native_identity_timeout",
+                                "bootstrap_identity_snapshot_expired"})
+RPC_REJECTED = "bootstrap_rpc_rejected:"
+CONFIRMATION_PENDING = "bootstrap_commit_confirmation_pending_requires_reconciliation"
+# A retry budget spent on provable non-execution is still NOT permission to
+# replay: the caller could not observe the final attempt's reply, so it reports
+# the unknown class instead of the last (retryable-looking) busy code.
+COMMIT_UNKNOWN = "bootstrap_commit_unknown_requires_reconciliation"
+
+
+def retryable(exc):
+    """May this exact reply be retried in place?
+
+    The owner's explicit outcome state decides when present; the typed code is
+    only the fallback for an authority that predates the field. `commit_new`
+    attaches may_replay, so a needs_reconcile/unknown outcome is never retried.
+    """
+    if getattr(exc, "may_replay", None) is False:
+        return False
+    return non_execution(exc)
+
+
+def unknown(code):
+    """A locally concluded unknown outcome; never carries permission to replay."""
+    error = ValueError(code)
+    error.commit_state, error.may_replay = "unknown", False
+    return error
+
+
+def non_execution(exc):
+    from observation_budget import ObservationBusy, ObservationTimeout
+    from bootstrap_identity import IdentitySnapshotExpired, IdentityVerificationPending
+    if isinstance(exc, (ObservationBusy, ObservationTimeout,
+                        IdentityVerificationPending, IdentitySnapshotExpired)):
+        return True
+    code = str(exc)
+    if code.startswith(RPC_REJECTED):
+        code = code[len(RPC_REJECTED):]
+    return code in NON_EXECUTION_CODES
+
+
+def commit_confirmed(authority, control, *, actor, target, raw, prerequisites, recheck,
+                     retry_seconds=NON_EXECUTION_RETRY_SECONDS):
+    """Admit once, retrying only replies that prove nothing was admitted.
+
+    The confirmation query stays OUTSIDE the retry loop: a transient read after a
+    successful commit is an unknown outcome, never permission to commit again.
+    """
+    end = time.monotonic() + retry_seconds
+    while True:
+        try:
+            recheck()
+            reply = authority.commit_new(control, actor=actor, target=target, raw=raw,
+                                         prerequisites=list(prerequisites), recheck=recheck)
+            break
+        except (OSError, ValueError) as exc:
+            # Only a provable non-execution may be retried. An unknown outcome or
+            # a recorded-but-unpublished intent must reconcile instead.
+            if not retryable(exc):
+                raise
+            if time.monotonic() >= end:
+                raise unknown(COMMIT_UNKNOWN) from None
+            time.sleep(0.2)
+    return confirmation(authority, control, reply.target, retry_seconds=retry_seconds)
+
+
+def confirmation(authority, control, target, *, retry_seconds=NON_EXECUTION_RETRY_SECONDS):
+    """Read-only follow-up after a commit landed; retries only the read.
+
+    On exhaustion this reports an unknown outcome instead of a retryable reply:
+    the bytes are already admitted, so a caller must reconcile, not commit again.
+    """
+    end = time.monotonic() + retry_seconds
+    while True:
+        try:
+            return confirmed(authority, control, target)
+        except ValueError as exc:
+            if not retryable(exc):
+                raise
+            if time.monotonic() >= end:
+                raise unknown(CONFIRMATION_PENDING) from None
+            time.sleep(0.2)
 
 
 def confirmed(*args):
@@ -56,11 +148,9 @@ class S5Guard:
             require(reply.status == "confirmed", "bootstrap_s5_input_unconfirmed")
 
     def publish(self, target, value):
-        self.check()
         raw = value if isinstance(value, bytes) else canonical(value) + b"\n"
-        reply = self.authority.commit_new(self.control, actor=self.actor, target=str(target), raw=raw,
-            prerequisites=[self.association, self.ready, self.request], recheck=self.check)
-        return confirmed(self.authority, self.control, reply.target)
+        return commit_confirmed(self.authority, self.control, actor=self.actor, target=str(target), raw=raw,
+                                prerequisites=[self.association, self.ready, self.request], recheck=self.check)
 
     def publication(self, target, value):
         # Staging/probe paths are local, non-ready evidence of the already

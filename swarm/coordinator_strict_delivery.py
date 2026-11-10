@@ -232,8 +232,16 @@ def wait_for_config(ref):
     stop = time.monotonic() + remaining
     # Only a read-only live caller check; never issue gates/create/dispatch here.
     live(expected, expected, initial)
+    from observation_budget import ObservationBusy, ObservationTimeout
     while True:
-        checkpoint()
+        try:
+            checkpoint()
+        except (ObservationBusy, ObservationTimeout):
+            # Owner contention or an expired local read budget is not a
+            # publication verdict: aborting here reported "delivery failed"
+            # while the Operator was still publishing. The loop deadline below
+            # still bounds the wait, so keep polling.
+            pass
         require(time.monotonic() < stop and timestamp(now()) < timestamp(expected["deadline"]),
                 "strict_config_wait_expired")
         pinned(ref)
@@ -304,8 +312,14 @@ def cli_main(argv):
             result = (plan_commands(delivery_plan(ref), owner) if args.mode == "strict-config-plan"
                       else wait_for_config(ref, bootstrap_owner=owner))
     except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
-        print(json.dumps({"ok": False, "decision": "stop", "error": str(exc)
-                          if isinstance(exc, (GateError, StrictCheckError)) else "strict_config_delivery_failed"}))
+        # A masked non-typed failure once reported "delivery failed" with no clue
+        # (it was transient owner contention). Always keep the type and the
+        # bounded protocol code; arbitrary text still never crosses the boundary.
+        from bootstrap_transport import safe_reason
+        print(json.dumps({"ok": False, "decision": "stop",
+                          "error": str(exc) if isinstance(exc, (GateError, StrictCheckError))
+                          else "strict_config_delivery_failed",
+                          "error_type": type(exc).__name__, "reason": safe_reason(exc)}))
         return 2
     print(json.dumps(result, ensure_ascii=False))
     return 0

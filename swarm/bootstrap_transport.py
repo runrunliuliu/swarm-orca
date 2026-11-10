@@ -32,7 +32,10 @@ def safe_reason(error):
             "startup_trigger_readiness_expired"}:
         return value
     if isinstance(error, ValueError) and re.fullmatch(
-            r"(?:bootstrap_rpc_rejected:)?bootstrap_[a-z0-9_]{1,100}", value):
+            r"(?:bootstrap_rpc_rejected:)?(?:bootstrap|strict|startup|tui)_[a-z0-9_]{1,100}", value):
+        # Typed protocol codes only. Collapsing `strict_*` into
+        # bootstrap_operation_unverifiable hides the one string a caller needs to
+        # route (a real attempt blamed the wrong stage over a masked code).
         return value
     if isinstance(error, PermissionError):
         return "bootstrap_permission_denied"

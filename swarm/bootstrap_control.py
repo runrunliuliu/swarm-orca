@@ -20,11 +20,22 @@ from bootstrap_admission import control_paths, inspect_chain
 from bootstrap_identity import (host_process, peer, unchanged, IdentitySnapshotExpired,
                                 IdentityVerificationPending, IDENTITY_REFRESH_MARGIN_SECONDS,
                                 BootstrapAdmissionClosed, OperatorInputPending)
-from bootstrap_protocol import Confirmation, ControlBinding, layout
+from bootstrap_protocol import COMMIT_OPS, COMMIT_STATES, Confirmation, ControlBinding, layout
 from bootstrap_transport import Signer, safe_reason, verify
 import coordinator_io as io
 
 MAX_MESSAGE = 4 * 1024 * 1024
+
+
+def stated(exc, state, may_replay=None):
+    """Attach the commit outcome class to an exception without rewriting it.
+
+    The message keeps the owner's typed code; the state and may_replay fields
+    are what a caller routes on, so it never has to guess from a code alone.
+    """
+    exc.commit_state = state
+    exc.may_replay = (state == "not_admitted") if may_replay is None else may_replay
+    return exc
 
 
 class ReadOnlyPollExpired(TimeoutError):
@@ -74,7 +85,7 @@ class CommitOwner:
         self.initializing = True
         self.closed = False
         self.stopped = False
-        self.confirmations, self.attempted = set(), {}
+        self.confirmations, self.attempted, self.published = set(), {}, {}
         self.process = host_process()
         self.owner = io.directory_lock(self.root, "owner", create=False)
         self.check_inode = self.owner.__enter__()
@@ -191,16 +202,26 @@ class CommitOwner:
     def runtime_publish(self, target, value, recheck):
         """Only called by named Operator operations, never a caller-selected path."""
         with self.serial:
-            recheck()
-            io.require(target not in self.attempted, "bootstrap_commit_requires_reconciliation")
+            try:
+                io.require(target not in self.attempted, "bootstrap_commit_requires_reconciliation")
+            except ValueError as exc:
+                stated(exc, "needs_reconcile")
+                raise
+            try:
+                recheck()
+            except BaseException as exc:
+                stated(exc, "not_admitted")
+                raise
             raw = io.canonical(value) + b"\n"
             ref = dict(path=target, sha256=io.digest(raw))
             self.attempted[target] = ref
             try:
                 io.publish_new(Path(target), raw)
-            except BaseException:
+            except BaseException as exc:
                 self.invalidate()
+                stated(exc, "unknown")
                 raise
+            self.published[target] = ref
             self.confirmations.add((target, ref["sha256"]))
             return ref
 
@@ -243,6 +264,22 @@ class CommitOwner:
                     return "operator"
         return None
 
+    def state_of(self, target):
+        """Owner-lifetime outcome class for one exact ref; never a replay grant.
+
+        Only this generation can admit a write, so its serial records are the
+        authority. A new generation is never armed onto a predecessor's files,
+        and an existing file this owner never wrote is `unknown`, not absent.
+        """
+        attempt = self.attempted.get(target["path"])
+        if attempt is None:
+            return "not_admitted" if not os.path.lexists(target["path"]) else "unknown"
+        if attempt != target:
+            return "unknown"
+        if (target["path"], target["sha256"]) in self.confirmations:
+            return "committed"
+        return "unknown" if self.published.get(target["path"]) == target else "needs_reconcile"
+
     def query(self, control, target):
         io.validate_ref(target)
         try:
@@ -254,44 +291,68 @@ class CommitOwner:
         except FileNotFoundError:
             status = "not_committed"
         except (OSError, ValueError):
-            status = "durability_unverified"
+            # The file no longer matches the exact ref, so this owner can no
+            # longer claim its own publication either.
+            return Confirmation(control, target, "durability_unverified", state="unknown")
         else:
             status = "confirmed" if (target["path"], target["sha256"]) in self.confirmations else "durability_unverified"
-        return Confirmation(control, target, status)
+        return Confirmation(control, target, status, state=self.state_of(target))
 
     def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
         for attempt in range(2):
             with self.serial:
                 try:
-                    self.active(control)
-                    io.require(self.role_for(target) == actor, "bootstrap_role_or_path_mismatch")
-                    if target == str(self.root.parent / "lifecycle" / "spec.json"):
-                        from operator_startup import validate_spec
-                        spec = validate_spec(io.parse(raw), io.file_ref(self.root.parent / "strict-start" / "start.json"))
-                        io.require("runtime" in spec, "startup_runtime_policy_required")
-                        io.require(spec["bootstrap_owner"] == io.file_ref(self.root / "owner.json"),
-                                   "startup_original_owner_required")
-                    for ref in prerequisites:
-                        io.require(self.query(control, ref).status == "confirmed", "bootstrap_prerequisite_unconfirmed")
-                    recheck()  # Read-only; never repeat publication or a producer.
-                    self.active(control)
-                except IdentitySnapshotExpired:
+                    # A recorded intent dominates every later rejection, including
+                    # this owner's own post-failure disarm: it must never look like
+                    # a fresh, retryable non-execution.
+                    io.require(target not in self.attempted, "bootstrap_commit_requires_reconciliation")
+                except ValueError as exc:
+                    stated(exc, "needs_reconcile")
+                    raise
+                try:
+                    self.admit(control, actor=actor, target=target, raw=raw,
+                               prerequisites=prerequisites, recheck=recheck)
+                except IdentitySnapshotExpired as exc:
+                    # Only pre-admission natural expiry reaches here; no native I/O
+                    # under serial, and no retry after attempted/publish (even on error).
                     if attempt:
+                        stated(exc, "not_admitted")
                         raise
+                except BaseException as exc:
+                    # Every raise before `attempted[target]` proves no byte of this
+                    # intent was written, so the caller may retry in place.
+                    stated(exc, "not_admitted")
+                    raise
                 else:
                     ref = dict(path=target, sha256=io.digest(raw))
-                    io.require(target not in self.attempted, "bootstrap_commit_requires_reconciliation")
+                    # The intent record precedes the write: attempted-and-absent is
+                    # a class of its own, never inferred from publish_new raising.
                     self.attempted[target] = ref
                     try:
                         io.publish_new(Path(target), raw)
-                    except BaseException:
+                    except BaseException as exc:
                         self.invalidate()
+                        stated(exc, "unknown")
                         raise
+                    self.published[target] = ref
                     self.confirmations.add((target, ref["sha256"]))
-                    return Confirmation(control, ref, "confirmed")
-            # Only pre-admission natural expiry reaches here; no native I/O
-            # under serial, and no retry after attempted/publish (even on error).
+                    return Confirmation(control, ref, "confirmed", state="committed")
             self.refresh(force=True)
+
+    def admit(self, control, *, actor, target, raw, prerequisites, recheck):
+        """Everything that must hold before the owner records an intent."""
+        self.active(control)
+        io.require(self.role_for(target) == actor, "bootstrap_role_or_path_mismatch")
+        if target == str(self.root.parent / "lifecycle" / "spec.json"):
+            from operator_startup import validate_spec
+            spec = validate_spec(io.parse(raw), io.file_ref(self.root.parent / "strict-start" / "start.json"))
+            io.require("runtime" in spec, "startup_runtime_policy_required")
+            io.require(spec["bootstrap_owner"] == io.file_ref(self.root / "owner.json"),
+                       "startup_original_owner_required")
+        for ref in prerequisites:
+            io.require(self.query(control, ref).status == "confirmed", "bootstrap_prerequisite_unconfirmed")
+        recheck()  # Read-only; never repeat publication or a producer.
+        self.active(control)
 
     def stop(self, control):
         with self.serial:
@@ -333,19 +394,29 @@ class CommitOwner:
             root = self.root.parent / "strict-start"
             required = {str(root / "create-response.json"): ("coordinator", "create-intent.json"),
                         str(root / "operator-gate.json"): ("operator", "publication-intent.json")}
-            io.require(target in required and required[target][0] == actor, "bootstrap_settlement_path_invalid")
-            intent = io.file_ref(root / required[target][1])
-            io.require(self.query(control, intent).status == "confirmed", "bootstrap_native_intent_unconfirmed")
+            try:
+                io.require(target not in self.attempted, "bootstrap_commit_requires_reconciliation")
+            except ValueError as exc:
+                stated(exc, "needs_reconcile")
+                raise
+            try:
+                io.require(target in required and required[target][0] == actor, "bootstrap_settlement_path_invalid")
+                intent = io.file_ref(root / required[target][1])
+                io.require(self.query(control, intent).status == "confirmed", "bootstrap_native_intent_unconfirmed")
+            except ValueError as exc:
+                stated(exc, "not_admitted")
+                raise
             ref = dict(path=target, sha256=io.digest(raw))
-            io.require(target not in self.attempted, "bootstrap_commit_requires_reconciliation")
             self.attempted[target] = ref
             try:
                 io.publish_new(Path(target), raw)
-            except BaseException:
+            except BaseException as exc:
                 self.invalidate()
+                stated(exc, "unknown")
                 raise
+            self.published[target] = ref
             self.confirmations.add((target, ref["sha256"]))
-            return Confirmation(control, ref, "confirmed")
+            return Confirmation(control, ref, "confirmed", state="committed")
 
     def close(self):
         with self.serial:
@@ -459,9 +530,16 @@ class OwnerServer:
                        "bootstrap_runtime_operator_required")
             from startup_runtime import operator_action
             return operator_action(owner, self.owner_ref, op, args, identity)
-        owner.refresh()
-        unchanged(identity)
-        owner.identity.authenticate(identity)
+        try:
+            owner.refresh()
+            unchanged(identity)
+            owner.identity.authenticate(identity)
+        except (OSError, ValueError) as exc:
+            # Nothing was dispatched for a commit op yet: stopped or stale
+            # identity here is provable non-execution, not an unknown outcome.
+            if op in COMMIT_OPS:
+                stated(exc, "not_admitted")
+            raise
         if op == "heartbeat":
             io.require(not args, "bootstrap_rpc_invalid")
         if op == "check":
@@ -517,7 +595,13 @@ class OwnerServer:
             request_hash = io.digest(io.canonical(message))
             acquired = self.execution.acquire(blocking=False)
             try:
-                io.require(acquired, "bootstrap_owner_busy_not_executed")
+                if not acquired:
+                    # Nothing was dispatched. For a commit that is provable
+                    # non-execution, not an unknown outcome.
+                    busy = ValueError("bootstrap_owner_busy_not_executed")
+                    if message.get("op") in COMMIT_OPS:
+                        stated(busy, "not_admitted")
+                    raise busy
                 io.require(not self.closing.is_set(), "bootstrap_owner_closed")
                 operation = blocking_io.Operation("owner_request", mutation=True)
                 self.diagnostic_operation = operation
@@ -528,6 +612,10 @@ class OwnerServer:
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 reply = dict(ok=False, error="bootstrap_rpc_rejected:" + safe_reason(exc),
                              error_type=type(exc).__name__)
+                state = getattr(exc, "commit_state", None)
+                if state is not None:
+                    reply["state"] = state
+                    reply["may_replay"] = getattr(exc, "may_replay", state == "not_admitted")
             finally:
                 if acquired:
                     self.diagnostic_operation = None
@@ -619,8 +707,12 @@ class AuthorityClient:
         except TimeoutError as exc:
             if self.read_only_poll:
                 raise ReadOnlyPollExpired("bootstrap_read_only_poll_expired") from exc
-            # The owner may still publish. Never retry a mutation on timeout.
-            raise ValueError("bootstrap_tool_timeout_requires_reconciliation") from exc
+            # The owner may still publish. Never retry a mutation on timeout:
+            # a lost reply is an unknown outcome, not a provable non-execution.
+            error = ValueError("bootstrap_tool_timeout_requires_reconciliation")
+            if op in COMMIT_OPS:
+                stated(error, "unknown")
+            raise error from exc
         finally:
             self.deadline = prior
 
@@ -663,7 +755,19 @@ class AuthorityClient:
                 reply.get("error_type") == "OperatorInputPending" and
                 reply.get("error") == "bootstrap_rpc_rejected:startup_operator_input_review_required"):
             raise OperatorInputPending("startup_operator_input_review_required")
-        io.require(reply.get("ok") is True, reply.get("error", "bootstrap_rpc_unknown"))
+        if reply.get("ok") is not True:
+            code, state = reply.get("error", "bootstrap_rpc_unknown"), reply.get("state")
+            if op in COMMIT_OPS and state in COMMIT_STATES:
+                # The owner's explicit state decides the class. Only a provable
+                # non-execution keeps the owner's own code for routing; an
+                # unknown outcome must not look like one more retryable busy.
+                if state != "not_admitted":
+                    code = ("bootstrap_commit_requires_reconciliation" if state == "needs_reconcile"
+                            else "bootstrap_commit_unknown_requires_reconciliation")
+                error = ValueError(code)
+                stated(error, state, reply.get("may_replay"))
+                raise error
+            raise ValueError(code)
         self.check_deadline()
         return reply["result"]
 
@@ -684,7 +788,9 @@ class AuthorityClient:
             result = self.rpc("query", target=target)
             io.require(result["control"] == asdict(control) and result["target"] == target,
                        "bootstrap_confirmation_mismatch")
-            return Confirmation(control, target, result["status"])
+            state = result.get("state")
+            io.require(state is None or state in COMMIT_STATES, "bootstrap_confirmation_mismatch")
+            return Confirmation(control, target, result["status"], state=state)
         except (ReadOnlyPollExpired, IdentityVerificationPending, budget.ObservationTimeout, budget.ObservationBusy):
             raise
         except (OSError, ValueError):
@@ -695,8 +801,9 @@ class AuthorityClient:
         recheck()
         result = self.rpc("commit", actor=actor, target=target, raw=raw.hex(), prerequisites=prerequisites)
         ref = dict(path=target, sha256=io.digest(raw))
-        io.require(result == asdict(Confirmation(control, ref, "confirmed")), "bootstrap_confirmation_mismatch")
-        return Confirmation(control, ref, "confirmed")
+        io.require(result == asdict(Confirmation(control, ref, "confirmed", state="committed")),
+                   "bootstrap_confirmation_mismatch")
+        return Confirmation(control, ref, "confirmed", state="committed")
 
     def stop(self, control):
         io.require(control == self.control, "bootstrap_control_mismatch")

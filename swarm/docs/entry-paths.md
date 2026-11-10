@@ -34,6 +34,7 @@ M5 最小绑定；逻辑任务 ID、跨入口路由、多仓库绑定与写入�
 | 一次检查、一次实验或一份权威文档就能定 | 单 Agent 直接做，不召集 | [讨论协议](../skills/swarm-orchestration/references/discussion.md) §1 | 不需要讨论、不需要 Run |
 | 需要独立判断，且逐条升级理由成立（错会被漏、假设要测、更便宜的替代不够） | 只读讨论：panel；仅当已存在互相支持的对立主张才 debate | [讨论协议](../skills/swarm-orchestration/references/discussion.md) | 判定本身不建 Run、不启动 Agent、不需要 worktree 或 `max_workers`；实际召集参与者须另有明确授权，并发/预算按部署策略；结论不授权写/合并/部署 |
 | 需要真实多 Agent 执行、独立监督与跨回合续跑，且要求 strict | Strict Coordinator TUI + Operator monitor / scheduler | [启动准备](../operator-prepare.md) → [strict 握手](../coordinator-strict-start.md) → [TUI](../coordinator-tui.md) / [monitor](../operator-monitor.md) | 三条执行路径互斥；一个 Run 固定一条，不得换路径绕过启动门 |
+| 只要只读核验、且没有两个不同权限的角色 | 单角色（或直接命令） | 见 [strict liveness 草案 §7](design/strict-bootstrap-liveness.md#7-未决决策需要-owner-拍板本文不代替) | strict 当前对单权限任务是过度武装；草案决策未定前不得据此跳过任何既有 gate |
 | 非 strict 的同会话回合续跑 | 独立 goal-loop driver | [回合续跑器](../coordinator-driver.md) | 代码拒绝 strict 计划与 `strict-v1` Run，不能当 strict 的恢复或兜底 |
 | 任务 DAG 可预固定、不需要重规划 | 固定 DAG Supervisor MVP | [Supervisor 手册](supervisor.md) → [策略](../policies.md) | 不自动重规划、重试、升级模型或接管新 Coordinator |
 | 需要独立审查、合入、可选部署或清理 | 交付流程 | [worktree-delivery](../skills/worktree-delivery/SKILL.md) | 部署与重启是单独授权动作，不因“合并完成”推导 |

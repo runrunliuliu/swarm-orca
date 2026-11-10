@@ -17,6 +17,7 @@ from coordinator_io import canonical, digest, now, parse, pinned, timestamp
 from coordinator_loop import phase_contract
 from coordinator_task_source import strict_request_version_text
 from trae_coordinator import build_trae_plan, native, verify_trae_executable
+import tui_adapter
 
 CAPABILITY = "orchestration.strict-caller-check.v1"
 # terminal.create uses AgentArgs from rpc-contract/agent-session-params.ts.
@@ -72,6 +73,25 @@ def strict_bootstrap_prompt(plan):
     directory = Path(plan["startup_delivery"]["directory"])
     caller_receipt = directory.parent / "initial-caller.json"
     delivery = json.dumps(plan["startup_delivery"], ensure_ascii=False, sort_keys=True)
+    # A registered attempt owns that exact caller path; offering the historical
+    # direct write made a live attempt self-write the S1 slot before its binding
+    # existed, which left it unconfirmed forever.
+    if plan.get("registered_bootstrap"):
+        caller_line = (
+            "REGISTERED ATTEMPT: the historical direct-write path is FORBIDDEN here. Do not run "
+            "strict-caller-check to persist a caller receipt and never write " + str(caller_receipt) +
+            " yourself; that exact path is the S1 slot owned by commit_owner. Pull returns "
+            "caller-intent, and its complete argv makes the owner produce and commit the receipt. "
+            "Every later fixed slot follows the same rule.")
+    else:
+        caller_line = (
+            "HISTORICAL PATH, only when this attempt has neither attempt-binding.json nor "
+            "control/owner.json: run orchestration strict-caller-check in this live Coordinator "
+            "context and preserve the raw receipt at: " + str(caller_receipt) + ". Once an "
+            "attempt-binding or control/owner.json exists, that same path is the registered caller "
+            "slot owned by commit_owner: never write or replace it yourself, take the "
+            "caller-intent/complete actions instead, because a self-written slot stays unconfirmed "
+            "forever.")
     lines = [
         "Strict Coordinator bootstrap: this is a short native prompt; use pinned files, not inline stdin.",
         "Do not treat this short prompt as the full task or authority.",
@@ -87,8 +107,7 @@ def strict_bootstrap_prompt(plan):
         "Protocol-owned directory (not an evidence directory): " + str(directory) +
         ". Leave it absent for Operator's strict-start-prepare; "
         "do not create it or write caller/status/raw evidence there.",
-        "For an unregistered historical attempt, run orchestration strict-caller-check in this live Coordinator context "
-        "and preserve the raw receipt at: " + str(caller_receipt),
+        caller_line,
         "For that historical path, use strict-config-request with pinned session observation, caller, runtime/workspace, task_deadline and final readiness.",
         "For an explicitly registered strict-bootstrap attempt, use coordinator_launch.py strict-bootstrap plan "
         "with the independently pinned --owner and --owner-sha256 from the S0 handoff first. Follow its original-role "
@@ -120,18 +139,53 @@ def strict_bootstrap_prompt(plan):
         lines.append("TUI continuation helper: " + continuation + "; publish validated checkpoints and run turn-end before ending turns.")
     else:
         lines.append("Do not end the exec turn for terminal follow-up; if required, stop and report the incompatible launch contract.")
+    reviewed = plan.get("reviewed_inputs")
+    if reviewed:
+        lines.append(
+            "Operator static preparation already froze the reviewed inputs (" +
+            str(plan.get("reviewed_input_snapshot_count")) + " snapshots, " +
+            str(plan.get("reviewed_input_baseline_count")) + " baselines): " +
+            reviewed["path"] + " sha256 " + reviewed["sha256"] +
+            ". Read pins from that manifest instead of re-deriving them from the repository. Planning "
+            "re-checked every frozen ref and each baseline's head/cleanliness: a snapshot mismatch or a "
+            "baseline drift is a stop, and it is not re-pinned by a later layer. It is pinned input, not "
+            "authorization: the Operator still verifies every pin itself and still owns binding, "
+            "registration and owner publication.")
     return "\n".join(lines) + "\n"
 
 
-def strict_plan(plan):
+def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
     require(plan["phase"] == "bootstrap" and plan["resume_session"] is None
             and plan.get("replacement_run") is None, "strict_requires_fresh_native_bootstrap")
+    archive = Path(plan["artifact_dirs"]["archive"])
+    # A registered attempt's caller slot belongs to commit_owner. Producing the
+    # historical direct-write prompt for such an attempt is unrecoverable (the
+    # slot stays unconfirmed forever), so absence of the flag cannot be treated
+    # as "not registered" once registration evidence exists.
+    registered_evidence = (archive / "attempt-binding.json", archive / "control" / "owner.json")
+    require(registered_bootstrap or not any(os.path.lexists(p) for p in registered_evidence),
+            "strict_registered_bootstrap_required")
+    # A registered attempt starts from frozen, independently audited static inputs
+    # (Operator `prepare`). Without the pin every role re-derives them live, which
+    # is both slow and the class of error that wastes an attempt (stale task path).
+    require(not registered_bootstrap or reviewed_inputs is not None,
+            "strict_reviewed_inputs_required")
+    prepared = None
+    if reviewed_inputs is not None:
+        require(isinstance(reviewed_inputs, dict) and set(reviewed_inputs) == {"path", "sha256"},
+                "strict_reviewed_inputs_invalid")
+        from operator_prepare import verify_prepared
+        prepared = verify_prepared(reviewed_inputs)
     executable = plan["argv"][0]
     tui = plan["execution"]["launch_mode"] == "tui"
     from coordinator_strict_delivery import layout
     delivery = layout(plan["artifact_dirs"]["archive"])
     phase = "strict-tui-bootstrap" if tui else "strict-bootstrap"
     plan = dict(plan, phase=phase, strict_coordinator=True,
+                registered_bootstrap=bool(registered_bootstrap),
+                reviewed_inputs=reviewed_inputs,
+                reviewed_input_snapshot_count=None if prepared is None else prepared["snapshot_count"],
+                reviewed_input_baseline_count=None if prepared is None else prepared["baseline_count"],
                 startup_delivery=delivery,
                 prompt_fragment=phase_contract(phase) +
                 " Verify actual Trae model, effort, Max, sandbox and approvals against " +
@@ -230,7 +284,9 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
         trae=executable, cwd=plan["cwd"], archive_dir=None,
         bootstrap_dir=plan["artifact_dirs"]["archive"], write_dirs=plan["task_write_roots"],
         selection=plan["selection"], runtime_config=plan["runtime_config"],
-        prompt_file=plan["prompt_file"], resume_session=None))
+        prompt_file=plan["prompt_file"], resume_session=None),
+        registered_bootstrap=plan.get("registered_bootstrap") is True,
+        reviewed_inputs=plan.get("reviewed_inputs"))
     require(plan == rebuilt, "strict_native_plan_changed")
     verified = verify_native_inputs(ref, plan, cli=cli, runtime=runtime, workspace=workspace,
                                     materials_ref=materials, operator_input_ref=operator_input)
@@ -286,7 +342,7 @@ def check_session(contract_ref, receipt_ref, caller_ref):
             and initial.get("caller", {}).get("authorityFingerprint"),
             "strict_initial_caller_receipt_required")
     coordinator = contract["coordinator"]
-    if contract["adapter"] == "trae-tui-runtime-v1":
+    if tui_adapter.is_tui(contract["adapter"]):
         require(caller_ref == contract["observation"]["caller_receipt"], "tui_caller_pin_changed")
     require(os.environ.get("ORCA_TERMINAL_HANDLE") == coordinator["terminal"],
             "strict_coordinator_native_context_required")

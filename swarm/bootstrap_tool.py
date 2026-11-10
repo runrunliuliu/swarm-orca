@@ -26,6 +26,37 @@ from bootstrap_events import EvidenceReader, binding, contract_fields, review, v
 from coordinator_io import canonical, digest, file_ref, now, parse, pinned, require, timestamp, validate_ref
 from coordinator_strict import caller_result
 from coordinator_strict_request import observed_coordinator
+import provider_capability
+import tui_adapter
+
+# Only these actions are produced mechanically by the tool itself (caller receipt
+# and session observation). Every other stage carries this role's own authored
+# candidate or review decision, so a bounded advance must stop and let the role
+# run, never author it.
+MECHANICAL_PRODUCE = frozenset({"caller-intent", "observe-intent"})
+ADVANCE_MAX_STEPS = 8
+
+
+def advance_decision(result, *, spec_of, candidates_exist):
+    """Pure: what may a bounded advance do with one pull result?
+
+    Returns one of `complete`, `stop-reconciliation`, `stop-judgement`, `stop`.
+    """
+    if not isinstance(result, dict) or "action" not in result:
+        # pending / request_ready / s5_ready: a stage boundary, not permission.
+        return "stop"
+    if result.get("state") == "reconciliation_required":
+        return "stop-reconciliation"
+    name = result["action"]
+    if name not in ACTIONS:
+        return "stop-judgement"
+    spec = spec_of(name)
+    if spec.mode == "produce":
+        return "complete" if name in MECHANICAL_PRODUCE else "stop-judgement"
+    # A submit/readiness stage is mechanical only when this role already wrote
+    # every candidate; completing it then re-validates and commits those exact
+    # bytes, and can never turn into authoring the candidate here.
+    return "complete" if candidates_exist(name) else "stop-judgement"
 
 
 def provision(control):
@@ -121,6 +152,16 @@ class ActionReader:
             outputs=results, retry_allowed=False, execution_authorized=False)
 
 
+def _ref_of(value):
+    """Return the committed ref from a produce/submit result, else None."""
+    if isinstance(value, dict) and isinstance(value.get("path"), str):
+        return {"path": value["path"], "sha256": value.get("sha256")}
+    if isinstance(value, dict) and isinstance(value.get("result"), dict):
+        ref = value["result"]
+        return {"path": ref.get("path"), "sha256": ref.get("sha256")}
+    return None
+
+
 class RoleTool(BootstrapMachine, ActionReader):
     def __init__(self, control, authority, actor):
         require(actor in {"operator", "coordinator"}, "bootstrap_role_invalid")
@@ -129,6 +170,22 @@ class RoleTool(BootstrapMachine, ActionReader):
 
     def submission(self, name):
         return submission(self.b, name)
+
+    def coordinator_capability(self):
+        """Resolve the Coordinator's declared provider for the TUI observation.
+
+        The S2 observation and the S5 TUI contract read a provider transcript and
+        use one reviewed launch adapter; a registration that declares a provider
+        without them is refused here, before `trae_tui.observe` or the fields
+        template would assume an adapter it cannot verify.
+        """
+        registration = parse(pinned(self.authority.owner["registration"]))
+        return provider_capability.require(
+            registration["roles"]["coordinator"]["provider"],
+            provider_capability.TUI_OBSERVATION,
+            required="bootstrap_registration_provider_required",
+            unsupported="bootstrap_coordinator_provider_unsupported",
+            unavailable="bootstrap_coordinator_provider_evidence_unavailable")
 
     def operation(self, name):
         spec = ACTIONS[name]
@@ -160,7 +217,8 @@ class RoleTool(BootstrapMachine, ActionReader):
         request = parse(pinned(request_ref))
         if stage == "fields":
             registration = parse(pinned(self.authority.owner["registration"]))
-            return dict(self.b["fixed_inputs"], adapter="trae-tui-runtime-v1", runtime=self.b["runtime"],
+            return dict(self.b["fixed_inputs"], adapter=self.coordinator_capability().tui_adapter,
+                runtime=self.b["runtime"],
                 workspace=self.b["workspace"], operator=self.b["operator"],
                 coordinator=parse(pinned(self.slot(EVENTS[1])))["coordinator"],
                 observation=dict(profile=registration["profile"], log_root=registration["log_root"],
@@ -173,7 +231,6 @@ class RoleTool(BootstrapMachine, ActionReader):
     def produce(self, intent_ref):
         """Mechanical caller/observation only. Never fields or model approval."""
         from trae_coordinator import native
-        from trae_tui import observe
         self.local_check()
         intent = parse(pinned(intent_ref))
         name = intent["action"]
@@ -198,14 +255,21 @@ class RoleTool(BootstrapMachine, ActionReader):
             caller_result(value, self.b["runtime"])
         else:
             registration = parse(pinned(self.authority.owner["registration"]))
+            # Resolve the declared provider first: its capability names the one
+            # reviewed TUI reader that may observe this pane, or refuses.
+            capability = self.coordinator_capability()
+            observer, policy_key = tui_adapter.reader(capability.tui_adapter)
             coordinator = self.b["coordinator"]
-            value = observe(cli=self.b["fixed_inputs"]["cli"]["path"], runtime=self.b["runtime"],
+            options = dict(cli=self.b["fixed_inputs"]["cli"]["path"], runtime=self.b["runtime"],
                 terminal=coordinator["terminal"], incarnation=coordinator["incarnation"],
                 workspace=self.b["workspace"]["id"], cwd=self.b["workspace"]["path"],
                 profile=registration["profile"], log_root=registration["log_root"],
                 roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
-                trae_runtime_config=self.b["fixed_inputs"]["runtime_config"]["path"],
-                expected_thread=registration["roles"]["coordinator"]["session"], context_max_age_seconds=1800)
+                expected_thread=registration["roles"]["coordinator"]["session"],
+                context_max_age_seconds=1800)
+            options[policy_key] = tui_adapter.input_value(
+                capability.tui_adapter, self.b["fixed_inputs"]["runtime_config"])
+            value = observer(**options)
         return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
 
     def step(self):
@@ -464,6 +528,49 @@ class RoleTool(BootstrapMachine, ActionReader):
             self.emit(output["path"], raw, self.actor, [intent_ref, admitted], check=lambda _: validate())
         return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs], check=lambda _: validate())
 
+    def advance(self, *, until_stage=None, timeout=120, poll=30):
+        """Run this role's own mechanical stages in one bounded call.
+
+        One model turn used to be spent per stage hop. This loop keeps the same
+        intents, owner commits, prerequisites and pins, and stops the moment a
+        step would need this role's own authored candidate or review decision.
+        """
+        require(type(timeout) in (int, float) and 0 < timeout <= 600,
+                "bootstrap_advance_budget_invalid")
+        require(type(poll) in (int, float) and 0 < poll <= 60,
+                "bootstrap_advance_budget_invalid")
+        require(until_stage is None or (type(until_stage) is int and 0 <= until_stage <= 4),
+                "bootstrap_advance_stage_invalid")
+        end, steps = time.monotonic() + timeout, []
+
+        def candidates(name):
+            try:
+                contract = self.submission(name)
+            except ValueError:
+                return False
+            return bool(contract["outputs"]) and all(
+                os.path.lexists(item["candidate_path"]) for item in contract["outputs"])
+
+        while len(steps) < ADVANCE_MAX_STEPS and time.monotonic() < end:
+            stage = len(self.local_check()["validated_markers"])
+            if until_stage is not None and stage >= until_stage:
+                return dict(state="stage_reached", stage=stage, steps=steps,
+                            execution_authorized=False)
+            result = self.pull(min(poll, max(0.1, end - time.monotonic())))
+            decision = advance_decision(result, spec_of=lambda name: ACTIONS[name],
+                                        candidates_exist=candidates)
+            if decision != "complete":
+                states = {"stop-reconciliation": "reconciliation_required",
+                          "stop-judgement": "needs_role_judgement",
+                          "stop": result.get("state", "pending")}
+                return dict(state=states[decision], stage=stage, result=result, steps=steps,
+                            execution_authorized=False)
+            committed = self.complete(result["intent"])
+            steps.append({"action": result["action"], "intent": result["intent"]["path"],
+                          "committed": _ref_of(committed)})
+        return dict(state="advance_budget_spent" if time.monotonic() >= end
+                    else "advance_step_limit", steps=steps, execution_authorized=False)
+
     def complete(self, intent_ref):
         """Dispatch a pinned action, deriving file pins locally; never generate evidence."""
         intent = self.action_intent(intent_ref)
@@ -485,7 +592,7 @@ def connect(owner_ref):
 
 def cli_main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("provision", "serve", "arm", "stop", "query", "heartbeat", "reconcile", "pull", "produce", "submit", "readiness", "complete", "inspect-action", "build", "plan"))
+    parser.add_argument("mode", choices=("provision", "serve", "arm", "stop", "query", "heartbeat", "reconcile", "pull", "produce", "submit", "readiness", "complete", "advance", "inspect-action", "build", "plan"))
     parser.add_argument("--owner")
     parser.add_argument("--owner-sha256")
     parser.add_argument("--binding")
@@ -499,6 +606,8 @@ def cli_main(argv=None):
     parser.add_argument("--intent")
     parser.add_argument("--intent-sha256")
     parser.add_argument("--timeout", type=float, default=30)
+    parser.add_argument("--poll", type=float, default=30)
+    parser.add_argument("--until-stage", type=int)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -564,6 +673,9 @@ def cli_main(argv=None):
                     result = tool.submit_readiness(intent, parse(pinned(ref)))
                 elif args.mode == "complete":
                     result = tool.complete(intent)
+                elif args.mode == "advance":
+                    result = tool.advance(until_stage=args.until_stage,
+                                          timeout=args.timeout, poll=args.poll)
                 else:
                     require(args.actor == "coordinator", "bootstrap_original_role_required")
                     result = tool.build(parse(pinned(ref)), require_live=True)
@@ -574,8 +686,15 @@ def cli_main(argv=None):
     except (OSError, ValueError, KeyError, TypeError) as exc:
         result = dict(ok=False, error="bootstrap_tool_failed", error_type=type(exc).__name__,
                       reason=safe_reason(exc), execution_authorized=False)
+        if getattr(exc, "commit_state", None) is not None:
+            result["state"] = exc.commit_state
+            result["may_replay"] = getattr(exc, "may_replay", exc.commit_state == "not_admitted")
         if hasattr(exc, "diagnostics"):
             result["diagnostics"] = exc.diagnostics
+        if getattr(exc, "missing_evidence", None):
+            # Provider refusals name the absent evidence channel(s); routing
+            # diagnostics only, never a grant or an alternative reader.
+            result["missing_evidence"] = list(exc.missing_evidence)
         print(json.dumps(result))
         return 2
 

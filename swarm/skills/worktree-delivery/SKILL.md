@@ -10,8 +10,9 @@ description: >-
 
 Read this skill in full for delivery tasks. Paths are relative to this file. A commit, integration,
 push, deployment and deletion are separate outcomes and permissions. Do not infer permission for
-all of them from “work is done”. Read [Orca CLI discovery](../../../orca/skills/orca-cli/SKILL.md)
-and the selected executable's version-matched guide before Orca state operations.
+all of them from “work is done”. Load the selected executable's version-matched Orca CLI guide
+(`orca skills get orca-cli`; this checkout does not vendor `orca/skills/`) before Orca state
+operations.
 On access denial or connection failure, stop affected operations; do not automatically escalate,
 switch runtimes or restart despite upstream discovery suggestions.
 

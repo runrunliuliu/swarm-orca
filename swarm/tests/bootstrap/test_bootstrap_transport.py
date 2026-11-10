@@ -51,6 +51,15 @@ class TransportTests(unittest.TestCase):
             self.assertEqual(safe_reason(ValueError(code)), code)
             self.assertEqual(safe_reason(ValueError(code + ": private data")), "bootstrap_operation_unverifiable")
 
+    def test_typed_strict_codes_are_not_collapsed(self):
+        # A masked strict_* code sent a live attempt hunting the wrong stage.
+        for code in ("strict_config_request_input_invalid", "strict_caller_envelope_invalid",
+                     "strict_native_plan_changed", "tui_continuation_deadline"):
+            self.assertEqual(safe_reason(ValueError(code)), code)
+        for error in (ValueError("strict_config_request_input_invalid: /private/path"),
+                      ValueError("strict_Bad")):
+            self.assertEqual(safe_reason(error), "bootstrap_operation_unverifiable")
+
     def test_proc_not_visible_is_not_exit_or_wrong_ancestry(self):
         for error, reason in ((FileNotFoundError(), "process_not_visible"),
                               (PermissionError(), "proc_permission_denied")):

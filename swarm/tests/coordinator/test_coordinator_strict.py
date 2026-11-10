@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from coordinator_launch import build_plan, main
 from coordinator_input import input_bytes
-from coordinator_io import digest, now
+from coordinator_io import digest, now, parse, pinned
 from coordinator_strict import (CAPABILITY, MAX_AGENT_ARGS_BYTES, MAX_PINNED_INPUT_BYTES,
                                 caller_result, check_session, native_plan)
 from trae_exec_capture import run as capture
@@ -27,6 +27,50 @@ class StrictCoordinatorTests(unittest.TestCase):
         self.trae = self.fixture.fixture
         self.fixture.use_v2()
         self.material_counter = 0
+
+    def prepared_manifest(self, *, kind="operator_static_prepared", status="awaiting_external_audit",
+                          snapshots=None, baselines=None):
+        """A stand-in for an audited `operator_prepare.py prepare` manifest.
+
+        The baseline is a real minimal git repo: planning re-runs the same read-only
+        check, so a fixture with `baselines: []` would no longer be a valid artifact.
+        """
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        from coordinator_io import file_ref, publish_new
+        from native_preflight import _baseline_check, _default_runner
+        directory = Path(tempfile.mkdtemp(prefix="prepared-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
+        if baselines is None:
+            repo = Path(tempfile.mkdtemp(prefix="baseline-"))
+            self.addCleanup(lambda: __import__("shutil").rmtree(repo, ignore_errors=True))
+            git = ["git", "-C", str(repo), "-c", "user.name=Fixture",
+                   "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"]
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            subprocess.run([*git, "commit", "--allow-empty", "-qm", "baseline"], check=True)
+            head = subprocess.run([*git, "rev-parse", "HEAD"], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            expected = {"name": "code", "path": str(repo), "head": head, "clean": True}
+            baselines = [{"expected": expected,
+                          "observed": _baseline_check(expected, 10, _default_runner)}]
+        manifest_input = directory / "input.json"
+        publish_new(manifest_input, b"{}\n")
+        if snapshots is None:
+            snapshot = directory / "source-000.snapshot"
+            publish_new(snapshot, b"reviewed inputs\n")
+            snapshots = [{"source": {"path": "/approved/input.md", "sha256": digest(b"reviewed inputs\n")},
+                          "snapshot": file_ref(snapshot)}]
+        target = directory / "prepared.json"
+        publish_new(target, {"schema_version": 1, "kind": kind, "status": status,
+                             "execution_authorized": False, "preparation_id": "attempt-test",
+                             "input_snapshot": file_ref(manifest_input),
+                             "sources": [{"name": "handoff", "format": "bytes",
+                                          "ref": snapshots[0]["snapshot"],
+                                          "snapshot": snapshots[0]["snapshot"]}],
+                             "authority_snapshots": [], "snapshots": snapshots,
+                             "baselines": baselines})
+        return file_ref(target)
 
     def plan(self):
         return build_plan(**self.trae.args, strict_coordinator=True)
@@ -79,9 +123,14 @@ class StrictCoordinatorTests(unittest.TestCase):
             + ". Leave it absent for Operator's strict-start-prepare; "
             "do not create it or write caller/status/raw evidence there.")
         caller = (
-            "For an unregistered historical attempt, run orchestration strict-caller-check in this live Coordinator context "
+            "HISTORICAL PATH, only when this attempt has neither attempt-binding.json nor control/owner.json: "
+            "run orchestration strict-caller-check in this live Coordinator context "
             "and preserve the raw receipt at: " + str(self.trae.bootstrap / "initial-caller.json"))
-        for instruction in (read_first, reserved, caller):
+        registered_slot = (
+            "Once an attempt-binding or control/owner.json exists, that same path is the "
+            "registered caller slot owned by commit_owner: never write or replace it yourself, take the "
+            "caller-intent/complete actions instead, because a self-written slot stays unconfirmed forever.")
+        for instruction in (read_first, reserved, caller, registered_slot):
             self.assertIn(instruction, prompt)
         self.assertLess(prompt.index(read_first), prompt.index(caller))
         self.assertLess(prompt.index(reserved), prompt.index(caller))
@@ -94,6 +143,100 @@ class StrictCoordinatorTests(unittest.TestCase):
         self.assertIn("Read-only poll expiry is pending with unverified current liveness", prompt)
         self.assertIn("heartbeat never confirms a commit or extends the attempt deadline", prompt)
         self.assertEqual(plan["native_launch"]["short_prompt_sha256"], digest(prompt.encode("utf-8")))
+
+    def test_registered_attempt_forbids_the_historical_direct_write_branch(self):
+        # A live attempt wrote initial-caller.json from the short prompt's
+        # historical branch before its binding existed, which made the S1 slot
+        # permanently unconfirmed. A registered launch must not offer it.
+        from coordinator_strict import strict_plan
+        base = build_plan(**self.trae.args)
+        unregistered = strict_plan(base)
+        registered = strict_plan(base, registered_bootstrap=True,
+                                 reviewed_inputs=self.prepared_manifest())
+        self.assertTrue(registered["registered_bootstrap"])
+        self.assertFalse(unregistered["registered_bootstrap"])
+        self.assertIn("registered_bootstrap", registered)
+        for plan, forbidden, required in (
+                (unregistered, "REGISTERED ATTEMPT", "HISTORICAL PATH, only when"),
+                (registered, "HISTORICAL PATH, only when", "REGISTERED ATTEMPT")):
+            prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
+            self.assertIn(required, prompt)
+            self.assertNotIn(forbidden, prompt)
+            self.assertEqual(plan["native_launch"]["short_prompt_sha256"],
+                             digest(prompt.encode("utf-8")))
+        self.assertIn(str(self.trae.bootstrap / "initial-caller.json"),
+                      shlex.split(registered["native_launch"]["agent_args"])[-1])
+        self.assertIn("commit_owner", shlex.split(registered["native_launch"]["agent_args"])[-1])
+
+    def test_registration_evidence_requires_the_registered_flag(self):
+        # Fail closed: once an attempt has a binding/owner slot, a plan that does
+        # not declare registered mode would offer the historical direct write to
+        # the slot commit_owner owns, and that slot stays unconfirmed forever.
+        from coordinator_strict import strict_plan
+        base = build_plan(**self.trae.args)
+        (self.trae.bootstrap / "attempt-binding.json").write_text("{}\n")
+        with self.assertRaisesRegex(ValueError, "strict_registered_bootstrap_required"):
+            strict_plan(base)
+        prepared = self.prepared_manifest()
+        self.assertTrue(strict_plan(base, registered_bootstrap=True,
+                                    reviewed_inputs=prepared)["registered_bootstrap"])
+
+    def test_build_plan_passes_the_registered_flag_into_the_prompt(self):
+        # The production planning entry, not only strict_plan(), must be able to
+        # produce the registered prompt; otherwise "registered" is unreachable.
+        plan = build_plan(**self.trae.args, strict_coordinator=True, registered_bootstrap=True,
+                          reviewed_inputs=self.prepared_manifest())
+        self.assertTrue(plan["registered_bootstrap"])
+        prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
+        self.assertIn("REGISTERED ATTEMPT", prompt)
+        self.assertNotIn("HISTORICAL PATH, only when", prompt)
+        self.assertEqual(plan["native_launch"]["short_prompt_sha256"],
+                         digest(prompt.encode("utf-8")))
+
+    def test_registered_launch_requires_frozen_static_inputs(self):
+        # A registered attempt without an audited `prepare` manifest re-derives
+        # every pin live: that is both the slow path and the class of error that
+        # wasted a live attempt (a stale task path in the brief).
+        from coordinator_strict import strict_plan
+        base = build_plan(**self.trae.args)
+        with self.assertRaisesRegex(ValueError, "strict_reviewed_inputs_required"):
+            strict_plan(base, registered_bootstrap=True)
+        self.assertEqual(strict_plan(base)["reviewed_inputs"], None)
+
+    def test_reviewed_inputs_pin_is_carried_and_quoted_in_the_prompt(self):
+        from coordinator_strict import strict_plan
+        prepared = self.prepared_manifest()
+        plan = strict_plan(build_plan(**self.trae.args), registered_bootstrap=True,
+                           reviewed_inputs=prepared)
+        self.assertEqual(plan["reviewed_inputs"], prepared)
+        self.assertEqual(plan["reviewed_input_snapshot_count"], 1)
+        prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
+        self.assertIn(prepared["path"], prompt)
+        self.assertIn(prepared["sha256"], prompt)
+        self.assertIn("pinned input, not authorization", prompt)
+
+    def test_partial_or_drifted_preparation_is_rejected(self):
+        from coordinator_strict import strict_plan
+        from coordinator_io import publish_new
+        base = build_plan(**self.trae.args)
+        for manifest in ({"kind": "operator_static_preparation_intent",
+                          "code": "operator_prepare_manifest_invalid"},
+                         {"status": "prepared", "code": "operator_prepare_manifest_status_invalid"}):
+            with self.subTest(manifest=manifest):
+                prepared = self.prepared_manifest(
+                    kind=manifest.get("kind", "operator_static_prepared"),
+                    status=manifest.get("status", "awaiting_external_audit"))
+                with self.assertRaisesRegex(ValueError, manifest["code"]):
+                    strict_plan(base, registered_bootstrap=True, reviewed_inputs=prepared)
+        # A snapshot rewritten after the audit is drift, not a refreshed pin.
+        prepared = self.prepared_manifest()
+        import json
+        from pathlib import Path
+        value = parse(pinned(prepared))
+        snapshot = Path(value["snapshots"][0]["snapshot"]["path"])
+        snapshot.write_bytes(b"rewritten after audit\n")
+        with self.assertRaisesRegex(ValueError, "file_pin_changed|file_pin"):
+            strict_plan(base, registered_bootstrap=True, reviewed_inputs=prepared)
 
     def test_single_turn_flag_conflicts_with_continuous_strict_launch(self):
         out = io.StringIO()

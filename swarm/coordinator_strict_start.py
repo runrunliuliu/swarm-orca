@@ -18,6 +18,7 @@ import uuid
 
 from coordinator_io import file_ref, now, parse, path, pinned, publish_new, timestamp
 from coordinator_creation_time import creation_bounds, next_creation_second
+import tui_adapter
 from coordinator_startup import GateError, require_operator_context, run_gate, validate
 from coordinator_strict import StrictCheckError, caller_result, check_session, require
 from trae_coordinator import native
@@ -94,7 +95,7 @@ def validate_inputs(config, contract, *, unpublished=False):
     require(contract["schema_version"] == 2 and contract["run"] is None,
             "strict_session_requires_v2_session_contract")
     initial = caller_result(parse(pinned(config["caller_receipt"])), contract["runtime"])
-    if contract["adapter"] == "trae-tui-runtime-v1":
+    if tui_adapter.is_tui(contract["adapter"]):
         require(config["caller_receipt"] == contract["observation"]["caller_receipt"],
                 "tui_caller_pin_changed")
     require(initial["caller"]["terminalHandle"] == contract["coordinator"]["terminal"],

@@ -4,6 +4,10 @@
 
 本文保留通用状态机、双侧工具交接及生产适配边界，不包含部署方的内部路径、真实身份
 或历史验收报告。协议与同版代码共同维护；发布源码不表示已部署或通过 live 验收。
+
+已知缺口（**非规范**）：退出结果到 {未生效, 已生效, 未知} 的映射尚不闭合，推进责任仍在模型回合，
+门数与任务权限不相称。诊断、修复包 P0–P2 与验收判据见草案
+[strict-bootstrap-liveness.md](docs/design/strict-bootstrap-liveness.md)；本文与它冲突时以本文为准。
 存储使用任务已批准的规范路径，按第 5 节核验文件系统能力，不仅凭 NFS 类型要求迁盘。
 
 
@@ -241,8 +245,90 @@ Confirmation 绑定同一 control 和 exact target；状态含义如下：
 | 可查询该责任者，检查时目标不存在 | `not_committed`（瞬时诊断，不是永不提交的保证） |
 | 已可见但未完成确认、fsync 失败、原确认者不可达/已崩溃、代次不匹配、hash 不同 | `durability_unverified` |
 
-准入失败可以直接抛出明确错误；消费者不得将异常/超时转换成 confirmed。
+Confirmation 另带 `state`（`not_admitted` / `committed` / `needs_reconcile` / `unknown`），
+由责任者在本代次内存记录上判定；它是分类，不是许可，也不替代确认查询：
+
+| state | 判定条件 | `may_replay` |
+| --- | --- | --- |
+| `not_admitted` | 未取锁、未进入 dispatch、未记录 `attempted[target]`，且目标不存在 | true（同一 intent 可原地重试） |
+| `committed` | 本代次已记录 `attempted` 且发布并确认 | false |
+| `needs_reconcile` | 已记录 `attempted`，但没有完成的发布记录（可见文件不是确认） | false，只能对账原 pin |
+| `unknown` | 记录存在但意图/字节不一致、发布结果无法判定、回复丢失、或目标存在而本代次从未写过 | false，只能对账 |
+
+`attempted[target]` 记录先于 `publish_new`，因此“已记录但未发布”是一个可查类别，而不是从
+`publish_new` 抛错反推。记录的意图优先于任何后续拒绝：已 disarm 的责任者对同一 target 的
+再次提交必须报告 `needs_reconcile`，不得退化成“未 arm 可重试”。同一存活责任者之外的代次
+不会被 arm 到前任文件上，所以 `not_admitted` 只覆盖“本代次没有写过且目标不存在”。
+
+准入失败可以直接抛出明确错误；消费者不得将异常/超时转换成 confirmed。异常与回执同样携带
+`state`/`may_replay`（`bootstrap_control.stated`），S5 在 `may_replay` 为 false 时绝不重试。
 仅 `query` 返回值不能当作稍后 `commit_new` 的许可，最终调用必须重新准入。
+
+### 5.1 provider 能力与拒绝码
+
+两个 gate 角色的 provider 是**被声明的、被核验的属性**，不是读取器里的常量：它在已审查并固定
+SHA 的 registration（每个 role 自带的 `provider`）或 Operator 身份输入里声明，再由
+`swarm_ledger.runtime_binding` 对照 native 证据核验（pane 的 `source`/`agentType`、provider
+`session`、transcript 根 `session_meta`）。`swarm/provider_capability.py` 是唯一的
+provider → （证据格式、必须字段、transcript 记录、TUI adapter）映射表；两个角色入口和 S2 观察
+都走它，因此不存在“另一处默认 trae”的旁路。
+
+规则：
+
+1. 只接受表里显式列出的 provider 名，逐字匹配（不折叠大小写、不去空格、不做别名）。未知名字
+   按 unsupported 拒绝，**不**视为 trae，也不换 log_root 或 format。
+2. 表中已知但本版本无法读取其证据的 provider 按 unavailable 拒绝，并在诊断里逐条列出缺失通道
+   （`agent_hooks_pane_status`、`terminal`、`session_id`、`transcript_path`、`launch_token_hash`、
+   `session_meta`、`turn_context`、`tui_adapter`），而不是只报一个笼统的 unverifiable。
+3. 表里的能力是声明，不是证明：capture 返回的 observation 还必须实际带有声明要求的字段，否则
+   同样按 unavailable 拒绝（不允许“provider 名对就算过”）。
+4. 身份/进程/incarnation/launch-token/独立性/STOP/pin 门一律不变；能力检查只决定“这个 provider
+   在本版本能不能核验”，不替代任何既有门，也不因为 provider 名字而放宽任何断言。
+
+当前表有两项可核验 provider：
+
+- `trae`：`runtime-state` + hook `launchTokenHash` + transcript 根 `session_meta` + 每轮
+  `turn_context`，TUI adapter `trae-tui-runtime-v1`，`runtime_config` 是 Trae execution 配置。
+- `pi`：`runtime-state` + hook `launchTokenHash`（Orca 的托管 pi 状态扩展把
+  `session_id`/`session_file`/`launchToken` POST 到 `/hook/pi`）+ transcript 根
+  `{"type":"session","id":<uuid>,"cwd":…}` + assistant 消息的 `model`/`provider`/`thinkingLevel`
+  （`pi_transcript.py` 同时校验 `id`/`parentId` 链与时间不减），TUI adapter
+  `pi-tui-runtime-v1`，`runtime_config` 是 **pi runtime policy** 记录。
+  三个细节是硬要求，不是实现选择：transcript 必须是**单条线性链**（root `session` 记录之外
+  只有一个 `parentId: null` 起点，其后每条都指向紧邻前一条），否则
+  `pi_session_chain_broken`；freshness 以**被采纳的 assistant 设置记录**的时间戳为准
+  （追加一条新的非 assistant 记录不能让陈旧设置变“新鲜”）；policy 以**已 pin 的 Ref** 传入，
+  读取前后与观察结束后各重验一次，anchor 记录该 Ref，换文件或换字节即拒绝。
+
+pi runtime policy（schema v1，精确字段 `schema_version,scope,provider,model,thinking_level`，
+`provider` 固定 `pi`，`model` 为 `{provider,id}`，示例见
+[examples/pi-runtime-policy.example.json](examples/pi-runtime-policy.example.json)）是 Trae
+execution 配置在 pi 侧的对应物：审查并 pin 进契约的 `runtime_config`，由
+`pi_tui.observe` 与 transcript 最新 assistant 轮次的 `provider`/`model`/`thinkingLevel` 精确比对。
+
+已支持范围：`trae` 与 `pi` 都可作为 Operator 与 Coordinator（S2 观察 + S5 契约 + 启动门）。
+Pi 与 Trae 的差异必须在契约里显式承担，不假装等价：
+
+- `expected_effective` 只允许 `PI_SETTINGS`（`model`、`model_provider`、`thinking_level`、`cwd`），
+  其余键按 `operator_session_expected_effective_provider_unsupported` 拒绝；不做跨 provider 别名。
+- pi 没有 sandbox/approval/network 面，所以 `observation.roots` 是**审查过的声明输入**，
+  观察器不声称已核实其生效（Trae 侧由 `turn_context.sandbox_policy` + `observe_write_roots` 核验）。
+- pi 的 anchor 要求同一 runtime id（不做 Trae 的 epoch rebind）；换 runtime 即重新建立 anchor。
+
+**仍未支持**：Run 之后的 TUI continuation/scheduler（`coordinator_tui_continue.py`、
+`coordinator_tui_scheduler.py`）以及 operator materials 的 launch-plan 生成器
+（`coordinator_launch.py` / `trae_coordinator.build_trae_plan`）仍按 Trae 路径写；pi Coordinator
+的 S0–S5 已可核验，但这些后续组件要单独迁移。
+
+| 入口 | 缺失/未知声明 | 已知但证据不可读 |
+| --- | --- | --- |
+| `bootstrap_identity.py`（两个 gate role） | `bootstrap_registration_provider_required`；未知名 `bootstrap_registration_provider_unsupported` | `bootstrap_operator_provider_evidence_unavailable` / `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
+| `operator_session.py` | `operator_session_provider_required`；未知名 `operator_session_provider_unsupported` | `operator_session_<provider>_operator_unverifiable`（如 `operator_session_pi_operator_unverifiable`），带 `missing_evidence` |
+| `bootstrap_tool.py`（S2 观察 / S5 TUI 契约） | `bootstrap_registration_provider_required`；未知名 `bootstrap_coordinator_provider_unsupported` | `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
+
+拒绝发生在原生查询之前：不产生观察文件、不占输出目录、不发 gate、不 arm owner。
+`missing_evidence` 是路由诊断，不是权限，也不表示可以改用另一 provider。
+新增 provider 需同时提供可核验证据通道、对应 adapter 和离线回归，不能只加名字。
 
 ## 6. 显式恢复：不继承内存成功、不重跑生产
 
@@ -288,6 +374,18 @@ readiness_marker, request:Ref, actor:"coordinator", created_at, execution_author
 Phase 2 的 `bootstrap_admission.commit_request` 已生成并确认此关联记录，随后同域提交
 原 builder 生成的精确 request bytes；关联后发生 STOP 时保留 intent，但不发布 request。
 关联存在而 request 缺失/未确认时阻断，不重跑 builder、不刷新 handshake 时间。
+
+S5 及其它 mutation 的重试只覆盖 `not_admitted`（`may_replay` 为 true）的回执。owner 以
+`bootstrap_rpc_rejected:<code>` 返回，历史实现里只有 `bootstrap_owner_busy_not_executed`、
+`bootstrap_native_identity_timeout`、`bootstrap_identity_snapshot_expired` 属于该类：三者都发生在
+`attempted[target]` 记录与 `publish_new` 之前，所以同一 intent 可在原地重试。判定以回执的
+`state` 为准，错误码只作为责任人自报的细节；重试预算用尽时返回
+`bootstrap_commit_unknown_requires_reconciliation`，不再回抛可重试的 busy 码。commit 成功后的
+确认查询另外进行，只用尽时返回 `bootstrap_commit_confirmation_pending_requires_reconciliation`；
+两者都表示“结果未知，只能对账原 pin”，不能再次 commit、覆盖固定槽或生成新 bytes。
+`needs_reconcile` / `unknown` 在客户端统一映射为
+`bootstrap_commit_requires_reconciliation` / `bootstrap_commit_unknown_requires_reconciliation`，
+不保留原始错误码，以免调用方把未知结果当成分类型的失败去猜。
 
 S5 后继续传递**同一控制实例和 request/S4 绑定**，禁止自动 disarm 或新 owner 无回执接管。
 后续受支持 prepare / review-result publish / config publish / wait-return / gate / create 必须分别
@@ -474,6 +572,12 @@ Phase 1 的隔离进程崩溃/新代次关闭仍在回归中；Phase 3 同链证
   不宣称能隔离可读取 owner 内存的恶意同 UID 进程。
 - `bootstrap_tool.py`：双侧独立 tool.lock；`pull` 默认 30s、上限 60s，返回 `action` / `pending`
   / `reconciliation_required` / `request_ready` / `s5_ready`。固定槽补查不依赖通知。
+  `advance`（有界、默认 120s、上限 600s，`--until-stage 0..4`）把本角色的机械跳合并成
+  一次调用：只自动完成 `caller-intent` / `observe-intent` 这两个工具自身produce 的动作，
+  以及在**角色已写好全部 candidate** 时完成 submit/readiness；否则停并返回
+  `needs_role_judgement` 与原 `candidate_path`。`reconciliation_required`、`pending` /
+  阶段边界（`request_ready`/`s5_ready`）都立即退出，不重放、不代写、不跳级；每一步仍走
+  同一 intent + owner commit + prerequisites + pin 校验，与手工 `complete` 字节等价。
   每个动作一个不可覆盖 intent；超时、断连、intent 有而结果无只对账，不推断未执行或重发。
   RPC 超时不撤回服务端已准入提交；提交结果未知时必须 query 原 pin。单次请求 4 MiB 上限。
   只有机械只读的 heartbeat/check/query 等待域可将超时返回为 `pending`；该域禁止提交、
@@ -481,6 +585,9 @@ Phase 1 的隔离进程崩溃/新代次关闭仍在回归中；Phase 3 同链证
   失败回执新增白名单脱敏 `reason`，区分进程不可见、proc 权限拒绝、宿主 PID 视图不一致
   与签名失败等；未知异常不回显私有路径或原始错误。签名/传输失败不能确认持久化，query
   返回 `durability_unverified`；协议签名也不替代原 file + directory fsync 确认。
+  `bootstrap_confirmation_unavailable` 仍在 `reason` 中保持原代码（调用方按字符串比较），
+  另在 `diagnostics` 里给出精确 `target`/`sha256`/查询 `status`：只用于定位是哪个固定槽
+  未确认（已见调用方归错阶段），不授予权限，也不代表该槽可删可重写。
 - `bootstrap_actions.py`：统一 S1–S4 的动作数据，生成计划、owner 槽和 intent 的固定契约。
   `complete` 分发原机械 producer 或校验/发布候选；`inspect-action` 独立只读，不取写锁，
   deadline/STOP 后只查询同 owner 的原提交，不恢复执行；细节见第 12.2 节。
@@ -498,10 +605,13 @@ Phase 1 的隔离进程崩溃/新代次关闭仍在回归中；Phase 3 同链证
 ### 12.2 显式工具契约
 
 S0 的 binding、授权、registration 必须独立审查并固定 SHA；不由待验证角色自报来反推身份。
-registration schema v1 精确字段：`schema_version,attempt_binding,profile,log_root,roles`；
-roles 恰含 operator/coordinator，各为 `{process:{pid,start,boot,uid},session}`。
+registration schema v2 精确字段：`schema_version,attempt_binding,profile,log_root,roles`；
+roles 恰含 operator/coordinator，各为 `{provider,process:{pid,start,boot,uid},session}`。
+`provider` 是该角色真实 provider 的显式声明（不做大小写归一、不从 pane 标题或日志猜测）；
+v1 登记缺 `provider`，不会被静默升级，按 `bootstrap_registration_invalid` 拒绝。
 profile/log_root 为目标原 runtime 的规范绝对路径；process 是原 provider 根进程而不是 server PID。
-不提供自动发现/绑定生成器，不把不知道的 process/session 填成猜测值。
+不提供自动发现/绑定生成器，不把不知道的 process/session/provider 填成猜测值。
+provider 能力表与拒绝码见 §5.1。
 
 统一入口：`python3 -B swarm/coordinator_launch.py strict-bootstrap <mode>`。
 
