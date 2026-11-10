@@ -14,10 +14,15 @@ const KEEPALIVE_FRAME = '{"_keepalive":true}\n'
 const RUNTIME_RPC_SOCKET_IDLE_TIMEOUT_MS = 30_000
 const MAX_RUNTIME_RPC_CONNECTIONS = 32
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 10_000
-// Why: a handler that never settles must not hold one of the 32 connection slots
-// forever. Long-poll handlers own their own deadlines; this ceiling bounds only the
-// dispatches whose keepalive was armed implicitly because they ran long.
-const MAX_IMPLICIT_KEEPALIVE_MS = 10 * 60_000
+// Why 30 minutes: this ceiling only stops a handler that never settles from holding one of
+// the 32 connection slots, so it must not become the binding limit for an operation that is
+// legitimately slow. `git worktree add` - the handler that motivated this path - is bounded
+// by `WORKTREE_ADD_TIMEOUT_MAX_MS` (30 min, see git/worktree-operation-options.ts), so any
+// ceiling below that would abort a create an operator deliberately allowed to take longer,
+// and for an ordinary dispatch the abort only ends the transport side: the admission layer
+// passes the abort signal to long-polls alone, so the work would continue unwatched.
+// Long-poll handlers own their own deadlines and are outside this ceiling either way.
+const MAX_IMPLICIT_KEEPALIVE_MS = 30 * 60_000
 
 export type UnixSocketTransportOptions = {
   endpoint: string

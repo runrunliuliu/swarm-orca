@@ -186,11 +186,13 @@ describe('UnixSocketTransport', () => {
     expect(socket.writes).toEqual(['ok\n'])
   })
 
-  it('stops feeding an implicitly kept-alive dispatch that outlives the ceiling', () => {
+  it('stops feeding an implicitly kept-alive dispatch only past the 30 minute ceiling', () => {
+    // Why this number: `git worktree add` is bounded by WORKTREE_ADD_TIMEOUT_MAX_MS (30 min),
+    // so a shorter transport ceiling would abort a create the operator allowed to be slow.
     const transport = new UnixSocketTransport({
       endpoint: 'test-pipe',
       kind: 'named-pipe',
-      keepaliveIntervalMs: 100,
+      keepaliveIntervalMs: 60_000,
       keepaliveArmDelayMs: 50
     })
     const socket = new FakeSocket()
@@ -209,9 +211,14 @@ describe('UnixSocketTransport', () => {
     )
     socket.emit('data', '{"id":"stuck","method":"worktree.create"}\n')
 
-    // Paused just past the ceiling (which starts at the arming delay) so the next
-    // interval tick is the one that has to give up.
-    vi.advanceTimersByTime(10 * 60_000 + 500)
+    // A 29-minute handler is still inside every deadline it could legitimately own.
+    vi.advanceTimersByTime(29 * 60_000)
+    expect(aborted).toBe(false)
+    expect(socket.writes.length).toBeGreaterThan(1)
+
+    // Paused past the ceiling (which starts at the arming delay) far enough that an interval
+    // tick must land beyond it, and that tick is the one that has to give up.
+    vi.advanceTimersByTime(2 * 60_000)
     expect(aborted).toBe(true)
     const atCeiling = socket.writes.length
     vi.advanceTimersByTime(5_000)
@@ -227,7 +234,7 @@ describe('UnixSocketTransport', () => {
     const transport = new UnixSocketTransport({
       endpoint: 'test-pipe',
       kind: 'named-pipe',
-      keepaliveIntervalMs: 100,
+      keepaliveIntervalMs: 60_000,
       keepaliveArmDelayMs: 50
     })
     const socket = new FakeSocket()
@@ -247,10 +254,10 @@ describe('UnixSocketTransport', () => {
     )
     socket.emit('data', '{"id":"wait","method":"terminal.waitForStartup"}\n')
 
-    vi.advanceTimersByTime(10 * 60_000)
+    vi.advanceTimersByTime(35 * 60_000)
     expect(aborted).toBe(false)
     const atCeiling = socket.writes.length
-    vi.advanceTimersByTime(5_000)
+    vi.advanceTimersByTime(60_000)
     expect(aborted).toBe(false)
     expect(socket.writes.length).toBeGreaterThan(atCeiling)
   })
