@@ -240,15 +240,15 @@ attempt 证据。
 - 既有用例按新分类更新两处：`test_bootstrap_production.test_fsync_gap_*`（原断言
   `rpc_rejected`，现断言 `unknown`+`needs_reconcile`）、`tests/test_bootstrap_admission.py`
   （diagnostics 增加 `state`，并新增一条状态路由用例）。
-- 执行（均为离线；未做一次 `--full`）：
-  - `tests/run_offline.sh --fast`（最终代码）→ 2335 tests，OK，18 skipped；
+- 执行（均为离线）：
+  - `tests/run_offline.sh --full`（提交 `f796c001` 的代码，最终代码）→ 2478 tests，OK，18 skipped，
+    1290 s；这是本次唯一可报作 **offline PASS（full）** 的结果。
+  - 迭代期 `tests/run_offline.sh --fast`（同一代码）→ 2335 tests，OK，18 skipped；
   - 慢模块单跑：`test_bootstrap_production` + `test_bootstrap_admission` + 新增模块（62 OK）、
-    `test_bootstrap_workflow` + `test_bootstrap_failures` + `test_bootstrap_submission`（64 OK）；
-  - `test_bootstrap_startup_handoff`（40 OK）在最后两处收窄改动（`stated()` 去 try/except、
-    `query` 在 pin 不匹配时返回 `unknown`）之前单跑；它只读 `reply.status` / `query.status`，
-    这两处改动不触及该路径，但**没有**在最终代码上复跑。
-  - 因此模块集合与 `--full` 相同，但**没有**一次 `--full` 的结果，不能报成“offline PASS（full）”。
-- 未执行：任何 live attempt、部署、重启、Owner 拍板项。
+    `test_bootstrap_workflow` + `test_bootstrap_failures` + `test_bootstrap_submission`（64 OK）、
+    `test_bootstrap_startup_handoff`（40 OK）。
+- 未执行：任何 live attempt、部署、重启、Owner 拍板项。`--full` 不证明目标文件系统、原生
+  runtime 或真实 Agent 可用。
 
 ### 9.4 仍待处理
 
