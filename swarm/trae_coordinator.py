@@ -153,6 +153,13 @@ def build_trae_plan(*, trae, cwd, archive_dir, write_dirs, selection,
             "-c", 'model_reasoning_effort="xhigh"', "-c", 'model_backend_variant="max"']
     if "approvals_reviewer" in execution:
         argv += ["-c", "approvals_reviewer=" + json.dumps(execution["approvals_reviewer"])]
+    if tui:
+        # Why: an unattended TUI otherwise stops on "Do you trust the contents of this directory?"
+        # for every workspace Trae has not seen before. This override answers that gate for this
+        # process only, so no user-level config file is written; json.dumps keeps the exact cwd a
+        # single quoted TOML key (a dotted-path spelling would split on dots inside the path), and
+        # it grants nothing but project-config loading — sandbox and approval policy are unchanged.
+        argv += ["-c", "projects={" + json.dumps(str(cwd)) + '={trust_level="trusted"}}']
     for root in roots:
         argv += ["--add-dir", root]
     if resume_session is not None:
@@ -162,6 +169,10 @@ def build_trae_plan(*, trae, cwd, archive_dir, write_dirs, selection,
     native_agent_args = argv[1:-1]
     plan = {
         "scope": "swarm_coordinator_only", "adapter": TUI_ADAPTER if tui else "trae-exec-stream-v1",
+        # The adapter is the transport declaration: a plan is either the reviewed TUI adapter or
+        # the reviewed exec stream, never a fallback of the other. Downstream capture and launch
+        # steps refuse a mismatch instead of reinterpreting the plan.
+        "launch_transport": "tui" if tui else "exec",
         "phase": phase,
         "cli_version": cli_version,
         "selection": selection, "execution": execution, "cwd": str(cwd),

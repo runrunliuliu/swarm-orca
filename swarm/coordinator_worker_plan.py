@@ -188,7 +188,10 @@ def build_plan(request, *, request_ref=None):
         argv = [sys.executable, "-B", str(Path(__file__).with_name("coordinator_launch.py").resolve()),
                 "first-dispatch", "--request", request_ref["path"],
                 "--request-sha256", request_ref["sha256"], "--execute"]
-    return {"schema_version": 2, "mode": "native_worker_launch_plan", "argv": argv,
+    return {"schema_version": 2, "mode": "native_worker_launch_plan",
+            # worker-start launches a runtime-managed TUI agent; this path has no exec shape, and
+            # resolved_profile.launch_transport records what the selected agent declares.
+            "launch_transport": "tui", "argv": argv,
             "resolved_profile": resolved_profile,
             "command": shlex.join(argv), "effectsApplied": False, "runtime_verified": False,
             "requirements": ["Review placement, baseline and write ownership; verify exact native IDs.",

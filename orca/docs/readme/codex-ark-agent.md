@@ -11,10 +11,19 @@ Existing migrated profiles receive Manual permissions for the new entry, followi
 Orca's new-agent policy. Fresh profiles use Orca's usual permission defaults.
 
 The wrapper owns its configuration home, model catalog, authentication and connection.
-Orca does not copy standard Codex overrides, apply its workspace-trust preflight,
-inject `--no-daemon` or choose an OpenAI model for Ark. Configure those provider-specific
-settings through the installed wrapper. The Codex project link in settings describes
-the underlying CLI, not an Ark installer.
+Orca does not copy standard Codex overrides, inject `--no-daemon` or choose an OpenAI model
+for Ark. Configure those provider-specific settings through the installed wrapper. The
+Codex project link in settings describes the underlying CLI, not an Ark installer.
+
+Workspace trust is the one exception, and only for dispatched Workers: the wrapper forces
+`CODEX_HOME` to its own install root, so the `[projects."<path>"] trust_level` record Orca
+writes for Codex under `~/.codex` is not the one Ark reads. An orchestration launch of
+`codex-ark` therefore appends the same record to
+`${CODEX_ARK_HOME:-<home>/.codex-ark}/config.toml` — the file the wrapper validates at
+startup — before the PTY spawns. Manual launches, floating terminals, reattaches and
+restores still ask, and the `agentWorkspaceTrustEnabled` setting turns the grant off.
+Orca never creates that config: an unreadable wrapper home leaves the CLI to ask, since a
+config without the wrapper's provider/model/catalog keys makes `codex-ark` refuse to start.
 
 The wrapper may exec a process named `codex`. Explicit Ark launch ownership is retained
 when compatible process evidence arrives; an ordinary Codex process without that owner

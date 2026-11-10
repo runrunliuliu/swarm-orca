@@ -76,7 +76,9 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
   'codex-ark': {
     ...CODEX_TUI_INTERACTION,
     detectCmd: 'codex-ark',
-    // Why: the wrapper owns its home and server; do not apply standard Codex preflight.
+    // Why: the wrapper owns its home, so trust lands in its CODEX_HOME (not the inherited one) and
+    // only for dispatched Workers — see main/codex-ark/workspace-trust.ts.
+    preflightTrust: 'codex-ark',
     expectedProcess: 'codex'
   },
   autohand: {

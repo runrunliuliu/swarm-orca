@@ -189,7 +189,7 @@ checker 不执行命令，也不把退出码 0 自动等同于需求满足。无
 
 ### 确定性回归
 
-新增 `swarm/tests/test_coordinator_domain.py`、`swarm/tests/test_software_development.py`，
+新增 `swarm/tests/coordinator/test_coordinator_domain.py`、`swarm/tests/core/test_software_development.py`，
 并扩展现有 `test_coordinator_tui_*.py`、相应 startup/handoff 回归。优先复用 fixtures。
 
 必测分支：

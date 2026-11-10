@@ -46,7 +46,7 @@ describe('Codex Ark TUI integration', () => {
       ...TUI_AGENT_CONFIG.codex,
       detectCmd: 'codex-ark',
       launchCmd: 'codex-ark',
-      preflightTrust: undefined
+      preflightTrust: 'codex-ark'
     })
   })
 

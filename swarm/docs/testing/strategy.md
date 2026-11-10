@@ -59,8 +59,8 @@ reliability.md 第 32–34 行定义了唯一的三类验收层。本文件的 L
 
 **怎么造用例.** 直接调用函数，输入用 `dict`/字节构造，非法分支用 `subTest` 枚举类型
 边界（`True` vs `1`、`None` vs `""`、NUL、相对路径、前缀兄弟目录、符号链接）。
-此类用例当前密度最高，例如 `tests/test_coordinator_worker_plan.py:43` 用 6 字段 ×
-4 非法值枚举，`tests/test_binding.py:329` 覆盖 uid/可执行位/根目录。
+此类用例当前密度最高，例如 `tests/coordinator/test_coordinator_worker_plan.py:43` 用 6 字段 ×
+4 非法值枚举，`tests/core/test_binding.py:329` 覆盖 uid/可执行位/根目录。
 
 **跑法.**
 
@@ -78,23 +78,24 @@ Coordinator 回合的 `enqueue → claim → settle → ACK`、scheduler 单 tic
 monitor 单 tick 的观察与事件去重、driver 的回合续接与 `no_progress` 计数、
 Operator 生命周期阶段、bootstrap 单侧准入。
 
-- 代表入口：`tests/test_coordinator_tui_continue.py`、`tests/test_coordinator_tui_scheduler.py`、
-  `tests/test_operator_monitor.py`、`tests/test_coordinator_driver.py`、
-  `tests/test_progress_watch.py`、`tests/test_operator_startup.py`、
-  `tests/test_bootstrap_control.py`。
+- 代表入口：`tests/coordinator/test_coordinator_tui_continue.py`、`tests/coordinator/test_coordinator_tui_scheduler.py`、
+  `tests/operators/test_operator_monitor.py`、`tests/coordinator/test_coordinator_driver.py`、
+  `tests/core/test_progress_watch.py`、`tests/operators/test_operator_startup.py`、
+  `tests/bootstrap/test_bootstrap_control.py`。
 
 **怎么造用例.** 临时目录 + FakeNative/fake CLI（记录 argv 并回放固定回执）+
-临时把时钟注入（例如 `Store(root, clock=lambda: ...)` 见 `tests/test_supervisor.py:1249`）+
+临时把时钟注入（例如 `Store(root, clock=lambda: ...)` 见 `tests/core/test_supervisor.py:1249`）+
 显式状态文件断言（`read_json(state/"scheduler.json")`）。
 关键约束来自 reliability.md:32：可以 mock 与受控时钟，**只能证明被测逻辑**。
 
 **断言风格（本节对所有层都适用）.** 断言“事件序列 / 状态投影 / 持久记录”，
 不断言“最终文本”。可用判据举例：`self.m.messages` 的条数与顺序
-（`tests/test_coordinator_tui_scheduler.py:597` 断言三次发送后不再新增）、
+（`tests/coordinator/test_coordinator_tui_scheduler.py:597` 断言三次发送后不再新增）、
 `stop["reason"]`、`consecutive_without_acceptance_advance`、
 `execution_stalled` 事件、outbox/journal 字节不变（同文件 :606）。
 
-**跑法.** 单文件或单测试：`python3 -m unittest tests.test_coordinator_tui_scheduler -v`。
+**跑法.** 单文件或单测试（`tests` 在 `PYTHONPATH` 上，`offline_env` 等共享 helper 才能导入）：
+`PYTHONPATH=.:tests python3 -m unittest tests.coordinator.test_coordinator_tui_scheduler -v`。
 
 **门禁 G2.** 行为分支变更必须给出“正常 + 拒绝 + 恢复”三段序列断言；只断言最终返回码
 不算通过。
@@ -108,11 +109,11 @@ strict-config request/ready/review 顺序、continuation-ref 与 checkpoint head
 
 - 代表实现：`coordinator_strict_delivery.py`、`coordinator_strict_request.py`、
   `coordinator_strict_start.py`、`bootstrap_submission.py` 对应的
-  `tests/test_bootstrap_submission.py`、`coordinator_authority_bundle.py`、
+  `tests/bootstrap/test_bootstrap_submission.py`、`coordinator_authority_bundle.py`、
   `coordinator_tui_prepare.py`、`operator_startup.py`。
-- 代表用例：`tests/test_bootstrap_submission.py:47`（禁止直写最终槽）、
-  `:104`（候选 SHA 与发布前复检）、`tests/test_authority_bundle.py:307`（配置降级拒绝）、
-  `:354`（两个合法 bundle 不可混用）、`tests/test_coordinator_strict_delivery.py`（24 项）。
+- 代表用例：`tests/bootstrap/test_bootstrap_submission.py:47`（禁止直写最终槽）、
+  `:104`（候选 SHA 与发布前复检）、`tests/core/test_authority_bundle.py:307`（配置降级拒绝）、
+  `:354`（两个合法 bundle 不可混用）、`tests/coordinator/test_coordinator_strict_delivery.py`（24 项）。
 
 **怎么造用例.** 先生成合法 pin，再逐项破坏：字节改写、canonical 重排、
 symlink/hardlink、时间戳伪造、schema 降级、跨 owner 复用回执、重复 pull。
@@ -136,9 +137,9 @@ L4 有两个不可互换的子集：
 
 - **L4-offline（属 D）**：用夹具驱动的多动作编排。
   Supervisor MVP 的 FakeNative 双 Worker wave → 独立 Review → 串行 Integration
-  （`tests/test_supervisor.py:531`、`:556`）；scheduler 的两个完整自动续跑
-  （`tests/test_coordinator_tui_scheduler.py:153`、`:173`）；driver 的多回合
-  （`tests/test_coordinator_driver.py:332`）。
+  （`tests/core/test_supervisor.py:531`、`:556`）；scheduler 的两个完整自动续跑
+  （`tests/coordinator/test_coordinator_tui_scheduler.py:153`、`:173`）；driver 的多回合
+  （`tests/coordinator/test_coordinator_driver.py:332`）。
 - **L4-native（属 I）**：真实 runtime/CLI 的受控时序，即 reliability.md:191–203 的
   五项目。当前仓库**没有任何自动化脚本**对应这五项（见 [gap-matrix.md](gap-matrix.md)），
   只能按 reliability.md 第 5 节人工取证。
@@ -199,17 +200,17 @@ RSI 场景还要目标仓库的业务验收（reliability.md:20）。
 
 | ID | 不变量 | D 层现有证据（示例） |
 | --- | --- | --- |
-| I-1 | 同一动作的副作用至多一次（含崩溃与丢回执） | `tests/test_coordinator_tui_continue.py:180`、`:245`、`:254`；`tests/test_supervisor.py:280`、`:374` |
-| I-2 | 未知结果只对账、不重放 | `tests/test_coordinator_first_dispatch.py:304`、`:316`；`tests/test_bootstrap_failures.py:176` |
-| I-3 | 身份/owner/generation/incarnation 变化即停止 | `tests/test_coordinator_tui_continue.py:274`、`:932`；`tests/test_supervisor.py:865`、`:1076` |
-| I-4 | pin 不可被改写、覆盖或降级 | `tests/test_authority_bundle.py:319`、`:368`；`tests/test_coordinator_strict_delivery.py`（`old_intent_is_not_rewritten`） |
-| I-5 | STOP 不可被自动清除或清除后恢复 | `tests/test_bootstrap_control.py:160`、`:172`；`tests/test_monitor_stop_signals.py` |
-| I-6 | 预算预留幂等，未知费用不记 0 | `tests/test_supervisor.py:240`、`:270`、`:336` |
-| I-7 | 证据不可变、摘要核验、越界文件拒绝 | `tests/test_supervisor.py:836`、`:849`；`tests/test_safety.py:158`（ReceiptTests） |
-| I-8 | 失败/替换尝试同样计入台账与收尾 | `tests/test_ledger.py`、`tests/test_ledger_binding_coverage.py`；`tests/test_supervisor.py:317` |
-| I-9 | 无进展时有界停止，不靠空转凑次数 | `tests/test_coordinator_tui_scheduler.py:597`、`:952`；`coordinator_driver.py:678`（`no_progress_recovery_exhausted`） |
-| I-10 | 并发写入隔离或明确所有权 | `supervisor/config.py:157–161`（共享 worktree 必须有序、并行任务路径不重叠）+ `tests/test_supervisor.py:209`（`allowed_paths` 重叠拒绝）；`tests/test_coordinator_worker_plan.py:160`、`:178` |
-| I-11 | 跨 runtime/身份不借用、不回退 | `tests/test_supervisor.py:1149`、`:1173`；`tests/test_operator_monitor_cross_runtime.py` |
+| I-1 | 同一动作的副作用至多一次（含崩溃与丢回执） | `tests/coordinator/test_coordinator_tui_continue.py:180`、`:245`、`:254`；`tests/core/test_supervisor.py:280`、`:374` |
+| I-2 | 未知结果只对账、不重放 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`；`tests/bootstrap/test_bootstrap_failures.py:176` |
+| I-3 | 身份/owner/generation/incarnation 变化即停止 | `tests/coordinator/test_coordinator_tui_continue.py:274`、`:932`；`tests/core/test_supervisor.py:865`、`:1076` |
+| I-4 | pin 不可被改写、覆盖或降级 | `tests/core/test_authority_bundle.py:319`、`:368`；`tests/coordinator/test_coordinator_strict_delivery.py`（`old_intent_is_not_rewritten`） |
+| I-5 | STOP 不可被自动清除或清除后恢复 | `tests/bootstrap/test_bootstrap_control.py:160`、`:172`；`tests/core/test_monitor_stop_signals.py` |
+| I-6 | 预算预留幂等，未知费用不记 0 | `tests/core/test_supervisor.py:240`、`:270`、`:336` |
+| I-7 | 证据不可变、摘要核验、越界文件拒绝 | `tests/core/test_supervisor.py:836`、`:849`；`tests/core/test_safety.py:158`（ReceiptTests） |
+| I-8 | 失败/替换尝试同样计入台账与收尾 | `tests/core/test_ledger.py`、`tests/core/test_ledger_binding_coverage.py`；`tests/core/test_supervisor.py:317` |
+| I-9 | 无进展时有界停止，不靠空转凑次数 | `tests/coordinator/test_coordinator_tui_scheduler.py:597`、`:952`；`coordinator_driver.py:678`（`no_progress_recovery_exhausted`） |
+| I-10 | 并发写入隔离或明确所有权 | `supervisor/config.py:157–161`（共享 worktree 必须有序、并行任务路径不重叠）+ `tests/core/test_supervisor.py:209`（`allowed_paths` 重叠拒绝）；`tests/coordinator/test_coordinator_worker_plan.py:160`、`:178` |
+| I-11 | 跨 runtime/身份不借用、不回退 | `tests/core/test_supervisor.py:1149`、`:1173`；`tests/operators/test_operator_monitor_cross_runtime.py` |
 | I-12 | 外部输入的正文不作为指令或授权 | 部分：见 [gap-matrix.md](gap-matrix.md) 场景 S6 |
 
 **怎么造用例.** 每新增一条不变量，先写一个必然违反它的最小夹具（例如“发出后kill，
@@ -224,14 +225,14 @@ I-12 尚无 D 层正例，见缺口矩阵。
 
 | 能力 | 位置 | 用途 | 边界 |
 | --- | --- | --- | --- |
-| FakeNative / fake CLI | `tests/bootstrap_role_fixture.py`、`tests/bootstrap_flow_fixture.py`、`tests/test_supervisor.py` 的 `Base` | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
-| 受控时钟 | `Store(root, clock=...)`（`tests/test_supervisor.py:179`、`:245`）、`bootstrap_control` 的显式时间参数 | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
-| 真实文件锁竞争 | `tests/test_coordinator_io.py:43`、`:72`；`tests/test_coordinator_tui_scheduler.py:263` | 单写入者、busy 跳过 | 本地文件系统，不等于跨主机锁 |
-| 密钥/签名夹具 | `tests/test_binding.py:212`、`tests/test_bootstrap_transport.py:25` | 篡改、重放、错 key | 不证明真实 host 认证 |
-| Unix socket 端到端 | `tests/test_binding.py:455`、`:472` | 本地进程间签名回执 | 非网络、非远端 |
-| 大文件/大输入 | `tests/test_capacity_io.py:33`（17 MiB）、`tests/test_supervisor.py:849`（>10 MB） | 容量与完整性 | 见 S3 缺口：无总上下文上限 |
-| 有界观测预算 | `observation_budget.py:21` + `tests/test_observation_budget.py:30`、`:155` | 观测超时即停 | 只覆盖配合式本地 I/O |
-| 跳过式真实集成 | `tests/test_tui_rsi_integration.py:21`（`RSI_CHECKER_TEST_ROOT`） | 真实 RSI checker 投影 | 未设变量即 skip，不算通过 |
+| FakeNative / fake CLI | `tests/bootstrap_role_fixture.py`、`tests/bootstrap_flow_fixture.py`、`tests/core/test_supervisor.py` 的 `Base` | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
+| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:179`、`:245`）、`bootstrap_control` 的显式时间参数 | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
+| 真实文件锁竞争 | `tests/coordinator/test_coordinator_io.py:43`、`:72`；`tests/coordinator/test_coordinator_tui_scheduler.py:263` | 单写入者、busy 跳过 | 本地文件系统，不等于跨主机锁 |
+| 密钥/签名夹具 | `tests/core/test_binding.py:212`、`tests/bootstrap/test_bootstrap_transport.py:25` | 篡改、重放、错 key | 不证明真实 host 认证 |
+| Unix socket 端到端 | `tests/core/test_binding.py:455`、`:472` | 本地进程间签名回执 | 非网络、非远端 |
+| 大文件/大输入 | `tests/core/test_capacity_io.py:33`（17 MiB）、`tests/core/test_supervisor.py:849`（>10 MB） | 容量与完整性 | 见 S3 缺口：无总上下文上限 |
+| 有界观测预算 | `observation_budget.py:21` + `tests/core/test_observation_budget.py:30`、`:155` | 观测超时即停 | 只覆盖配合式本地 I/O |
+| 跳过式真实集成 | `tests/core/test_tui_rsi_integration.py:21`（`RSI_CHECKER_TEST_ROOT`） | 真实 RSI checker 投影 | 未设变量即 skip，不算通过 |
 
 ## 5. 跑法与门禁地图
 
@@ -252,18 +253,20 @@ tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
 ```
 
 模块数与耗时来自 2026-11-09 本机一次空闲实测；**测试项数不写进文档**（它随套件增长，
-以每次输出为准）。`--fast` 排除的 4 个模块（`test_bootstrap_production`、
-`test_bootstrap_workflow`、`test_startup_handoff`、`test_bootstrap_failures`）合计 301 s，
+以每次输出为准）。`--fast` 排除的 4 个模块（`bootstrap.test_bootstrap_production`、
+`bootstrap.test_bootstrap_workflow`、`core.test_startup_handoff`、
+`bootstrap.test_bootstrap_failures`）合计 301 s，
 占全量 65%；成本来自真实 owner-socket RPC（约 2000 次往返，每次一个子进程做签名校验）、
 `fsync` 与 JSON 规范化，不是 sleep。它们是 bootstrap/strict 生产路径的行为证据，
 **不得为提速删除或削弱断言**。按变更范围迭代用 `--fast` 或 `-p`，合并/交付前跑一次
 全量；`--fast` 只能作为迭代反馈，不得上报为离线 PASS。模块清单的选取契约由
-`tests/test_offline_baseline.py` 的 `OfflineRunnerModeTests` 固定：它用 unittest 自己的
-discovery 结果（而不是脚本用的同一个 glob）做期望值，所以新增递归测试目录也会报红。
+`tests/core/test_offline_baseline.py` 的 `OfflineRunnerModeTests` 固定：它用 unittest 自己的
+discovery 结果（而不是脚本用的同一个 glob）做期望值，所以脚本漏掉某个 `tests/<area>/`
+（例如再深一层嵌套目录）会报红，而不是静默少跑。模块名即相对 `tests/` 的点号路径。
 
 > **两个变量都必须清除，脚本已固化这一点。** 实测：在本工作区的环境下
 > （`SWARM_WORKER_PROFILES` 指向私有 `swarm/worker-model-profiles.json`），
-> 不清除时整包会出现 39 项 `FAIL/ERROR`，全部集中在 `tests/test_coordinator_worker_plan.py`；
+> 不清除时整包会出现 39 项 `FAIL/ERROR`，全部集中在 `tests/coordinator/test_coordinator_worker_plan.py`；
 > 现已被两层修正：该模块 `setUp` 显式清除 override，`coordinator_worker_profiles` 则把
 > “pin 来源不一致”与“文件真的变了”区分为 `worker_profiles_pin_source_mismatch` /
 > `file_pin_changed`。详见 [gap-matrix.md](gap-matrix.md) 第 6 节与

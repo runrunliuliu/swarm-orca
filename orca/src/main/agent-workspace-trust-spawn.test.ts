@@ -49,7 +49,8 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
         'copilot',
         'qoder',
         'trae',
-        'antigravity'
+        'antigravity',
+        'codex-ark'
       ])
     )
     expect(TUI_AGENT_CONFIG['claude-agent-teams'].preflightTrust).toBe('claude')
@@ -139,7 +140,7 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith('codex', '/notes/sub', expect.anything())
   })
 
-  it.each(PRESET_AGENTS.filter((agent) => agent !== 'codex' && agent !== 'trae'))(
+  it.each(PRESET_AGENTS.filter((agent) => agent !== 'codex' && agent !== 'trae' && agent !== 'codex-ark'))(
     'trusts the workspace root for %s, whose trust covers its subfolders or matches the root',
     async (agent) => {
       await applyAgentWorkspaceTrustToSpawn(
@@ -184,6 +185,40 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
       applyAgentWorkspaceTrustToSpawn(
         spawnArgs({
           launchAgent: 'trae',
+          worktreeId: 'global-floating-terminal',
+          cwd: '/repo/wt'
+        })
+      )
+    ).toBeNull()
+    expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
+  })
+
+  it('trusts the final Codex Ark Worker start folder by default', async () => {
+    await applyAgentWorkspaceTrustToSpawn(
+      spawnArgs({ launchAgent: 'codex-ark', cwd: '/repo/wt/sub.dir', settings: undefined })
+    )
+    expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith(
+      'codex-ark',
+      '/repo/wt/sub.dir',
+      expect.anything()
+    )
+  })
+
+  it.each([undefined, 'manual', 'restore', 'worktree-create'])(
+    'does not pre-trust Codex Ark for non-orchestration source %s',
+    (launchSource) => {
+      expect(
+        applyAgentWorkspaceTrustToSpawn(spawnArgs({ launchAgent: 'codex-ark', launchSource }))
+      ).toBeNull()
+      expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
+    }
+  )
+
+  it('does not pre-trust Codex Ark in a floating terminal even with orchestration telemetry', () => {
+    expect(
+      applyAgentWorkspaceTrustToSpawn(
+        spawnArgs({
+          launchAgent: 'codex-ark',
           worktreeId: 'global-floating-terminal',
           cwd: '/repo/wt'
         })

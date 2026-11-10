@@ -13,6 +13,10 @@
 #           feedback for the area you are changing; never a gate claim.
 #   --list  print the modules the current mode would run, then exit 0.
 #
+# Tests live under `tests/<area>/test_*.py` (bootstrap, coordinator, operators, trae,
+# worker, core). A module's name is its dotted path relative to `tests/`, which is also
+# the name unittest discovery reports, so `--list` and `--full` can be compared.
+#
 # Mode flags must come before unittest options, e.g. `tests/run_offline.sh --fast -v`.
 # When tests run, the exit status is unittest's own. `--list` exits 0 and a
 # mode/option conflict exits 2, and both are the script's own statuses, not the suite's.
@@ -29,7 +33,7 @@
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
-SLOW='test_bootstrap_production test_bootstrap_workflow test_startup_handoff test_bootstrap_failures'
+SLOW='bootstrap.test_bootstrap_production bootstrap.test_bootstrap_workflow core.test_startup_handoff bootstrap.test_bootstrap_failures'
 
 mode=full
 list_only=0
@@ -55,8 +59,13 @@ if [ "$mode" = fast ]; then
 fi
 
 modules() {
-    for file in tests/test*.py; do
+    for file in tests/test*.py tests/*/test*.py; do
+        [ -f "$file" ] || continue
         module=$(basename "$file" .py)
+        area=$(basename "$(dirname "$file")")
+        if [ "$area" != tests ]; then
+            module="$area.$module"
+        fi
         if [ "$mode" = fast ]; then
             case " $SLOW " in
                 *" $module "*) continue ;;

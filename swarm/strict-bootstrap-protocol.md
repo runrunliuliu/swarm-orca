@@ -495,7 +495,7 @@ STOP 拦截未准入回调，已准入回调仍属于在途，不声称可撤销
 
 ## 11. Phase 3 同链失败、并发与恢复
 
-`tests/test_bootstrap_failures.py` 新增 24 项测试，通过组合 Phase 2 fixture 复用
+`tests/bootstrap/test_bootstrap_failures.py` 新增 24 项测试，通过组合 Phase 2 fixture 复用
 原始 `coordinator_strict_request.build_request` 与双侧角色适配器；没有另建演示 builder。
 其中回复丢失矩阵覆盖 13 个发布槽，目录屏障失败矩阵覆盖 12 个发布槽，均从真实 S0 顺序运行到
 原 request v5；另测 association-only 的恢复阻断，不能把它当已发布 request。
