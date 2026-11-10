@@ -1,5 +1,6 @@
 """Pinned local evidence shared by the continuation driver and its adapters."""
 
+from collections import OrderedDict
 from datetime import datetime, timezone
 from contextlib import contextmanager, ExitStack
 import errno
@@ -12,6 +13,8 @@ import re
 import stat
 import tempfile
 import sys
+import threading
+import time
 
 from trae_exec_capture import exclusive
 import blocking_io
@@ -53,22 +56,151 @@ def path(value, *, directory=False):
     return target
 
 
+# Reuse of an already verified file identity, never of a path or of a pin verdict.
+#
+# The expensive step on a network workspace mount is the open() itself (measured
+# ~1.0 ms per cold file on the NAS mount against ~40 us for the strict path check),
+# so a second read of the same inode repeats one lstat instead of open+read+sha256.
+# The key is the path together with the kernel identity
+# (st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns):
+# an in-place rewrite of the same size still moves st_ctime_ns. os.utime restores
+# st_mtime_ns but not st_ctime_ns (measured). Timestamps are quantized, though: this
+# host's ext4 mount reports a 1 ms quantum, so two writes inside one tick carry an
+# identical mtime *and* ctime. An entry is therefore retained only when its
+# timestamps are already a full second older than the read that produced it
+# (coarsest quantum we accept, covering 1 s NFS/FAT style timestamps): a freshly
+# written file is simply read again until it settles, and any later write is then
+# guaranteed to move a stamp. Cached entries are per process, in memory only,
+# bounded, and never a substitute for the caller's own comparison: pinned() still
+# compares the digest and still raises FilePinChanged.
+_PIN_CACHE_DEFAULT = 32 * 1024 * 1024
+_PIN_CACHE_SETTLE_NS = 1_000_000_000
+_pin_cache = OrderedDict()  # (path, identity) -> (bytes, sha256 hex)
+_pin_cache_bytes = 0
+_pin_cache_lock = threading.Lock()
+_pin_cache_state = None  # resolved budget, sticky for the life of the process
+
+
+def pin_cache_budget():
+    """Content bytes this process may retain; 0 disables reuse for its whole life.
+
+    Resolution is sticky on purpose: a caller that scrubs os.environ (a fixture, a
+    subprocess-like test scope) would otherwise silently re-enable reuse in a
+    process that was started with ``SWARM_PIN_CACHE=0``. Only tests reset
+    ``_pin_cache_state``.
+    """
+    global _pin_cache_state
+    if _pin_cache_state is None:
+        _pin_cache_state = _resolved_budget()
+    return _pin_cache_state
+
+
+def _resolved_budget():
+    if str(os.environ.get("SWARM_PIN_CACHE", "1")).strip().lower() in ("0", "off", "false", "no"):
+        return 0
+    raw = os.environ.get("SWARM_PIN_CACHE_BYTES")
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            return _PIN_CACHE_DEFAULT
+    return _PIN_CACHE_DEFAULT
+
+
+def clear_pin_cache():
+    """Drop all retained content; tests and long-lived owners may call this."""
+    global _pin_cache_bytes
+    with _pin_cache_lock:
+        _pin_cache.clear()
+        _pin_cache_bytes = 0
+
+
+def _identity(target, info):
+    # The path is part of the key on purpose. Timestamps are quantized, so (dev, ino,
+    # size, mtime, ctime) alone can repeat: this filesystem recycles a deleted
+    # file's inode number, and two files then share the whole identity tuple. The
+    # tuple answers "did *this* path change", never "is this some other file".
+    return (str(target), info.st_dev, info.st_ino, info.st_size,
+            info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _retained(key):
+    with _pin_cache_lock:
+        entry = _pin_cache.get(key)
+        if entry is not None:
+            _pin_cache.move_to_end(key)
+        return entry
+
+
+def _retain(key, entry, opened_at):
+    """Retain only a settled identity: stamps already older than the settle window."""
+    global _pin_cache_bytes
+    budget = pin_cache_budget()
+    if not budget or max(key[4], key[5]) > opened_at - _PIN_CACHE_SETTLE_NS:
+        return
+    if len(entry[0]) > budget:
+        return
+    with _pin_cache_lock:
+        if key in _pin_cache:
+            return
+        _pin_cache[key] = entry
+        _pin_cache_bytes += len(entry[0])
+        while _pin_cache and _pin_cache_bytes > budget:
+            _, (evicted, _) = _pin_cache.popitem(last=False)
+            _pin_cache_bytes -= len(evicted)
+
+
+def _reusable(target):
+    """Cached (bytes, sha256) only while the named inode is unchanged.
+
+    Anything unexpected - a vanished entry, a symlink swap, a non-regular file,
+    an unwritten identity - returns None so the strict open/read path below runs
+    unchanged and raises its original code. Neither half of the key decides alone:
+    the path only ever answers for the inode it resolved to, the inode only for
+    the path it is named by.
+    """
+    try:
+        info = os.lstat(target)
+    except OSError:
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        return None
+    return _retained(_identity(target, info))
+
+
 @blocking_io.observed("read_bytes", lambda value: str(value))
-def read_bytes(value):
+def _verified(value):
+    """The one read seam: verified (bytes, sha256) of a canonical regular file."""
     from observation_budget import check
     check()
     with blocking_io.stage("resolve", str(value)):
         target = path(str(value))
+    entry, fd = None, None
     with blocking_io.stage("open", str(value), check_after=False):
-        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd, "rb") as stream:
+        # The stage now names the identity acquisition, not the syscall: a reuse
+        # repeats the identity check where a first read performs the open.
+        entry = _reusable(target)
+        if entry is None:
+            fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    if entry is not None:
         blocking_io.check()
-        require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "not_regular")
-        size = os.fstat(stream.fileno()).st_size
-        raw = stream.read(size)
-        require(len(raw) == size, "file_truncated")
+    else:
+        with os.fdopen(fd, "rb") as stream:
+            blocking_io.check()
+            opened_at = time.time_ns()
+            info = os.fstat(stream.fileno())
+            require(stat.S_ISREG(info.st_mode), "not_regular")
+            raw = stream.read(info.st_size)
+            require(len(raw) == info.st_size, "file_truncated")
+        entry = (raw, digest(raw))
+        _retain(_identity(target, info), entry, opened_at)
     check()
-    return raw
+    return entry
+
+
+def read_bytes(value):
+    """Contents only; the digest is retained so file_ref/pinned need not rehash."""
+    return _verified(value)[0]
 
 
 def read_json(value):
@@ -92,8 +224,8 @@ class FilePinChanged(ValueError):
 
 def pinned(ref, *, json_pin=False):
     validate_ref(ref)
-    raw = read_bytes(ref["path"])
-    if digest(canonical(parse(raw)) if json_pin else raw) != ref["sha256"]:
+    raw, sha256 = _verified(ref["path"])
+    if (digest(canonical(parse(raw))) if json_pin else sha256) != ref["sha256"]:
         raise FilePinChanged()
     from bootstrap_s5 import current
     guard = current.get()
@@ -103,7 +235,7 @@ def pinned(ref, *, json_pin=False):
 
 
 def file_ref(target):
-    return {"path": str(target), "sha256": digest(read_bytes(target))}
+    return {"path": str(target), "sha256": _verified(target)[1]}
 
 
 def timestamp(value):
