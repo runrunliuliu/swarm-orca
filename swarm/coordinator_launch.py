@@ -85,12 +85,31 @@ def artifact_layout(archive_dir, write_dirs=()):
     return directories, [str(p) for p in roots]
 
 
-def build_plan(*, codex=None, trae=None, cwd, archive_dir=None, write_dirs=(),
+def build_plan(*, codex=None, trae=None, pi=None, cwd, archive_dir=None, write_dirs=(),
                model_config=BASE / "coordinator-model.json",
                runtime_config=BASE / "coordinator-runtime.json",
-               trae_runtime_config=None, prompt_file=None, bootstrap_dir=None,
+               trae_runtime_config=None, pi_policy=None, prompt_file=None, bootstrap_dir=None,
                resume_session=None, replacement_run=None, strict_coordinator=False,
                registered_bootstrap=False, reviewed_inputs=None):
+    if pi is not None:
+        # Pi pins its own reviewed policy (provider, model selector, thinking level); it has
+        # no effort/Max surface and no exec shape, so selection is derived from the policy
+        # instead of a Trae-shaped model_config, and nothing is mapped across providers.
+        from pi_coordinator import build_pi_plan, observed_version, read_pi_runtime, selection_for
+        if codex is not None or trae is not None or trae_runtime_config is not None:
+            raise ValueError("Pi selection requires --pi only; no Codex or Trae fallback")
+        if archive_dir is not None or resume_session is not None or replacement_run is not None:
+            raise ValueError("Pi Coordinator requires a fresh bootstrap directory; no Run resume")
+        policy, _ = read_pi_runtime(pi_policy)
+        plan = build_pi_plan(pi=pi, cwd=cwd, bootstrap_dir=bootstrap_dir,
+                             write_dirs=list(write_dirs), selection=selection_for(policy),
+                             runtime_config=pi_policy, prompt_file=prompt_file,
+                             cli_version=observed_version(pi))
+        if not strict_coordinator:
+            raise ValueError("Pi Coordinator requires --strict-coordinator; there is no exec shape")
+        from coordinator_strict import strict_plan
+        return strict_plan(plan, registered_bootstrap=registered_bootstrap,
+                           reviewed_inputs=reviewed_inputs)
     selection = read_config(model_config, "selection")
     if set(selection) != {"mode", "agent", "model", "effort", "max_mode"}:
         raise ValueError("invalid Coordinator selection fields")

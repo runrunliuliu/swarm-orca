@@ -102,6 +102,17 @@ def launch_kwargs(launch, handoff):
                     strict_coordinator=launch.get("strict_coordinator", False),
                     registered_bootstrap=launch.get("registered_bootstrap", False),
                     reviewed_inputs=launch.get("reviewed_inputs"), **common)
+    if agent == "pi":
+        allowed = {"agent", "pi", "cwd", "bootstrap_dir", "write_dirs", "pi_policy",
+                   "strict_coordinator", "registered_bootstrap", "reviewed_inputs"}
+        require(set(launch) <= allowed
+                and {"pi", "cwd", "bootstrap_dir", "pi_policy"} <= set(launch),
+                "operator_materials_launch_invalid")
+        return dict(pi=launch["pi"], bootstrap_dir=launch["bootstrap_dir"],
+                    pi_policy=launch["pi_policy"], prompt_file=handoff,
+                    strict_coordinator=launch.get("strict_coordinator", False),
+                    registered_bootstrap=launch.get("registered_bootstrap", False),
+                    reviewed_inputs=launch.get("reviewed_inputs"), **common)
     raise MaterialsError("operator_materials_launch_invalid")
 
 

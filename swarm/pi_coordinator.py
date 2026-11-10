@@ -40,6 +40,16 @@ def selection_for(policy):
             "model": policy["model"], "thinking_level": policy["thinking_level"]}
 
 
+def observed_version(executable):
+    """The exact version line this host's Pi reports; callers must pin this value."""
+    path = require_ordinary_executable(executable)
+    reply = subprocess.run([str(path), "--version"], check=True, text=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+    lines = reply.stdout.splitlines()
+    require(bool(lines) and lines[0].strip(), "pi_executable_version_missing")
+    return lines[0].strip()
+
+
 def verify_pi_executable(executable, cli_version):
     """Prelaunch observation on this host, not native launch or process attestation."""
     from coordinator_io import now
