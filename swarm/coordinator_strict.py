@@ -17,6 +17,7 @@ from coordinator_io import canonical, digest, now, parse, pinned, timestamp
 from coordinator_loop import phase_contract
 from coordinator_task_source import strict_request_version_text
 from trae_coordinator import build_trae_plan, native, verify_trae_executable
+import pi_coordinator
 import tui_adapter
 
 CAPABILITY = "orchestration.strict-caller-check.v1"
@@ -35,6 +36,31 @@ class StrictCheckError(ValueError):
 def require(condition, code):
     if not condition:
         raise StrictCheckError(code)
+
+
+def provider_of(plan):
+    """Which provider this recipe launches, from the plan's adapter (absent = historical Trae)."""
+    adapter = plan.get("adapter")
+    if adapter == tui_adapter.PI_ADAPTER:
+        return "pi"
+    # Historical recipes carry the Trae TUI adapter or the Trae exec adapter; an absent
+    # adapter is the oldest Trae shape. Anything else is refused, never guessed.
+    require(adapter in (None, tui_adapter.TRAE_ADAPTER, tui_adapter.EXEC_ADAPTER),
+            "strict_plan_adapter_unsupported")
+    return "trae"
+
+
+def provider_verification_text(agent):
+    """The settings the live Coordinator must actually verify, per provider.
+
+    Trae attests model/effort/Max/sandbox/approvals; Pi attests only provider, model
+    selector and thinking level, so telling a Pi pane to verify sandbox or Max would ask
+    for evidence that provider cannot produce. The Trae string stays byte-identical.
+    """
+    if agent == "pi":
+        return (" Verify actual Pi model provider, model selector and thinking level against "
+                "the pinned policy ")
+    return " Verify actual Trae model, effort, Max, sandbox and approvals against "
 
 
 def caller_result(value, runtime):
@@ -178,6 +204,10 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
         prepared = verify_prepared(reviewed_inputs)
     executable = plan["argv"][0]
     tui = plan["execution"]["launch_mode"] == "tui"
+    # The recipe, not the caller, decides which provider this plan launches: a Trae adapter
+    # pins sandbox/approval/Max, a Pi adapter pins the reviewed policy. Mixing them (a Pi
+    # pane told to verify Trae settings) is the defect this keeps out of the prompt.
+    agent = provider_of(plan)
     from coordinator_strict_delivery import layout
     delivery = layout(plan["artifact_dirs"]["archive"])
     phase = "strict-tui-bootstrap" if tui else "strict-bootstrap"
@@ -187,8 +217,7 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
                 reviewed_input_snapshot_count=None if prepared is None else prepared["snapshot_count"],
                 reviewed_input_baseline_count=None if prepared is None else prepared["baseline_count"],
                 startup_delivery=delivery,
-                prompt_fragment=phase_contract(phase) +
-                " Verify actual Trae model, effort, Max, sandbox and approvals against " +
+                prompt_fragment=phase_contract(phase) + provider_verification_text(agent) +
                 plan["runtime_config"] + ". Canonical cwd/write roots: " +
                 json.dumps([plan["cwd"], *plan["task_write_roots"]]) + ".")
     plan["prompt_fragment"] += (
@@ -233,7 +262,7 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
             "strict_native_prompt_too_large_or_invalid")
     plan["argv"] = None  # Never executable through the raw capture adapter.
     plan["native_launch"] = {
-        "schema_version": 1, "method": "terminal.create", "agent": "trae",
+        "schema_version": 1, "method": "terminal.create", "agent": agent,
         "agent_args": agent_args, "stdin_required": False,
         "prompt_sha256": plan["input_contract"]["stdin_sha256"],
         "prompt_delivery": "pinned-files-short-prompt-v1",
@@ -280,13 +309,22 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
     input_bytes(plan)
     # Validate the whole launch recipe, not only its prompt pin.
     executable = plan["native_launch"]["verified_executable"]
-    rebuilt = strict_plan(build_trae_plan(
-        trae=executable, cwd=plan["cwd"], archive_dir=None,
-        bootstrap_dir=plan["artifact_dirs"]["archive"], write_dirs=plan["task_write_roots"],
-        selection=plan["selection"], runtime_config=plan["runtime_config"],
-        prompt_file=plan["prompt_file"], resume_session=None),
-        registered_bootstrap=plan.get("registered_bootstrap") is True,
-        reviewed_inputs=plan.get("reviewed_inputs"))
+    agent = provider_of(plan)
+    if agent == "pi":
+        rebuilt = pi_coordinator.build_pi_plan(
+            pi=executable, cwd=plan["cwd"], bootstrap_dir=plan["artifact_dirs"]["archive"],
+            write_dirs=plan["task_write_roots"], selection=plan["selection"],
+            runtime_config=plan["runtime_config"], prompt_file=plan["prompt_file"],
+            cli_version=plan["cli_version"])
+    else:
+        rebuilt = build_trae_plan(
+            trae=executable, cwd=plan["cwd"], archive_dir=None,
+            bootstrap_dir=plan["artifact_dirs"]["archive"], write_dirs=plan["task_write_roots"],
+            selection=plan["selection"], runtime_config=plan["runtime_config"],
+            prompt_file=plan["prompt_file"], resume_session=None)
+    rebuilt = strict_plan(rebuilt,
+                          registered_bootstrap=plan.get("registered_bootstrap") is True,
+                          reviewed_inputs=plan.get("reviewed_inputs"))
     require(plan == rebuilt, "strict_native_plan_changed")
     verified = verify_native_inputs(ref, plan, cli=cli, runtime=runtime, workspace=workspace,
                                     materials_ref=materials, operator_input_ref=operator_input)
@@ -297,7 +335,9 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
     target = native(cli, runtime, ["worktree", "show", "--worktree", "id:" + workspace])["worktree"]
     require(target.get("id") == workspace and target.get("path") == plan["cwd"],
             "strict_native_workspace_mismatch")
-    executable_observation = verify_trae_executable(executable, plan["cli_version"])
+    executable_observation = (pi_coordinator.verify_pi_executable(executable, plan["cli_version"])
+                              if agent == "pi" else
+                              verify_trae_executable(executable, plan["cli_version"]))
     pinned(ref)
     # Orca treats a separate --leading value as another CLI flag. Preserve the
     # historical exec argv, but pass TUI options as one unambiguous assignment.
@@ -311,9 +351,10 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
             "operator_session": verified["operator"]["session"],
             "executable_observation": executable_observation,
             "argv": [cli, "terminal", "create", "--worktree", "id:" + workspace,
-                     "--agent", "trae", *agent_args_flags, "--json"],
+                     "--agent", agent, *agent_args_flags, "--json"],
             "execution_authorized": False,
-            "requirements": ["Verify the execution host's configured Trae executable matches " + executable,
+            "requirements": [("Verify the execution host's configured Pi executable matches " if agent == "pi"
+                              else "Verify the execution host's configured Trae executable matches ") + executable,
                              "Recheck executable immediately before launch; this local observation cannot fence native binary selection or auto-update",
                              ("Observe explicit TUI hook/session mapping, pinned strict caller and actual settings"
                               if plan["execution"]["launch_mode"] == "tui" else
