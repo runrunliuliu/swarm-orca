@@ -56,21 +56,42 @@ class RefusalTests(unittest.TestCase):
                     self.assertEqual(self.refuse(provider, evidence).code,
                                      "test_provider_required")
 
-    def test_known_provider_without_the_evidence_names_every_missing_channel(self):
-        expected = {"bootstrap role": (capabilities.PANE_HOOK_STATUS, capabilities.SESSION_META,
-                                       capabilities.TURN_CONTEXT, capabilities.TERMINAL,
-                                       capabilities.LAUNCH_COMMITMENT),
-                    "operator identity": (capabilities.PANE_HOOK_STATUS, capabilities.SESSION_META,
-                                          capabilities.TURN_CONTEXT, capabilities.TERMINAL),
-                    "tui observation": (capabilities.PANE_HOOK_STATUS, capabilities.SESSION_META,
-                                        capabilities.TURN_CONTEXT, capabilities.TUI_ADAPTER,
-                                        capabilities.TERMINAL)}
-        for name, evidence in CONSUMERS.items():
+    def test_pi_supplies_role_and_operator_evidence_but_no_tui_adapter(self):
+        # Pi identity/transcript evidence is verified; the S2/S5 launch adapter is
+        # still Trae-only, so the TUI consumer refuses Pi and names that channel.
+        for name in ("bootstrap role", "operator identity"):
             with self.subTest(consumer=name):
-                refused = self.refuse("pi", evidence)
-                self.assertEqual(refused.code, "test_pi_evidence_unavailable")
-                self.assertEqual(refused.provider, "pi")
-                self.assertEqual(refused.missing_evidence, expected[name])
+                capability = capabilities.require(
+                    "pi", CONSUMERS[name], required="test_provider_required",
+                    unsupported="test_provider_unsupported",
+                    unavailable="test_{provider}_evidence_unavailable")
+                self.assertEqual(capability.provider, "pi")
+                self.assertEqual(capability.evidence_format, "runtime-state")
+                self.assertEqual(capability.records[capabilities.IDENTITY_ROOT], "session")
+                self.assertEqual(capability.settings_fields, capabilities.PI_SETTINGS)
+        refused = self.refuse("pi", capabilities.TUI_OBSERVATION)
+        self.assertEqual(refused.code, "test_pi_evidence_unavailable")
+        self.assertEqual(refused.missing_evidence, (capabilities.TUI_ADAPTER,))
+
+    def test_provider_without_an_evidence_channel_names_it_instead_of_defaulting(self):
+        # Table-level guard: a declared provider that cannot supply a channel is
+        # refused with that channel, not silently swapped for another provider.
+        unavailable = capabilities.Capability(
+            "fixture", None, (capabilities.SESSION,), {}, (),
+            unavailable=(capabilities.PANE_HOOK_STATUS, capabilities.TURN_SETTINGS))
+        self.assertEqual(unavailable.missing(capabilities.BOOTSTRAP_ROLE),
+                         (capabilities.PANE_HOOK_STATUS, capabilities.TURN_SETTINGS,
+                          capabilities.TERMINAL, capabilities.TRANSCRIPT,
+                          capabilities.LAUNCH_COMMITMENT, capabilities.IDENTITY_ROOT))
+
+    def test_settings_are_scoped_to_what_each_provider_can_attest(self):
+        self.assertIn("thinking_level", capabilities.PI_SETTINGS)
+        self.assertNotIn("effort", capabilities.PI_SETTINGS)
+        self.assertIn("sandbox_policy", capabilities.TRAE_SETTINGS)
+        self.assertNotIn("sandbox_policy", capabilities.PI_SETTINGS)
+        # Nothing may be required that no provider attests.
+        self.assertEqual(set(capabilities.KNOWN_SETTINGS),
+                         set(capabilities.TRAE_SETTINGS) | set(capabilities.PI_SETTINGS))
 
     def test_declared_capability_is_rechecked_against_the_observation(self):
         # A provider's table row is a promise, not proof: an observation that
@@ -105,7 +126,7 @@ class RefusalTests(unittest.TestCase):
                                   capability.missing(evidence))
 
     def test_refusal_is_a_value_error_carrying_the_typed_code(self):
-        refused = self.refuse("pi", capabilities.OPERATOR_IDENTITY)
+        refused = self.refuse("pi", capabilities.TUI_OBSERVATION)
         self.assertIsInstance(refused, ValueError)
         self.assertEqual(str(refused), refused.code)
 

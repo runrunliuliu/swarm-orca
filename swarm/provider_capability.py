@@ -4,15 +4,16 @@ A gate role's provider is never a constant in the reader code: it is declared in
 the reviewed registration (`bootstrap_identity.py`) or in the Operator identity
 input (`operator_session.py`), and the declared name is then verified against
 native evidence by `swarm_ledger.runtime_binding`. This module holds the one
-thing that verification cannot discover by itself — which evidence format and
-which identity fields this build is able to read for a given provider.
+thing that verification cannot discover by itself — which evidence format, which
+identity fields, which transcript records and which effective settings this build
+is able to verify for a given provider.
 
 Two refusals are kept distinct, and neither is a default:
 
 - an unknown provider name is refused as unsupported (nothing is guessed);
-- a known provider whose evidence channel this build cannot read is refused with
-  the caller's typed code plus the exact missing evidence channels, so the
-  operator learns which channel is absent instead of a generic "unverifiable".
+- a known provider that cannot supply some evidence here is refused with the
+  caller's typed code plus the exact missing evidence channels, so the operator
+  learns which channel is absent instead of a generic "unverifiable".
 
 A row is only meaningful if `swarm_ledger.runtime_binding` accepts the same
 provider name for the declared format; adding a name here without reader support
@@ -29,9 +30,17 @@ TERMINAL = "terminal"                         # handle/worktree/tab/leaf/pty/inc
 SESSION = "session_id"                        # provider session id
 TRANSCRIPT = "transcript_path"                # provider transcript under the declared log root
 LAUNCH_COMMITMENT = "launch_token_hash"       # hook launchTokenHash vs the pane's launch token
-SESSION_META = "session_meta"                 # transcript root record pinning the session id
-TURN_CONTEXT = "turn_context"                 # transcript record carrying effective settings
+# Semantic transcript evidence; each capability maps it to its own record kind.
+IDENTITY_ROOT = "session_root_record"         # record that pins the session id
+TURN_SETTINGS = "turn_settings_record"        # per-turn effective model/settings record
 TUI_ADAPTER = "tui_adapter"                   # reviewed TUI observation/launch adapter
+
+# Effective settings a provider can actually attest. A reviewed contract may only
+# require keys from its provider's tuple; the rest is refused rather than ignored.
+TRAE_SETTINGS = ("model", "model_provider", "effort", "model_backend_variant", "approval_policy",
+                 "approvals_reviewer", "sandbox_policy", "cwd", "writable_roots")
+PI_SETTINGS = ("model", "model_provider", "thinking_level", "cwd")
+KNOWN_SETTINGS = tuple(dict.fromkeys(TRAE_SETTINGS + PI_SETTINGS))
 
 
 class Evidence:
@@ -44,11 +53,12 @@ class Evidence:
 
 
 # The bootstrap owner binds both role panes without a TUI transcript reader.
-BOOTSTRAP_ROLE = Evidence((TERMINAL, SESSION, TRANSCRIPT, LAUNCH_COMMITMENT), (SESSION_META,))
+BOOTSTRAP_ROLE = Evidence((TERMINAL, SESSION, TRANSCRIPT, LAUNCH_COMMITMENT), (IDENTITY_ROOT,))
 # The Operator gate additionally reads reviewed effective settings per turn.
-OPERATOR_IDENTITY = Evidence((TERMINAL, SESSION, TRANSCRIPT), (SESSION_META, TURN_CONTEXT))
+OPERATOR_IDENTITY = Evidence((TERMINAL, SESSION, TRANSCRIPT), (IDENTITY_ROOT, TURN_SETTINGS))
 # The S2 Coordinator observation and the S5 TUI contract need a launch adapter.
-TUI_OBSERVATION = Evidence((TERMINAL, SESSION, TRANSCRIPT), (SESSION_META, TURN_CONTEXT), tui_adapter=True)
+TUI_OBSERVATION = Evidence((TERMINAL, SESSION, TRANSCRIPT), (IDENTITY_ROOT, TURN_SETTINGS),
+                           tui_adapter=True)
 
 
 class Capability:
@@ -56,17 +66,20 @@ class Capability:
 
     evidence_format is the `runtime_binding` capture mode, or None when this
     build has no capture that can attribute the provider's session to a pane at
-    all. `unavailable` names the channels such a provider provably lacks; it is
-    reported instead of letting a capture fail later with a generic state.
+    all. `records` maps each semantic transcript requirement to the provider's
+    record kind; `settings_fields` is what a reviewed contract may require.
+    `unavailable` names channels such a provider provably lacks, so a capture
+    failure is never reported as a generic state.
     """
 
-    __slots__ = ("provider", "evidence_format", "identity_fields", "transcript_records",
-                 "tui_adapter", "unavailable")
+    __slots__ = ("provider", "evidence_format", "identity_fields", "records",
+                 "settings_fields", "tui_adapter", "unavailable")
 
-    def __init__(self, provider, evidence_format, identity_fields, transcript_records,
-                 tui_adapter=None, unavailable=()):
+    def __init__(self, provider, evidence_format, identity_fields, records,
+                 settings_fields, tui_adapter=None, unavailable=()):
         self.provider, self.evidence_format = provider, evidence_format
-        self.identity_fields, self.transcript_records = tuple(identity_fields), tuple(transcript_records)
+        self.identity_fields, self.records = tuple(identity_fields), dict(records)
+        self.settings_fields = tuple(settings_fields)
         self.tui_adapter, self.unavailable = tui_adapter, tuple(unavailable)
 
     def missing(self, evidence, observed=None):
@@ -76,7 +89,7 @@ class Capability:
         if evidence.tui_adapter and self.tui_adapter is None:
             absent.append(TUI_ADAPTER)
         absent += [field for field in evidence.fields if field not in self.identity_fields]
-        absent += [record for record in evidence.records if record not in self.transcript_records]
+        absent += [record for record in evidence.records if record not in self.records]
         if observed is not None:
             # A declared capability is not proof: the observation must carry it.
             absent += [field for field in evidence.fields
@@ -85,15 +98,21 @@ class Capability:
 
 
 CAPABILITIES = {
-    # The only provider this build reads end to end today.
+    # Trae TUI: hook row + transcript root `session_meta` + per-turn `turn_context`.
     "trae": Capability("trae", "runtime-state",
                        (TERMINAL, SESSION, TRANSCRIPT, LAUNCH_COMMITMENT),
-                       (SESSION_META, TURN_CONTEXT), tui_adapter="trae-tui-runtime-v1"),
-    # Orca 1.4.219 writes no agent-hooks row for a Pi pane, and Pi session logs
-    # carry neither root `session_meta` nor `turn_context`; both gaps are outside
-    # swarm/. Registered so the refusal names them instead of the name "unknown".
-    "pi": Capability("pi", None, (SESSION, TRANSCRIPT), (),
-                     unavailable=(PANE_HOOK_STATUS, SESSION_META, TURN_CONTEXT)),
+                       {IDENTITY_ROOT: "session_meta", TURN_SETTINGS: "turn_context"},
+                       TRAE_SETTINGS, tui_adapter="trae-tui-runtime-v1"),
+    # Pi TUI: Orca's bundled Pi status extension posts session_id/session_file and
+    # the launch token to /hook/pi, and the Pi transcript root is `{"type":"session",
+    # "id":<uuid>,"cwd":…}` with per-turn assistant `model`/`provider`/`thinkingLevel`.
+    # Pi has no approval/sandbox surface, so only PI_SETTINGS may be required.
+    # tui_adapter stays unset until the S2/S5 Pi launch adapter exists: the fields
+    # template and the S2 observation must refuse rather than assume one.
+    "pi": Capability("pi", "runtime-state",
+                     (TERMINAL, SESSION, TRANSCRIPT, LAUNCH_COMMITMENT),
+                     {IDENTITY_ROOT: "session", TURN_SETTINGS: "message"},
+                     PI_SETTINGS),
 }
 
 

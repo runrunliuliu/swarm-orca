@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import sys
 import unittest
+import uuid
 from unittest.mock import patch
 
 from coordinator_input import input_bytes
@@ -166,20 +167,89 @@ class OperatorSessionTests(unittest.TestCase):
         self.assertEqual(result["session"]["session"], tui_tests.legacy.SID)
         self.assertEqual(result["effective"], {"effort": "xhigh"})
 
-    def test_pi_operator_identity_is_rejected_before_any_native_query(self):
+    def pi_session(self, *, model="anthropic/claude-sonnet", thinking="high", hook=True,
+                   assistant=True):
+        """Pi-shaped evidence: /hook/pi row + a real-format Pi JSONL transcript."""
+        self.session_id = str(uuid.uuid4())
+        log = self.f.root / "pi-session.jsonl"
+        records = [dict(type="session", id=self.session_id, cwd=str(self.f.cwd),
+                        timestamp=now(), version=3, parentId=None)]
+        if assistant:
+            records.append(dict(type="message", id="turn0001", parentId=None, timestamp=now(),
+                                message=dict(role="assistant", model=model, provider="anthropic",
+                                             thinkingLevel=thinking, content=[])))
+        log.write_text("".join(json.dumps(record) + "\n" for record in records))
         self.tui.term["agentIdentity"] = "pi"
-        self.tui.entry.update(source="pi", payload={"agentType": "pi"})
-        self.tui.write_state()
-        op_ref = self.operator_input(provider="pi", expected={"cwd": str(self.f.cwd)},
-                                     output=self.directory / "pi-operator.json")
-        # An Orca 1.4.219 Pi pane writes no agent-hooks row and the Pi session log has
-        # no session_meta/turn_context, so the adapter cannot bind it: fail closed and
-        # report the supported provider instead of a generic unverifiable state.
-        with patch("trae_tui.native") as query, \
-                self.assertRaisesRegex(ValueError, "operator_session_pi_operator_unverifiable"):
-            observe_operator(op_ref)
-        query.assert_not_called()
-        self.assertFalse((self.directory / "pi-operator.json").exists())
+        entries = {}
+        if hook:
+            entries["tab:leaf"] = dict(self.tui.entry, source="pi", payload={"agentType": "pi"},
+                providerSession={"key": "session_id", "id": self.session_id,
+                                 "transcriptPath": str(log)})
+        hook_file = self.tui.profile / "agent-hooks" / "last-status.json"
+        hook_file.write_text(json.dumps({"version": 2, "entries": entries}))
+        hook_file.chmod(0o600)
+        return log
+
+    def pi_input(self, expected, name="pi-operator.json"):
+        data = dict(schema_version=1, cli=sys.executable, runtime="runtime_test",
+            operator={"provider": "pi", "terminal": "term_test", "incarnation": "inc_test",
+                      "session": self.session_id},
+            workspace="workspace_test", profile=str(self.tui.profile), log_root=str(self.f.root),
+            context_max_age_seconds=1800, expected_effective=expected,
+            output=str(self.directory / name))
+        return self.tui.ref("pi-operator-input.json", data)
+
+    def test_pi_operator_observation_binds_the_transcript_and_settings(self):
+        self.pi_session()
+        op_ref = self.pi_input({"model": "anthropic/claude-sonnet", "thinking_level": "high",
+                                "cwd": str(self.f.cwd)})
+        with patch("trae_tui.native", side_effect=self.tui.query):
+            result = observe_operator(op_ref)
+        self.assertEqual(result["kind"], "operator_identity_observed")
+        self.assertEqual(result["session"]["provider"], "pi")
+        self.assertEqual(result["session"]["session"], self.session_id)
+        self.assertEqual(result["effective"], {"model": "anthropic/claude-sonnet",
+                                               "thinking_level": "high", "cwd": str(self.f.cwd)})
+        raw = parse(pinned(result["observation"]))
+        self.assertEqual(raw["identity"]["session_id"], self.session_id)
+        self.assertFalse(result["execution_authorized"])
+
+    def test_pi_requires_evidence_a_sandbox_or_reviewer_it_cannot_attest(self):
+        self.pi_session()
+        for key, value in (("effort", "high"), ("approval_policy", "never"),
+                           ("sandbox_policy", {"type": "workspace-write"}),
+                           ("approvals_reviewer", "auto_review")):
+            with self.subTest(key=key):
+                op_ref = self.pi_input({"model": "anthropic/claude-sonnet", key: value},
+                                       name="pi-" + key + ".json")
+                with patch("trae_tui.native", side_effect=self.tui.query), \
+                        self.assertRaisesRegex(ValueError,
+                                               "operator_session_expected_effective_provider_unsupported"):
+                    verify_operator_identity(op_ref)
+
+    def test_pi_settings_mismatch_and_missing_hook_are_typed(self):
+        self.pi_session(model="anthropic/claude-sonnet")
+        op_ref = self.pi_input({"thinking_level": "low"}, name="pi-mismatch.json")
+        with patch("trae_tui.native", side_effect=self.tui.query), \
+                self.assertRaisesRegex(ValueError, "operator_session_effective_settings_mismatch"):
+            verify_operator_identity(op_ref)
+        # No /hook/pi row for the pane: a resume remnant is not a live attribution.
+        self.pi_session(hook=False)
+        op_ref = self.pi_input({"cwd": str(self.f.cwd)}, name="pi-no-hook.json")
+        with patch("trae_tui.native", side_effect=self.tui.query), \
+                self.assertRaisesRegex(ValueError, "operator_session_runtime_state_unverifiable"):
+            verify_operator_identity(op_ref)
+
+    def test_pi_transcript_without_turn_settings_is_refused(self):
+        self.pi_session(assistant=False)
+        op_ref = self.pi_input({"cwd": str(self.f.cwd)}, name="pi-no-settings.json")
+        with patch("trae_tui.native", side_effect=self.tui.query):
+            code, result = self.route_cli("observe-operator", op_ref, "--execute")
+        self.assertEqual(code, 2)
+        self.assertEqual(result["error"], "pi_session_settings_missing")
+        with patch("trae_tui.native", side_effect=self.tui.query), \
+                self.assertRaisesRegex(ValueError, "pi_session_settings_missing"):
+            verify_operator_identity(op_ref)
 
     def test_unsupported_operator_provider_keeps_its_own_error_code(self):
         op_ref = self.operator_input(provider="codex", output=self.directory / "codex-operator.json")
@@ -189,23 +259,14 @@ class OperatorSessionTests(unittest.TestCase):
         query.assert_not_called()
         self.assertFalse((self.directory / "codex-operator.json").exists())
 
-    def test_pi_cli_refusal_names_the_missing_evidence_channels(self):
-        # The typed code names the provider; the diagnostic names the channels
-        # this build cannot read, so the gap is not mistaken for a Trae default.
-        self.tui.term["agentIdentity"] = "pi"
-        self.tui.entry.update(source="pi", payload={"agentType": "pi"})
-        self.tui.write_state()
-        op_ref = self.operator_input(provider="pi", expected={"cwd": str(self.f.cwd)},
-                                     output=self.directory / "pi-operator-cli.json")
-        with patch("trae_tui.native") as query:
+    def test_pi_cli_missing_hook_reports_the_typed_code_without_payload_leak(self):
+        self.pi_session(hook=False)
+        op_ref = self.pi_input({"cwd": str(self.f.cwd)}, name="pi-operator-cli.json")
+        with patch("trae_tui.native", side_effect=self.tui.query):
             code, result = self.route_cli("observe-operator", op_ref, "--execute")
         self.assertEqual(code, 2)
-        query.assert_not_called()
         self.assertEqual(result["decision"], "stop")
-        self.assertEqual(result["error"], "operator_session_pi_operator_unverifiable")
-        self.assertEqual(result["missing_evidence"], ["agent_hooks_pane_status", "session_meta",
-                                                      "turn_context", "terminal"])
-        self.assertNotIn("effect", result)
+        self.assertEqual(result["error"], "operator_session_runtime_state_unverifiable")
         self.assertFalse((self.directory / "pi-operator-cli.json").exists())
 
     def test_unknown_provider_refusal_carries_no_missing_evidence_claim(self):

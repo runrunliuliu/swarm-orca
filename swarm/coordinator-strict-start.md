@@ -65,19 +65,26 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
 
 ## Operator provider
 
-strict 的 Operator 角色只接受可核验的 **Trae TUI 会话**。`provider` 是 Operator 身份输入的
-显式声明，经 `provider_capability.py` 的能力表解析后再由 native 证据核验；本版本表中只有
-`trae` 可端到端核验。`operator_session.py` 对 `provider: pi` 在原生查询前直接以
-`operator_session_pi_operator_unverifiable` 停止（诊断附 `missing_evidence` 通道清单）：
-本机 Orca 1.4.219 不为 pi pane 写 `agent-hooks/last-status.json` 记录，且 pi 1.5.0 的会话
-日志没有读取器核验的 `session_meta`/`turn_context`，补通道属 Orca 侧改动而不是 swarm 选项。
-未知 provider 名（如 `codex`）是 `operator_session_provider_unsupported`；两者都不猜 log_root、
-不回退 Trae，能力表与全部拒绝码见
+strict 的 Operator 角色接受可核验的 **Trae TUI 或 Pi TUI 会话**。`provider` 是 Operator 身份
+输入的显式声明，经 `provider_capability.py` 的能力表解析后再由 native 证据核验：`trae` 用
+hook 行 + `session_meta`/`turn_context`，`pi` 用 hook 行 + transcript 根
+`{"type":"session","id":<uuid>,"cwd":…}` + assistant 的 `model`/`provider`/`thinkingLevel`。
+未知 provider 名（如 `codex`）是 `operator_session_provider_unsupported`；缺证据按 provider 给
+`operator_session_<provider>_operator_unverifiable` 并附 `missing_evidence`，不猜 log_root、
+不回退另一个 provider，能力表与全部拒绝码见
 [协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)。
+
+**Pi Operator 的前提**是 pi 会话由 Orca 启动（托管状态扩展会写 `source=pi` 的 hook 行）。
+Pi 没有 approval/sandbox 面，Operator 的 `expected_effective` 只能要求
+`model`/`model_provider`/`thinking_level`/`cwd`；要求其余键会以
+`operator_session_expected_effective_provider_unsupported` 停止。
+**Pi Coordinator 仍不可用**：S2 观察与 S5 契约只有 `trae-tui-runtime-v1`，pi 在能力表中没有
+`tui_adapter`，S2/S5 会以 `bootstrap_coordinator_provider_evidence_unavailable` 停止。
 用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
 挂 bootstrap registration 的两个 gate role 同样各自声明 `provider`
 （[schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），非法/不可核验声明在启动 owner
-前停止（`bootstrap_<role>_provider_evidence_unavailable` 等）。
+前停止（`bootstrap_<role>_provider_evidence_unavailable` 等）。两个 role 的 provider 可以不同
+（例如 Pi Operator + Trae Coordinator），各自按自己的证据核验。
 
 用 Trae 会话当 Operator 的完整清单（每步都在**该 Operator 自己的 pane** 内执行）：
 

@@ -87,17 +87,34 @@ class RegistrationProviderTests(unittest.TestCase):
                     providers=(("operator", "trae"), ("coordinator", provider))))
                 self.assertEqual(str(refused), "bootstrap_registration_provider_unsupported")
 
-    def test_known_but_unverifiable_provider_names_the_missing_evidence(self):
+    def test_pi_roles_resolve_to_the_runtime_state_format(self):
+        identity = self.identity(self.registration(
+            providers=(("operator", "pi"), ("coordinator", "pi"))))
         for role in ("operator", "coordinator"):
-            with self.subTest(role=role):
-                providers = [("operator", "trae"), ("coordinator", "trae")]
-                providers[0 if role == "operator" else 1] = (role, "pi")
-                refused = self.refused(self.registration(providers=providers))
-                self.assertEqual(str(refused), f"bootstrap_{role}_provider_evidence_unavailable")
-                self.assertEqual(refused.missing_evidence,
-                                 (provider_capability.PANE_HOOK_STATUS, provider_capability.SESSION_META,
-                                  provider_capability.TURN_CONTEXT, provider_capability.TERMINAL,
-                                  provider_capability.LAUNCH_COMMITMENT))
+            self.assertEqual(identity.capabilities[role].provider, "pi")
+            self.assertEqual(identity.capabilities[role].evidence_format, "runtime-state")
+
+    def test_pi_observed_identity_still_needs_the_launch_commitment(self):
+        identity = self.identity(self.registration(
+            providers=(("operator", "pi"), ("coordinator", "trae"))))
+        with self.assertRaises(provider_capability.ProviderRefused) as caught:
+            identity.role_capability("operator", observed={
+                "terminal": {}, "session_id": "session", "transcript_path": "/tmp/log.jsonl"})
+        self.assertEqual(str(caught.exception), "bootstrap_operator_provider_evidence_unavailable")
+        self.assertEqual(caught.exception.missing_evidence,
+                         (provider_capability.LAUNCH_COMMITMENT,))
+
+    def test_pi_coordinator_tui_observation_names_the_missing_adapter(self):
+        # Pi identity evidence works, but the S2/S5 launch adapter is Trae-only;
+        # the observation path must refuse and say so instead of assuming one.
+        with self.assertRaises(provider_capability.ProviderRefused) as caught:
+            provider_capability.require(
+                "pi", provider_capability.TUI_OBSERVATION,
+                required="bootstrap_registration_provider_required",
+                unsupported="bootstrap_coordinator_provider_unsupported",
+                unavailable="bootstrap_coordinator_provider_evidence_unavailable")
+        self.assertEqual(str(caught.exception), "bootstrap_coordinator_provider_evidence_unavailable")
+        self.assertEqual(caught.exception.missing_evidence, (provider_capability.TUI_ADAPTER,))
 
     def test_observed_identity_must_still_carry_the_declared_fields(self):
         identity = self.identity(self.registration())

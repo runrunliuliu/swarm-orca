@@ -194,7 +194,7 @@ Worker 已完成/释放，也不能补写本门通过；它不自动重开 Run �
 | `cli` | 已选 runtime 的固定 CLI 文件引用 |
 | `runtime` | 实时核验的 runtime ID |
 | `workspace` | `{id,path}`，目标 worktree 完整 ID 与规范路径 |
-| `operator` | `{terminal,incarnation,provider,session}`，启动操作者自身的已独立核验身份。`provider` 是显式声明，经 `provider_capability.py` 能力表解析后再由 native 证据核验，本版本只有 `trae` 可端到端核验：契约校验非空字符串，`operator_session.py` 在原生查询前拒绝 `pi`（`operator_session_pi_operator_unverifiable`，附 `missing_evidence`）和其他未知名（`operator_session_provider_unsupported`），不猜另一日志根或回退 Trae；能力表与拒绝码见 [协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)，原因与 Trae Operator 清单见表后的支持范围 |
+| `operator` | `{terminal,incarnation,provider,session}`，启动操作者自身的已独立核验身份。`provider` 是显式声明，经 `provider_capability.py` 能力表解析后再由 native 证据核验：`trae` 与 `pi` 都可核验（各自证据见 [协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)），未知名是 `operator_session_provider_unsupported`，缺证据是 `operator_session_<provider>_operator_unverifiable` 附 `missing_evidence`，不猜另一日志根或回退另一 provider；Pi Operator 的 `expected_effective` 只允许 `model`/`model_provider`/`thinking_level`/`cwd`。Operator 清单与前提见 [支持范围](operator-prepare.md#agent--adapter-支持范围) |
 | `coordinator` | `{terminal,incarnation,session}`，独立 Trae 会话，不能与 Operator 同 terminal 或同 provider/session |
 | `runtime_config` | 本任务明确的 Trae 执行配置文件引用，与观察器核验的实际设置一致 |
 | `role_skill` | 目标 worktree 内适用 Coordinator `SKILL.md` 的固定引用 |
@@ -209,7 +209,7 @@ terminal/incarnation；TUI 路径额外复用 `runtime_binding.capture`：原生
 tab:leaf → hooks.entries[pane] → provider session → 日志首行 `session_meta.id`，
 并在观察 Coordinator 前后核对 session、incarnation、hook 时间及日志不可改写前缀。
 `turn_id` 即使也是合法 UUID 也不能替代 session。此 Operator 适配只支持同 profile、
-显式 provider log_root 下的 Trae runtime-state；`pi` 及其他 provider 停止，不猜测其日志目录。
+显式 provider log_root 下的 runtime-state；`trae` 与 `pi` 各有自己的 hook/transcript 证据，未知 provider 停止，不猜测其日志目录。
 回执仅增加观察摘要和 `runtime-state-not-process-attested` 可信度，不导出原始日志或凭据，
 不替代 Coordinator 实时 caller 校验。旧契约身份 pin 不修改，不提供同 Run 身份纠正/回填。
 

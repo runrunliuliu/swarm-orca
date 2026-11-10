@@ -182,7 +182,7 @@ class NativeIdentity:
             capability = self.capabilities[role]
             evidence = runtime_binding.capture(BoundedQueries(self.b["fixed_inputs"]["cli"]["path"], self.b["runtime"]),
                 dict(provider=capability.provider, format=capability.evidence_format,
-                     host=socket.gethostname(),
+                     host=socket.gethostname(), require_launch_commitment=True,
                      terminal_handle=identity["terminal"], worktree_id=self.b["workspace"]["id"],
                      profile=self.value["profile"], log_root=self.value["log_root"], max_hook_age_seconds=1800),
                 clock=time.time, previous=self.evidence.get(role))

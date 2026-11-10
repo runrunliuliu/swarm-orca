@@ -4,7 +4,8 @@
 验收判据，**不构成**部署、重启、启动 Agent、迁移既有 attempt/Run 或放宽任何 gate 的授权。协议正文仍以
 [strict-bootstrap-protocol.md](../../strict-bootstrap-protocol.md) 为准；本文与它冲突时以协议为准。
 实现记录与偏差见 [§9](#9-实现记录p0-2026-11-10)。gate role 的 provider 已改为显式声明
-（[§10](#10-实现记录gate-role-provider-声明化2026-11-10)），这同样不是 live 验收。
+（[§10](#10-实现记录gate-role-provider-声明化2026-11-10)），Pi Operator 的证据复核与已实现范围见
+[§11](#11-pi-作为-gate-role证据已实现范围与剩余契约工作)；两者都不是 live 验收。
 
 关联：[协议正文](../../strict-bootstrap-protocol.md)、[strict 启动](../../coordinator-strict-start.md)、
 [Operator 启动](../../operator-startup.md)、[Operator 准备](../../operator-prepare.md)、
@@ -278,8 +279,8 @@ attempt 证据。
 
 1. 只接受表中逐字列出的 provider 名；不折叠大小写、不去空格、不做别名，未知名字拒绝而不是
    默认 trae。
-2. 已知但本版本读不到证据的 provider（当前 `pi`：无 pane hook 行，日志无
-   `session_meta`/`turn_context`）由能力表拒绝，并逐条给出缺失通道。
+2. 已知但本版本读不到某条证据的 provider 由能力表拒绝，并逐条给出缺失通道。§10 当时的例子是
+   pi；§11 记录了对 pi 证据的复核与随之实现的 pi 支持，以 §11 为准。
 3. 表是声明不是证明：observation 必须实际带有所需字段，否则同样拒绝。
 4. 身份、进程树独立性、incarnation、launch token、pin、STOP 门全部保留；能力检查只回答
    “这个 provider 能不能被核验”，不替代任何既有断言。
@@ -308,6 +309,58 @@ attempt 证据。
   `trae-tui-runtime-v1`，`trae_tui.py` 本身是 Trae 读取器。本次只把 bootstrap 两个 gate role 与
   Operator 观察的 provider 变成显式声明；一个未来 provider 要真正跑完 S5，还需要它的 TUI/
   exec adapter 与对应契约值，否则会在 S5 契约校验处停止——这是已知边界，不是本次能完成的迁移。
-- `provider_capability` 目前只有 `trae` 一条可用路径；新增 provider 需要真实可核验通道 +
-  adapter + 离线回归，不能只加表项。
+- 新增 provider 需要真实可核验通道 + adapter + 离线回归，不能只加表项（pi 见 §11）。
 - P1–P3 与 §7 四项决策不变。
+
+## 11. Pi 作为 gate role：证据、已实现范围与剩余契约工作
+
+状态：**Pi Operator 与 bootstrap 双角色身份已实现并离线回归；Pi Coordinator（S2/S5）未实现**。
+本节只记录已核验的事实与剩余工作，不构成 live 验收或部署授权。
+
+### 11.1 已核验的证据（2026-11-10）
+
+| 事实 | 出处 |
+| --- | --- |
+| Orca 给经它启动的 pi pane 装托管状态扩展，POST `session_id`/`session_file`/`launchToken` 到 `/hook/pi` | `orca/src/main/pi/agent-status-extension-source.ts`、`agent-status-handler-source.ts` |
+| 服务端把 pi 的 `session_id`+`session_file` 规范成 `providerSession{key:'session_id',id,transcriptPath}` | `orca/src/shared/agent-session-resume.ts:243-250` |
+| `launchTokenHash` 与 `evidenceObservedAt` 对 pi 行同样写入（provider 无关） | `server-persistence.ts:50-58`、`server-status-application.ts:165`、`server-persistence-validation.ts:181` |
+| pi transcript 根为 `{"type":"session","id":<uuid>,"cwd":…,"version":3}`，记录带 `id`/`parentId` 链与 ISO `timestamp`，assistant 消息带 `model`/`provider`/`thinkingLevel` | 本机 pi 会话日志的实际记录形状（只读取记录类型/键，未导出内容）；对照 `orca/.../session-scanner-graph-parsers.ts:233-260` |
+
+结论：pi 的身份与设置证据与 Trae 同源同强度（pane hook 行 + 根记录 + 每轮设置 + 启动 token），
+差别只在记录词汇与可证明的设置集合——不是“pi 不可核验”。
+
+### 11.2 已实现
+
+| 位置 | 改动 |
+| --- | --- |
+| `provider_capability.py` | 能力表增加 `records`（语义 → provider 记录类型）与 `settings_fields`；`pi` 变为可核验（`session` 根、`message` 设置、`PI_SETTINGS`），仍未给 `tui_adapter` |
+| `pi_transcript.py`（新增） | 读 pi transcript：根 id 必须是 UUID、`version>=3`、`cwd` 必填、`id`/`parentId` 链不得悬空/断裂、时间不减、assistant 设置齐全；返回前缀 pin、inode、`observed_at` |
+| `swarm_ledger/runtime_binding.py` | pi 行：拒绝 `providerSessionOnly`/`toolAgentId`；`require_launch_commitment` 选项（gate 角色为 true，usage 记账不要求）；capture 根记录按 provider 校验（trae `session_meta` / pi `session` 且 id 相等） |
+| `operator_session.py` | 设置读取按 provider 分派：trae `turn_context`（含 reviewer 别名）、pi 用 `pi_transcript`；`expected_effective` 只允许该 provider 的 `settings_fields`，其余键 → `operator_session_expected_effective_provider_unsupported` |
+| `bootstrap_identity.py` | 两个 gate role 的 capture 传 `require_launch_commitment=True`，provider 来自 registration |
+| docs | 协议 §5.1、operator-prepare、coordinator-strict-start/startup 的 provider 文本 |
+
+离线回归（本次）：`test_provider_capability` 11 例（含 pi 能力与 `settings_fields` 边界）、
+`test_bootstrap_provider` 10 例（pi 双角色解析、缺 launch commitment、Coordinator 缺 adapter）、
+`test_operator_session` 29 例（新增 pi 绑定/设置收窄/缺 hook/缺 turn 设置/CLI typed code）、
+`test_operator_startup_identity` 16 例（新增 pi 证据通过 session gate、Trae 转录拒绝、缺 launch
+commitment 拒绝）、`test_runtime_binding` 26 例（新增 pi 根记录与 gate/记账的 launch commitment
+区分）。既有 trae 断言未放宽；`test_runtime_binding` 的 pi 用例从“codex 式 `session_meta`”改为
+pi 真实的 `{"type":"session"}` 根记录（旧断言编码的是错误格式）。
+
+### 11.3 Pi Coordinator 的剩余工作（未实现，需 owner 先定契约）
+
+1. `pi_tui.py`：等价于 `trae_tui.observe` 的观察器（caller 指纹复用 `caller_result`、hook/transcript
+   复用 `runtime_binding`+`pi_transcript`、anchor 复用 `anchor_matches`），产出同样的
+   `binding`/`thread_id`/`effective`/`kind` 形状。
+2. 新 adapter 值（如 `pi-tui-runtime-v1`）贯通：`coordinator_startup.validate/identity/run_gate`、
+   `coordinator_strict_request.observed_coordinator`、`coordinator_strict.py`、`coordinator_strict_start.py`、
+   `operator_startup.py`、`bootstrap_tool` 的 S2 produce/template。
+3. **需要 owner 拍板的契约项**：pi 的 `runtime_config` 是什么。Trae 用一份固定 execution 配置
+   （sandbox/approval/launch_mode/network）；pi 没有这些面。可选做法：
+   (a) 定义 swarm 自有的 pinned `pi runtime policy`（provider/model/thinking_level，由 gate 观察核对）；
+   (b) pi 不要求 `runtime_config`，改由审查过的 `expected_effective` + 观察结果承担；
+   (c) 暂不支持 Pi Coordinator。
+   在 (a)/(b) 选定之前写 S5 只会产生一个“看着支持、实际没核验”的 adapter，故本次停在
+   `bootstrap_coordinator_provider_evidence_unavailable`（缺 `tui_adapter`）。
+4. 仍需 live 验证：一台经 Orca 启动、存在 `source=pi` hook 行的宿主；离线 fixture 不能替代它。

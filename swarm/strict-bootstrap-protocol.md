@@ -285,10 +285,22 @@ provider → （证据格式、必须字段、transcript 记录、TUI adapter）
 4. 身份/进程/incarnation/launch-token/独立性/STOP/pin 门一律不变；能力检查只决定“这个 provider
    在本版本能不能核验”，不替代任何既有门，也不因为 provider 名字而放宽任何断言。
 
-当前表：只有 `trae`（`runtime-state`，含 `launch_token_hash`、`session_meta`、`turn_context`、
-TUI adapter `trae-tui-runtime-v1`）可端到端核验。`pi` 作为已知但本版本不可核验的 provider 入表：
-本机 Orca 1.4.219 不为 pi pane 写 `agent-hooks/last-status.json`，pi 会话日志也没有
-`session_meta`/`turn_context`；两处缺口都在 Orca/pi 侧。
+当前表有两项可核验 provider：
+
+- `trae`：`runtime-state` + hook `launchTokenHash` + transcript 根 `session_meta` + 每轮
+  `turn_context`，TUI adapter `trae-tui-runtime-v1`。
+- `pi`：`runtime-state` + hook `launchTokenHash`（Orca 的托管 pi 状态扩展把
+  `session_id`/`session_file`/`launchToken` POST 到 `/hook/pi`）+ transcript 根
+  `{"type":"session","id":<uuid>,"cwd":…}` + assistant 消息的 `model`/`provider`/`thinkingLevel`
+  （`pi_transcript.py` 同时校验 `id`/`parentId` 链与时间不减）。
+  pi 没有 approval/sandbox 面，故 `expected_effective` 只允许 `PI_SETTINGS`
+  （`model`、`model_provider`、`thinking_level`、`cwd`），其余键按
+  `operator_session_expected_effective_provider_unsupported` 拒绝。
+
+**仍未支持**：Coordinator 的 S2 观察与 S5 TUI 契约目前只有 `trae-tui-runtime-v1` 一个 adapter。
+`pi` 在表中没有 `tui_adapter`，因此 `bootstrap_tool` 的 S2/S5 路径会以
+`bootstrap_coordinator_provider_evidence_unavailable`（缺 `tui_adapter`）拒绝 pi Coordinator，
+而不是假定一个不存在的 adapter。Pi 作为 Operator 的路径不依赖该 adapter，已可用。
 
 | 入口 | 缺失/未知声明 | 已知但证据不可读 |
 | --- | --- | --- |

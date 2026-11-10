@@ -85,16 +85,47 @@ class OperatorStartupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "operator_session_runtime_state_unverifiable"):
             self.s.gate()
 
-    def test_pi_operator_is_rejected_before_native_identity_queries(self):
+    def pi_operator_evidence(self, *, launch_token=True):
+        """Declare a Pi Operator and give it real-format Pi evidence."""
+        self.s.contract["operator"]["provider"] = "pi"
+        self.t.term["agentIdentity"] = "pi"
+        log = self.t.f.root / "pi-operator-session.jsonl"
+        records = [dict(type="session", id=self.sid, cwd=str(self.t.f.cwd), version=3,
+                        timestamp=now(), parentId=None),
+                   dict(type="message", id="turn0001", parentId=None, timestamp=now(),
+                        message=dict(role="assistant", model="anthropic/claude-sonnet",
+                                     provider="anthropic", thinkingLevel="high", content=[]))]
+        log.write_text("".join(json.dumps(record) + "\n" for record in records))
+        self.t.entry.update(source="pi", payload={"agentType": "pi"}, providerSession={
+            "key": "session_id", "id": self.sid, "transcriptPath": str(log)})
+        if not launch_token:
+            self.t.entry.pop("launchTokenHash")
+        self.t.write_state()
+        return log
+
+    def test_pi_operator_with_pi_evidence_passes_the_session_gate(self):
+        self.pi_operator_evidence()
+        receipt = self.s.gate()
+        self.assertTrue(receipt["ok"])
+        self.assertEqual(receipt["actor"], "operator")
+        self.assertEqual(receipt["operator_session_trust"], "runtime-state-not-process-attested")
+        self.assertEqual(len(receipt["operator_session_evidence_sha256"]), 64)
+        self.assertFalse(receipt["execution_authorized"])
+
+    def test_pi_operator_with_trae_transcript_stops_typed(self):
+        # The provider is supported, but this transcript has Trae's root record:
+        # the gate must stop on the mismatch instead of binding someone's session.
         self.s.contract["operator"]["provider"] = "pi"
         self.t.term["agentIdentity"] = "pi"
         self.t.entry.update(source="pi", payload={"agentType": "pi"})
         self.t.write_state()
-        # A Pi pane has no agent-hooks row on this runtime, so the session gate must
-        # stop on the provider before it queries or reports a stale-hook style state.
-        with self.assertRaisesRegex(ValueError, "operator_session_pi_operator_unverifiable"):
+        with self.assertRaisesRegex(ValueError, "operator_session_runtime_state_unverifiable"):
             self.s.gate()
-        self.assertEqual(self.t.calls, [])
+
+    def test_pi_operator_without_a_launch_commitment_is_unverifiable(self):
+        self.pi_operator_evidence(launch_token=False)
+        with self.assertRaisesRegex(ValueError, "operator_session_runtime_state_unverifiable"):
+            self.s.gate()
 
     def test_unsupported_provider_does_not_guess_another_log_root(self):
         self.s.contract["operator"]["provider"] = "codex"
