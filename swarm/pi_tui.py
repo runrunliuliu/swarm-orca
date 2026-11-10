@@ -54,7 +54,7 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
              context_max_age_seconds=900, startup_anchor=None,
              caller_receipt_runtime=None):
     require(Path(cli).is_absolute() and Path(cli).is_file(), "verified_absolute_cli_required")
-    policy = policy_reader.read(pi_policy)
+    policy = policy_reader.read_ref(pi_policy)
     initial = caller_result(parse(pinned(caller_receipt)), caller_receipt_runtime or runtime)
     caller = initial["caller"]
     anchor = parse(pinned(startup_anchor)) if startup_anchor else None
@@ -85,7 +85,8 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
                 and anchor.get("thread_id") == expected_thread == sid, "tui_anchor_identity_changed")
         require(all(type(anchor.get("hook", {}).get(k)) in (int, float)
                     and hook[k] >= anchor["hook"][k] for k in hook), "tui_hook_regressed")
-        require(policy_reader.settings(policy) == anchor.get("policy"), "pi_runtime_policy_changed")
+        require(policy_reader.settings(policy) == anchor.get("policy")
+                and anchor.get("policy_ref") == pi_policy, "pi_runtime_policy_changed")
     log = Path(before["transcript_path"])
     evidence = pi_transcript.read(log)
     require(evidence["session_id"] == sid, "tui_session_changed")
@@ -110,6 +111,7 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
     require(after == before and all(after_hook[k] >= hook[k] for k in hook),
             "tui_identity_or_hook_changed")
     pinned(caller_receipt)
+    pinned(pi_policy)
     age = (datetime.now(timezone.utc) - timestamp(evidence["observed_at"])).total_seconds()
     if not 0 <= age <= context_max_age_seconds:
         raise ContextFreshnessError(age, context_max_age_seconds)
@@ -117,7 +119,7 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
             "kind": "pi_tui_session_observation" if anchor else "pi_tui_startup_anchor",
             "thread_id": sid, "session_id": sid, "runtime_id": query.runtime_id,
             "binding": before, "hook": after_hook, "caller_receipt": caller_receipt,
-            "policy": policy_reader.settings(policy),
+            "policy": policy_reader.settings(policy), "policy_ref": pi_policy,
             "observed_at": evidence["observed_at"],
             "effective": {**observed, "cwd": evidence["cwd"]},
             "log_path": str(log), "log_device": evidence["file_identity"]["device"],

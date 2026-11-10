@@ -356,6 +356,7 @@ pi 真实的 `{"type":"session"}` 根记录（旧断言编码的是错误格式�
 | `pi_policy.py`（新增） | 审查过的 pi runtime policy：精确字段 `schema_version,scope,provider,model,thinking_level`（`model` 为 `{provider,id}`），`read()` 只读同用户普通文件并返回可核对的三个设置。示例见 `examples/pi-runtime-policy.example.json` |
 | `tui_adapter.py`（新增） | 唯一的 adapter 名 → （观察器、policy 关键字、policy 校验）映射；未知 adapter 拒绝。`trae_tui`/`pi_tui` 懒加载，避免环 |
 | `pi_tui.py`（新增） | 等价 `trae_tui.observe` 的观察器：同一 `runtime_binding` capture（含 `require_launch_commitment`）、同一 strict-caller 指纹、`pi_transcript` 根/链/设置校验、anchor 前缀与 hook 单调、`ContextFreshnessError`；产出同样的 `binding`/`thread_id`/`effective`/`kind` 形状，`thread_id` 为 pi uuid |
+| `pi_transcript.py` 的严格性 | 线性链（单一 null 起点，其后逐条相连）→ `pi_session_chain_broken`；freshness 取**被采纳 assistant 记录**的时间戳，另给 `activity_at` 仅作诊断；policy 用 pinned Ref，读取前后与观察末尾各重验 |
 | `coordinator_startup.py` | `validate`/`identity`/`run_gate` 改用 adapter 注册表：pi 契约校验 pi policy，观察器按 adapter 选择；tui 分支不再固定 Trae |
 | `coordinator_strict_request.observed_coordinator` | 由 `kind` 反查 adapter，接受 `pi_tui_*`，adapter 与 kind 不一致即拒绝 |
 | `coordinator_strict.py`、`coordinator_strict_start.py`、`operator_startup.py` | 调用者 pin 与契约校验接受任一已审查 TUI adapter |
@@ -366,11 +367,16 @@ pi 与 Trae 的**显式差异**（写进协议 §5.1，不在代码里假装等�
 `PI_SETTINGS`；`observation.roots` 对 pi 只是审查输入（pi 无 sandbox 面，观察器不声称已核实）；
 anchor 要求同一 runtime id。
 
-离线回归（本节）：`test_pi_tui.py` 29 例——policy 形状/路径、真实字节的 pi 观察（绑定/设置/anchor
-前缀/陈旧/缺 hook/换 policy）、`pi-tui-runtime-v1` 契约通过 session gate、Trae execution 配置被拒、
+离线回归（本节）：`test_pi_tui.py` 32 例——policy 形状/路径、真实字节的 pi 观察（绑定/设置/anchor
+前缀/陈旧/缺 hook/换 policy）、陈旧设置 + 新追加记录仍判陈旧、第二条 null 起点链被拒、policy Ref
+被替换即 `file_pin_changed`、`pi-tui-runtime-v1` 契约通过 session gate、Trae execution 配置被拒、
 S5 过期上下文被拒、`observed_coordinator` 接受 pi kind 且拒绝伪造 adapter；
 `test_coordinator_startup`/`test_coordinator_strict*`/`test_operator_startup*`/`test_bootstrap_workflow`
-共 342 例回归通过。
+共 374 例回归通过。
+
+独立 review（codex-ark，同 worktree 只读）：首轮给出 3 条问题（freshness 取最后一条而非设置记录、
+非 root 记录可另起 `parentId: null` 链、pi policy 以裸路径传入），全部按上述改动修复并被复检为
+RESOLVED；trae 分支仍收路径、仍用 `read_trae_execution`，未发现新的 fail-open。
 
 仍未完成：live 验证（需要一台经 Orca 启动且存在 `source=pi` hook 行的宿主）；Run 之后的
 `coordinator_tui_continue.py`/`coordinator_tui_scheduler.py` 仍按 Trae 读；`coordinator_launch.py` /

@@ -267,7 +267,8 @@ class RoleTool(BootstrapMachine, ActionReader):
                 roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
                 expected_thread=registration["roles"]["coordinator"]["session"],
                 context_max_age_seconds=1800)
-            options[policy_key] = self.b["fixed_inputs"]["runtime_config"]["path"]
+            options[policy_key] = tui_adapter.input_value(
+                capability.tui_adapter, self.b["fixed_inputs"]["runtime_config"])
             value = observer(**options)
         return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
 

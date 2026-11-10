@@ -52,14 +52,27 @@ def reader(adapter):
     raise AdapterRefused("tui_adapter_unsupported")
 
 
-def policy(adapter, path):
-    """Validate the reviewed provider input the reader will pin."""
+def policy(adapter, source):
+    """Validate the reviewed provider input the reader will pin.
+
+    Trae takes an execution-config path (the contract pins its Ref separately);
+    Pi takes the pinned Ref itself, because that policy is the expectation its
+    transcript is compared against.
+    """
     if adapter == TRAE_ADAPTER:
         from trae_coordinator import TUI_EXECUTION, read_trae_execution
+        path = source["path"] if isinstance(source, dict) else source
         if read_trae_execution(path) != TUI_EXECUTION:
             raise AdapterRefused("tui_runtime_config_required")
         return None
     if adapter == PI_ADAPTER:
-        from pi_policy import read
-        return read(path)
+        from pi_policy import read_ref
+        return read_ref(source)
     raise AdapterRefused("tui_adapter_unsupported")
+
+
+def input_value(adapter, runtime_config):
+    """The value a caller hands the reader: a pinned Ref for Pi, a path for Trae."""
+    if adapter == PI_ADAPTER:
+        return runtime_config
+    return runtime_config["path"] if isinstance(runtime_config, dict) else runtime_config

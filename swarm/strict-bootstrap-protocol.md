@@ -294,6 +294,11 @@ provider → （证据格式、必须字段、transcript 记录、TUI adapter）
   `{"type":"session","id":<uuid>,"cwd":…}` + assistant 消息的 `model`/`provider`/`thinkingLevel`
   （`pi_transcript.py` 同时校验 `id`/`parentId` 链与时间不减），TUI adapter
   `pi-tui-runtime-v1`，`runtime_config` 是 **pi runtime policy** 记录。
+  三个细节是硬要求，不是实现选择：transcript 必须是**单条线性链**（root `session` 记录之外
+  只有一个 `parentId: null` 起点，其后每条都指向紧邻前一条），否则
+  `pi_session_chain_broken`；freshness 以**被采纳的 assistant 设置记录**的时间戳为准
+  （追加一条新的非 assistant 记录不能让陈旧设置变“新鲜”）；policy 以**已 pin 的 Ref** 传入，
+  读取前后与观察结束后各重验一次，anchor 记录该 Ref，换文件或换字节即拒绝。
 
 pi runtime policy（schema v1，精确字段 `schema_version,scope,provider,model,thinking_level`，
 `provider` 固定 `pi`，`model` 为 `{provider,id}`，示例见

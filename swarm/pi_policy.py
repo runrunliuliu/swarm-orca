@@ -13,7 +13,7 @@ rather than ignored, so a policy cannot silently claim more than Pi proves.
 
 from pathlib import Path
 
-from coordinator_io import parse, require
+from coordinator_io import parse, pinned, require
 from swarm_ledger import runtime_binding
 
 SCHEMA_VERSION = 1
@@ -41,6 +41,21 @@ def validate(value):
             "model": text(model["id"], "pi_runtime_policy_model_required"),
             "thinking_level": text(value["thinking_level"],
                                    "pi_runtime_policy_thinking_level_required")}
+
+
+def read_ref(ref):
+    """Read the policy from an independently pinned Ref, never a bare path.
+
+    The policy is the expectation the transcript is compared against, so it must
+    come from the same reviewed bytes the contract pinned; `pinned()` runs again
+    after the read so a replace-and-restore during observation is refused.
+    """
+    require(isinstance(ref, dict) and set(ref) == {"path", "sha256"},
+            "pi_runtime_policy_pin_required")
+    content = pinned(ref)
+    policy = validate(parse(content))
+    require(pinned(ref) == content, "pi_runtime_policy_changed_during_read")
+    return policy
 
 
 def read(path):

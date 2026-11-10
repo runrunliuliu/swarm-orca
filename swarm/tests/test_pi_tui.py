@@ -21,6 +21,7 @@ from coordinator_strict_request import observed_coordinator
 from coordinator_startup import identity, validate
 from pi_tui import observe
 import pi_policy
+import pi_transcript
 import tui_adapter
 import test_operator_startup_identity as operator_startup
 
@@ -91,6 +92,7 @@ class PiTuiFixture(unittest.TestCase):
                            thinking_level="high")
         self.policy_path = self.root / "pi-policy.json"
         publish_new(self.policy_path, self.policy)
+        self.policy_ref = file_ref(self.policy_path)
         self.log = self.root / "pi-session.jsonl"
         self.write_log()
         self.write_state()
@@ -157,7 +159,7 @@ class PiTuiFixture(unittest.TestCase):
                     incarnation=self.INCARNATION, workspace=self.WORKSPACE_ID,
                     cwd=str(self.cwd), profile=str(self.profile), log_root=str(self.root),
                     roots=[str(self.root / "work")], caller_receipt=self.caller_ref,
-                    pi_policy=str(self.policy_path), expected_thread=self.sid,
+                    pi_policy=self.policy_ref, expected_thread=self.sid,
                     context_max_age_seconds=900, startup_anchor=None)
         args.update(extra)
         with patch("trae_tui.native", side_effect=self.query):
@@ -212,9 +214,54 @@ class PiTuiTests(PiTuiFixture):
         changed = dict(self.policy, model={"provider": "anthropic", "id": "other-model"})
         publish_new(self.root / "pi-policy-2.json", changed)
         with self.assertRaisesRegex(ValueError, "actual session settings mismatch"):
-            self.observe(pi_policy=str(self.root / "pi-policy-2.json"))
+            self.observe(pi_policy=file_ref(self.root / "pi-policy-2.json"))
         with self.assertRaisesRegex(ValueError, "tui_session_changed"):
             self.observe(expected_thread=str(uuid.uuid4()))
+
+    def test_freshness_is_anchored_to_the_accepted_settings_record(self):
+        # Append a fresh non-assistant record: the accepted assistant settings are
+        # old, so the gate must stay stale instead of following the newest line.
+        self.write_log(stale_seconds=4000)
+        with self.log.open("a") as stream:
+            stream.write(json.dumps(dict(type="message", id="turn0002",
+                                         parentId="turn0001", timestamp=now(),
+                                         message=dict(role="user", content=[]))) + "\n")
+        from trae_coordinator import ContextFreshnessError
+        with self.assertRaises(ContextFreshnessError) as caught:
+            self.observe(context_max_age_seconds=900)
+        self.assertEqual(caught.exception.code, "session_context_stale")
+        transcript = pi_transcript.read(self.log)
+        self.assertEqual(transcript["settings_record_id"], "turn0001")
+        self.assertGreater(timestamp(transcript["activity_at"]), timestamp(transcript["observed_at"]))
+
+    def test_a_second_chain_start_cannot_carry_the_accepted_settings(self):
+        self.write_log()
+        with self.log.open("a") as stream:
+            stream.write(json.dumps(dict(type="message", id="turn0002", parentId=None,
+                                         timestamp=now(), message=dict(
+                                             role="assistant", model="claude-sonnet",
+                                             provider="anthropic", thinkingLevel="high",
+                                             content=[]))) + "\n")
+        with self.assertRaisesRegex(ValueError, "pi_session_chain_broken"):
+            self.observe()
+
+    def test_policy_must_stay_the_pinned_reviewed_bytes(self):
+        # A bare path is refused: the policy is the reviewed expectation, so it
+        # must arrive as the pinned Ref, not as a file the caller re-reads.
+        with self.assertRaisesRegex(ValueError, "pi_runtime_policy_pin_required"):
+            self.observe(pi_policy=str(self.policy_path))
+        # The reviewer's scenario: replace the pinned bytes during observation.
+        original = pi_policy.read_ref
+        def replaced(ref_value):
+            Path(ref_value["path"]).write_text(json.dumps(self.policy, indent=1) + "\n")
+            return original(ref_value)
+        with patch("pi_policy.read_ref", side_effect=replaced):
+            with self.assertRaisesRegex(ValueError, "file_pin_changed"):
+                self.observe()
+        # A different reviewed policy is a mismatch, not a silent acceptance.
+        publish_new(self.root / "other-policy.json", dict(self.policy, thinking_level="low"))
+        with self.assertRaisesRegex(ValueError, "actual session settings mismatch"):
+            self.observe(pi_policy=file_ref(self.root / "other-policy.json"))
 
     def test_stale_and_missing_evidence_are_typed(self):
         self.write_log(stale_seconds=4000)
@@ -252,7 +299,7 @@ class PiStartupContractTests(operator_startup.OperatorStartupTests):
 
         def observe_pi(**kwargs):
             self.assertNotIn("trae_runtime_config", kwargs)
-            self.assertEqual(kwargs["pi_policy"], str(self.pi_policy_path))
+            self.assertEqual(kwargs["pi_policy"], file_ref(self.pi_policy_path))
             self.assertEqual(kwargs["expected_thread"], self.pi_sid)
             return copy.deepcopy(self.pi_observation)
 

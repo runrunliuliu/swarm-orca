@@ -114,7 +114,7 @@ def validate(contract):
     observation = contract["observation"]
     if tui:
         try:
-            tui_adapter.policy(contract["adapter"], contract["runtime_config"]["path"])
+            tui_adapter.policy(contract["adapter"], contract["runtime_config"])
         except tui_adapter.AdapterRefused as exc:
             raise GateError(str(exc)) from None
         require(isinstance(observation, dict) and set(observation) == {
@@ -265,7 +265,7 @@ def run_gate(contract_ref, *, phase, actor, previous=None):
     if tui:
         observer, policy_key = tui_adapter.reader(contract["adapter"])
         extra = {k: contract["observation"][k] for k in ("profile", "caller_receipt")}
-        extra[policy_key] = contract["runtime_config"]["path"]
+        extra[policy_key] = tui_adapter.input_value(contract["adapter"], contract["runtime_config"])
     else:
         observer = observe
         extra = dict(cursor=contract["observation"]["cursor"], run=None,

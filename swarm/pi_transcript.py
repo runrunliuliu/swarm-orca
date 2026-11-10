@@ -51,7 +51,7 @@ def read(path):
             if not rows:
                 _root(record)
             else:
-                _chained(record, seen, previous_at)
+                _chained(record, seen, previous_at, rows[-1]["id"], len(rows) == 1)
             previous_at, last_stamp = _when(record), record["timestamp"]
             seen.add(record.get("id"))
             rows.append(record)
@@ -60,9 +60,14 @@ def read(path):
                 "pi_session_changed_during_read")
     require(len(rows) > 1, "pi_session_settings_missing")
     root = rows[0]
-    effective = _effective(rows)
+    effective, settings_record = _effective(rows)
     return {"session_id": root["id"], "cwd": root["cwd"], "version": root["version"],
-            "effective": effective, "observed_at": last_stamp,
+            "effective": effective,
+            # Freshness is anchored to the record whose settings are accepted, not
+            # to the newest line: appending a fresh non-assistant record must not
+            # make stale settings look current.
+            "observed_at": settings_record["timestamp"],
+            "activity_at": last_stamp, "settings_record_id": settings_record["id"],
             "prefix": {"bytes": info.st_size, "sha256": digest},
             "file_identity": {"device": info.st_dev, "inode": info.st_ino}}
 
@@ -78,16 +83,17 @@ def _root(record):
     _when(record)
 
 
-def _chained(record, seen, previous_at):
+def _chained(record, seen, previous_at, previous_id, first_child):
     require(isinstance(record.get("type"), str) and record["type"].strip(),
             "pi_session_record_invalid")
     require(isinstance(record.get("id"), str) and record["id"] and record["id"] not in seen,
             "pi_session_record_identity_invalid")
     parent = record.get("parentId")
-    # A branch/compaction may end one chain and start another at null, but a
-    # parent must already have been read: a dangling or forward link is not
-    # evidence of this transcript's history.
-    require(parent is None or parent in seen, "pi_session_chain_broken")
+    # Pi's transcript is one linear chain that starts at a single null parent
+    # (the session root record is separate). A second null start, a branch, a
+    # dangling or forward link would let a standalone record carry the settings
+    # the gate accepts, so the shape must stay linear.
+    require(parent is None if first_child else parent == previous_id, "pi_session_chain_broken")
     require(previous_at is None or _when(record) >= previous_at,
             "pi_session_timestamps_not_monotonic")
 
@@ -111,7 +117,7 @@ def _effective(rows):
                     "thinking_level": message.get("thinkingLevel")}
         require(all(isinstance(value, str) and value.strip() for value in observed.values()),
                 "pi_session_settings_missing")
-        return observed
+        return observed, record
     raise ValueError("pi_session_settings_missing")
 
 
