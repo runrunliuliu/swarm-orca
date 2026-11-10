@@ -12,6 +12,16 @@ const MAX_RUNTIME_RPC_MESSAGE_BYTES = 1024 * 1024
 const RUNTIME_RPC_SOCKET_IDLE_TIMEOUT_MS = 30_000
 const MAX_RUNTIME_RPC_CONNECTIONS = 32
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 10_000
+// Why half the idle timeout: a dispatch that is still running half an idle period
+// later has already provably outlived every fast RPC, so it gets a keepalive before
+// the socket's idle timer can fire. Node refreshes that timer on write as well as on
+// read, so the frame is what keeps the connection (and the CLI's own request timer)
+// alive; without it a 210 s `git worktree add` reported `runtime_unavailable` at 30 s.
+const DEFAULT_KEEPALIVE_ARM_DELAY_MS = Math.floor(RUNTIME_RPC_SOCKET_IDLE_TIMEOUT_MS / 2)
+// Why: a handler that never settles must not hold one of the 32 connection slots
+// forever. Long-poll handlers own their own deadlines; this ceiling bounds only the
+// dispatches whose keepalive was armed implicitly because they ran long.
+const MAX_IMPLICIT_KEEPALIVE_MS = 10 * 60_000
 
 export type UnixSocketTransportOptions = {
   endpoint: string
@@ -21,6 +31,9 @@ export type UnixSocketTransportOptions = {
   // the client honours them, the client-side idle timer. Tests override this
   // to avoid waiting 10 s for a frame.
   keepaliveIntervalMs?: number
+  // Why: how long a dispatch may run before keepalive is armed for it implicitly.
+  // Tests override this to exercise the arming without faking 15 s.
+  keepaliveArmDelayMs?: number
 }
 
 type MessageHandler = (
@@ -33,14 +46,16 @@ export class UnixSocketTransport implements RpcTransport {
   private readonly endpoint: string
   private readonly kind: 'unix' | 'named-pipe'
   private readonly keepaliveIntervalMs: number
+  private readonly keepaliveArmDelayMs: number
   private server: Server | null = null
   private messageHandler: MessageHandler | null = null
   private readonly activeSockets = new Set<Socket>()
 
-  constructor({ endpoint, kind, keepaliveIntervalMs }: UnixSocketTransportOptions) {
+  constructor({ endpoint, kind, keepaliveIntervalMs, keepaliveArmDelayMs }: UnixSocketTransportOptions) {
     this.endpoint = endpoint
     this.kind = kind
     this.keepaliveIntervalMs = keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS
+    this.keepaliveArmDelayMs = keepaliveArmDelayMs ?? DEFAULT_KEEPALIVE_ARM_DELAY_MS
   }
 
   onMessage(handler: MessageHandler): void {
@@ -170,6 +185,10 @@ export class UnixSocketTransport implements RpcTransport {
   private dispatchMessage(socket: Socket, rawMessage: string, inflight: Set<() => void>): void {
     let replied = false
     let keepaliveTimer: NodeJS.Timeout | null = null
+    let keepaliveArmTimer: NodeJS.Timeout | null = null
+    // Why: only the implicit (ran-long) path arms a ceiling; a long-poll handler
+    // passes its own deadline through `startKeepalive()` and must keep it.
+    let implicitKeepaliveDeadline: number | null = null
     // Why: each dispatch needs its own abort signal and keepalive timer
     // cleanup. Socket close runs every cleanup without touching sibling
     // dispatches that already replied on the same connection.
@@ -183,6 +202,10 @@ export class UnixSocketTransport implements RpcTransport {
       if (keepaliveTimer) {
         clearInterval(keepaliveTimer)
         keepaliveTimer = null
+      }
+      if (keepaliveArmTimer) {
+        clearTimeout(keepaliveArmTimer)
+        keepaliveArmTimer = null
       }
       if (abort) {
         abortController.abort()
@@ -212,12 +235,36 @@ export class UnixSocketTransport implements RpcTransport {
           cleanupDispatch(socket.destroyed || !socket.writable)
           return
         }
+        if (implicitKeepaliveDeadline !== null && Date.now() >= implicitKeepaliveDeadline) {
+          // Why: stop feeding a dispatch that outlived its ceiling. The idle timer
+          // then closes the socket, whose `close` handler aborts the dispatch.
+          cleanupDispatch(true)
+          return
+        }
         socket.write('{"_keepalive":true}\n')
       }, this.keepaliveIntervalMs)
       // Why: don't hold the process open solely on the keepalive interval.
       if (typeof keepaliveTimer.unref === 'function') {
         keepaliveTimer.unref()
       }
+    }
+
+    // Why: a dispatch that is still running has not gone idle, so the connection must
+    // not be torn down as if it had. Arming only after `keepaliveArmDelayMs` keeps the
+    // fast path timer-free (the one-shot is cleared by the reply) while any slower
+    // handler — `worktree.create` over a slow filesystem, a large ledger write — writes
+    // a frame before the idle timer can fire. The CLI's own request timer is refreshed
+    // by these frames too, so this fixes not just the framing but the client deadline.
+    keepaliveArmTimer = setTimeout(() => {
+      keepaliveArmTimer = null
+      if (replied || cleanedUp) {
+        return
+      }
+      implicitKeepaliveDeadline = Date.now() + MAX_IMPLICIT_KEEPALIVE_MS
+      startKeepalive()
+    }, this.keepaliveArmDelayMs)
+    if (typeof keepaliveArmTimer.unref === 'function') {
+      keepaliveArmTimer.unref()
     }
 
     this.messageHandler?.(rawMessage, reply, {
