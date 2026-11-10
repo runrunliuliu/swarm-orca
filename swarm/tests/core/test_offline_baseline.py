@@ -7,8 +7,9 @@ or names a file that cannot be read (so the run must fail closed with a code rat
 than with a bare `OSError` or a misleading `file_pin_changed`).
 
 The runner's own modes are pinned here too: `--fast` is iteration feedback over every
-module except the documented wall-time dominators, and only `--full` may be reported as
-PASS. Both listings are read without running either suite. The expected module set comes
+module except the documented wall-time dominators, and only a run that executed every module
+may be reported as PASS. Both listings are read without running either suite. The expected
+module set comes
 from unittest's own discovery rather than from the `tests/<area>/` glob the script walks,
 so a package that glob cannot see — for example a new nesting level, which discovery would
 still import — fails these assertions instead of passing them.
@@ -94,8 +95,12 @@ class OfflineBaselineTests(unittest.TestCase):
 class OfflineRunnerModeTests(unittest.TestCase):
     """Mode selection is a coverage claim, so it is asserted rather than assumed."""
 
+    # The handoff chain is four modules rather than one so a parallel run is bounded by a
+    # quarter of the old floor; the set is one SLOW group in both this tuple and the script.
     SLOW = ("bootstrap.test_bootstrap_production", "bootstrap.test_bootstrap_workflow",
-            "core.test_startup_handoff", "bootstrap.test_bootstrap_failures")
+            "core.test_startup_handoff", "core.test_startup_handoff_prepare",
+            "core.test_startup_handoff_trigger", "core.test_startup_handoff_monitor",
+            "bootstrap.test_bootstrap_failures")
     root = Path(__file__).resolve().parents[2]
     script = root / "tests" / "run_offline.sh"
 

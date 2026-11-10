@@ -26,7 +26,9 @@
 # Why SLOW exists (measured 2026-11-09 on an idle machine: those 4 modules were 301 s of a
 # 467 s full run, 65% of the suite). Their cost is real work — the owner-socket RPC path
 # (about 2000 round trips, each with a subprocess signature verification), fsync durability
-# and JSON canonicalisation — not sleeps. `--fast` runs the other 86 modules in about 163 s.
+# and JSON canonicalisation — not sleeps. `--fast` runs the other 87 modules in about 163 s.
+# The four earliest entries are now seven modules because `core.test_startup_handoff` is split
+# four ways (same 40 tests); that only changes the parallel floor, not the total work.
 # Test counts are deliberately absent: they grow with the suite, so a fixed number in a
 # comment goes stale. Do not "optimise" this by deleting the heavy modules or their
 # assertions: they are the bootstrap/strict production-path evidence. Re-derive the list by
@@ -43,7 +45,10 @@
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
-SLOW='bootstrap.test_bootstrap_production bootstrap.test_bootstrap_workflow core.test_startup_handoff bootstrap.test_bootstrap_failures'
+# `core.test_startup_handoff` is four modules instead of one so the parallel floor below is a
+# quarter of the single module: `--jobs` schedules modules, and on the NAS workspace mount the
+# one module needed 577 s (694,875 source re-reads, no RPC). Same 40 tests, same assertions.
+SLOW='bootstrap.test_bootstrap_production bootstrap.test_bootstrap_workflow core.test_startup_handoff core.test_startup_handoff_prepare core.test_startup_handoff_trigger core.test_startup_handoff_monitor bootstrap.test_bootstrap_failures'
 
 mode=full
 list_only=0
