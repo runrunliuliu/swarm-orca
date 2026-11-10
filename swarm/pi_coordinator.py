@@ -99,10 +99,11 @@ def build_pi_plan(*, pi, cwd, bootstrap_dir, write_dirs, selection, runtime_conf
     require(bootstrap_dir is not None, "Pi Coordinator requires a fresh native bootstrap")
     require(isinstance(write_dirs, list) and all(isinstance(item, str) for item in write_dirs),
             "pi_plan_write_roots_invalid")
-    require(isinstance(prompt_file, str) and Path(prompt_file).is_absolute(),
+    # The materials pipeline passes a Path for the generated handoff; the plan stores text.
+    require(prompt_file is not None and Path(prompt_file).is_absolute(),
             "pi_plan_prompt_file_required")
     return {"schema_version": 1, "scope": "swarm_coordinator_only", "adapter": ADAPTER,
             "phase": "bootstrap", "cli_version": cli_version, "selection": selection,
             "execution": execution, "cwd": cwd, "runtime_config": runtime_config,
             "artifact_dirs": {"archive": bootstrap_dir}, "task_write_roots": list(write_dirs),
-            "resume_session": None, "prompt_file": prompt_file, "argv": [pi]}
+            "resume_session": None, "prompt_file": str(prompt_file), "argv": [pi]}
