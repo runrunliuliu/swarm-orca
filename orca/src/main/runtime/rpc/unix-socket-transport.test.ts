@@ -1,4 +1,8 @@
 import { EventEmitter } from 'node:events'
+import { createConnection } from 'node:net'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Socket } from 'node:net'
@@ -142,11 +146,16 @@ describe('UnixSocketTransport', () => {
     socket.emit('data', '{"id":"slow","method":"worktree.create"}\n')
 
     // Nothing before the arming delay: a fast RPC must never emit frames.
-    vi.advanceTimersByTime(50)
+    vi.advanceTimersByTime(49)
     expect(socket.writes).toEqual([])
 
+    // The first frame is written when the delay expires, not one interval later, so the
+    // guarantee does not depend on how `keepaliveIntervalMs` is configured.
+    vi.advanceTimersByTime(1)
+    expect(socket.writes).toEqual(['{"_keepalive":true}\n'])
+
     vi.advanceTimersByTime(400)
-    expect(socket.writes.length).toBeGreaterThan(0)
+    expect(socket.writes.length).toBeGreaterThan(1)
     expect(socket.writes.every((frame) => frame === '{"_keepalive":true}\n')).toBe(true)
     expect(socket.destroyed).toBe(false)
 
@@ -244,5 +253,81 @@ describe('UnixSocketTransport', () => {
     vi.advanceTimersByTime(5_000)
     expect(aborted).toBe(false)
     expect(socket.writes.length).toBeGreaterThan(atCeiling)
+  })
+
+  it('writes the first implicit frame on time even with a long keepalive interval', () => {
+    // Why: with interval 60 s and a 30 s idle timeout, waiting one interval before the
+    // first frame would land after the timeout this path exists to prevent.
+    const transport = new UnixSocketTransport({
+      endpoint: 'test-pipe',
+      kind: 'named-pipe',
+      keepaliveIntervalMs: 60_000,
+      keepaliveArmDelayMs: 50
+    })
+    const socket = new FakeSocket()
+    transport.onMessage(() => {})
+    ;(transport as unknown as UnixSocketTransportInternals).handleConnection(
+      socket as unknown as Socket
+    )
+    socket.emit('data', '{"id":"slow","method":"worktree.create"}\n')
+
+    vi.advanceTimersByTime(50)
+    expect(socket.writes).toEqual(['{"_keepalive":true}\n'])
+  })
+
+  it('keeps a real socket alive past its own idle timeout', async () => {
+    // Why a real socket: FakeSocket.setTimeout is a no-op, so the fake-timer cases prove
+    // the frames and the cleanup but not the property the fix depends on - that a write
+    // refreshes Node's idle timer. Here the handler answers after 400 ms while the
+    // transport's idle timeout is 60 ms and the first frame is due at 20 ms.
+    vi.useRealTimers()
+    const directory = await mkdtemp(join(tmpdir(), 'orca-transport-idle-'))
+    const endpoint = join(directory, 'idle.sock')
+    const transport = new UnixSocketTransport({
+      endpoint,
+      kind: 'unix',
+      idleTimeoutMs: 60,
+      keepaliveArmDelayMs: 20,
+      keepaliveIntervalMs: 20
+    })
+    transport.onMessage((_msg, reply) => {
+      setTimeout(() => reply('{"id":"slow","ok":true}'), 400)
+    })
+    await transport.start()
+    try {
+      const frames: string[] = []
+      const response = await new Promise<string>((resolve, reject) => {
+        const client = createConnection(endpoint)
+        client.setEncoding('utf8')
+        let buffer = ''
+        client.on('error', reject)
+        client.on('close', () => reject(new Error('socket closed before the response')))
+        client.on('data', (chunk: string) => {
+          buffer += chunk
+          let index = buffer.indexOf('\n')
+          while (index !== -1) {
+            const line = buffer.slice(0, index)
+            buffer = buffer.slice(index + 1)
+            index = buffer.indexOf('\n')
+            if (!line.trim()) {
+              continue
+            }
+            frames.push(line)
+            if (!line.includes('_keepalive')) {
+              client.end()
+              resolve(line)
+              return
+            }
+          }
+        })
+        client.write('{"id":"slow","method":"worktree.create"}\n')
+      })
+      expect(response).toBe('{"id":"slow","ok":true}')
+      // Why: more than one frame means the connection survived several idle windows.
+      expect(frames.filter((frame) => frame.includes('_keepalive')).length).toBeGreaterThan(1)
+    } finally {
+      await transport.stop()
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })
