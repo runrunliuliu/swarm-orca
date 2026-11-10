@@ -106,13 +106,12 @@ CAPABILITIES = {
     # Pi TUI: Orca's bundled Pi status extension posts session_id/session_file and
     # the launch token to /hook/pi, and the Pi transcript root is `{"type":"session",
     # "id":<uuid>,"cwd":…}` with per-turn assistant `model`/`provider`/`thinkingLevel`.
-    # Pi has no approval/sandbox surface, so only PI_SETTINGS may be required.
-    # tui_adapter stays unset until the S2/S5 Pi launch adapter exists: the fields
-    # template and the S2 observation must refuse rather than assume one.
+    # Pi has no approval/sandbox surface, so only PI_SETTINGS may be required; the
+    # reviewed Pi policy record replaces the Trae execution config.
     "pi": Capability("pi", "runtime-state",
                      (TERMINAL, SESSION, TRANSCRIPT, LAUNCH_COMMITMENT),
                      {IDENTITY_ROOT: "session", TURN_SETTINGS: "message"},
-                     PI_SETTINGS),
+                     PI_SETTINGS, tui_adapter="pi-tui-runtime-v1"),
 }
 
 

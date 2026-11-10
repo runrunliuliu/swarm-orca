@@ -104,17 +104,20 @@ class RegistrationProviderTests(unittest.TestCase):
         self.assertEqual(caught.exception.missing_evidence,
                          (provider_capability.LAUNCH_COMMITMENT,))
 
-    def test_pi_coordinator_tui_observation_names_the_missing_adapter(self):
-        # Pi identity evidence works, but the S2/S5 launch adapter is Trae-only;
-        # the observation path must refuse and say so instead of assuming one.
-        with self.assertRaises(provider_capability.ProviderRefused) as caught:
-            provider_capability.require(
-                "pi", provider_capability.TUI_OBSERVATION,
-                required="bootstrap_registration_provider_required",
-                unsupported="bootstrap_coordinator_provider_unsupported",
-                unavailable="bootstrap_coordinator_provider_evidence_unavailable")
-        self.assertEqual(str(caught.exception), "bootstrap_coordinator_provider_evidence_unavailable")
-        self.assertEqual(caught.exception.missing_evidence, (provider_capability.TUI_ADAPTER,))
+    def test_pi_coordinator_resolves_to_the_pi_tui_reader_and_policy(self):
+        # The declared provider now names one reviewed reader and one reviewed
+        # input; the Trae reader is never used for a Pi pane.
+        import tui_adapter
+        capability = provider_capability.require(
+            "pi", provider_capability.TUI_OBSERVATION,
+            required="bootstrap_registration_provider_required",
+            unsupported="bootstrap_coordinator_provider_unsupported",
+            unavailable="bootstrap_coordinator_provider_evidence_unavailable")
+        observer, policy_key = tui_adapter.reader(capability.tui_adapter)
+        from pi_tui import observe as pi_observe
+        self.assertIs(observer, pi_observe)
+        self.assertEqual(policy_key, "pi_policy")
+        self.assertEqual(tui_adapter.kind_adapter("pi_tui_startup_anchor"), "pi-tui-runtime-v1")
 
     def test_observed_identity_must_still_carry_the_declared_fields(self):
         identity = self.identity(self.registration())

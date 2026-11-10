@@ -40,7 +40,7 @@ def read(path):
     The prefix digest, device and inode are returned so a caller can pin exactly
     the bytes it verified and reject a later replacement or truncation.
     """
-    rows, seen, previous_at = [], set(), None
+    rows, seen, previous_at, last_stamp = [], set(), None, None
     with runtime_binding.ordinary_file(path) as (source, info):
         digest = prefix_digest(source, info.st_size)
         source.seek(0)
@@ -52,7 +52,7 @@ def read(path):
                 _root(record)
             else:
                 _chained(record, seen, previous_at)
-            previous_at = _when(record)
+            previous_at, last_stamp = _when(record), record["timestamp"]
             seen.add(record.get("id"))
             rows.append(record)
         source.seek(0)
@@ -62,7 +62,7 @@ def read(path):
     root = rows[0]
     effective = _effective(rows)
     return {"session_id": root["id"], "cwd": root["cwd"], "version": root["version"],
-            "effective": effective, "observed_at": previous_at,
+            "effective": effective, "observed_at": last_stamp,
             "prefix": {"bytes": info.st_size, "sha256": digest},
             "file_identity": {"device": info.st_dev, "inode": info.st_ino}}
 

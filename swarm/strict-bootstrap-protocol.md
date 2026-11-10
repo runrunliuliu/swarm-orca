@@ -288,19 +288,32 @@ provider → （证据格式、必须字段、transcript 记录、TUI adapter）
 当前表有两项可核验 provider：
 
 - `trae`：`runtime-state` + hook `launchTokenHash` + transcript 根 `session_meta` + 每轮
-  `turn_context`，TUI adapter `trae-tui-runtime-v1`。
+  `turn_context`，TUI adapter `trae-tui-runtime-v1`，`runtime_config` 是 Trae execution 配置。
 - `pi`：`runtime-state` + hook `launchTokenHash`（Orca 的托管 pi 状态扩展把
   `session_id`/`session_file`/`launchToken` POST 到 `/hook/pi`）+ transcript 根
   `{"type":"session","id":<uuid>,"cwd":…}` + assistant 消息的 `model`/`provider`/`thinkingLevel`
-  （`pi_transcript.py` 同时校验 `id`/`parentId` 链与时间不减）。
-  pi 没有 approval/sandbox 面，故 `expected_effective` 只允许 `PI_SETTINGS`
-  （`model`、`model_provider`、`thinking_level`、`cwd`），其余键按
-  `operator_session_expected_effective_provider_unsupported` 拒绝。
+  （`pi_transcript.py` 同时校验 `id`/`parentId` 链与时间不减），TUI adapter
+  `pi-tui-runtime-v1`，`runtime_config` 是 **pi runtime policy** 记录。
 
-**仍未支持**：Coordinator 的 S2 观察与 S5 TUI 契约目前只有 `trae-tui-runtime-v1` 一个 adapter。
-`pi` 在表中没有 `tui_adapter`，因此 `bootstrap_tool` 的 S2/S5 路径会以
-`bootstrap_coordinator_provider_evidence_unavailable`（缺 `tui_adapter`）拒绝 pi Coordinator，
-而不是假定一个不存在的 adapter。Pi 作为 Operator 的路径不依赖该 adapter，已可用。
+pi runtime policy（schema v1，精确字段 `schema_version,scope,provider,model,thinking_level`，
+`provider` 固定 `pi`，`model` 为 `{provider,id}`，示例见
+[examples/pi-runtime-policy.example.json](examples/pi-runtime-policy.example.json)）是 Trae
+execution 配置在 pi 侧的对应物：审查并 pin 进契约的 `runtime_config`，由
+`pi_tui.observe` 与 transcript 最新 assistant 轮次的 `provider`/`model`/`thinkingLevel` 精确比对。
+
+已支持范围：`trae` 与 `pi` 都可作为 Operator 与 Coordinator（S2 观察 + S5 契约 + 启动门）。
+Pi 与 Trae 的差异必须在契约里显式承担，不假装等价：
+
+- `expected_effective` 只允许 `PI_SETTINGS`（`model`、`model_provider`、`thinking_level`、`cwd`），
+  其余键按 `operator_session_expected_effective_provider_unsupported` 拒绝；不做跨 provider 别名。
+- pi 没有 sandbox/approval/network 面，所以 `observation.roots` 是**审查过的声明输入**，
+  观察器不声称已核实其生效（Trae 侧由 `turn_context.sandbox_policy` + `observe_write_roots` 核验）。
+- pi 的 anchor 要求同一 runtime id（不做 Trae 的 epoch rebind）；换 runtime 即重新建立 anchor。
+
+**仍未支持**：Run 之后的 TUI continuation/scheduler（`coordinator_tui_continue.py`、
+`coordinator_tui_scheduler.py`）以及 operator materials 的 launch-plan 生成器
+（`coordinator_launch.py` / `trae_coordinator.build_trae_plan`）仍按 Trae 路径写；pi Coordinator
+的 S0–S5 已可核验，但这些后续组件要单独迁移。
 
 | 入口 | 缺失/未知声明 | 已知但证据不可读 |
 | --- | --- | --- |

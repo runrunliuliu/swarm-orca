@@ -27,6 +27,7 @@ from coordinator_io import canonical, digest, file_ref, now, parse, pinned, requ
 from coordinator_strict import caller_result
 from coordinator_strict_request import observed_coordinator
 import provider_capability
+import tui_adapter
 
 # Only these actions are produced mechanically by the tool itself (caller receipt
 # and session observation). Every other stage carries this role's own authored
@@ -230,7 +231,6 @@ class RoleTool(BootstrapMachine, ActionReader):
     def produce(self, intent_ref):
         """Mechanical caller/observation only. Never fields or model approval."""
         from trae_coordinator import native
-        from trae_tui import observe
         self.local_check()
         intent = parse(pinned(intent_ref))
         name = intent["action"]
@@ -255,17 +255,20 @@ class RoleTool(BootstrapMachine, ActionReader):
             caller_result(value, self.b["runtime"])
         else:
             registration = parse(pinned(self.authority.owner["registration"]))
-            # `trae_tui.observe` is the reviewed TUI reader: refuse a declared
-            # provider whose evidence/adapter it cannot verify before querying.
-            self.coordinator_capability()
+            # Resolve the declared provider first: its capability names the one
+            # reviewed TUI reader that may observe this pane, or refuses.
+            capability = self.coordinator_capability()
+            observer, policy_key = tui_adapter.reader(capability.tui_adapter)
             coordinator = self.b["coordinator"]
-            value = observe(cli=self.b["fixed_inputs"]["cli"]["path"], runtime=self.b["runtime"],
+            options = dict(cli=self.b["fixed_inputs"]["cli"]["path"], runtime=self.b["runtime"],
                 terminal=coordinator["terminal"], incarnation=coordinator["incarnation"],
                 workspace=self.b["workspace"]["id"], cwd=self.b["workspace"]["path"],
                 profile=registration["profile"], log_root=registration["log_root"],
                 roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
-                trae_runtime_config=self.b["fixed_inputs"]["runtime_config"]["path"],
-                expected_thread=registration["roles"]["coordinator"]["session"], context_max_age_seconds=1800)
+                expected_thread=registration["roles"]["coordinator"]["session"],
+                context_max_age_seconds=1800)
+            options[policy_key] = self.b["fixed_inputs"]["runtime_config"]["path"]
+            value = observer(**options)
         return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
 
     def step(self):

@@ -56,22 +56,21 @@ class RefusalTests(unittest.TestCase):
                     self.assertEqual(self.refuse(provider, evidence).code,
                                      "test_provider_required")
 
-    def test_pi_supplies_role_and_operator_evidence_but_no_tui_adapter(self):
-        # Pi identity/transcript evidence is verified; the S2/S5 launch adapter is
-        # still Trae-only, so the TUI consumer refuses Pi and names that channel.
-        for name in ("bootstrap role", "operator identity"):
+    def test_pi_supplies_role_operator_and_tui_evidence(self):
+        # Pi's identity, transcript and reviewed-policy evidence satisfy every
+        # consumer, including the S2/S5 TUI one.
+        for name, evidence in CONSUMERS.items():
             with self.subTest(consumer=name):
                 capability = capabilities.require(
-                    "pi", CONSUMERS[name], required="test_provider_required",
+                    "pi", evidence, required="test_provider_required",
                     unsupported="test_provider_unsupported",
                     unavailable="test_{provider}_evidence_unavailable")
                 self.assertEqual(capability.provider, "pi")
                 self.assertEqual(capability.evidence_format, "runtime-state")
                 self.assertEqual(capability.records[capabilities.IDENTITY_ROOT], "session")
+                self.assertEqual(capability.records[capabilities.TURN_SETTINGS], "message")
                 self.assertEqual(capability.settings_fields, capabilities.PI_SETTINGS)
-        refused = self.refuse("pi", capabilities.TUI_OBSERVATION)
-        self.assertEqual(refused.code, "test_pi_evidence_unavailable")
-        self.assertEqual(refused.missing_evidence, (capabilities.TUI_ADAPTER,))
+                self.assertEqual(capability.tui_adapter, "pi-tui-runtime-v1")
 
     def test_provider_without_an_evidence_channel_names_it_instead_of_defaulting(self):
         # Table-level guard: a declared provider that cannot supply a channel is
@@ -126,7 +125,7 @@ class RefusalTests(unittest.TestCase):
                                   capability.missing(evidence))
 
     def test_refusal_is_a_value_error_carrying_the_typed_code(self):
-        refused = self.refuse("pi", capabilities.TUI_OBSERVATION)
+        refused = self.refuse("codex", capabilities.TUI_OBSERVATION)
         self.assertIsInstance(refused, ValueError)
         self.assertEqual(str(refused), refused.code)
 

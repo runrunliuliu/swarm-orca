@@ -17,6 +17,7 @@ from coordinator_io import canonical, digest, now, parse, pinned, timestamp
 from coordinator_loop import phase_contract
 from coordinator_task_source import strict_request_version_text
 from trae_coordinator import build_trae_plan, native, verify_trae_executable
+import tui_adapter
 
 CAPABILITY = "orchestration.strict-caller-check.v1"
 # terminal.create uses AgentArgs from rpc-contract/agent-session-params.ts.
@@ -341,7 +342,7 @@ def check_session(contract_ref, receipt_ref, caller_ref):
             and initial.get("caller", {}).get("authorityFingerprint"),
             "strict_initial_caller_receipt_required")
     coordinator = contract["coordinator"]
-    if contract["adapter"] == "trae-tui-runtime-v1":
+    if tui_adapter.is_tui(contract["adapter"]):
         require(caller_ref == contract["observation"]["caller_receipt"], "tui_caller_pin_changed")
     require(os.environ.get("ORCA_TERMINAL_HANDLE") == coordinator["terminal"],
             "strict_coordinator_native_context_required")

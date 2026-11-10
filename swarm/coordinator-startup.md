@@ -195,8 +195,8 @@ Worker 已完成/释放，也不能补写本门通过；它不自动重开 Run �
 | `runtime` | 实时核验的 runtime ID |
 | `workspace` | `{id,path}`，目标 worktree 完整 ID 与规范路径 |
 | `operator` | `{terminal,incarnation,provider,session}`，启动操作者自身的已独立核验身份。`provider` 是显式声明，经 `provider_capability.py` 能力表解析后再由 native 证据核验：`trae` 与 `pi` 都可核验（各自证据见 [协议 §5.1](strict-bootstrap-protocol.md#51-provider-能力与拒绝码)），未知名是 `operator_session_provider_unsupported`，缺证据是 `operator_session_<provider>_operator_unverifiable` 附 `missing_evidence`，不猜另一日志根或回退另一 provider；Pi Operator 的 `expected_effective` 只允许 `model`/`model_provider`/`thinking_level`/`cwd`。Operator 清单与前提见 [支持范围](operator-prepare.md#agent--adapter-支持范围) |
-| `coordinator` | `{terminal,incarnation,session}`，独立 Trae 会话，不能与 Operator 同 terminal 或同 provider/session |
-| `runtime_config` | 本任务明确的 Trae 执行配置文件引用，与观察器核验的实际设置一致 |
+| `coordinator` | `{terminal,incarnation,session}`，独立会话（Trae 或 Pi），不能与 Operator 同 terminal 或同 provider/session |
+| `runtime_config` | 本任务明确的 provider 输入引用：Trae 为 execution 配置，Pi 为 pi runtime policy（`provider/model/thinking_level`），与观察器核验的实际设置一致 |
 | `role_skill` | 目标 worktree 内适用 Coordinator `SKILL.md` 的固定引用 |
 | `handoff` | 原 bootstrap 交接文件固定引用，包含角色与已核验授权来源；Run 尚未分配时不伪造 ID |
 | `skill_read_evidence` | Coordinator 实际完整读取角色 skill/必需引用的工具记录引用，须由 Operator 审查 |

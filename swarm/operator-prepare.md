@@ -38,7 +38,9 @@ Agent 不是可自由替换的配置项，也不能用 Worker 侧 profile 表达
 bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` 声明
 （[registration schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），不继承上表也不从 pane
 推断：`bootstrap_identity.py` 按同一能力表解析它，未知/不可核验就停止。S2 观察与 S5 TUI 契约
-还需要表中该 provider 的 TUI adapter，目前只有 `trae-tui-runtime-v1`。
+按该 role 的 provider 选择 adapter：`trae-tui-runtime-v1` 或 `pi-tui-runtime-v1`；两个 role 的
+provider 可以不同。Pi Coordinator 的 `runtime_config` 必须是
+[pi runtime policy](strict-bootstrap-protocol.md#51-provider-能力与拒绝码) 记录。
 
 **Pi Operator 的核验通道**（2026-11-10 复核 Orca 1.4.219 快照与本机 pi 日志格式后确认）：
 
@@ -50,6 +52,8 @@ bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` �
 - Pi 的 transcript 根记录是 `{"type":"session","id":<uuid>,"cwd":…,"version":3}`，每条记录带
   `id`/`parentId` 链与 ISO `timestamp`，assistant 消息带 `model`/`provider`/`thinkingLevel`。
   `pi_transcript.py` 逐条核验这些形状、根 id 与 hook 的 `session_id` 一致、链不断裂、时间不减。
+- Pi Coordinator 用 `pi-tui-runtime-v1`：同样的 hook/transcript 证据 + 审查过的 pi runtime policy
+  （provider/model/thinking_level），没有 sandbox 面，故 `observation.roots` 只作为审查输入。
 - 因此 Pi Operator 的 `expected_effective` 只能要求 `PI_SETTINGS`
   （`model`、`model_provider`、`thinking_level`、`cwd`）；pi 没有 approval/sandbox 概念，
   要求 `effort`/`approval_policy`/`sandbox_policy`/`approvals_reviewer`/`writable_roots` 会以

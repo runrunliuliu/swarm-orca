@@ -78,8 +78,10 @@ hook 行 + `session_meta`/`turn_context`，`pi` 用 hook 行 + transcript 根
 Pi 没有 approval/sandbox 面，Operator 的 `expected_effective` 只能要求
 `model`/`model_provider`/`thinking_level`/`cwd`；要求其余键会以
 `operator_session_expected_effective_provider_unsupported` 停止。
-**Pi Coordinator 仍不可用**：S2 观察与 S5 契约只有 `trae-tui-runtime-v1`，pi 在能力表中没有
-`tui_adapter`，S2/S5 会以 `bootstrap_coordinator_provider_evidence_unavailable` 停止。
+**Pi Coordinator** 使用 `pi-tui-runtime-v1`：S2/S5 读取同一 hook/transcript 证据，并把契约
+`runtime_config` 作为审查过的 pi runtime policy（`provider`/`model`/`thinking_level`）与 transcript
+最新 assistant 轮次精确比对。没有 sandbox/approval 面，`observation.roots` 只作为审查输入，
+不当成已核实。Run 之后的 continuation/scheduler 仍是 Trae 路径（已知边界）。
 用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
 挂 bootstrap registration 的两个 gate role 同样各自声明 `provider`
 （[schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），非法/不可核验声明在启动 owner

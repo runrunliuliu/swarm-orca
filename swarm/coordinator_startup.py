@@ -12,7 +12,8 @@ import subprocess
 
 from coordinator_io import canonical, digest, now, parse, path, pinned, timestamp
 from coordinator_creation_time import creation_bounds
-from trae_coordinator import ContextFreshnessError, TUI_ADAPTER, TUI_EXECUTION, native, observe, read_trae_execution
+from trae_coordinator import ContextFreshnessError, native, observe
+import tui_adapter
 
 
 KIND = "independent_coordinator_startup"
@@ -64,7 +65,7 @@ def identity(contract):
             result["domain_binding"] = contract["domain_binding"]
         if "startup_anchor" in contract["observation"]:
             result["startup_anchor"] = contract["observation"]["startup_anchor"]
-        if contract["adapter"] == TUI_ADAPTER:
+        if tui_adapter.is_tui(contract["adapter"]):
             result["tui_binding"] = {k: contract["observation"][k] for k in ("profile", "caller_receipt")}
     return result
 
@@ -87,8 +88,8 @@ def validate(contract):
         for key, limit in (("context_max_age_seconds", 3600), ("gate_receipt_ttl_seconds", 300)):
             require(type(freshness[key]) is int and 1 <= freshness[key] <= limit,
                     "invalid_" + key)
-    tui = contract["adapter"] == TUI_ADAPTER
-    require(contract["adapter"] == "trae-exec-stream-v1" or (tui and version == 2),
+    tui = tui_adapter.is_tui(contract["adapter"])
+    require(contract["adapter"] == tui_adapter.EXEC_ADAPTER or (tui and version == 2),
             "unsupported_startup_adapter")
     require(isinstance(contract["runtime"], str) and contract["runtime"], "runtime_required")
     for key, fields in (("workspace", {"id", "path"}),
@@ -112,8 +113,10 @@ def validate(contract):
     validate_handoff(contract)
     observation = contract["observation"]
     if tui:
-        require(read_trae_execution(contract["runtime_config"]["path"]) == TUI_EXECUTION,
-                "tui_runtime_config_required")
+        try:
+            tui_adapter.policy(contract["adapter"], contract["runtime_config"]["path"])
+        except tui_adapter.AdapterRefused as exc:
+            raise GateError(str(exc)) from None
         require(isinstance(observation, dict) and set(observation) == {
             "profile", "caller_receipt", "log_root", "roots", "startup_anchor"}, "invalid_tui_observation")
         path(observation["profile"], directory=True)
@@ -206,7 +209,7 @@ def run_gate(contract_ref, *, phase, actor, previous=None):
     # Never set/borrow ORCA_TERMINAL_HANDLE or query run-current on behalf of a
     # different terminal. The outer Operator uses read-only run-show instead.
     cli, runtime = contract["cli"]["path"], contract["runtime"]
-    tui = contract["adapter"] == TUI_ADAPTER
+    tui = tui_adapter.is_tui(contract["adapter"])
     operator_evidence = None
 
     def snapshot():
@@ -259,24 +262,24 @@ def run_gate(contract_ref, *, phase, actor, previous=None):
     if tui and actor == "operator":
         check_operator_mailbox(contract)
     before = snapshot()
-    if contract["adapter"] == TUI_ADAPTER:
-        from trae_tui import observe as observe_tui
-        observer = observe_tui
+    if tui:
+        observer, policy_key = tui_adapter.reader(contract["adapter"])
         extra = {k: contract["observation"][k] for k in ("profile", "caller_receipt")}
+        extra[policy_key] = contract["runtime_config"]["path"]
     else:
         observer = observe
-        extra = dict(cursor=contract["observation"]["cursor"], run=None)
+        extra = dict(cursor=contract["observation"]["cursor"], run=None,
+                     trae_runtime_config=contract["runtime_config"]["path"])
     evidence = observer(cli=cli, runtime=runtime, terminal=coordinator["terminal"],
         incarnation=coordinator["incarnation"], workspace=contract["workspace"]["id"],
         cwd=contract["workspace"]["path"],
         log_root=contract["observation"]["log_root"], roots=contract["observation"]["roots"],
         expected_thread=coordinator["session"], **extra,
-        trae_runtime_config=contract["runtime_config"]["path"],
         context_max_age_seconds=context_max_age,
         startup_anchor=contract["observation"].get("startup_anchor"))
     require(evidence["thread_id"] == coordinator["session"], "coordinator_session_changed")
     if actor == "coordinator":
-        if contract["adapter"] == TUI_ADAPTER:
+        if tui:
             from coordinator_strict import caller_result
             initial = caller_result(parse(pinned(contract["observation"]["caller_receipt"])), runtime)
             live = caller_result(native(cli, runtime, ["orchestration", "strict-caller-check"]), runtime)

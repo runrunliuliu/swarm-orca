@@ -18,7 +18,8 @@ from coordinator_strict import StrictCheckError, caller_result, require
 from coordinator_task_source import (STRICT_REQUEST_INPUT_SCHEMA_VERSION,
                                      STRICT_REQUEST_SCHEMA_VERSION,
                                      task_objective)
-from trae_coordinator import TUI_ADAPTER, UUID
+from trae_coordinator import UUID
+import tui_adapter
 
 
 HANDSHAKE_TIMEOUT_SECONDS = 900
@@ -49,10 +50,11 @@ def observed_coordinator(value, initial):
             and observation.get("effective", {}).get("cwd") == value["workspace"]["path"],
             "strict_config_observation_scope_mismatch")
     kind = observation.get("kind")
-    if kind in ("trae_tui_startup_anchor", "trae_tui_session_observation"):
+    adapter = tui_adapter.kind_adapter(kind) if isinstance(kind, str) else None
+    if adapter is not None:
         binding = observation["binding"]
         terminal = binding["terminal"]
-        require(observation.get("adapter") == TUI_ADAPTER
+        require(observation.get("adapter") == adapter
                 and observation.get("caller_receipt") == value["caller_receipt"]
                 and binding["runtime"]["runtimeId"] == value["runtime"]
                 and binding["session_id"] == sid,
