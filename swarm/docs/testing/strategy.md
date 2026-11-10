@@ -244,7 +244,7 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 #   PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -v
 ```
 
-**默认跑子集，门禁跑全量。** 同一入口提供两种选择模式（清环境规则相同）：
+**默认跑子集；全量是可选的整包信号。** 同一入口提供两种选择模式（清环境规则相同）：
 
 ```bash
 tests/run_offline.sh --fast   # 94 个模块中的 87 个，≈2.5 分钟
@@ -270,8 +270,11 @@ tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
 > 40 项与断言一句未改，ext4 上最大单模块 22 s（实测 17.4/4.0/20.9/21.8 s）。
 > 拆分不改变任何通过条件，只是把同一批证据放进更细的调度单位。
 
-按变更范围迭代用 `--fast` 或 `-p`，合并/交付前跑一次全量；`--fast` 只能作为迭代反馈，
-不得上报为离线 PASS。模块清单的选取契约由
+按变更范围选择测试（`swarm/<module>.py` → `tests/<area>/test_<module>.py`，映射与边界见
+`AGENTS.md` 的 Tests 一节），**不需要每次跑全量，也不需要为了合并或交付补一次全量**；这与
+reliability.md:57「日常回归按变更影响选择、变更影响不明时补验」一致。结论必须写明实际跑了
+哪些模块（或 `-p` 模式）、哪种模式与 job 数；`--fast` 与定向跑都只是迭代证据，只有真正
+跑完整包才能叫「离线 PASS」。模块清单的选取契约由
 `tests/core/test_offline_baseline.py` 的 `OfflineRunnerModeTests` 固定：它用 unittest 自己的
 discovery 结果（而不是脚本用的同一个 glob）做期望值，所以脚本漏掉某个 `tests/<area>/`
 （例如再深一层嵌套目录）会报红，而不是静默少跑。模块名即相对 `tests/` 的点号路径。

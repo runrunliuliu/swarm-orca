@@ -7,9 +7,9 @@ or names a file that cannot be read (so the run must fail closed with a code rat
 than with a bare `OSError` or a misleading `file_pin_changed`).
 
 The runner's own modes are pinned here too: `--fast` is iteration feedback over every
-module except the documented wall-time dominators, and only a run that executed every module
-may be reported as PASS. Both listings are read without running either suite. The expected
-module set comes
+module except the documented wall-time dominators, and no run is required for a change —
+only a run that executed every module may be reported as PASS. Both listings are read without
+running either suite. The expected module set comes
 from unittest's own discovery rather than from the `tests/<area>/` glob the script walks,
 so a package that glob cannot see — for example a new nesting level, which discovery would
 still import — fails these assertions instead of passing them.

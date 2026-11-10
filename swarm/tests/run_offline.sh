@@ -7,8 +7,9 @@
 #
 # Usage: tests/run_offline.sh [--fast | --list] [--jobs N] [extra unittest options]
 #
-#   (default)  every discovered module. This is the gate before integration and delivery,
-#           and the only run that may be reported as PASS.
+#   (default)  every discovered module. Optional: a change is verified by the modules its
+#           blast radius names, and only a run that actually executed every module may be
+#           reported as an "offline PASS".
 #   --fast  every module except the wall-time dominators named in SLOW below. Iteration
 #           feedback for the area you are changing; never a gate claim.
 #   --list  print the modules the current mode would run, then exit 0.
