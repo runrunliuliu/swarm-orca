@@ -23,7 +23,7 @@ from pi_tui import observe
 import pi_policy
 import pi_transcript
 import tui_adapter
-import test_operator_startup_identity as operator_startup
+from operators import test_operator_startup_identity as operator_startup
 
 LAUNCH_TOKEN = "pi-test-only-launch-token"
 LAUNCH_HASH = digest(canonical(LAUNCH_TOKEN))

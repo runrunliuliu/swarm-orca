@@ -15,7 +15,7 @@ from bootstrap_s5 import COMMIT_UNKNOWN, CONFIRMATION_PENDING, commit_confirmed
 from bootstrap_transport import safe_reason
 from coordinator_io import file_ref
 import bootstrap_control
-import test_bootstrap_production as production_tests
+from bootstrap import test_bootstrap_production as production_tests
 
 
 def commit(authority, control, target, raw, *, actor="coordinator", prerequisites=(), retry_seconds=5):

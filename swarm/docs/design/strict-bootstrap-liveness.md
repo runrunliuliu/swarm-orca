@@ -234,13 +234,13 @@ attempt 证据。
 
 ### 9.3 验证（离线；**不是** live 验收）
 
-- 新增 `tests/test_bootstrap_commit_states.py`（7 例，真实 owner socket/签名/fsync）：
+- 新增 `tests/bootstrap/test_bootstrap_commit_states.py`（7 例，真实 owner socket/签名/fsync）：
   `not_admitted` 不写字节、`committed` 查询状态、发布失败 → `unknown` 且查询
   `needs_reconcile`、重放被 owner 拒绝、busy 在 attempted 之前重试到 exactly-once、
   busy 预算耗尽 → 新码且零发布、确认回复丢失 → `confirmation_pending` 且不二次 commit、
   commit 回复丢失 → `unknown` 且不重试。
 - 既有用例按新分类更新两处：`test_bootstrap_production.test_fsync_gap_*`（原断言
-  `rpc_rejected`，现断言 `unknown`+`needs_reconcile`）、`tests/test_bootstrap_admission.py`
+  `rpc_rejected`，现断言 `unknown`+`needs_reconcile`）、`tests/bootstrap/test_bootstrap_admission.py`
   （diagnostics 增加 `state`，并新增一条状态路由用例）。
 - 执行（均为离线）：
   - `tests/run_offline.sh --full`（提交 `f796c001` 的代码，最终代码）→ 2478 tests，OK，18 skipped，
@@ -287,8 +287,8 @@ attempt 证据。
 
 ### 10.3 验证（离线；**不是** live 验收）
 
-新增：`tests/test_provider_capability.py`（8 例，纯表）、`tests/test_bootstrap_provider.py`
-（8 例，真实 pin 文件 + 生产 `NativeIdentity`）、`tests/test_operator_session.py` 新增 6 例
+新增：`tests/core/test_provider_capability.py`（8 例，纯表）、`tests/bootstrap/test_bootstrap_provider.py`
+（8 例，真实 pin 文件 + 生产 `NativeIdentity`）、`tests/operators/test_operator_session.py` 新增 6 例
 （pi 拒绝的 `missing_evidence`、未知 provider、缺失 hook 行、缺失 `session_meta`、缺失
 `turn_context`、observation 缺字段）。既有用例只做 schema/字段适配：
 `test_bootstrap_production` 的 registration 改为 schema v2 带 `provider`，fake capture 返回
