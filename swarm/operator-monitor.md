@@ -180,7 +180,7 @@ tick 正在发布状态时可能返回 `monitor_deployment_tick_in_progress`，�
 `monitor_active` 仅证明代码正在运行，正常 busy 可表现为 awaiting_real_turn_end；
 interaction_required、review_required 等 scheduler 子状态仍需如实报告。
 它不证明两轮 continuation、Worker-only 唤醒或业务验收通过。部署回归见
-`tests/test_operator_monitor_deploy.py`；native fixture 仍与真实实机证据分开。
+`tests/operators/test_operator_monitor_deploy.py`；native fixture 仍与真实实机证据分开。
 
 ### 首 tick 前的 sender 绑定修正
 
@@ -281,7 +281,7 @@ reviewer:{terminal,incarnation,workspace}, evidence:[{path,sha256}], reason:...`
 重复 apply 不启动或重放；发布中断可继续同一提案，审查后漂移必须重新审查。
 旧计划、原状态不改；随后仍须在原 sender 启动并独立 verify。此入口不解除无进展门，
 不自动恢复 Agent，不替代 caller 核验；审查 JSON 是协作声明，并非密码学身份认证或执行授权。
-测试 `tests/test_operator_monitor_upgrade.py` 为离线故障注入，不代表真实恢复验收。
+测试 `tests/operators/test_operator_monitor_upgrade.py` 为离线故障注入，不代表真实恢复验收。
 
 对于已停机且唯一续跑消息已送达、尚未 claim 的已知回合遗漏，另见
 [经独立审查的同 Run 恢复](operator-monitor-recovery.md)。它复用已有检查，保留旧 STOP，
@@ -313,7 +313,7 @@ scheduler 配置的 `rpc_timeout_seconds` 必须至少 **12 秒**：原生等待
 本次 wait adapter 是 Swarm Python 修复，不需改动原生 wait 协议；仍要求已部署支持
 pending inbox 的 CLI/Server。重启不会自动清除旧 stop。
 
-回归见 `tests/test_terminal_idle_wait.py` 与 `tests/test_terminal_idle_pipeline.py`：保存真实
+回归见 `tests/core/test_terminal_idle_wait.py` 与 `tests/core/test_terminal_idle_pipeline.py`：保存真实
 timeout 回执，经过生产 `main → tick → scheduler → native → decoder` 重放，模拟底层
 I/O 和完成日志证据，不替换 scheduler。覆盖三处等待、阻塞、身份竞争、未知发送对账、
 重启防重及两轮 claim/settle/ACK；这不代替真实 Agent 的闭环与 Worker-only 唤醒验收。
@@ -327,7 +327,7 @@ schema v2 要求模型结束前调用 `turn-end`，但它不是 scheduler 必需
 只有未触发门时才返回 `scheduler_will_check_real_turn_end`，且不证明可发送：真实回合完成、
 实时身份、mailbox、依赖和发送前竞争仍由 scheduler 检查。该配置未绑定独立 monitor
 状态根，`turn-end` 的停止观测范围仅是 continuation journal，不能证明 monitor 无故障。
-离线测试见 `tests/test_coordinator_tui_scheduler.py`、`tests/test_trae_tui_completed_turn.py`。
+离线测试见 `tests/coordinator/test_coordinator_tui_scheduler.py`、`tests/trae/test_trae_tui_completed_turn.py`。
 实机仍需验收：独立 Operator 原生发送、漏调 enqueue/turn-end 的两次连续闭环、Worker
 完成/外部消息空闲唤醒、重复 tick/重启防重、过期首派拒绝及客户端离线。
 
@@ -361,5 +361,5 @@ schema v2 要求模型结束前调用 `turn-end`，但它不是 scheduler 必需
 固定 Python 字节并不隔离它所调用的程序，也不认证外部依赖或业务权限。
 
 验收至少检查：持续空闲、Worker/Job/artifact 变化、Coordinator 未读消息、提交回执丢失、
-Operator 重启、身份变化停止和客户端离线。`tests/test_operator_monitor.py` 覆盖离线协议；
+Operator 重启、身份变化停止和客户端离线。`tests/operators/test_operator_monitor.py` 覆盖离线协议；
 真实运行时、平台和客户端离线验收仍须在另行授权的部署中完成。

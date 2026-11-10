@@ -198,7 +198,7 @@ Benchmark 提升、实验有效或目标完成。示例中 `job` 可实际为 JS
 
 ## 验证与仍需补齐
 
-`tests/test_coordinator_operator.py` 使用临时 fixture 平台、真实本地 Python 子进程和 fake
+`tests/coordinator/test_coordinator_operator.py` 使用临时 fixture 平台、真实本地 Python 子进程和 fake
 Orca 身份，覆盖自动认领/提交/等待/回传/同 Coordinator 审查、仅等待不提交、预算与授权门禁、
 提交/报告中断、防重、未知有界查询、STOP 和错误持久化。这不等于真实平台联调。
 `test_coordinator_background.py` 补充训练与两项研究/审查重叠、同一 Coordinator 串行回合、
