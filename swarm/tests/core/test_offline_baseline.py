@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -148,6 +149,62 @@ class OfflineRunnerModeTests(unittest.TestCase):
                    RSI_CHECKER_TEST_ROOT="/nonexistent/rsi-checkout")
         self.assertEqual(sorted(self.listing("--fast", env=env)),
                          sorted(self.discovered() - set(self.SLOW)))
+
+
+class ParallelGateTests(unittest.TestCase):
+    """`--jobs` may not change selection, and must not hide or shrink a failure."""
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests" / "run_offline.sh"
+    helper = root / "tests" / "run_modules.py"
+
+    def listing(self, *args):
+        proc = subprocess.run(["sh", str(self.script), *args, "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.split()
+
+    def helper_run(self, modules, jobs="2"):
+        return subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", jobs, "--"],
+                              cwd=self.root, input="".join(f"{m}\n" for m in modules),
+                              capture_output=True, text=True, timeout=300)
+
+    def test_jobs_does_not_change_the_selected_modules(self):
+        # Why: concurrency must not become a second, drifting notion of "the suite".
+        self.assertEqual(sorted(self.listing("--jobs", "4")), sorted(self.listing()))
+
+    def test_jobs_must_be_a_positive_integer(self):
+        proc = subprocess.run(["sh", str(self.script), "--jobs", "0", "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("positive integer", proc.stderr)
+
+    def test_jobs_refuses_a_discovery_option_instead_of_passing_it_on(self):
+        # Why: -p/-s are discovery options; handing one to a named module makes every worker
+        # fail for a reason that has nothing to do with the code under test.
+        proc = subprocess.run(["sh", str(self.script), "--jobs", "2", "-p", "test_*"],
+                              cwd=self.root, capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("cannot be combined", proc.stderr)
+
+    def test_helper_runs_every_module_it_is_given(self):
+        proc = self.helper_run(["core.test_log_io", "core.test_capacity_io"])
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("modules: 2/2", proc.stdout)
+        self.assertIn("OK", proc.stdout)
+
+    def test_helper_fails_when_a_module_cannot_be_loaded(self):
+        # Why: a parallel gate that reported success after silently dropping a worker would be
+        # worse than a slow one; the missing module has to fail the run and name itself.
+        proc = self.helper_run(["core.test_log_io", "core.test_missing_module"])
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("core.test_missing_module", proc.stdout)
+        self.assertIn("FAILED", proc.stdout)
+
+    def test_helper_refuses_an_empty_selection(self):
+        proc = subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", "2", "--"],
+                              cwd=self.root, input="", capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 2)
 
 
 if __name__ == "__main__":
