@@ -248,13 +248,15 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 
 ```bash
 tests/run_offline.sh --fast   # 94 个模块中的 87 个，≈2.5 分钟
-tests/run_offline.sh          # 全量 94 个模块，默认单进程（可复现）
-tests/run_offline.sh --jobs 4 # 全量，4 路并行：仅在实测过的主机上启用（见下）
+tests/run_offline.sh          # 全量 94 个模块，默认 4 路并行
+tests/run_offline.sh --jobs 1 # 全量，单进程（可复现形式，出结论时须写明 job 数）
+tests/run_offline.sh --jobs 8 # 全量，8 路并行：仅在实测过的主机上启用（见下）
 tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
 ```
 
-模块数与耗时来自 2026-11-09 本机一次空闲实测（模块数随 2026-11-10 的 handoff 拆分更新，
-耗时未重测：测试项集合未变）；**测试项数不写进文档**（它随套件增长，
+模块数与耗时来自 2026-11-09 本机一次空闲实测（模块数随 2026-11-10 的 handoff 拆分更新；
+2026-11-10 NAS 复测：99 个模块 / 2577 项，单进程 363 s、`--jobs 4` 115 s，两者均 99/99 OK）；
+**测试项数不写进文档**（它随套件增长，
 以每次输出为准）。`--fast` 排除的 7 个模块（`bootstrap.test_bootstrap_production`、
 `bootstrap.test_bootstrap_workflow`、`core.test_startup_handoff` 及其
 `_prepare`/`_trigger`/`_monitor` 三份、`bootstrap.test_bootstrap_failures`）合计 301 s，
@@ -269,6 +271,13 @@ tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
 > 按主题拆成 gate/dispatch、prepare/schema、trigger/send、monitor/turn-end 四个模块后，
 > 40 项与断言一句未改，ext4 上最大单模块 22 s（实测 17.4/4.0/20.9/21.8 s）。
 > 拆分不改变任何通过条件，只是把同一批证据放进更细的调度单位。
+>
+> **默认并发为 4 的依据.** 同一批“源码重读”现在由 `coordinator_io` 按进程内身份复用，
+> NAS 挂载上 99 个模块 / 2577 项：单进程 363 s、`--jobs 4` 115 s，均 99/99 OK；
+> 2026-11-10 那次 `--jobs 4` 全量 892 s 且两个模块 deadline 假失败（deploy 700 s、
+> monitor 788 s）的形态已不再复现，两者在 4 路负载下为 13.4 s / 22.0 s。
+> `--jobs 8` 相对 4 收益很小（受 `bootstrap.test_bootstrap_production` 约 74 s 封顶），
+> 所以默认取 4；单进程形式仍保留为可复现口径。
 
 按变更范围选择测试（`swarm/<module>.py` → `tests/<area>/test_<module>.py`，映射与边界见
 `AGENTS.md` 的 Tests 一节），**不需要每次跑全量，也不需要为了合并或交付补一次全量**；这与

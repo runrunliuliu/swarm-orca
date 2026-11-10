@@ -14,7 +14,8 @@
 #           feedback for the area you are changing; never a gate claim.
 #   --list  print the modules the current mode would run, then exit 0.
 #   --jobs N  run the selected modules N at a time, one process each (see below). The
-#           default is 1, the reproducible single-process form; `--list` ignores it.
+#           default is 4, measured on both a local ext4 tree and the NAS workspace mount;
+#           `--jobs 1` is the reproducible single-process form; `--list` ignores it.
 #
 # Tests live under `tests/<area>/test_*.py` (bootstrap, coordinator, operators, trae,
 # worker, core). A module's name is its dotted path relative to `tests/`, which is also
@@ -38,33 +39,41 @@
 #
 # Why --jobs exists: modules are independent processes already (no test in one imports state
 # from another), so the full suite is bounded by its slowest module, not by the sum. Measured
-# on this host, before the handoff split: 91 modules sequential 481 s, `--jobs 8` 104 s, same
-# module set and test count. It deletes, merges and weakens nothing — it only stops independent modules from
-# queueing. Selection still happens here; tests/run_modules.py only executes the list it is
-# given. The default stays 1 for two measured reasons: a claim on a single-process run has to
-# stay reproducible, and concurrency is not uniformly safe. On the NAS workspace mount, 4-way
-# parallelism turned two deadline-sensitive modules into hard errors - measured 2026-11-10,
-# 94 modules in 892 s with `operators.test_operator_monitor_deploy` at 700 s
-# (tui_action_window_insufficient) and `core.test_startup_handoff_monitor` at 788 s
-# (tui_continuation_deadline); both pass alone on the same checkout in 18 s and 193 s. So
-# `--jobs` is an explicit optimisation: enable it where you have measured it, and expect the
-# deadline/fsync-heavy modules to need the single-process form. Always report the job count
-# alongside any timing (the helper prints it).
+# on the ext4 host before the handoff split: 91 modules sequential 481 s, `--jobs 8` 104 s,
+# same module set and test count. It deletes, merges and weakens nothing — it only stops
+# independent modules from queueing. Selection still happens here; tests/run_modules.py only
+# executes the list it is given.
+#
+# The default is 4 because concurrency is now cheap enough to be the normal form: with the
+# per-process read reuse in coordinator_io, this NAS mount runs 99 modules / 2577 tests in
+# 363 s sequentially and 115 s at `--jobs 4`, 99/99 modules OK. The 2026-11-10 measurement
+# that used to forbid this — 94 modules in 892 s with `operators.test_operator_monitor_deploy`
+# at 700 s (tui_action_window_insufficient) and `core.test_startup_handoff_monitor` at 788 s
+# (tui_continuation_deadline), against 18 s and 193 s alone — was the same repeated source
+# reads, not a property of parallel runs: those two modules now finish in 13.4 s and 22.0 s
+# under 4-way load. `--jobs 1` stays the reproducible form, so a gate claim still has to name
+# the job count the run used (the helper prints it).
+#
+# Where it cannot help at all it is refused rather than silently flattened: a job count larger
+# than the number of selected modules only starts workers that never receive work, so `--jobs`
+# must stay at 1 (or be omitted) for a selection that small.
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
 # `core.test_startup_handoff` is four modules instead of one so the parallel floor below is a
 # quarter of the single module: `--jobs` schedules modules, and on the NAS workspace mount the
 # one module needed 577 s (694,875 source re-reads, no RPC). Same 40 tests, same assertions.
+# Those re-reads are now reused per process identity, which is why the floor is no longer a
+# multi-minute module.
 SLOW='bootstrap.test_bootstrap_production bootstrap.test_bootstrap_workflow core.test_startup_handoff core.test_startup_handoff_prepare core.test_startup_handoff_trigger core.test_startup_handoff_monitor bootstrap.test_bootstrap_failures'
 
 mode=full
 list_only=0
-# Default to 4 workers: the suite is independent modules, so the gate is bounded by the slowest
-# module rather than by the sum (measured: 91 modules, sequential 481 s, `--jobs 8` 104 s on
-# ext4). Discovery options still fall through to the sequential path below, and `--jobs 1` stays
-# the reproducible single-process form, so a gate claim has to name the job count either way.
-jobs=1
+# 4 workers by default: measured `--jobs 8` adds almost nothing over `--jobs 4` (the run is
+# bounded by `bootstrap.test_bootstrap_production`, about 74 s), while 4 keeps the per-module
+# slowdown small on a network mount. A discovery option (`-p`/`-s`) still runs sequentially
+# because it selects tests, not modules.
+jobs=4
 jobs_given=0
 while [ $# -gt 0 ]; do
     case $1 in
@@ -141,6 +150,14 @@ if [ "$list_only" = 1 ]; then
 fi
 
 if [ "$jobs" -gt 1 ]; then
+    # A job count above the selected module count only starts workers that never receive work.
+    # That cannot help, so it is refused here instead of being flattened silently: the caller
+    # asked for something the runner would not do.
+    selected=$(modules | wc -l | tr -d ' ')
+    if [ "$jobs" -gt "$selected" ]; then
+        echo "run_offline.sh: --jobs $jobs exceeds the $selected selected modules; use --jobs 1" >&2
+        exit 2
+    fi
     # Why the list goes over stdin: selection stays in `modules()`, so a parallel gate cannot
     # drift from what `--list` prints. tests/run_modules.py only executes and aggregates.
     exec env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \

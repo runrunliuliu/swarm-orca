@@ -201,6 +201,31 @@ class ParallelGateTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("cannot be combined", proc.stderr)
 
+    def test_a_job_count_above_the_selection_is_refused_because_it_cannot_help(self):
+        # Why: more workers than modules only starts workers that never receive work. Being
+        # asked for a property the run cannot have has to be refused, not flattened silently.
+        jobs = str(len(self.listing()) + 1)
+        proc = subprocess.run(["sh", str(self.script), "--jobs", jobs, "-q"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("exceeds", proc.stderr)
+        self.assertIn("--jobs 1", proc.stderr)
+
+    def test_default_is_four_workers_and_a_discovery_pattern_still_bypasses_it(self):
+        # Why: the default is a documented constant; observing it end-to-end means running 99
+        # modules, so assert the declaration and prove the risky half behaviourally below.
+        # `-p`/`-s` select tests rather than modules, so they must stay sequential (no helper
+        # aggregate line) unless --jobs was asked for together with them, which is refused.
+        self.assertIn("\njobs=4\n", self.script.read_text())
+        for args in (["-p", "test_capacity_io.py"],
+                     ["--jobs", "1", "-p", "test_capacity_io.py"]):
+            with self.subTest(args=args):
+                proc = subprocess.run(["sh", str(self.script), *args], cwd=self.root,
+                                      capture_output=True, text=True, timeout=300)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertNotIn("jobs:", proc.stdout)
+                self.assertRegex(proc.stdout + proc.stderr, r"Ran [1-9]\d* test")
+
     def test_a_discovery_pattern_still_runs_through_the_runner(self):
         # Why: the documented iteration form is `-p pattern` with no --jobs. It has to select
         # tests (sequential discovery), not modules, so it must not turn into the refusal above

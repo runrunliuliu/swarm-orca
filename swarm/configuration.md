@@ -61,11 +61,32 @@ provider 限定 `--model` 选择器且拒绝 effort/backend；`codex-ark` 的模
 
 ```bash
 tests/run_offline.sh --fast   # 按变更范围迭代，约 2.5 分钟
-tests/run_offline.sh -q       # 全量：合并/交付前门禁
+tests/run_offline.sh -q       # 全量：合并/交付前门禁（默认 4 路并行）
+tests/run_offline.sh --jobs 1 # 全量单进程，可复现形式
 ```
+
+门禁默认 4 路并行（NAS 挂载实测 99 模块 / 2577 项：单进程 363 s，`--jobs 4` 115 s，均 99/99
+OK）；出结论时必须写明 job 数。当 N 超过本次选中的模块数时并发不可能有收益，运行器会直接
+拒绝（`exit 2`）而不是静默降级。`-p`/`-s` 选的是测试而非模块，始终顺序执行。
 
 `--fast` 排除 `tests/run_offline.sh` 文件头列出的 4 个耗时主因模块，只用于迭代，不得作为
 离线 PASS 上报。脚本自行清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT`；
 不要手动继承私有策略路径，也不要把私有旧代码目录加入 `PYTHONPATH`。测试边界见
 [测试指南](docs/testing/reliability.md)；离线 PASS 不替代目标文件系统、原生 runtime 或
 真实 Agent 验收。
+
+### 进程内读取复用
+
+`coordinator_io` 按内核身份 `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)` 保留已核验
+文件的字节与 SHA256：命中只重做一次 `lstat`，不改变 `pinned()`/`file_ref()` 的比较逻辑、
+`file_pin_changed` 错误码、`blocking_io` 阶段或 `observation_budget` 记账。时间戳有量化
+（本机 ext4 为 1 ms），因此只有时间戳比本次读取早满 1 秒的条目才被保留；刚写入的文件
+一律重读，写入后的改动必然推动某个时间戳。缓存只在本进程内存中、有上限、不落盘。
+
+```bash
+SWARM_PIN_CACHE=0 ...            # 关闭复用，逐次 open+read+sha256
+SWARM_PIN_CACHE_BYTES=33554432   # 保留字节上限，默认 32 MiB，0 等同关闭
+```
+
+NFS 客户端会缓存属性，跨主机写入的可见性受挂载 `actimeo` 限制。把该缓存用于多主机并发
+写入同一棵树的部署时，须先确认挂载参数，或显式 `SWARM_PIN_CACHE=0`。
