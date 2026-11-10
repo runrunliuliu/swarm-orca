@@ -201,10 +201,10 @@ class ParallelGateTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
         self.assertIn("cannot be combined", proc.stderr)
 
-    def test_default_parallelism_still_runs_a_discovery_pattern(self):
-        # Why: the documented iteration form is `-p pattern` with no --jobs. Defaulting to
-        # parallel must not turn that into the refusal above, so it falls back to the
-        # sequential discovery path instead of failing or running the whole suite.
+    def test_a_discovery_pattern_still_runs_through_the_runner(self):
+        # Why: the documented iteration form is `-p pattern` with no --jobs. It has to select
+        # tests (sequential discovery), not modules, so it must not turn into the refusal above
+        # or run the whole suite.
         proc = subprocess.run(["sh", str(self.script), "-p", "test_capacity_io.py"],
                               cwd=self.root, capture_output=True, text=True, timeout=300)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)

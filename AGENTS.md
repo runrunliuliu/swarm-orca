@@ -57,9 +57,13 @@ tests/run_offline.sh --list                   # what a mode would run, without r
 tests/run_offline.sh -v                       # equivalent to the full form below
 ```
 
-Parallelism is on by default (4 modules at a time, one process each) because the suite is
-independent modules; report the job count with any timing. `--jobs 1` is the reproducible
-single-process form, and a discovery option (`-p`/`-s`) falls back to it automatically.
+`--jobs N` runs N modules at a time, one process each, because the suite is independent
+modules; the default stays 1, the reproducible single-process form, and a discovery option
+(`-p`/`-s`) still runs sequentially. Report the job count with any timing. Treat parallelism as
+a measured optimisation, not a default: on the NAS workspace mount 4-way concurrency pushed
+`operators.test_operator_monitor_deploy` from 18 s to 700 s and `core.test_startup_handoff_monitor`
+from 193 s to 788 s, both failing on their own deadline, while the other 92 modules finished.
+On a local filesystem the same 4-way run is about 104 s for the whole suite and passes.
 
 Run the narrowest command that covers the change. **A full-suite run is not required** — not
 while iterating and not before delivery. Select tests from the change's blast radius yourself;

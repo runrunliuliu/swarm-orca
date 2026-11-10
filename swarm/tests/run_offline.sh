@@ -14,7 +14,7 @@
 #           feedback for the area you are changing; never a gate claim.
 #   --list  print the modules the current mode would run, then exit 0.
 #   --jobs N  run the selected modules N at a time, one process each (see below). The
-#           default is 4; `--jobs 1` is the single-process form, and `--list` ignores it.
+#           default is 1, the reproducible single-process form; `--list` ignores it.
 #
 # Tests live under `tests/<area>/test_*.py` (bootstrap, coordinator, operators, trae,
 # worker, core). A module's name is its dotted path relative to `tests/`, which is also
@@ -41,10 +41,15 @@
 # on this host, before the handoff split: 91 modules sequential 481 s, `--jobs 8` 104 s, same
 # module set and test count. It deletes, merges and weakens nothing — it only stops independent modules from
 # queueing. Selection still happens here; tests/run_modules.py only executes the list it is
-# given. The default is 4 rather than 1: on a host with enough cores that is a straight win, and
-# on an I/O-bound host it still turns the sum into the slowest module. Keep `--jobs 1` reachable
-# because a claim on a single-process run has to stay reproducible, and always report the job
-# count alongside any timing (the helper prints it).
+# given. The default stays 1 for two measured reasons: a claim on a single-process run has to
+# stay reproducible, and concurrency is not uniformly safe. On the NAS workspace mount, 4-way
+# parallelism turned two deadline-sensitive modules into hard errors - measured 2026-11-10,
+# 94 modules in 892 s with `operators.test_operator_monitor_deploy` at 700 s
+# (tui_action_window_insufficient) and `core.test_startup_handoff_monitor` at 788 s
+# (tui_continuation_deadline); both pass alone on the same checkout in 18 s and 193 s. So
+# `--jobs` is an explicit optimisation: enable it where you have measured it, and expect the
+# deadline/fsync-heavy modules to need the single-process form. Always report the job count
+# alongside any timing (the helper prints it).
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
@@ -59,7 +64,7 @@ list_only=0
 # module rather than by the sum (measured: 91 modules, sequential 481 s, `--jobs 8` 104 s on
 # ext4). Discovery options still fall through to the sequential path below, and `--jobs 1` stays
 # the reproducible single-process form, so a gate claim has to name the job count either way.
-jobs=4
+jobs=1
 jobs_given=0
 while [ $# -gt 0 ]; do
     case $1 in
