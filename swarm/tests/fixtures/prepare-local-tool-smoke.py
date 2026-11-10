@@ -13,7 +13,7 @@ from unittest import mock
 
 BASE = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(BASE), str(BASE / "tests")]
-import test_coordinator_prepare as prepare_tests
+from coordinator import test_coordinator_prepare as prepare_tests
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output-root", type=Path, required=True)
