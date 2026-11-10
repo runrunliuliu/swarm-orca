@@ -49,19 +49,46 @@ Private policy, live configuration, and historical results stay in the private w
 Python (from `swarm-orca/swarm`):
 
 ```bash
-tests/run_offline.sh                          # full suite: the integration/delivery gate
-tests/run_offline.sh --fast                   # full suite minus the four wall-time dominators
-tests/run_offline.sh -p "test_coordinator_*"  # one area
+tests/run_offline.sh                          # full suite (optional whole-suite signal)
+tests/run_offline.sh --fast                   # full suite minus the seven wall-time dominators
+tests/run_offline.sh -p "test_coordinator_*"  # one area (runs sequentially)
+tests/run_offline.sh --jobs 1                  # full suite, one module at a time
 tests/run_offline.sh --list                   # what a mode would run, without running
 tests/run_offline.sh -v                       # equivalent to the full form below
 ```
 
-Run the narrowest command that covers the change while iterating; run the **full** suite
-once before integration or delivery. Say which mode produced a result: `--fast` output is
-iteration feedback, and only `--full` may be reported as "offline PASS". The full suite is
-about eight minutes of real owner-socket RPC, `fsync` and subprocess signature work — do not
-re-run it after every edit, and do not shorten it by deleting the heavy modules, which are
-the bootstrap/strict production-path evidence (see
+`--jobs N` runs N modules at a time, one process each, because the suite is independent
+modules; the default is 4 and `--jobs 1` is the reproducible single-process form, while a
+discovery option (`-p`/`-s`) still runs sequentially. Report the job count with any timing.
+
+The default is only safe because `coordinator_io` now reuses a verified file identity instead of
+re-reading and re-hashing the same bytes (one module alone called `file_ref` 483,696 times):
+measured on the NAS workspace mount, 99 modules / 2577 tests take 363 s in one process and
+106-115 s at `--jobs 4`, both 99/99 OK. Before that reuse, the same 4-way run took 892 s and
+failed two modules on their own deadlines (`operators.test_operator_monitor_deploy` 18 s -> 700 s,
+`core.test_startup_handoff_monitor` 193 s -> 788 s), which is why a raw concurrency increase
+without it is not a valid change. `SWARM_PIN_CACHE=0` disables the reuse.
+
+Run the narrowest command that covers the change. **A full-suite run is not required** — not
+while iterating and not before delivery. Select tests from the change's blast radius yourself;
+that is authorization, not a request. Map `swarm/<module>.py` to `tests/<area>/test_<module>.py`
+plus the modules that call it; widen to the whole area when you touch a shared module
+(`coordinator_io.py`, `blocking_io.py`), because the source pins make the impact reach far past
+the direct importers. Run `tests/core/test_offline_baseline.py` whenever you edit the runner,
+the `SLOW` list, the suite layout or a documented gate claim: it pins `--list` against
+discovery, the fast/full difference and the `--jobs` contract. When the blast radius is unclear,
+pick the wider set — the rule is "add evidence", never "skip it".
+
+Report what actually ran: name the modules (or the `-p` pattern), the mode and the job count,
+and say plainly what you did not run. `--fast` output is iteration feedback, not a gate claim;
+a targeted run is a targeted result, and "offline PASS" only ever describes a run that actually
+executed the whole suite. This matches `docs/testing/reliability.md:57` (日常回归按变更影响选择；
+变更影响不明时补验).
+
+The full suite still exists as an optional whole-suite signal — about eight minutes of real
+owner-socket RPC, `fsync` and subprocess signature work. Do not re-run it after every edit,
+and do not shorten it by deleting the heavy modules, which are the bootstrap/strict
+production-path evidence (see
 [testing strategy](swarm/docs/testing/strategy.md#5-跑法与门禁地图) for the gate levels).
 
 The script clears both private-input variables and is equivalent to:

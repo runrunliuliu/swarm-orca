@@ -3,12 +3,19 @@
 import errno
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
-from coordinator_io import (FilePinChanged, LockBusy, bound_lock, canonical, digest, directory_lock,
-                            file_ref, pinned, publish_new, replace_json, try_bound_lock)
+import coordinator_io
+from coordinator_io import (FilePinChanged, LockBusy, bound_lock, canonical, clear_pin_cache, digest,
+                            directory_lock, file_ref, pinned, publish_new, read_bytes, replace_json,
+                            try_bound_lock)
+
+_REAL_OPEN = os.open
 
 
 class PinnedEvidenceTests(unittest.TestCase):
@@ -116,6 +123,186 @@ class BoundLockTests(unittest.TestCase):
         (self.root / "test.lock").chmod(0o644)
         with self.assertRaisesRegex(ValueError, "invalid_lock_file"), try_bound_lock(self.root, self.ref, "test"):
             self.fail("invalid permissions")
+
+
+class VerifiedReadReuseTests(unittest.TestCase):
+    """A retained identity may save syscalls; it may never mask a changed file.
+
+    Timestamps are quantized (1 ms on this host, 1 s on coarse filesystems), so a
+    same-size rewrite inside one tick carries an identical mtime and ctime. The
+    default settle window therefore refuses a freshly written file; the reuse
+    tests below set the window to zero and cross a tick explicitly, which is the
+    condition under which reuse is allowed at all.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.target = self.root / "pinned.bin"
+        self.target.write_bytes(b"aaaa")
+        clear_pin_cache()
+        self.addCleanup(clear_pin_cache)
+        settle = patch.object(coordinator_io, "_PIN_CACHE_SETTLE_NS", 0)
+        settle.start()
+        self.addCleanup(settle.stop)
+        # These cases assert what a retained identity must never mask, so reuse has
+        # to be on whatever the ambient environment says.
+        state = patch.object(coordinator_io, "_pin_cache_state", coordinator_io._PIN_CACHE_DEFAULT)
+        state.start()
+        self.addCleanup(state.stop)
+
+    def write_in_place(self, value, *, restore=None):
+        time.sleep(0.005)  # Cross one timestamp quantum so the stamps can move.
+        with open(self.target, "r+b") as stream:
+            stream.write(value)
+        if restore is not None:
+            os.utime(self.target, ns=restore)
+
+    def test_fresh_file_is_not_retained_until_it_settles(self):
+        with patch.object(coordinator_io, "_PIN_CACHE_SETTLE_NS", 1_000_000_000):
+            self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        self.assertEqual(coordinator_io._pin_cache, {})
+
+    def test_reuse_saves_the_open_and_keeps_the_digest(self):
+        with patch.object(os, "open", wraps=_REAL_OPEN) as opened:
+            first = file_ref(self.target)
+            after_first = opened.call_count
+            second = file_ref(self.target)
+            self.assertEqual(opened.call_count, after_first)
+        self.assertEqual(first, second)
+        self.assertEqual(second["sha256"], digest(b"aaaa"))
+        self.assertEqual(len(coordinator_io._pin_cache), 1)
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+
+    def test_same_size_rewrite_is_not_reused(self):
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        self.assertEqual(len(coordinator_io._pin_cache), 1)
+        self.write_in_place(b"bbbb")
+        self.assertEqual(read_bytes(str(self.target)), b"bbbb")
+        self.assertEqual(file_ref(self.target)["sha256"], digest(b"bbbb"))
+
+    def test_rewrite_with_restored_mtime_is_not_reused(self):
+        before = os.stat(self.target)
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        self.assertEqual(len(coordinator_io._pin_cache), 1)
+        self.write_in_place(b"bbbb", restore=(before.st_atime_ns, before.st_mtime_ns))
+        after = os.stat(self.target)
+        self.assertEqual((after.st_size, after.st_mtime_ns), (before.st_size, before.st_mtime_ns))
+        self.assertNotEqual(after.st_ctime_ns, before.st_ctime_ns)
+        self.assertEqual(read_bytes(str(self.target)), b"bbbb")
+        with self.assertRaises(FilePinChanged):
+            pinned({"path": str(self.target), "sha256": digest(b"aaaa")})
+
+    def test_symlink_replacement_is_refused_not_reused(self):
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        moved = self.root / "moved.bin"
+        self.target.rename(moved)
+        self.target.symlink_to(moved)
+        with self.assertRaisesRegex(ValueError, "canonical_nonsymlink_path_required"):
+            read_bytes(str(self.target))
+        with self.assertRaisesRegex(ValueError, "canonical_nonsymlink_path_required"):
+            file_ref(self.target)
+
+    def test_parent_directory_symlink_is_refused(self):
+        (self.root / "nested").mkdir()
+        inner = self.root / "nested" / "pinned.bin"
+        inner.write_bytes(b"cccc")
+        self.assertEqual(read_bytes(str(inner)), b"cccc")
+        (self.root / "nested").rename(self.root / "moved")
+        (self.root / "nested").symlink_to(self.root / "moved")
+        with self.assertRaisesRegex(ValueError, "canonical_nonsymlink_path_required"):
+            read_bytes(str(inner))
+
+    def test_truncation_during_read_is_reported_and_not_retained(self):
+        real_fstat = os.fstat
+
+        class Lying:
+            def __init__(self, info, extra):
+                self.__dict__.update({name: getattr(info, name) for name in (
+                    "st_mode", "st_dev", "st_ino", "st_mtime_ns", "st_ctime_ns")})
+                self.st_size = info.st_size + extra
+
+        def fstat(fd):
+            return Lying(real_fstat(fd), 4)
+
+        with patch.object(coordinator_io.os, "fstat", fstat):
+            with self.assertRaisesRegex(ValueError, "file_truncated"):
+                read_bytes(str(self.target))
+        self.assertEqual(coordinator_io._pin_cache, {})
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+
+    def test_non_regular_entry_falls_back_to_the_strict_error(self):
+        fifo = self.root / "fifo"
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        os.mkfifo(fifo)
+        with self.assertRaisesRegex(ValueError, "wrong_path_type"):
+            read_bytes(str(fifo))
+
+    def test_cross_process_same_size_write_is_not_reused(self):
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        self.assertEqual(len(coordinator_io._pin_cache), 1)
+        time.sleep(0.005)
+        subprocess.run([sys.executable, "-c",
+                        "import sys;open(sys.argv[1],'r+b').write(b'zzzz')", str(self.target)],
+                       check=True)
+        self.assertEqual(read_bytes(str(self.target)), b"zzzz")
+
+    def test_disabled_cache_reads_every_time(self):
+        with patch.object(coordinator_io, "_pin_cache_state", 0):
+            with patch.object(os, "open", wraps=_REAL_OPEN) as opened:
+                self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+                after_first = opened.call_count
+                self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+                self.assertGreater(opened.call_count, after_first)
+            self.assertEqual(coordinator_io._pin_cache, {})
+
+    def test_kill_switch_is_sticky_against_a_scrubbed_environment(self):
+        original = coordinator_io._pin_cache_state
+        try:
+            with patch.dict(os.environ, {"SWARM_PIN_CACHE": "0"}):
+                coordinator_io._pin_cache_state = None
+                self.assertEqual(coordinator_io.pin_cache_budget(), 0)
+            # A fixture that clears os.environ must not re-enable reuse mid-process.
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(coordinator_io.pin_cache_budget(), 0)
+                self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+                self.assertEqual(coordinator_io._pin_cache, {})
+        finally:
+            coordinator_io._pin_cache_state = original
+
+    def test_a_second_path_to_the_same_inode_is_never_served_from_the_cache(self):
+        # Inode numbers are recycled and timestamps are quantized, so an entry is
+        # bound to the path it was read from, never to the identity alone.
+        alias = self.root / "alias.bin"
+        os.link(self.target, alias)
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        with patch.object(os, "open", wraps=_REAL_OPEN) as opened:
+            before = opened.call_count
+            self.assertEqual(read_bytes(str(alias)), b"aaaa")
+            self.assertGreater(opened.call_count, before)
+
+    def test_tiny_budget_retains_nothing_and_stays_correct(self):
+        with patch.object(coordinator_io, "_pin_cache_state", 1):
+            self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+            self.assertEqual(coordinator_io._pin_cache, {})
+            self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+
+    def test_replacement_through_publish_and_replace_is_always_seen(self):
+        self.assertEqual(read_bytes(str(self.target)), b"aaaa")
+        replace_json(self.target, {"same": 1})
+        self.assertEqual(read_bytes(str(self.target)), canonical({"same": 1}) + b"\n")
+        publish_new(self.root / "other.bin", b"dddd")
+        self.assertEqual(read_bytes(str(self.root / "other.bin")), b"dddd")
+
+    def test_retained_entry_is_bounded_and_evicts_oldest(self):
+        with patch.object(coordinator_io, "_pin_cache_state", 96):
+            for index in range(6):
+                (self.root / ("f%d" % index)).write_bytes(b"x" * 32)
+                read_bytes(str(self.root / ("f%d" % index)))
+            self.assertLessEqual(len(coordinator_io._pin_cache), 3)
+            clear_pin_cache()
+            self.assertEqual(coordinator_io._pin_cache, {})
 
 
 if __name__ == "__main__":

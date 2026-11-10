@@ -7,8 +7,9 @@ or names a file that cannot be read (so the run must fail closed with a code rat
 than with a bare `OSError` or a misleading `file_pin_changed`).
 
 The runner's own modes are pinned here too: `--fast` is iteration feedback over every
-module except the documented wall-time dominators, and only `--full` may be reported as
-PASS. Both listings are read without running either suite. The expected module set comes
+module except the documented wall-time dominators, and no run is required for a change —
+only a run that executed every module may be reported as PASS. Both listings are read without
+running either suite. The expected module set comes
 from unittest's own discovery rather than from the `tests/<area>/` glob the script walks,
 so a package that glob cannot see — for example a new nesting level, which discovery would
 still import — fails these assertions instead of passing them.
@@ -18,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -93,14 +95,18 @@ class OfflineBaselineTests(unittest.TestCase):
 class OfflineRunnerModeTests(unittest.TestCase):
     """Mode selection is a coverage claim, so it is asserted rather than assumed."""
 
+    # The handoff chain is four modules rather than one so a parallel run is bounded by a
+    # quarter of the old floor; the set is one SLOW group in both this tuple and the script.
     SLOW = ("bootstrap.test_bootstrap_production", "bootstrap.test_bootstrap_workflow",
-            "core.test_startup_handoff", "bootstrap.test_bootstrap_failures")
+            "core.test_startup_handoff", "core.test_startup_handoff_prepare",
+            "core.test_startup_handoff_trigger", "core.test_startup_handoff_monitor",
+            "bootstrap.test_bootstrap_failures")
     root = Path(__file__).resolve().parents[2]
     script = root / "tests" / "run_offline.sh"
 
     def discovered(self):
-        # unittest's own answer, not the script's glob: that is what `--full` runs, so it is
-        # the only honest baseline for "--fast is exactly this minus the slow modules".
+        # unittest's own answer, not the script's glob: that is what a default run executes,
+        # so it is the only honest baseline for "--fast is exactly this minus the slow modules".
         loader = unittest.TestLoader()
         suite = loader.discover(str(self.root / "tests"), top_level_dir=str(self.root / "tests"))
         found = set()
@@ -122,7 +128,16 @@ class OfflineRunnerModeTests(unittest.TestCase):
         return proc.stdout.split()
 
     def test_full_listing_covers_every_discovered_module(self):
-        self.assertEqual(sorted(self.listing("--full")), sorted(self.discovered()))
+        self.assertEqual(sorted(self.listing()), sorted(self.discovered()))
+
+    def test_full_flag_is_refused_because_it_is_the_default(self):
+        # Why: `--full` was removed. Left unparsed it would be forwarded to unittest and fail
+        # there with "unrecognized arguments", which reads like a broken suite, not a
+        # removed flag; the runner has to say so itself.
+        proc = subprocess.run(["sh", str(self.script), "--full", "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--full was removed", proc.stderr)
 
     def test_fast_listing_is_the_full_suite_minus_the_documented_slow_modules(self):
         discovered = self.discovered()
@@ -148,6 +163,97 @@ class OfflineRunnerModeTests(unittest.TestCase):
                    RSI_CHECKER_TEST_ROOT="/nonexistent/rsi-checkout")
         self.assertEqual(sorted(self.listing("--fast", env=env)),
                          sorted(self.discovered() - set(self.SLOW)))
+
+
+class ParallelGateTests(unittest.TestCase):
+    """`--jobs` may not change selection, and must not hide or shrink a failure."""
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests" / "run_offline.sh"
+    helper = root / "tests" / "run_modules.py"
+
+    def listing(self, *args):
+        proc = subprocess.run(["sh", str(self.script), *args, "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.split()
+
+    def helper_run(self, modules, jobs="2"):
+        return subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", jobs, "--"],
+                              cwd=self.root, input="".join(f"{m}\n" for m in modules),
+                              capture_output=True, text=True, timeout=300)
+
+    def test_jobs_does_not_change_the_selected_modules(self):
+        # Why: concurrency must not become a second, drifting notion of "the suite".
+        self.assertEqual(sorted(self.listing("--jobs", "4")), sorted(self.listing()))
+
+    def test_jobs_must_be_a_positive_integer(self):
+        proc = subprocess.run(["sh", str(self.script), "--jobs", "0", "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("positive integer", proc.stderr)
+
+    def test_jobs_refuses_a_discovery_option_instead_of_passing_it_on(self):
+        # Why: -p/-s are discovery options; handing one to a named module makes every worker
+        # fail for a reason that has nothing to do with the code under test.
+        proc = subprocess.run(["sh", str(self.script), "--jobs", "2", "-p", "test_*"],
+                              cwd=self.root, capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("cannot be combined", proc.stderr)
+
+    def test_a_job_count_above_the_selection_is_refused_because_it_cannot_help(self):
+        # Why: more workers than modules only starts workers that never receive work. Being
+        # asked for a property the run cannot have has to be refused, not flattened silently.
+        jobs = str(len(self.listing()) + 1)
+        proc = subprocess.run(["sh", str(self.script), "--jobs", jobs, "-q"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("exceeds", proc.stderr)
+        self.assertIn("--jobs 1", proc.stderr)
+
+    def test_default_is_four_workers_and_a_discovery_pattern_still_bypasses_it(self):
+        # Why: the default is a documented constant; observing it end-to-end means running 99
+        # modules, so assert the declaration and prove the risky half behaviourally below.
+        # `-p`/`-s` select tests rather than modules, so they must stay sequential (no helper
+        # aggregate line) unless --jobs was asked for together with them, which is refused.
+        self.assertIn("\njobs=4\n", self.script.read_text())
+        for args in (["-p", "test_capacity_io.py"],
+                     ["--jobs", "1", "-p", "test_capacity_io.py"]):
+            with self.subTest(args=args):
+                proc = subprocess.run(["sh", str(self.script), *args], cwd=self.root,
+                                      capture_output=True, text=True, timeout=300)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertNotIn("jobs:", proc.stdout)
+                self.assertRegex(proc.stdout + proc.stderr, r"Ran [1-9]\d* test")
+
+    def test_a_discovery_pattern_still_runs_through_the_runner(self):
+        # Why: the documented iteration form is `-p pattern` with no --jobs. It has to select
+        # tests (sequential discovery), not modules, so it must not turn into the refusal above
+        # or run the whole suite.
+        proc = subprocess.run(["sh", str(self.script), "-p", "test_capacity_io.py"],
+                              cwd=self.root, capture_output=True, text=True, timeout=300)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("cannot be combined", proc.stderr)
+        self.assertRegex(proc.stderr + proc.stdout, r"Ran [1-9]\d* test")
+
+    def test_helper_runs_every_module_it_is_given(self):
+        proc = self.helper_run(["core.test_log_io", "core.test_capacity_io"])
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("modules: 2/2", proc.stdout)
+        self.assertIn("OK", proc.stdout)
+
+    def test_helper_fails_when_a_module_cannot_be_loaded(self):
+        # Why: a parallel gate that reported success after silently dropping a worker would be
+        # worse than a slow one; the missing module has to fail the run and name itself.
+        proc = self.helper_run(["core.test_log_io", "core.test_missing_module"])
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("core.test_missing_module", proc.stdout)
+        self.assertIn("FAILED", proc.stdout)
+
+    def test_helper_refuses_an_empty_selection(self):
+        proc = subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", "2", "--"],
+                              cwd=self.root, input="", capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 2)
 
 
 if __name__ == "__main__":

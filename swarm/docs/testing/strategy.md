@@ -244,22 +244,46 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 #   PYTHONPATH=.:tests python3 -B -m unittest discover -s tests -v
 ```
 
-**默认跑子集，门禁跑全量。** 同一入口提供两种选择模式（清环境规则相同）：
+**默认跑子集；全量是可选的整包信号。** 同一入口提供两种选择模式（清环境规则相同）：
 
 ```bash
-tests/run_offline.sh --fast   # 90 个模块中的 86 个，≈2.5 分钟
-tests/run_offline.sh          # 全量 90 个模块，≈8 分钟
+tests/run_offline.sh --fast   # 94 个模块中的 87 个，≈2.5 分钟
+tests/run_offline.sh          # 全量 94 个模块，默认 4 路并行
+tests/run_offline.sh --jobs 1 # 全量，单进程（可复现形式，出结论时须写明 job 数）
+tests/run_offline.sh --jobs 8 # 全量，8 路并行：仅在实测过的主机上启用（见下）
 tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
 ```
 
-模块数与耗时来自 2026-11-09 本机一次空闲实测；**测试项数不写进文档**（它随套件增长，
-以每次输出为准）。`--fast` 排除的 4 个模块（`bootstrap.test_bootstrap_production`、
-`bootstrap.test_bootstrap_workflow`、`core.test_startup_handoff`、
-`bootstrap.test_bootstrap_failures`）合计 301 s，
+模块数与耗时来自 2026-11-09 本机一次空闲实测（模块数随 2026-11-10 的 handoff 拆分更新；
+2026-11-10 NAS 复测：99 个模块 / 2577 项，单进程 363 s、`--jobs 4` 115 s，两者均 99/99 OK）；
+**测试项数不写进文档**（它随套件增长，
+以每次输出为准）。`--fast` 排除的 7 个模块（`bootstrap.test_bootstrap_production`、
+`bootstrap.test_bootstrap_workflow`、`core.test_startup_handoff` 及其
+`_prepare`/`_trigger`/`_monitor` 三份、`bootstrap.test_bootstrap_failures`）合计 301 s，
 占全量 65%；成本来自真实 owner-socket RPC（约 2000 次往返，每次一个子进程做签名校验）、
 `fsync` 与 JSON 规范化，不是 sleep。它们是 bootstrap/strict 生产路径的行为证据，
-**不得为提速删除或削弱断言**。按变更范围迭代用 `--fast` 或 `-p`，合并/交付前跑一次
-全量；`--fast` 只能作为迭代反馈，不得上报为离线 PASS。模块清单的选取契约由
+**不得为提速删除或削弱断言**。
+
+> **为什么要拆，而不是删.** `--jobs` 以模块为调度单位，所以并行门禁的下限是“最慢单模块”
+> 而不是总时长。`core.test_startup_handoff` 原是 40 项一个模块：本机 ext4 上 66 s，
+> 而 NAS 工作区挂载上 **577 s**（8.7×；profile 显示 694,875 次 `read_bytes`、
+> 2,807,417 次 `lstat`，**零** RPC、零 openssl——慢在源码重读，不在签名）。
+> 按主题拆成 gate/dispatch、prepare/schema、trigger/send、monitor/turn-end 四个模块后，
+> 40 项与断言一句未改，ext4 上最大单模块 22 s（实测 17.4/4.0/20.9/21.8 s）。
+> 拆分不改变任何通过条件，只是把同一批证据放进更细的调度单位。
+>
+> **默认并发为 4 的依据.** 同一批“源码重读”现在由 `coordinator_io` 按进程内身份复用，
+> NAS 挂载上 99 个模块 / 2577 项：单进程 363 s、`--jobs 4` 115 s，均 99/99 OK；
+> 2026-11-10 那次 `--jobs 4` 全量 892 s 且两个模块 deadline 假失败（deploy 700 s、
+> monitor 788 s）的形态已不再复现，两者在 4 路负载下为 13.4 s / 22.0 s。
+> `--jobs 8` 相对 4 收益很小（受 `bootstrap.test_bootstrap_production` 约 74 s 封顶），
+> 所以默认取 4；单进程形式仍保留为可复现口径。
+
+按变更范围选择测试（`swarm/<module>.py` → `tests/<area>/test_<module>.py`，映射与边界见
+`AGENTS.md` 的 Tests 一节），**不需要每次跑全量，也不需要为了合并或交付补一次全量**；这与
+reliability.md:57「日常回归按变更影响选择、变更影响不明时补验」一致。结论必须写明实际跑了
+哪些模块（或 `-p` 模式）、哪种模式与 job 数；`--fast` 与定向跑都只是迭代证据，只有真正
+跑完整包才能叫「离线 PASS」。模块清单的选取契约由
 `tests/core/test_offline_baseline.py` 的 `OfflineRunnerModeTests` 固定：它用 unittest 自己的
 discovery 结果（而不是脚本用的同一个 glob）做期望值，所以脚本漏掉某个 `tests/<area>/`
 （例如再深一层嵌套目录）会报红，而不是静默少跑。模块名即相对 `tests/` 的点号路径。
