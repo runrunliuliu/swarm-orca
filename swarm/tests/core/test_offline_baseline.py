@@ -105,8 +105,8 @@ class OfflineRunnerModeTests(unittest.TestCase):
     script = root / "tests" / "run_offline.sh"
 
     def discovered(self):
-        # unittest's own answer, not the script's glob: that is what `--full` runs, so it is
-        # the only honest baseline for "--fast is exactly this minus the slow modules".
+        # unittest's own answer, not the script's glob: that is what a default run executes,
+        # so it is the only honest baseline for "--fast is exactly this minus the slow modules".
         loader = unittest.TestLoader()
         suite = loader.discover(str(self.root / "tests"), top_level_dir=str(self.root / "tests"))
         found = set()
@@ -128,7 +128,16 @@ class OfflineRunnerModeTests(unittest.TestCase):
         return proc.stdout.split()
 
     def test_full_listing_covers_every_discovered_module(self):
-        self.assertEqual(sorted(self.listing("--full")), sorted(self.discovered()))
+        self.assertEqual(sorted(self.listing()), sorted(self.discovered()))
+
+    def test_full_flag_is_refused_because_it_is_the_default(self):
+        # Why: `--full` was removed. Left unparsed it would be forwarded to unittest and fail
+        # there with "unrecognized arguments", which reads like a broken suite, not a
+        # removed flag; the runner has to say so itself.
+        proc = subprocess.run(["sh", str(self.script), "--full", "--list"], cwd=self.root,
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("--full was removed", proc.stderr)
 
     def test_fast_listing_is_the_full_suite_minus_the_documented_slow_modules(self):
         discovered = self.discovered()
@@ -191,6 +200,16 @@ class ParallelGateTests(unittest.TestCase):
                               cwd=self.root, capture_output=True, text=True, timeout=120)
         self.assertEqual(proc.returncode, 2)
         self.assertIn("cannot be combined", proc.stderr)
+
+    def test_default_parallelism_still_runs_a_discovery_pattern(self):
+        # Why: the documented iteration form is `-p pattern` with no --jobs. Defaulting to
+        # parallel must not turn that into the refusal above, so it falls back to the
+        # sequential discovery path instead of failing or running the whole suite.
+        proc = subprocess.run(["sh", str(self.script), "-p", "test_capacity_io.py"],
+                              cwd=self.root, capture_output=True, text=True, timeout=300)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn("cannot be combined", proc.stderr)
+        self.assertRegex(proc.stderr + proc.stdout, r"Ran [1-9]\d* test")
 
     def test_helper_runs_every_module_it_is_given(self):
         proc = self.helper_run(["core.test_log_io", "core.test_capacity_io"])

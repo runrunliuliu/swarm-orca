@@ -51,10 +51,15 @@ Python (from `swarm-orca/swarm`):
 ```bash
 tests/run_offline.sh                          # full suite: the integration/delivery gate
 tests/run_offline.sh --fast                   # full suite minus the seven wall-time dominators
-tests/run_offline.sh -p "test_coordinator_*"  # one area
+tests/run_offline.sh -p "test_coordinator_*"  # one area (runs sequentially)
+tests/run_offline.sh --jobs 1                  # full suite, one module at a time
 tests/run_offline.sh --list                   # what a mode would run, without running
 tests/run_offline.sh -v                       # equivalent to the full form below
 ```
+
+Parallelism is on by default (4 modules at a time, one process each) because the suite is
+independent modules; report the job count with any timing. `--jobs 1` is the reproducible
+single-process form, and a discovery option (`-p`/`-s`) falls back to it automatically.
 
 Run the narrowest command that covers the change while iterating; run the **full** suite
 once before integration or delivery. Select tests from the change's blast radius yourself;

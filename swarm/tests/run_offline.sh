@@ -5,19 +5,19 @@
 # private RSI checkout (RSI_CHECKER_TEST_ROOT). Both change what "offline PASS" means,
 # so this runner clears them instead of inheriting them. It reads no other config.
 #
-# Usage: tests/run_offline.sh [--full | --fast | --list] [--jobs N] [extra unittest options]
+# Usage: tests/run_offline.sh [--fast | --list] [--jobs N] [extra unittest options]
 #
-#   --full  (default) every discovered module. This is the gate before integration and
-#           delivery, and the only mode that may be reported as PASS.
+#   (default)  every discovered module. This is the gate before integration and delivery,
+#           and the only run that may be reported as PASS.
 #   --fast  every module except the wall-time dominators named in SLOW below. Iteration
 #           feedback for the area you are changing; never a gate claim.
 #   --list  print the modules the current mode would run, then exit 0.
 #   --jobs N  run the selected modules N at a time, one process each (see below). The
-#           default is 1, which is the historical single-process behavior; --list ignores it.
+#           default is 4; `--jobs 1` is the single-process form, and `--list` ignores it.
 #
 # Tests live under `tests/<area>/test_*.py` (bootstrap, coordinator, operators, trae,
 # worker, core). A module's name is its dotted path relative to `tests/`, which is also
-# the name unittest discovery reports, so `--list` and `--full` can be compared.
+# the name unittest discovery reports, so `--list` and discovery can be compared.
 #
 # Mode flags must come before unittest options, e.g. `tests/run_offline.sh --fast -v`.
 # When tests run, the exit status is unittest's own. `--list` exits 0 and a
@@ -37,11 +37,13 @@
 #
 # Why --jobs exists: modules are independent processes already (no test in one imports state
 # from another), so the full suite is bounded by its slowest module, not by the sum. Measured
-# on this host: 91 modules sequential 481 s, `--jobs 8` 104 s, identical module set and test
-# count. It deletes, merges and weakens nothing — it only stops independent modules from
+# on this host, before the handoff split: 91 modules sequential 481 s, `--jobs 8` 104 s, same
+# module set and test count. It deletes, merges and weakens nothing — it only stops independent modules from
 # queueing. Selection still happens here; tests/run_modules.py only executes the list it is
-# given. Keep the default at 1 so a gate claim names a reproducible single-process run unless
-# the caller says otherwise, and report the job count alongside any timing.
+# given. The default is 4 rather than 1: on a host with enough cores that is a straight win, and
+# on an I/O-bound host it still turns the sum into the slowest module. Keep `--jobs 1` reachable
+# because a claim on a single-process run has to stay reproducible, and always report the job
+# count alongside any timing (the helper prints it).
 set -eu
 cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
@@ -52,15 +54,25 @@ SLOW='bootstrap.test_bootstrap_production bootstrap.test_bootstrap_workflow core
 
 mode=full
 list_only=0
-jobs=1
+# Default to 4 workers: the suite is independent modules, so the gate is bounded by the slowest
+# module rather than by the sum (measured: 91 modules, sequential 481 s, `--jobs 8` 104 s on
+# ext4). Discovery options still fall through to the sequential path below, and `--jobs 1` stays
+# the reproducible single-process form, so a gate claim has to name the job count either way.
+jobs=4
+jobs_given=0
 while [ $# -gt 0 ]; do
     case $1 in
-        --full) mode=full; shift ;;
+        --full)
+            # Dropped on purpose: the default already is the full suite, and an unparsed
+            # `--full` would be handed to unittest and fail there for an unrelated reason.
+            echo "run_offline.sh: --full was removed; the full suite is the default" >&2
+            exit 2 ;;
         --fast) mode=fast; shift ;;
         --list) list_only=1; shift ;;
         --jobs)
             [ $# -ge 2 ] || { echo "run_offline.sh: --jobs needs a positive integer" >&2; exit 2; }
             jobs=$2
+            jobs_given=1
             shift 2 ;;
         *) break ;;
     esac
@@ -86,11 +98,16 @@ if [ "$jobs" -gt 1 ] && [ "$list_only" != 1 ]; then
     for arg in "$@"; do
         case $arg in
             -p|-p*|--pattern|--pattern=*|-s|--start-directory*)
-                # Parallel mode runs named modules, so a discovery option would be handed to
-                # every module and rejected there. Refuse it here with the runner's own
-                # status instead of a confusing per-module failure.
-                echo "run_offline.sh: --jobs runs named modules and cannot be combined with $arg" >&2
-                exit 2 ;;
+                if [ "$jobs_given" = 1 ]; then
+                    # Parallel mode runs named modules, so a discovery option would be handed to
+                    # every module and rejected there. Refuse it here with the runner's own
+                    # status instead of a confusing per-module failure.
+                    echo "run_offline.sh: --jobs runs named modules and cannot be combined with $arg" >&2
+                    exit 2
+                fi
+                # Default parallelism must not break the documented `-p` iteration path:
+                # discovery selects tests, not modules, so run this one sequentially.
+                jobs=1 ;;
         esac
     done
 fi

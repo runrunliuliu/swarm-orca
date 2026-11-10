@@ -248,7 +248,8 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 
 ```bash
 tests/run_offline.sh --fast   # 94 个模块中的 87 个，≈2.5 分钟
-tests/run_offline.sh          # 全量 94 个模块，≈8 分钟
+tests/run_offline.sh          # 全量 94 个模块，默认 4 路并行，≈8 分钟（串行）
+tests/run_offline.sh --jobs 1 # 全量，单进程：可复现的单进程形式
 tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
 ```
 
