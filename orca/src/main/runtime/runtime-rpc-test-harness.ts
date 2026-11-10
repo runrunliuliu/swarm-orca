@@ -14,13 +14,24 @@ export async function sendRequest(
     socket.once('error', reject)
     socket.on('data', (chunk: string) => {
       buffer += chunk
-      const newlineIndex = buffer.indexOf('\n')
-      if (newlineIndex === -1) {
+      let newlineIndex = buffer.indexOf('\n')
+      while (newlineIndex !== -1) {
+        const message = buffer.slice(0, newlineIndex)
+        buffer = buffer.slice(newlineIndex + 1)
+        newlineIndex = buffer.indexOf('\n')
+        if (!message.trim()) {
+          continue
+        }
+        const parsed = JSON.parse(message) as Record<string, unknown>
+        // Why: the transport keeps any slow dispatch alive with keepalive frames, not
+        // just long-polls, so the first frame here is not necessarily the response.
+        if ('_keepalive' in parsed) {
+          continue
+        }
+        socket.end()
+        resolve(parsed)
         return
       }
-      const message = buffer.slice(0, newlineIndex)
-      socket.end()
-      resolve(JSON.parse(message) as Record<string, unknown>)
     })
     socket.on('connect', () => {
       socket.write(`${JSON.stringify(withCurrentOrchestrationContract(request))}\n`)

@@ -257,7 +257,10 @@ export class UnixSocketTransport implements RpcTransport {
     // by these frames too, so this fixes not just the framing but the client deadline.
     keepaliveArmTimer = setTimeout(() => {
       keepaliveArmTimer = null
-      if (replied || cleanedUp) {
+      // Why the extra keepaliveTimer test: a long-poll handler arms keepalive through
+      // the admission layer and owns its own deadline (`terminal.waitForStartup`
+      // accepts up to an hour), so the implicit ceiling must not be layered on top.
+      if (replied || cleanedUp || keepaliveTimer) {
         return
       }
       implicitKeepaliveDeadline = Date.now() + MAX_IMPLICIT_KEEPALIVE_MS

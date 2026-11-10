@@ -210,4 +210,39 @@ describe('UnixSocketTransport', () => {
     // connection slots forever; after it the idle timer is allowed to win.
     expect(socket.writes).toHaveLength(atCeiling)
   })
+
+  it('never caps a keepalive the handler armed itself', () => {
+    // Why: long-poll handlers (terminal.waitForStartup accepts an hour) arm keepalive
+    // through the admission layer. The implicit ceiling exists for handlers that never
+    // settle, so it must not shorten a deadline the handler is honouring.
+    const transport = new UnixSocketTransport({
+      endpoint: 'test-pipe',
+      kind: 'named-pipe',
+      keepaliveIntervalMs: 100,
+      keepaliveArmDelayMs: 50
+    })
+    const socket = new FakeSocket()
+    let aborted = false
+    transport.onMessage((_msg, _respond, context) => {
+      context?.signal.addEventListener(
+        'abort',
+        () => {
+          aborted = true
+        },
+        { once: true }
+      )
+      context?.startKeepalive()
+    })
+    ;(transport as unknown as UnixSocketTransportInternals).handleConnection(
+      socket as unknown as Socket
+    )
+    socket.emit('data', '{"id":"wait","method":"terminal.waitForStartup"}\n')
+
+    vi.advanceTimersByTime(10 * 60_000)
+    expect(aborted).toBe(false)
+    const atCeiling = socket.writes.length
+    vi.advanceTimersByTime(5_000)
+    expect(aborted).toBe(false)
+    expect(socket.writes.length).toBeGreaterThan(atCeiling)
+  })
 })
