@@ -247,8 +247,8 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 **默认跑子集；全量是可选的整包信号。** 同一入口提供两种选择模式（清环境规则相同）：
 
 ```bash
-tests/run_offline.sh --fast   # 94 个模块中的 87 个，≈2.5 分钟
-tests/run_offline.sh          # 全量 94 个模块，默认 4 路并行
+tests/run_offline.sh --fast   # 99 个模块中的 92 个，≈2.5 分钟
+tests/run_offline.sh          # 全量 99 个模块，默认 4 路并行
 tests/run_offline.sh --jobs 1 # 全量，单进程（可复现形式，出结论时须写明 job 数）
 tests/run_offline.sh --jobs 8 # 全量，8 路并行：仅在实测过的主机上启用（见下）
 tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
