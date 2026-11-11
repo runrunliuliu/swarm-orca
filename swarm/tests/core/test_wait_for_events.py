@@ -15,6 +15,11 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def pretty(payload) -> str:
+    """The CLI's `--json` output is pretty-printed, not one line per result."""
+    return json.dumps(payload, indent=2) + "\n"
 WRAPPER = ROOT / "wait_for_events.py"
 
 
@@ -56,10 +61,9 @@ class WaitWrapperTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=60)
 
     def test_messages_are_printed_one_row_each(self):
-        self.cli.respond(stdout=json.dumps({"deliveries": [
-            {"type": "worker_done", "id": "d1"},
-            {"type": "question", "id": "q1"},
-        ]}) + "\n")
+        self.cli.respond(stdout=pretty({"ok": True, "result": {
+            "messages": [{"type": "worker_done", "id": "d1"}, {"type": "question", "id": "q1"}],
+            "count": 2, "deliveryId": "dlv_1", "timedOut": False}}))
         completed = self.run_wrapper()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         lines = completed.stdout.splitlines()
@@ -70,22 +74,46 @@ class WaitWrapperTests(unittest.TestCase):
     def test_keepalive_never_reaches_the_message_stream(self):
         # Why: a 15 s keepalive line is CLI liveness. Parsing it as a message is how an idle
         # session starts acting on nothing.
-        self.cli.respond(stdout=json.dumps({"deliveries": [{"type": "worker_done", "id": "d1"}]}) + "\n",
+        self.cli.respond(stdout=pretty({"ok": True, "result": {
+                             "messages": [{"type": "worker_done", "id": "d1"}], "count": 1}}),
                          stderr="_keepalive 15s\n_keepalive 30s\n")
         completed = self.run_wrapper()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertNotIn("_keepalive", completed.stdout)
         self.assertEqual(len(completed.stdout.splitlines()), 1)
 
+    def test_the_result_envelope_is_unwrapped(self):
+        # Why: the CLI wraps every result in {id, ok, result, _meta}; reading payload["deliveries"]
+        # would report a real batch as empty.
+        self.cli.respond(stdout=pretty({"id": "r1", "ok": True,
+                                        "result": {"messages": [{"type": "worker_done", "id": "m1"}],
+                                                   "count": 1}}))
+        completed = self.run_wrapper()
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(len(completed.stdout.splitlines()), 1)
+        self.assertIn("worker_done", completed.stdout)
+
+    def test_an_unknown_receipt_shape_is_not_reported_as_empty(self):
+        # Why: "unknown" and "nothing happened" must not collapse. An unrecognised non-empty body
+        # is surfaced as one row so the caller reads it instead of acting on an empty batch.
+        self.cli.respond(stdout=pretty({"ok": True, "result": {"unexpected": {"a": 1}}}))
+        completed = self.run_wrapper()
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn("unexpected", completed.stdout)
+
     def test_an_empty_batch_is_its_own_status(self):
-        self.cli.respond(stdout=json.dumps({"deliveries": []}) + "\n", stderr="_keepalive 15s\n")
+        self.cli.respond(stdout=pretty({"ok": True, "result": {
+                             "messages": [], "count": 0, "timedOut": False}}),
+                         stderr="_keepalive 15s\n")
         completed = self.run_wrapper()
         self.assertEqual(completed.returncode, 3, completed.stdout + completed.stderr)
         self.assertIn("do not act", completed.stderr)
         self.assertEqual(completed.stdout, "")
 
     def test_a_timeout_is_not_an_empty_batch(self):
-        self.cli.respond(stdout="", stderr="_keepalive 300s\n", exit_code=124)
+        self.cli.respond(stdout=pretty({"ok": True, "result": {
+                             "messages": [], "count": 0, "timedOut": True}}),
+                         stderr="_keepalive 300s\n")
         completed = self.run_wrapper()
         self.assertEqual(completed.returncode, 124)
         self.assertIn("do not act", completed.stderr)
@@ -97,7 +125,7 @@ class WaitWrapperTests(unittest.TestCase):
         self.assertEqual(completed.stdout, "")
 
     def test_the_call_is_bounded_and_never_mutates_anything(self):
-        self.cli.respond(stdout=json.dumps({"deliveries": []}) + "\n")
+        self.cli.respond(stdout=pretty({"ok": True, "result": {"messages": [], "count": 0}}))
         self.run_wrapper("--timeout-ms", "120000", "--types", "worker_done")
         argv = self.cli.argv()
         self.assertEqual(argv[:3], ["orchestration", "check", "--wait"])

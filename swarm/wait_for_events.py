@@ -36,10 +36,58 @@ DEFAULT_TIMEOUT_MS = 300_000
 DEFAULT_TYPES = "worker_done,escalation,question"
 
 
-def classify(returncode: int, stdout: str) -> tuple[int, dict | list | None]:
-    """Map one CLI result to a status. A timeout in the receipt outranks the exit code."""
-    payload: dict | list | None = None
-    for line in stdout.splitlines():
+# The real receipt, per `orca/src/shared/orchestration-check-output.ts`: the CLI wraps every
+# result in `{ok, result, _meta}` and `result` carries `messages`, `count`, `deliveryId`,
+# `hasOutstandingDelivery` and `timedOut`. The older guesses (`deliveries`, `timeout`) are kept
+# only so an older runtime still classifies correctly.
+ROW_KEYS = ("messages", "deliveries", "rows", "batch")
+TIMEOUT_KEYS = ("timedOut", "timeout")
+
+
+def unwrap(payload):
+    """Strip the CLI's `{id, ok, result, _meta}` envelope, when there is one.
+
+    Why not read `payload["deliveries"]` directly: the CLI wraps every command result in that
+    envelope, and the row key inside `result` is not documented in the skill guide. Assuming one
+    shape is how a real batch gets reported as empty, so the row list is looked for and the raw
+    payload is preserved when it cannot be found.
+    """
+    if isinstance(payload, dict) and isinstance(payload.get("result"), (dict, list)):
+        return payload["result"]
+    return payload
+
+
+def rows_of(payload) -> list:
+    """The batch rows, or an empty list when the receipt carries none."""
+    body = unwrap(payload)
+    if isinstance(body, list):
+        return body
+    if isinstance(body, dict):
+        for key in ROW_KEYS:
+            candidate = body.get(key)
+            if isinstance(candidate, list):
+                return candidate
+        ignored = {"ok", "id", "_meta", "warnings", "hasOutstandingDelivery", "count"}
+        leftovers = [value for key, value in body.items() if key not in ignored]
+        if leftovers and not body:
+            return []
+        # An unrecognised non-empty body is not "no messages": surface it as one row so the
+        # caller reads the receipt instead of acting on a silent empty.
+        return [body] if leftovers else []
+    return []
+
+
+def parse(stdout: str):
+    """The CLI's receipt: pretty-printed JSON on stdout, or one compact line per result."""
+    text = stdout.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    payload = None
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("_keepalive"):
             continue
@@ -47,14 +95,24 @@ def classify(returncode: int, stdout: str) -> tuple[int, dict | list | None]:
             payload = json.loads(line)
         except ValueError:
             continue
-    if returncode == TIMEOUT or (isinstance(payload, dict) and payload.get("timeout") is True):
+    return payload
+
+
+def timed_out(payload) -> bool:
+    body = unwrap(payload)
+    return isinstance(body, dict) and any(body.get(key) is True for key in TIMEOUT_KEYS)
+
+
+def classify(returncode: int, stdout: str) -> tuple[int, dict | list | None]:
+    """Map one CLI result to a status. A timeout in the receipt outranks the exit code."""
+    payload = parse(stdout)
+    if returncode == TIMEOUT or timed_out(payload):
         return TIMEOUT, payload
     if returncode != 0:
         return USAGE_OR_TRANSPORT, payload
     if payload is None:
         return EMPTY, payload
-    rows = payload.get("deliveries") if isinstance(payload, dict) else payload
-    return (MESSAGES if rows else EMPTY), payload
+    return (MESSAGES if rows_of(payload) else EMPTY), payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -96,9 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(payload, ensure_ascii=False))
     else:
-        rows = payload.get("deliveries") if isinstance(payload, dict) else payload
-        for row in rows:
-            print(f"{row.get('type', 'unknown')}\t{json.dumps(row, ensure_ascii=False)}")
+        for row in rows_of(payload):
+            kind = row.get("type") or ("question" if row.get("subject") else "unknown")
+            print(f"{kind}\t{json.dumps(row, ensure_ascii=False)}")
     return MESSAGES
 
 
