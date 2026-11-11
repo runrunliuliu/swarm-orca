@@ -23,7 +23,8 @@ from bootstrap_protocol import ControlBinding, EVENTS
 from bootstrap_actions import ACTIONS, SUBMIT_TARGETS, command, completion_slot, submission
 from bootstrap_admission import CandidateReader, chain_confirmations, confirmed, control_paths
 from bootstrap_events import EvidenceReader, binding, contract_fields, review, version
-from coordinator_io import canonical, digest, file_ref, now, parse, pinned, require, timestamp, validate_ref
+from coordinator_io import (canonical, digest, file_ref, now, parse, pinned, publish_new, require,
+                            timestamp, validate_ref)
 from coordinator_strict import caller_result
 from coordinator_strict_request import observed_coordinator
 import provider_capability
@@ -459,7 +460,31 @@ class RoleTool(BootstrapMachine, ActionReader):
             raise
         require(existing is None, "bootstrap_result_already_committed")
 
-    def submit(self, intent_ref, source_ref):
+    def materialize_template(self, intent_ref, intent, submission):
+        """Write the fields candidate from the template the intent already pins.
+
+        Why this is not "trusting a template": the bytes are regenerated from the same
+        authorities the validator reads, then the intent's own recorded template must match them
+        (`bootstrap_template_drift`), and the result still goes through the unchanged
+        `validate_candidate` path below. Skipping validation is impossible here — there is no
+        second write path, only a second way of producing the bytes.
+
+        Only `fields-intent` qualifies: its candidate is fully determined by the contract. Review
+        stages carry `decision`/`notes`/`reviewed_at`, which are the reviewer's judgement and are
+        refused rather than filled in by a tool.
+        """
+        require(intent["action"] == "fields-intent", "bootstrap_from_template_not_allowed")
+        request_ref = intent["payload"].get("request")
+        require(isinstance(request_ref, dict) and "path" in request_ref,
+                "bootstrap_action_request_mismatch")
+        regenerated = self.template("fields", request_ref)
+        recorded = intent["payload"].get("candidate_template")
+        require(recorded == regenerated, "bootstrap_template_drift")
+        candidate = Path(submission["candidate_path"])
+        publish_new(candidate, regenerated)
+        return file_ref(candidate)
+
+    def submit(self, intent_ref, source_ref=None, from_template=False):
         self.local_check()
         intent = self.action_intent(intent_ref)
         name = intent["action"]
@@ -467,6 +492,11 @@ class RoleTool(BootstrapMachine, ActionReader):
                 "bootstrap_action_binding_mismatch")
         require(name in SUBMIT_TARGETS, "bootstrap_action_requires_specialized_tool")
         submission = self.submission(name)
+        if from_template:
+            require(source_ref is None, "bootstrap_from_template_conflicts_with_source")
+            source_ref = self.materialize_template(intent_ref, intent, submission)
+        else:
+            require(source_ref is not None, "bootstrap_candidate_source_required")
         require(intent["payload"].get("submission") == submission, "bootstrap_submission_contract_mismatch")
         target = SUBMIT_TARGETS[name]
         raw = self.candidate_bytes(source_ref, submission)
@@ -490,7 +520,9 @@ class RoleTool(BootstrapMachine, ActionReader):
 
         self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck)
         self.local_check()
-        return {"result": self.slot(target), "execution_authorized": False}
+        return {"result": self.slot(target), "execution_authorized": False,
+                "materialized_from_template": bool(from_template),
+                "authored": not from_template}
 
     def validate_candidate(self, intent_ref, raw):
         intent = self.validate_action(intent_ref)
@@ -654,6 +686,9 @@ def cli_main(argv=None):
     parser.add_argument("--poll", type=float, default=30)
     parser.add_argument("--until-stage", type=int)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--from-template", dest="from_template", action="store_true",
+                        help="submit: materialize the fields candidate from the intent's pinned "
+                             "template instead of a hand-authored file; refused for review stages")
     args = parser.parse_args(argv)
     try:
         require(args.execute == (args.mode not in {"query", "heartbeat", "plan", "inspect-action"}), "bootstrap_explicit_execute_required")
@@ -713,7 +748,7 @@ def cli_main(argv=None):
                 elif args.mode == "produce":
                     result = tool.produce(intent)
                 elif args.mode == "submit":
-                    result = tool.submit(intent, ref)
+                    result = tool.submit(intent, ref, from_template=args.from_template)
                 elif args.mode == "readiness":
                     result = tool.submit_readiness(intent, parse(pinned(ref)))
                 elif args.mode == "complete":
