@@ -91,8 +91,8 @@ class RunbookTests(unittest.TestCase):
         # A sample without it would be copied and rejected.
         text = (ROOT / "operator-runbook.md").read_text()
         for line in text.splitlines():
-            if line.startswith("python3 ") and "inspect-action" not in line:
-                self.assertTrue(line.rstrip().endswith("--execute"), line)
+            if line.startswith("python3 "):
+                self.assertEqual(line.count("--execute"), 0 if "inspect-action" in line else 1, line)
         self.assertIn("bootstrap_explicit_execute_required", text)
 
     def test_the_runbook_carries_no_absolute_path_from_this_checkout(self):

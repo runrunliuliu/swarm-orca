@@ -33,7 +33,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap pull --owner <owner.js
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap produce --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap submit --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap readiness --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
-python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 
 # submit 还需候选：--input <candidate.json> --input-sha256 <sha>，

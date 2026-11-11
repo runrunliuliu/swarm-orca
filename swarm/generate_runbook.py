@@ -83,7 +83,7 @@ def render() -> str:
         # `command()` only carries --execute for `complete` (the receipt field), but the CLI refuses
         # pull/produce/submit/readiness without it (`bootstrap_explicit_execute_required`), so the
         # page shows the invocation, not the receipt fragment.
-        if mode not in NON_EXECUTING_MODES:
+        if mode not in NON_EXECUTING_MODES and "--execute" not in rendered:
             rendered.append("--execute")
         lines.append(" ".join(shlex.quote(token) if " " in token else token for token in rendered))
     lines += ["", "# submit 还需候选：--input <candidate.json> --input-sha256 <sha>，",
