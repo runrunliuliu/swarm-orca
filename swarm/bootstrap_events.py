@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 
 from bootstrap_protocol import BACKEND, EVENTS, PRODUCERS, layout
+from tui_adapter import kind_adapter
 from coordinator_io import (FilePinChanged, digest, now, parse, path, pinned,
                             read_bytes, timestamp, validate_ref)
 from coordinator_request_prepare import exact_refs, source_contract, source_contract_fields
@@ -70,6 +71,19 @@ class EvidenceReader:
     def recheck(self):
         for ref in self.refs.values():
             pinned(ref)
+
+
+def observation_supported(observation):
+    """The observation must belong to the TUI adapter it claims.
+
+    The adapter->kind mapping lives in `tui_adapter`; a literal kind list here is how
+    a Pi observation got refused after it had already been committed.
+    """
+    if not isinstance(observation, dict):
+        return False
+    kind = observation.get("kind")
+    adapter = kind_adapter(kind) if isinstance(kind, str) else None
+    return adapter is not None and observation.get("adapter") == adapter
 
 
 def binding(reader, root, sha, attempt):
@@ -251,8 +265,7 @@ def _check(root, sha, attempt, clock, result, *, reader=None):
                 observation = reader.read(source["session_observation"], paths["session_observation"])
                 require(observation.get("caller_receipt") == source["caller_receipt"],
                         "observation_caller_pin_mismatch")
-                require(observation.get("kind") in {"trae_tui_startup_anchor", "trae_tui_session_observation"},
-                        "unsupported_observation_adapter")
+                require(observation_supported(observation), "unsupported_observation_adapter")
                 observed = timestamp(observation["observed_at"])
                 require(observed <= marker_time and clock - observed
                         <= timedelta(seconds=b["context_max_age_seconds"]),

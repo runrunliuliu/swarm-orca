@@ -163,6 +163,24 @@ class BootstrapEventsTests(unittest.TestCase):
         self.assertEqual(self.check(attempt_binding_sha256="0" * 64)["state"], "blocked_stale_or_mismatch")
         self.assertEqual(self.check(expect_attempt="different")["reason"], "attempt_mismatch")
 
+    def test_observation_kind_must_match_its_declared_adapter(self):
+        # Why: the kind list here used to be Trae-only, so a Pi observation was
+        # refused after the owner had already committed it.
+        from bootstrap_events import observation_supported
+
+        for adapter, kind in (("trae-tui-runtime-v1", "trae_tui_startup_anchor"),
+                              ("trae-tui-runtime-v1", "trae_tui_session_observation"),
+                              ("pi-tui-runtime-v1", "pi_tui_startup_anchor"),
+                              ("pi-tui-runtime-v1", "pi_tui_session_observation")):
+            self.assertTrue(observation_supported({"adapter": adapter, "kind": kind}), kind)
+        self.assertFalse(observation_supported({"adapter": "trae-tui-runtime-v1",
+                                                "kind": "pi_tui_startup_anchor"}))
+        self.assertFalse(observation_supported({"adapter": "pi-tui-runtime-v1",
+                                                "kind": "trae_tui_session_observation"}))
+        self.assertFalse(observation_supported({"kind": "pi_tui_startup_anchor"}))
+        self.assertFalse(observation_supported({"adapter": "pi-tui-runtime-v1", "kind": "other"}))
+        self.assertFalse(observation_supported(None))
+
     def test_a_pi_coordinator_binding_is_accepted_and_an_unknown_agent_is_not(self):
         # Why: the owner binds whichever provider this build can verify for a bootstrap
         # role. A hardcoded Trae refused every Pi coordinator after its registration.
