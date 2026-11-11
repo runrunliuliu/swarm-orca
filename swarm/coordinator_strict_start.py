@@ -149,6 +149,26 @@ def validate_start_window(config, *, checked_at=None):
     return remaining
 
 
+def checkpoint_until(stop):
+    """Keep the one live waiter alive across a busy owner.
+
+    `checkpoint()` is read-only (owner `active` plus the pinned inputs), so a busy
+    executor proves nothing was decided. Aborting the waiter for it is how attempt23
+    lost its Run: `ready.json` and the Operator gate were both published and no
+    waiter was left to consume them. Nothing is admitted here, and every retry
+    rechecks the same window, so this never extends the deadline.
+    """
+    from observation_budget import ObservationBusy
+    while True:
+        try:
+            checkpoint()
+            return
+        except ObservationBusy:
+            if time.monotonic() >= stop:
+                raise
+            time.sleep(0.1)
+
+
 def require_unstarted_attempt(directory):
     """Presence is a replay fence, not proof of native success or failure.
 
@@ -336,7 +356,7 @@ def wait_and_create(ref):
     ready_ref = file_ref(directory / "ready.json")
     bundle_path = directory / "gate-ready.json"
     while True:
-        checkpoint()
+        checkpoint_until(stop)
         require(time.monotonic() < stop and timestamp(now()) < timestamp(config["deadline"]),
                 "strict_start_wait_expired")
         # Only ENOENT means wait. Invalid/failed publications and permission errors stop.
@@ -363,7 +383,7 @@ def wait_and_create(ref):
     # Leave a whole native second inside the gate; never widen the gate itself.
     require(earliest + timedelta(seconds=1) <= cutoff, "strict_start_no_safe_creation_window")
     while True:
-        checkpoint()
+        checkpoint_until(stop)
         current_time = timestamp(now())
         require(time.monotonic() < stop and timestamp(receipt["completed_at"]) <= current_time < cutoff,
                 "strict_operator_session_receipt_stale")

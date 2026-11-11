@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import time
 import subprocess
 import unittest
 from contextlib import redirect_stdout
@@ -14,6 +15,35 @@ from coordinator_io import file_ref, parse, pinned, publish_new, timestamp
 from coordinator_launch import main
 from coordinator_strict_start import plan, publish, wait_and_create
 import coordinator.test_coordinator_strict as strict_tests
+
+
+class WaiterLivenessTests(unittest.TestCase):
+    """The one live waiter must survive a busy owner but never a closed window."""
+
+    def test_a_busy_checkpoint_is_retried_until_the_owner_answers(self):
+        from unittest.mock import patch
+        from observation_budget import ObservationBusy
+        from coordinator_strict_start import checkpoint_until
+
+        calls = []
+
+        def busy_twice():
+            calls.append(1)
+            if len(calls) < 3:
+                raise ObservationBusy()
+
+        with patch("coordinator_strict_start.checkpoint", side_effect=busy_twice):
+            checkpoint_until(time.monotonic() + 5)
+        self.assertEqual(len(calls), 3)
+
+    def test_an_expired_window_still_raises_instead_of_spinning(self):
+        from unittest.mock import patch
+        from observation_budget import ObservationBusy
+        from coordinator_strict_start import checkpoint_until
+
+        with patch("coordinator_strict_start.checkpoint", side_effect=ObservationBusy()):
+            with self.assertRaises(ObservationBusy):
+                checkpoint_until(time.monotonic() - 1)
 
 
 class StrictStartTests(unittest.TestCase):
