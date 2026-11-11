@@ -703,6 +703,9 @@ def cli_main(argv=None):
     parser.add_argument("--input-sha256")
     parser.add_argument("--intent")
     parser.add_argument("--intent-sha256")
+    parser.add_argument("--target-path",
+                        help="For reconcile: the owner-recorded commit to complete or re-barrier, "
+                             "when the caller cannot name its exact ref")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--poll", type=float, default=30)
     parser.add_argument("--until-stage", type=int)
@@ -742,15 +745,19 @@ def cli_main(argv=None):
             return 0
         owner_ref = dict(path=args.owner, sha256=args.owner_sha256)
         control, authority = connect(owner_ref)
-        ref = dict(path=args.input, sha256=args.input_sha256)
+        ref = dict(path=args.input, sha256=args.input_sha256) if args.input else None
         if args.mode == "query":
             result = asdict(authority.query(control, ref))
         elif args.mode == "heartbeat":
             require(args.actor in {"operator", "coordinator"}, "bootstrap_role_invalid")
             authority.heartbeat(control, args.actor)
             result = authority.last_heartbeat
-        elif args.mode in {"arm", "stop", "reconcile"}:
-            result = authority.rpc(args.mode, **({"target": ref} if args.mode == "reconcile" else {}))
+        elif args.mode == "reconcile":
+            require((ref is None) != (args.target_path is None), "bootstrap_reconcile_target_required")
+            result = authority.rpc("reconcile", **({"target": ref} if ref is not None
+                                                   else {"path": args.target_path}))
+        elif args.mode in {"arm", "stop"}:
+            result = authority.rpc(args.mode)
         elif args.mode == "plan":
             from bootstrap_s5 import role_plan
             result = role_plan(owner_ref)

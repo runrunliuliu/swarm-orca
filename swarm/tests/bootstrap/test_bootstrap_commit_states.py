@@ -119,6 +119,45 @@ class CommitStateTests(unittest.TestCase):
             self.assertEqual((Path(target).stat().st_ino, Path(target).stat().st_mtime_ns), before)
             self.assertEqual(client.query(f.control, ref).state, "committed")
 
+    def test_reconcile_by_path_completes_the_owners_own_recorded_attempt(self):
+        """attempt20: the owner recorded the intent, never wrote it, and the caller lost the ref.
+
+        The publication bytes carry a clock reading, so the caller cannot compute the
+        recorded ref. The owner can still finish its own attempt: the bytes come from
+        its memory, and the digest must equal the ref it recorded.
+        """
+        with production_tests.production() as (f, owner, identity, client, _):
+            target = f.paths["caller_receipt"]
+            raw = b"recorded but never written"
+            with patch("bootstrap_control.io.publish_new", side_effect=OSError("test barrier")):
+                with self.assertRaises(ValueError) as caught:
+                    commit(client, f.control, target, raw)
+            self.assertEqual(caught.exception.commit_state, "unknown")
+            self.assertFalse(Path(target).exists())
+            with self.assertRaises(ValueError) as unconfirmed:
+                commit(client, f.control, target, raw)
+            self.assertEqual(str(unconfirmed.exception), "bootstrap_commit_requires_reconciliation")
+            identity.actor = "operator"
+            # Path-only: nothing in the reply names the recorded ref.
+            reply = client.rpc("reconcile", path=target)
+            self.assertEqual(reply["status"], "confirmed")
+            self.assertEqual(Path(target).read_bytes(), raw)
+            self.assertEqual(client.query(f.control, file_ref(target)).state, "committed")
+
+    def test_reconcile_by_path_refuses_when_this_owner_never_saw_the_attempt(self):
+        # A restarted owner has no recorded bytes; the outcome must stay unknown.
+        with production_tests.production() as (f, owner, identity, client, _):
+            target = f.paths["caller_receipt"]
+            with patch("bootstrap_control.io.publish_new", side_effect=OSError("test barrier")):
+                with self.assertRaises(ValueError):
+                    commit(client, f.control, target, b"attempted")
+            owner.attempted_raw.clear()  # what a restart looks like from here
+            identity.actor = "operator"
+            with self.assertRaises(ValueError) as caught:
+                client.rpc("reconcile", path=target)
+            self.assertEqual(str(caught.exception), "bootstrap_rpc_rejected:bootstrap_attempted_output_unavailable")
+            self.assertFalse(Path(target).exists())
+
     def test_busy_before_dispatch_is_retried_in_place_to_one_publication(self):
         with production_tests.production() as (f, owner, identity, client, _):
             publications = []
@@ -187,6 +226,49 @@ class CommitStateTests(unittest.TestCase):
             self.assertEqual(caught.exception.commit_state, "unknown")
             self.assertFalse(caught.exception.may_replay)
             self.assertIn("timeout", str(caught.exception))
+
+
+class ReconcileCliTests(unittest.TestCase):
+    """The documented recovery command must actually reach the owner."""
+
+    def call(self, argv):
+        import bootstrap_tool
+        from io import StringIO
+        from contextlib import redirect_stdout
+        calls = {}
+
+        class Authority:
+            def rpc(self, op, **args):
+                calls.update(op=op, args=args)
+                return {"status": "confirmed"}
+
+        buffer = StringIO()
+        with patch.object(bootstrap_tool, "connect", return_value=(object(), Authority())), \
+                redirect_stdout(buffer):
+            code = bootstrap_tool.cli_main([*argv, "--owner", "/tmp/owner.json",
+                                            "--owner-sha256", "0" * 64, "--execute"])
+        return code, calls, buffer.getvalue()
+
+    def test_target_path_addresses_the_recorded_attempt_without_a_ref(self):
+        code, calls, _ = self.call(["reconcile", "--target-path", "/tmp/strict-config-ready.json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, {"op": "reconcile", "args": {"path": "/tmp/strict-config-ready.json"}})
+
+    def test_an_exact_ref_still_sends_a_target(self):
+        code, calls, _ = self.call(["reconcile", "--input", "/tmp/out.json",
+                                    "--input-sha256", "1" * 64])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls["args"], {"target": {"path": "/tmp/out.json", "sha256": "1" * 64}})
+
+    def test_both_or_neither_addressing_is_refused_before_any_rpc(self):
+        for argv in (["reconcile"],
+                     ["reconcile", "--input", "/tmp/out.json", "--input-sha256", "1" * 64,
+                      "--target-path", "/tmp/out.json"]):
+            with self.subTest(argv=argv):
+                code, calls, out = self.call(argv)
+                self.assertEqual(code, 2)
+                self.assertEqual(calls, {})
+                self.assertIn("bootstrap_reconcile_target_required", out)
 
 
 if __name__ == "__main__":

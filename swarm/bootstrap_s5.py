@@ -267,6 +267,9 @@ def role_plan(owner_ref):
                "read_only_poll_expired: only the read-only wait expired; no action is granted, no deadline extension or automatic re-arm",
                "reconciliation_required: use inspect_argv (read-only, retry_allowed=false); never repeat production, "
                "replay a partial submission or renew timestamps; absent evidence does not grant retry",
+               "strict_config_publication_requires_reconcile: the owner recorded the publication and did not write it; "
+               "while the same owner is alive run bootstrap_tool.py reconcile --target-path <published path> (it "
+               "completes its own recorded bytes), then re-read strict-config-ready.json; never publish a new document",
                "Keep original model turn alive through bounded tools; idle without a registered tool call is unsupported",
                "Every strict-start execute command must retain --bootstrap-owner and --bootstrap-owner-sha256",
                "No Run/Worker launch authority is granted by this plan"])

@@ -86,6 +86,10 @@ class CommitOwner:
         self.closed = False
         self.stopped = False
         self.confirmations, self.attempted, self.published = set(), {}, {}
+        # The bytes of each recorded-but-unconfirmed attempt, in memory only.
+        # `reconcile` may finish such an attempt from these bytes; nothing else
+        # ever writes them, so no caller can supply an output.
+        self.attempted_raw = {}
         self.process = host_process()
         self.owner = io.directory_lock(self.root, "owner", create=False)
         self.check_inode = self.owner.__enter__()
@@ -213,8 +217,7 @@ class CommitOwner:
                 stated(exc, "not_admitted")
                 raise
             raw = io.canonical(value) + b"\n"
-            ref = dict(path=target, sha256=io.digest(raw))
-            self.attempted[target] = ref
+            ref = self.record_attempt(target, raw)
             try:
                 io.publish_new(Path(target), raw)
             except BaseException as exc:
@@ -278,7 +281,13 @@ class CommitOwner:
             return "unknown"
         if (target["path"], target["sha256"]) in self.confirmations:
             return "committed"
-        return "unknown" if self.published.get(target["path"]) == target else "needs_reconcile"
+        if self.published.get(target["path"]) == target:
+            return "unknown"
+        # Attempted, unpublished, and this owner no longer holds the bytes it
+        # recorded: no reconcile can complete it, so never report a class that
+        # promises one. (Within one owner lifetime every attempt keeps its bytes.)
+        return ("needs_reconcile" if self.attempted_raw.get(target["path"]) is not None
+                else "unknown")
 
     def query(self, control, target):
         io.validate_ref(target)
@@ -297,6 +306,18 @@ class CommitOwner:
         else:
             status = "confirmed" if (target["path"], target["sha256"]) in self.confirmations else "durability_unverified"
         return Confirmation(control, target, status, state=self.state_of(target))
+
+    def record_attempt(self, target, raw):
+        """The one place an attempt is recorded: ref for query/state, bytes for reconcile.
+
+        Both halves must be written together. A ref without its bytes is the
+        attempt20 shape: the outcome class promises a reconcile that no entry can
+        complete (`bootstrap_attempted_output_unavailable`).
+        """
+        ref = dict(path=target, sha256=io.digest(raw))
+        self.attempted[target] = ref
+        self.attempted_raw[target] = raw
+        return ref
 
     def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
         for attempt in range(2):
@@ -324,10 +345,7 @@ class CommitOwner:
                     stated(exc, "not_admitted")
                     raise
                 else:
-                    ref = dict(path=target, sha256=io.digest(raw))
-                    # The intent record precedes the write: attempted-and-absent is
-                    # a class of its own, never inferred from publish_new raising.
-                    self.attempted[target] = ref
+                    ref = self.record_attempt(target, raw)
                     try:
                         io.publish_new(Path(target), raw)
                     except BaseException as exc:
@@ -362,16 +380,39 @@ class CommitOwner:
             io.publish_new(self.root / "STOP.json", dict(kind="strict_bootstrap_stop",
                 control=asdict(control), owner=self.process, stopped_at=io.now(), execution_authorized=False))
 
-    def reconcile(self, control, *, target, recheck):
+    def reconcile(self, control, *, target=None, path=None, recheck):
+        """Complete or re-barrier ONE commit this owner recorded itself.
+
+        `target` keeps its meaning: the exact ref of bytes already on disk. `path`
+        addresses the owner's own recorded attempt instead, which is the only way
+        to name it after the caller lost the reply (the recorded ref is in memory
+        and its bytes may include a clock reading the caller cannot reproduce).
+        When nothing was written yet, the owner publishes the bytes it recorded
+        itself; their digest must still be the recorded ref, so this can never
+        adopt caller bytes or a second intent.
+        """
         with self.serial:
             self.bound(control)
             self.invalidate()
             io.require(not self.stopped and not os.path.lexists(self.root / "STOP.json"), "bootstrap_stopped")
             self.identity.check()
+            io.require(isinstance(path, str) != (target is not None), "bootstrap_rpc_invalid")
+            if target is None:
+                target = self.attempted.get(path)
+                io.require(target is not None, "bootstrap_original_commit_unknown")
             # This serial call proves the owner's original publisher is drained;
             # there is no adoption of arbitrary files or replay of native actions.
             io.require(self.attempted.get(target["path"]) == target, "bootstrap_original_commit_unknown")
             recheck()
+            if not os.path.lexists(target["path"]):
+                raw = self.attempted_raw.get(target["path"])
+                io.require(raw is not None and io.digest(raw) == target["sha256"],
+                           "bootstrap_attempted_output_unavailable")
+                io.publish_new(Path(target["path"]), raw)
+                io.require(io.file_ref(Path(target["path"])) == target, "bootstrap_publish_mismatch")
+                self.published[target["path"]] = target
+                self.confirmations.add((target["path"], target["sha256"]))
+                return Confirmation(control, target, "confirmed")
             io.pinned(target)
             fd = os.open(target["path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             try:
@@ -406,8 +447,7 @@ class CommitOwner:
             except ValueError as exc:
                 stated(exc, "not_admitted")
                 raise
-            ref = dict(path=target, sha256=io.digest(raw))
-            self.attempted[target] = ref
+            ref = self.record_attempt(target, raw)
             try:
                 io.publish_new(Path(target), raw)
             except BaseException as exc:
@@ -563,7 +603,7 @@ class OwnerServer:
                 io.require(not args, "bootstrap_rpc_invalid")
                 owner.arm(control)
                 return {"armed": True}
-            io.require(set(args) == {"target"}, "bootstrap_rpc_invalid")
+            io.require(set(args) in ({"target"}, {"path"}), "bootstrap_rpc_invalid")
             return asdict(owner.reconcile(control, **args, recheck=lambda: unchanged(identity)))
         io.require(op == "commit" and set(args) == {"actor", "target", "raw", "prerequisites"}
                    and args["actor"] == actor, "bootstrap_rpc_role_mismatch")

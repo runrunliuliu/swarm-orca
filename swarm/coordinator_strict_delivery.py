@@ -239,7 +239,16 @@ def deliver(ref, config_ref, preparation_ref, review_ref=None):
     if expected["schema_version"] in (4, 5):
         verify_review(ref, config_ref, preparation_ref, review_ref, contract,
                       published_at=publication["published_at"])
-    publish_new(target, publication)
+    try:
+        publish_new(target, publication)
+    except ValueError as exc:
+        # The owner recorded an intent for this publication and did not write it.
+        # Its own recorded bytes are the only admissible completion, so say which
+        # entry to use instead of reporting a generic delivery failure (attempt20
+        # ended here with `bootstrap_commit_requires_reconciliation`).
+        if str(exc) == "bootstrap_commit_requires_reconciliation":
+            raise ValueError("strict_config_publication_requires_reconcile") from None
+        raise
     return {"ok": True, "publication": file_ref(target), "execution_authorized": False,
             "operator_identity_verified": False}
 

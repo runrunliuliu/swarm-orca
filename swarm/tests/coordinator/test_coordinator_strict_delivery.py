@@ -241,6 +241,22 @@ class StrictDeliveryTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse((self.bootstrap / "lifecycle").exists())
 
+    def test_a_recorded_but_unwritten_publication_names_its_recovery(self):
+        """attempt20 ended here with a generic delivery failure and no way to act.
+
+        The owner records the publication intent before writing it; when the write
+        did not happen the operator must be told to reconcile that entry, while the
+        publication stays unpublishable by any other route.
+        """
+        self.prepare()
+        with patch("coordinator_strict_delivery.publish_new",
+                   side_effect=ValueError("bootstrap_commit_requires_reconciliation")), \
+                patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_operator"}):
+            with self.assertRaisesRegex(ValueError, "strict_config_publication_requires_reconcile"):
+                deliver(self.ref, self.result["config"], self.result["preparation"])
+        self.assertFalse(Path(self.locations["publication_path"]).exists())
+        self.assert_no_start()
+
     def test_publication_wrong_request_is_rejected(self):
         self.prepare()
         self.publication(request=dict(self.ref, sha256="0" * 64))
