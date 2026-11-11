@@ -414,7 +414,16 @@ class RoleTool(BootstrapMachine, ActionReader):
                     # unknown outcomes are deliberately outside the catch above.
                     if time.monotonic() >= end:
                         return pending()
-                    result = self.step()
+                    try:
+                        result = self.step()
+                    except ObservationBusy:
+                        # Why: ObservationBusy is raised only by the read-only owner
+                        # ops (heartbeat/check/query/observe), including the recheck
+                        # that runs before a commit is dispatched. A step that hits it
+                        # has dispatched nothing, so the next pull retries this stage
+                        # instead of failing an attempt that never mutated anything.
+                        reason = "owner_busy_not_executed"
+                        return pending()
                     if result:
                         return result
                 if time.monotonic() >= end:

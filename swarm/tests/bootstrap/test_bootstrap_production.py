@@ -1282,6 +1282,26 @@ class ProductionTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+class BusyRecheckInsideStepTests(unittest.TestCase):
+    """A busy recheck inside step() dispatched nothing, so pull must stay pending."""
+
+    def test_pull_returns_pending_when_a_busy_recheck_interrupts_the_step(self):
+        from observation_budget import ObservationBusy
+
+        with production() as (f, owner, identity, client, _):
+            identity.actor = "operator"
+            tool = RoleTool(f.control, client, "operator")
+            try:
+                with patch.object(tool, "step", side_effect=ObservationBusy()):
+                    with patch.object(tool, "actionable", return_value=True):
+                        result = tool.pull(2)
+                self.assertEqual(result["state"], "pending")
+                self.assertEqual(result["reason"], "owner_busy_not_executed")
+                self.assertFalse(result["execution_authorized"])
+            finally:
+                tool.close()
+
+
 class ProvedNonExecutionTests(unittest.TestCase):
     """A refused-before-dispatch commit must not wedge the production slot."""
 
