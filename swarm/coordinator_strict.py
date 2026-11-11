@@ -153,6 +153,9 @@ def strict_bootstrap_prompt(plan, root=None):
         "Phase fragment sha256: " + contract["fragment_sha256"],
         "Helper: " + helper,
         "Strict startup protocol: " + protocol,
+        # Generated from the action table, so a stage cannot be missing from the page an Operator
+        # reads while the code still expects it (see swarm/generate_runbook.py --check).
+        "Operator runbook (generated): " + str(Path(protocol).with_name("operator-runbook.md")),
         "Startup delivery layout: " + delivery,
         "First, read the prompt file and strict startup protocol in full; "
         "verify the supplied pins before caller-check or any filesystem writes.",
