@@ -87,11 +87,15 @@ Python helper 使用标准库；Supervisor / 台账基线为 Python 3.10+，Trae
 从公开仓库的 `swarm/` 目录运行离线回归（不连接 Orca 或启动模型）：
 
 ```bash
-tests/run_offline.sh --fast   # 迭代反馈：除 4 个耗时主因外的全部模块，约 2.5 分钟
-tests/run_offline.sh -v       # 全量门禁：合并/交付前跑一次，约 8 分钟
+tests/run_blast.sh --range HEAD~1   # 默认：把 diff 映射成受影响的模块并只跑它们
+tests/run_offline.sh                # 全量：跨模块改动、发布前，或 blast 选择为空时
+tests/run_offline.sh --fast         # 迭代反馈：跳过文件头 SLOW 列表里的耗时主因
 ```
 
-`--fast` 只是迭代反馈，不能当作离线 PASS；其余模式见 `tests/run_offline.sh` 文件头。
+`run_blast.sh` 的选择规则写在 `tests/blast_radius.py`：同基名测试、直接 import 该模块的测试、
+一跳源码反向依赖，加上显式的 `SHARED_MAP` 策略。定向跑的状态词是 `TARGETED OK`，
+**不是** 离线 PASS —— 只有真的跑完全部模块才能那样报。空选择会 `exit 2`，不会静默通过。
+其余模式见 `tests/run_offline.sh` 文件头。
 该脚本固定清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT` 后执行
 `PYTHONPATH=.:tests python3 -B -m unittest discover -s tests`；执行测试时退出码即 unittest
 退出码，`--list` 与参数错误由脚本自己返回（0 与 2）；不要继承调用方环境里的私有策略路径

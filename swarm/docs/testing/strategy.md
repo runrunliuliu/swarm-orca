@@ -247,17 +247,16 @@ cd swarm-orca/swarm && tests/run_offline.sh -v
 **默认跑子集；全量是可选的整包信号。** 同一入口提供两种选择模式（清环境规则相同）：
 
 ```bash
-tests/run_offline.sh --fast   # 99 个模块中的 92 个，≈2.5 分钟
-tests/run_offline.sh          # 全量 99 个模块，默认 4 路并行
+tests/run_blast.sh --range HEAD~1  # 默认：只跑 diff 影响到的模块（TARGETED OK，不是 PASS）
+tests/run_offline.sh          # 全量，默认 4 路并行
 tests/run_offline.sh --jobs 1 # 全量，单进程（可复现形式，出结论时须写明 job 数）
 tests/run_offline.sh --jobs 8 # 全量，8 路并行：仅在实测过的主机上启用（见下）
 tests/run_offline.sh --list   # 只列当前模式会跑哪些模块，不执行
+tests/run_offline.sh --fast   # 跳过文件头 SLOW 列表，只用于迭代
 ```
 
-模块数与耗时来自 2026-11-09 本机一次空闲实测（模块数随 2026-11-10 的 handoff 拆分更新；
-2026-11-10 NAS 复测：99 个模块 / 2577 项，单进程 363 s、`--jobs 4` 115 s，两者均 99/99 OK）；
-**测试项数不写进文档**（它随套件增长，
-以每次输出为准）。`--fast` 排除的 7 个模块（`bootstrap.test_bootstrap_production`、
+**模块数与项数都不写进文档**：以 `--list` 的行数和本次输出为准（两者都随套件增长；
+历史实测值只属于当时的提交，写死会让后来的人按错的分母判断"跑全了"）。`--fast` 排除的 7 个模块（`bootstrap.test_bootstrap_production`、
 `bootstrap.test_bootstrap_workflow`、`core.test_startup_handoff` 及其
 `_prepare`/`_trigger`/`_monitor` 三份、`bootstrap.test_bootstrap_failures`）合计 301 s，
 占全量 65%；成本来自真实 owner-socket RPC（约 2000 次往返，每次一个子进程做签名校验）、

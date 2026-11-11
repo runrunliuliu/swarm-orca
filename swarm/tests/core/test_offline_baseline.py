@@ -15,6 +15,7 @@ so a package that glob cannot see — for example a new nesting level, which dis
 still import — fails these assertions instead of passing them.
 """
 
+import io
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from coordinator_io import file_ref
@@ -254,6 +256,101 @@ class ParallelGateTests(unittest.TestCase):
         proc = subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", "2", "--"],
                               cwd=self.root, input="", capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 2)
+
+
+class BlastRadiusTests(unittest.TestCase):
+    """The diff-to-modules mapping fails closed, and its policy cannot silently narrow.
+
+    Why these read the mapping instead of running it: `run_blast.sh` shells out to the same
+    module, so a bug here would be reported as a green targeted run. The four assertions below
+    are the reviewed invariant: every test module is reachable from a source, every source has a
+    radius or a recorded reason it has none, every selected name exists, and the SHARED_MAP
+    policy still covers what the tree imports.
+    """
+
+    def setUp(self):
+        import blast_radius
+        self.blast = blast_radius
+        self.radius = blast_radius.Radius()
+
+    def test_every_test_module_is_explained_by_a_source(self):
+        unexplained = []
+        for module in sorted(self.radius.available):
+            if self.blast.Path(self.radius.tests[module]).stem[len("test_"):] in self.radius.sources:
+                continue
+            if self.radius.test_imports.get(module):
+                continue
+            unexplained.append(module)
+        self.assertEqual(unexplained, [], "test modules reach no source and import none")
+
+    def test_every_source_module_has_a_radius_or_is_recorded_untested(self):
+        empty = [name for name in sorted(self.radius.sources)
+                 if not self.radius.tests_for_source(name) and name not in self.blast.UNTESTED]
+        self.assertEqual(empty, [], "source modules whose radius is empty must be in UNTESTED")
+
+    def test_every_selected_module_is_a_listed_module(self):
+        for name in sorted(self.radius.sources):
+            reasons = self.radius.tests_for_source(name)
+            self.assertTrue(set(reasons) <= self.radius.available,
+                            f"{name} selects modules outside --list")
+
+    def test_shared_map_covers_what_the_tree_imports(self):
+        # Why both directions: narrowing the policy is the "green while under-testing" hole, and a
+        # tree that grows importers without a policy update is the other half of the same hole.
+        for shared, patterns in self.blast.SHARED_MAP.items():
+            importers = {module for module, imports in self.radius.test_imports.items()
+                         if shared in imports}
+            self.assertTrue(importers, f"no test imports {shared}; the policy key is stale")
+            missing = [module for module in importers
+                       if not self.blast.policy_matches(module, patterns)]
+            self.assertEqual(missing, [], f"{shared} policy does not cover {missing}")
+        self.assertEqual(self.blast.SHARED_MAP["coordinator_io"], ("*",))
+        self.assertEqual(self.blast.SHARED_MAP["blocking_io"],
+                         ("core.*", "bootstrap.*", "operators.*"))
+
+    def test_an_empty_diff_is_a_failure_not_a_pass(self):
+        completed = subprocess.run(
+            [sys.executable, "-B", str(self.root / "tests" / "blast_radius.py"),
+             "--range", "HEAD..HEAD"], cwd=self.root, capture_output=True, text=True, timeout=120)
+        self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+        self.assertIn("nothing changed", completed.stderr)
+
+    def test_a_source_with_no_radius_fails_closed(self):
+        with patch.object(self.blast, "select", return_value=({}, [], ["swarm/invented.py"])), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(self.blast.main(["--range", "HEAD~1", "--json"]), 2)
+
+    root = Path(__file__).resolve().parents[2]
+
+
+class BlastRunnerTests(unittest.TestCase):
+    """`tests/run_blast.sh` end to end: no diff is a refusal, a named diff runs modules."""
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests" / "run_blast.sh"
+
+    def test_requires_a_range(self):
+        completed = subprocess.run(["sh", str(self.script)], cwd=self.root,
+                                   capture_output=True, text=True, timeout=60)
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("--range is required", completed.stderr)
+
+    def test_an_unknown_option_is_refused(self):
+        completed = subprocess.run(["sh", str(self.script), "--nope"], cwd=self.root,
+                                   capture_output=True, text=True, timeout=60)
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("unknown option", completed.stderr)
+
+    def test_dry_run_prints_the_selection_and_runs_nothing(self):
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True,
+                              text=True).stdout.strip()
+        completed = subprocess.run(["sh", str(self.script), "--range", f"{head}~1..{head}",
+                                    "--dry-run"], cwd=self.root, capture_output=True, text=True,
+                                   timeout=180)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("selection:", completed.stderr + completed.stdout)
+        self.assertIn("dry run", completed.stdout)
+        self.assertNotIn("modules:", completed.stdout)
 
 
 class TargetedSelectionTests(unittest.TestCase):
