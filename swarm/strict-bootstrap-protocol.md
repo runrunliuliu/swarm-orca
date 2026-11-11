@@ -322,7 +322,9 @@ Pi 与 Trae 的差异必须在契约里显式承担，不假装等价：
 **仍未支持**：Run 之后的 TUI continuation/scheduler（`coordinator_tui_continue.py`、
 `coordinator_tui_scheduler.py`）以及 operator materials 的 launch-plan 生成器
 （`coordinator_launch.py` / `trae_coordinator.build_trae_plan`）仍按 Trae 路径写；pi Coordinator
-的 S0–S5 已可核验，但这些后续组件要单独迁移。
+的 S0–S5 已可核验，但这些后续组件要单独迁移。S5 之后、Run 已建立时，
+`coordinator_tui_continue.py` 会以 `tui_continuation_adapter_unsupported` 明确拒绝非 Trae TUI 的
+continuation 契约（此前只报笼统的 `tui_continuation_requires_gated_run`），不是 Run 缺失，也不是身份问题。
 
 | 入口 | 缺失/未知声明 | 已知但证据不可读 |
 | --- | --- | --- |

@@ -14,10 +14,11 @@ from pathlib import Path
 import subprocess
 import uuid
 import observation_budget as budget
+import tui_adapter
 
 from coordinator_io import (try_bound_lock, correction_fence, canonical, digest, now, parse, path, pinned,
                             publish_new, read_json, replace_json, timestamp, validate_ref)
-from coordinator_tui_errors import failure, require
+from coordinator_tui_errors import TuiError, failure, require
 from coordinator_tui_checkpoint import validate_checkpoint, validate_domain
 from coordinator_authority_bundle import validate_binding
 from coordinator_loop import transition
@@ -374,6 +375,11 @@ def validate_config(config, *, require_executing=True):
     require(isinstance(acceptance, dict) and set(acceptance) == {"requirements"}, "tui_acceptance_invalid")
     if "authority_binding" in config:
         validate_binding(config["authority_binding"], contract, acceptance)
+    # Why: continuation after S5 is bound to the Trae TUI contract (session/turn
+    # context/oracle semantics). A Pi Run reaches S5 but has no migrated continuation
+    # contract yet, so say that instead of reporting a missing gated Run.
+    if tui_adapter.is_tui(contract.get("adapter")) and not continuation_adapter_supported(contract["adapter"]):
+        raise TuiError("tui_continuation_adapter_unsupported")
     require(contract["adapter"] == TUI_ADAPTER and contract["run"] is not None,
             "tui_continuation_requires_gated_run")
     require(config.get("scheduler", {}).get("terminal") != contract["coordinator"]["terminal"],
@@ -659,6 +665,16 @@ def live_runtime_epoch(cli, runtime, call, initial, contract):
         "status": {"runtimeId": current, "appVersion": status["runtime"]["appVersion"],
                    "state": status["runtime"]["state"]},
     }
+
+
+def continuation_adapter_supported(adapter):
+    """Continuation after S5 is migrated for the Trae TUI contract only.
+
+    A Pi Run can reach S5, but its turn-end/continuation contract is not migrated
+    (strict-bootstrap-protocol §5.1). Keep that a named refusal instead of letting the
+    generic "no gated Run" error suggest the Run is missing.
+    """
+    return adapter == TUI_ADAPTER
 
 
 def fence_with_runtime(contract, call):

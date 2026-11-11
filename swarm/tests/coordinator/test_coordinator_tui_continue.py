@@ -15,7 +15,8 @@ from unittest.mock import patch
 from coordinator_io import (bound_lock, canonical, digest, file_ref, now, publish_new, read_json,
                             replace_json, timestamp)
 from coordinator_startup import KIND, identity
-from coordinator_tui_continue import check, freshness, main, step, validate_config
+from coordinator_tui_continue import (check, continuation_adapter_supported, freshness, main, step,
+                                      validate_config)
 from trae_coordinator import ContextFreshnessError, TUI_ADAPTER
 import trae.test_trae_tui as tui
 import coordinator.test_coordinator_startup as startup
@@ -945,3 +946,15 @@ class ContinuationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContinuationAdapterTests(unittest.TestCase):
+    """Only the Trae TUI contract has a migrated continuation, and it says so."""
+
+    def test_only_the_trae_tui_adapter_is_supported(self):
+        import tui_adapter
+
+        self.assertTrue(continuation_adapter_supported(TUI_ADAPTER))
+        self.assertFalse(continuation_adapter_supported(tui_adapter.PI_ADAPTER))
+        self.assertFalse(continuation_adapter_supported(tui_adapter.EXEC_ADAPTER))
+        self.assertFalse(continuation_adapter_supported(None))
