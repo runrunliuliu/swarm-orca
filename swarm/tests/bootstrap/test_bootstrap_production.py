@@ -1281,3 +1281,38 @@ class ProductionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ProvedNonExecutionTests(unittest.TestCase):
+    """A refused-before-dispatch commit must not wedge the production slot."""
+
+    def test_classification_separates_non_execution_from_unknown_outcome(self):
+        from bootstrap_tool import non_execution
+        from observation_budget import ObservationBusy
+
+        self.assertTrue(non_execution(ObservationBusy()))
+        admitted = ValueError("bootstrap_rpc_rejected:bootstrap_owner_busy_not_executed")
+        admitted.commit_state = "not_admitted"
+        self.assertTrue(non_execution(admitted))
+        for state in ("needs_reconcile", "unknown", "committed", None):
+            unknown = ValueError("bootstrap_commit_unknown_requires_reconciliation")
+            if state is not None:
+                unknown.commit_state = state
+            self.assertFalse(non_execution(unknown), state)
+        self.assertFalse(non_execution(ValueError("bootstrap_owner_busy_not_executed")))
+
+    def test_release_keeps_the_record_and_frees_the_slot(self):
+        import tempfile
+        from pathlib import Path
+        from bootstrap_tool import NON_EXECUTION_RECORD_SUFFIX, release_not_executed
+
+        with tempfile.TemporaryDirectory() as root:
+            execution = Path(root) / "observe-execute.json"
+            execution.write_text('{"kind":"strict_bootstrap_production_intent"}\n')
+            record = release_not_executed(execution)
+            self.assertFalse(execution.exists())
+            self.assertEqual(record, str(execution) + NON_EXECUTION_RECORD_SUFFIX)
+            self.assertEqual(Path(record).read_text(), '{"kind":"strict_bootstrap_production_intent"}\n')
+            # A second release overwrites the record instead of raising.
+            execution.write_text("{}\n")
+            self.assertEqual(release_not_executed(execution), record)
+            self.assertFalse(execution.exists())

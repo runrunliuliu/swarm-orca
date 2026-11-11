@@ -162,6 +162,33 @@ def _ref_of(value):
     return None
 
 
+NON_EXECUTION_RECORD_SUFFIX = ".not-admitted"
+
+
+def non_execution(exc):
+    """True only for a *proved* non-execution, never for an unknown outcome.
+
+    The owner reports `not_admitted` (and `ObservationBusy` for read-only scopes)
+    before dispatch, so no state changed. Everything else — needs_reconcile,
+    unknown, a lost reply — must stay suspicious.
+    """
+    return isinstance(exc, ObservationBusy) or getattr(exc, "commit_state", None) == "not_admitted"
+
+
+def release_not_executed(execution):
+    """Free the production slot after a proved non-execution, keeping the record.
+
+    The execute marker means "a production was started and its outcome is unknown".
+    A refused-before-dispatch commit is not that, and leaving the marker behind
+    wedges the slot forever: every later produce answers
+    `bootstrap_production_outcome_requires_reconciliation`. The attempt is kept as
+    a renamed record, so the evidence still shows what was tried.
+    """
+    record = str(execution) + NON_EXECUTION_RECORD_SUFFIX
+    os.replace(str(execution), record)
+    return record
+
+
 class RoleTool(BootstrapMachine, ActionReader):
     def __init__(self, control, authority, actor):
         require(actor in {"operator", "coordinator"}, "bootstrap_role_invalid")
@@ -269,8 +296,17 @@ class RoleTool(BootstrapMachine, ActionReader):
                 context_max_age_seconds=1800)
             options[policy_key] = tui_adapter.input_value(
                 capability.tui_adapter, self.b["fixed_inputs"]["runtime_config"])
-            value = observer(**options)
-        return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
+            try:
+                value = observer(**options)
+            except ObservationBusy:
+                release_not_executed(execution)
+                raise
+        try:
+            return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
+        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            if non_execution(exc):
+                release_not_executed(execution)
+            raise
 
     def step(self):
         state = self.local_check()
