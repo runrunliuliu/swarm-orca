@@ -153,6 +153,19 @@ class SubmissionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertIn("bootstrap_from_template_requires_submit", output.getvalue())
 
+    def test_a_rejected_from_template_submit_leaves_no_candidate_behind(self):
+        # Why: the bytes are the tool's. If validation refuses them, keeping the file would make
+        # the next attempt fail on a candidate the caller never wrote - and the failure would look
+        # like the caller's mistake.
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            with patch.object(type(tool), "validate_candidate",
+                       side_effect=ValueError("bootstrap_fields_invalid")), \
+                    self.assertRaisesRegex(ValueError, "bootstrap_fields_invalid"):
+                tool.submit(action["intent"], from_template=True)
+            self.assertFalse(candidate.exists(), "materialized candidate survived a rejection")
+            self.assertFalse(Path(action["result_path"]).exists())
+
     def test_from_template_refuses_a_review_stage(self):
         # Why: a review candidate carries decision/notes/reviewed_at. Materializing it would put
         # the tool's bytes where a reviewer's judgement belongs.

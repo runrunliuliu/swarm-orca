@@ -482,16 +482,6 @@ class RoleTool(BootstrapMachine, ActionReader):
         require(recorded == regenerated, "bootstrap_template_drift")
         candidate = Path(submission["candidate_path"])
         publish_new(candidate, regenerated)
-        try:
-            # Validate before the caller sees a Ref: a rejected candidate must not be left on disk
-            # for the next attempt to trip over (the submit path would also fail, but later, and
-            # with the tool's bytes already published).
-            self.validate_candidate(intent_ref, pinned(file_ref(candidate)))
-        except BaseException:
-            try:
-                candidate.unlink()
-            finally:
-                raise
         return file_ref(candidate)
 
     def submit(self, intent_ref, source_ref=None, from_template=False):
@@ -502,12 +492,28 @@ class RoleTool(BootstrapMachine, ActionReader):
                 "bootstrap_action_binding_mismatch")
         require(name in SUBMIT_TARGETS, "bootstrap_action_requires_specialized_tool")
         submission = self.submission(name)
+        materialized = None
         if from_template:
             require(source_ref is None, "bootstrap_from_template_conflicts_with_source")
             source_ref = self.materialize_template(intent_ref, intent, submission)
+            materialized = Path(submission["candidate_path"])
         else:
             require(source_ref is not None, "bootstrap_candidate_source_required")
         require(intent["payload"].get("submission") == submission, "bootstrap_submission_contract_mismatch")
+        try:
+            return self.commit_candidate(intent_ref, source_ref, submission, name,
+                                         from_template=from_template)
+        except BaseException:
+            # Why clean up only here: these bytes are the tool's, not the caller's. Leaving them
+            # behind would make the next attempt fail on a candidate it did not write.
+            if materialized is not None:
+                try:
+                    materialized.unlink()
+                except OSError:
+                    pass
+            raise
+
+    def commit_candidate(self, intent_ref, source_ref, submission, name, *, from_template=False):
         target = SUBMIT_TARGETS[name]
         raw = self.candidate_bytes(source_ref, submission)
         self.submission_output_empty(target)
