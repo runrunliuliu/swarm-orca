@@ -17,7 +17,7 @@ def digest(data):
 def render(plan, brief):
     phase = "recovery" if plan["phase"] == "replacement" else plan["phase"]
     fragment = plan.get("prompt_fragment")
-    require(isinstance(fragment, str) and phase_contract(phase) in fragment,
+    require(isinstance(fragment, str) and phase_contract(phase, plan.get("helper_root")) in fragment,
             "phase_contract_missing_from_input")
     brief.decode("utf-8")  # Fail before launching, not inside the child.
     return ("# Coordinator phase contract\n" + fragment +

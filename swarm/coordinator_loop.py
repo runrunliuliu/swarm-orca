@@ -225,17 +225,23 @@ PHASES = {
 }
 
 
-def phase_contract(phase):
-    """Shared text for the actual provider handoff and driver continuation."""
+def phase_contract(phase, root=None):
+    """Shared text for the actual provider handoff and driver continuation.
+
+    `root` names the helper tree this contract points at. It defaults to this
+    module's own tree; a materials pipeline that pins another reviewed tree passes
+    it so the contract never advertises a helper from a different checkout.
+    """
     if phase not in PHASES:
         raise ValueError("unsupported_coordinator_phase")
+    root = Path(root) if root is not None else Path(__file__).resolve().parent
     worker_contract = ""
     if phase in ("strict-bootstrap", "strict-tui-bootstrap", "recovery", "run"):
-        entry = shlex.join([sys.executable, "-B", str(Path(__file__).with_name("coordinator_launch.py").resolve())])
+        entry = shlex.join([sys.executable, "-B", str(root / "coordinator_launch.py")])
         worker_contract = (
             " Before authorized worker-start, use " + entry + " worker-plan --request <absolute JSON> "
             "--request-sha256 <sha256>; schema: "
-            + str(Path(__file__).with_name("coordinator-worker-plan.md").resolve()) + ". "
+            + str(root / "coordinator-worker-plan.md") + ". "
             "Use request schema_version=2; choose only model, never agent/effort/backend_variant. "
             "Use the Operator-reviewed profiles_sha256 and SWARM_WORKER_PROFILES canonical path "
             "with the same environment for planning, dispatch and receipt verification; only an "
@@ -261,7 +267,7 @@ def phase_contract(phase):
             "first-dispatch --package/--ready/--operator-gate call. Planning and review must finish "
             "before the gate; a 180-second receipt must not cover them. Package slot, READY and intent "
             "are a local workflow fence, not a server-side exactly-once guarantee; schema: "
-            + str(Path(__file__).with_name("coordinator-startup.md").resolve()) + ". "
+            + str(root / "coordinator-startup.md") + ". "
         )
     return OWNERSHIP + PHASES[phase] + worker_contract
 
