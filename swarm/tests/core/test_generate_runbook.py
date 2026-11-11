@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,15 +64,25 @@ class RunbookTests(unittest.TestCase):
             self.assertIn(heading, protocol)
 
     def test_a_stale_runbook_is_refused_not_warned(self):
-        target = ROOT / "operator-runbook.md"
-        original = target.read_text()
-        try:
-            target.write_text(original + "\nstale line\n")
-            completed = self.run_generator("--check")
+        # Why a temp path: mutating the tracked file and restoring it in `finally` leaves the
+        # checkout dirty if the test is interrupted, and that is exactly when someone will be
+        # looking at `git status` to find out what happened.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "operator-runbook.md"
+            path.write_text((ROOT / "operator-runbook.md").read_text() + "\nstale line\n")
+            completed = self.run_generator("--check", "--path", str(path))
             self.assertEqual(completed.returncode, 2)
             self.assertIn("stale", completed.stderr)
-        finally:
-            target.write_text(original)
+
+    def test_the_runbook_does_not_offer_an_input_to_complete(self):
+        # Why: `complete` reads the candidate pin from contract.outputs; passing --input there
+        # would be rejected, so the page must not suggest it.
+        text = (ROOT / "operator-runbook.md").read_text()
+        complete = [line for line in text.splitlines() if "bootstrap_tool.py complete" in line]
+        self.assertTrue(complete)
+        argv = [line for line in text.splitlines()[text.splitlines().index(complete[0]):][:3]
+                if not line.lstrip().startswith("#")]
+        self.assertNotIn("--input", "\n".join(argv))
 
 
 if __name__ == "__main__":

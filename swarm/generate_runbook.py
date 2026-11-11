@@ -78,7 +78,8 @@ def render() -> str:
         "",
         "# 完成阶段与对账",
         "python3 -B bootstrap_tool.py complete --owner <owner.json> --owner-sha256 <sha> --actor <role> \\",
-        "  --intent <intent.json> --intent-sha256 <sha> --input <result.json> --input-sha256 <sha> --execute",
+        "  --intent <intent.json> --intent-sha256 <sha> --execute",
+        "# complete 不接受 --input：它从 contract.outputs 的 candidate_path 本地取 pin。",
         "python3 -B bootstrap_tool.py inspect-action --owner <owner.json> --owner-sha256 <sha> \\",
         "  --actor <role> --intent <intent.json> --intent-sha256 <sha>",
         "```",
@@ -98,10 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true",
                         help="compare the file on disk with the generated text; exit 2 on drift")
     parser.add_argument("--write", action="store_true", help="write the generated text")
+    parser.add_argument("--path", default=str(TARGET),
+                        help="file to check or write (default: operator-runbook.md next to this script)")
     args = parser.parse_args(argv)
     generated = render()
+    path = Path(args.path)
     if args.check:
-        current = TARGET.read_text() if TARGET.exists() else ""
+        current = path.read_text() if path.exists() else ""
         if current != generated:
             print("operator-runbook.md is stale; run: python3 -B generate_runbook.py --write",
                   file=sys.stderr)
@@ -109,8 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         print("operator-runbook.md matches the action table")
         return 0
     if args.write:
-        TARGET.write_text(generated)
-        print(f"wrote {TARGET.name} ({len(generated)} bytes)")
+        path.write_text(generated)
+        print(f"wrote {path.name} ({len(generated)} bytes)")
         return 0
     sys.stdout.write(generated)
     return 0

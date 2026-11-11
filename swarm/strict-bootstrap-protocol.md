@@ -148,7 +148,8 @@ execution_authorized: false
 
 它把已固定的字段源、最终结果路径和动作交还原 Operator，不能让模型找路径或凭摘要补字段。
 `result_path` 只约定最终槽，不能直接用文件工具写入。生产 RoleTool 在 `pull` 返回值和
-固定 intent 的 `payload.submission` 中另给唯一候选路径及提交方式，见第 12.2 节；
+固定 intent 的 `payload.submission` 中另给唯一候选路径及提交方式，见
+[离线文档 §12.2](strict-bootstrap-offline.md#122-显式工具契约)；
 不能仅凭本 request 的 `result_path` 推导模型的写入目标。
 fields 提交后生成 contract 审查请求；字段与独立审查均通过校验后才发布 S3，生产完成不是批准。
 Phase 2 driver 生成此请求，由离线 Operator 适配器消费并生产字段；只读 marker 检查

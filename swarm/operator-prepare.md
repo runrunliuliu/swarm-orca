@@ -36,7 +36,7 @@ Agent 不是可自由替换的配置项，也不能用 Worker 侧 profile 表达
 | Worker | 由固定 [Worker 白名单](worker-model-candidates.md) 决定（Trae / Pi / codex-ark） | 与 Coordinator、Operator 配置分离 |
 
 bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` 声明
-（[registration schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），不继承上表也不从 pane
+（[registration schema v2](strict-bootstrap-offline.md#122-显式工具契约)），不继承上表也不从 pane
 推断：`bootstrap_identity.py` 按同一能力表解析它，未知/不可核验就停止。S2 观察与 S5 TUI 契约
 按该 role 的 provider 选择 adapter：`trae-tui-runtime-v1` 或 `pi-tui-runtime-v1`；两个 role 的
 provider 可以不同。Pi Coordinator 的 `runtime_config` 必须是

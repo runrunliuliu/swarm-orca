@@ -40,7 +40,8 @@ python3 -B bootstrap_tool.py submit ... --from-template --execute
 
 # 完成阶段与对账
 python3 -B bootstrap_tool.py complete --owner <owner.json> --owner-sha256 <sha> --actor <role> \
-  --intent <intent.json> --intent-sha256 <sha> --input <result.json> --input-sha256 <sha> --execute
+  --intent <intent.json> --intent-sha256 <sha> --execute
+# complete 不接受 --input：它从 contract.outputs 的 candidate_path 本地取 pin。
 python3 -B bootstrap_tool.py inspect-action --owner <owner.json> --owner-sha256 <sha> \
   --actor <role> --intent <intent.json> --intent-sha256 <sha>
 ```

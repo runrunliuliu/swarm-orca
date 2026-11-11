@@ -84,7 +84,7 @@ Pi 没有 approval/sandbox 面，Operator 的 `expected_effective` 只能要求
 不当成已核实。Run 之后的 continuation/scheduler 仍是 Trae 路径（已知边界）。
 用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
 挂 bootstrap registration 的两个 gate role 同样各自声明 `provider`
-（[schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），非法/不可核验声明在启动 owner
+（[schema v2](strict-bootstrap-offline.md#122-显式工具契约)），非法/不可核验声明在启动 owner
 前停止（`bootstrap_<role>_provider_evidence_unavailable` 等）。两个 role 的 provider 可以不同
 （例如 Pi Operator + Trae Coordinator），各自按自己的证据核验。
 

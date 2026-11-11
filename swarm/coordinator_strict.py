@@ -157,8 +157,8 @@ def strict_bootstrap_prompt(plan, root=None):
         # reads while the code still expects it (see swarm/generate_runbook.py --check).
         "Operator runbook (generated): " + str(Path(protocol).with_name("operator-runbook.md")),
         "Startup delivery layout: " + delivery,
-        "First, read the prompt file and strict startup protocol in full; "
-        "verify the supplied pins before caller-check or any filesystem writes.",
+        "First, read the prompt file, the strict startup protocol and the operator runbook in "
+        "full; verify the supplied pins before caller-check or any filesystem writes.",
         "Protocol-owned directory (not an evidence directory): " + str(directory) +
         ". Leave it absent for Operator's strict-start-prepare; "
         "do not create it or write caller/status/raw evidence there.",
