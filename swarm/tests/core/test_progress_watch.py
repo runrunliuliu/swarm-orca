@@ -2,6 +2,8 @@ import copy
 import json
 from pathlib import Path
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -754,3 +756,35 @@ class MonitorNativeRoutingTests(unittest.TestCase):
             operator_monitor.native(["orchestration", "dispatch", "--task", "task_x"], "rt", 10)
         self.assertEqual(str(caught.exception), "query_not_allowlisted")
         self.assertFalse(self.calls.exists())
+
+
+class IdleWaitTests(unittest.TestCase):
+    """The tick must wake once per interval, and a stop must not wait for the shard to end."""
+
+    def test_a_stop_ends_the_wait_immediately(self):
+        stop_waiting = threading.Event()
+        stop_waiting.set()
+        started = time.monotonic()
+        self.assertTrue(watch.idle_until_stopped(stop_waiting, 60))
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_one_wakeup_per_tick_instead_of_one_per_half_second(self):
+        # Why count: the old loop called time.sleep(0.5) up to 120 times per 60 s tick, which is
+        # the wakeup cost this replaces. One wait must cover the whole interval.
+        waits = []
+
+        class RecordingEvent:
+            def wait(self, seconds):
+                waits.append(seconds)
+                return False
+
+        self.assertFalse(watch.idle_until_stopped(RecordingEvent(), 60))
+        self.assertEqual(len(waits), 1)
+        self.assertEqual(waits[0], 60)
+
+    def test_a_finished_tick_does_not_wait_at_all(self):
+        class Exploding:
+            def wait(self, seconds):
+                raise AssertionError("no wait when the tick already consumed its interval")
+
+        self.assertFalse(watch.idle_until_stopped(Exploding(), -0.5))
