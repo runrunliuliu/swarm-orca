@@ -88,6 +88,34 @@ class OperatorMaterialsTests(unittest.TestCase):
                          "--input-sha256", self.input_ref["sha256"], "--execute"])
         return code, json.loads(output.getvalue())
 
+    def test_every_input_contract_hash_has_a_file_to_read(self):
+        # Why: an input_contract hash with no path makes the Coordinator hunt for its
+        # preimage across the filesystem; each hash must resolve to a pinned file.
+        from coordinator_input import digest
+
+        result = assemble(self.input_ref)
+        checklist = verify_materials(result["materials"])
+        artifacts = checklist["artifacts"]
+        for name in ("input_contract", "prompt_fragment", "stdin"):
+            self.assertIn(name, artifacts)
+            pinned(artifacts[name])
+
+        handoff = pinned(artifacts["handoff"]).decode()
+        payload = json.loads(handoff.split("```json\n", 1)[1].split("\n```", 1)[0])
+        self.assertEqual(payload["input_contract"]["path"], artifacts["input_contract"]["path"])
+        self.assertIn("never search the filesystem", payload["input_contract"]["note"])
+
+        bound = parse(pinned(artifacts["bound_launch_plan"]))
+        spec = bound["input_contract"]
+        self.assertEqual(parse(pinned(artifacts["input_contract"]))["input_contract"], spec)
+        self.assertEqual(parse(pinned(artifacts["input_contract"]))["sources"]["brief"],
+                         artifacts["handoff"]["path"])
+        self.assertEqual(digest(pinned(artifacts["prompt_fragment"])), spec["fragment_sha256"])
+        self.assertEqual(digest(pinned(artifacts["stdin"])), spec["stdin_sha256"])
+        self.assertEqual(digest(pinned(artifacts["handoff"])), spec["brief_sha256"])
+        # The rendered stdin is the phase contract followed by the handoff itself.
+        self.assertTrue(pinned(artifacts["stdin"]).endswith(pinned(artifacts["handoff"])))
+
     def test_assembles_handoff_plan_dependencies_and_final_checklist(self):
         result = assemble(self.input_ref)
         self.assertEqual(result["status"], "ready_for_external_review")

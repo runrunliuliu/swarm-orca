@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from coordinator_input import bind_prompt, input_bytes
+from coordinator_input import bind_prompt, digest, input_bytes
 from coordinator_io import (file_ref, now, parse, path, pinned, publish_new,
                             scoped_refs, validate_ref)
 from coordinator_launch import build_plan
@@ -207,7 +207,7 @@ def reviewed(ref):
     return source, directory, static_refs, typed, task_authority, launch_refs, task_source_summary(business), baselines
 
 
-def handoff_text(source, typed, task_summary, task_authority):
+def handoff_text(source, typed, task_summary, task_authority, contract):
     payload = {
         "assembly_id": source["assembly_id"],
         "business_task": task_summary,
@@ -218,6 +218,11 @@ def handoff_text(source, typed, task_summary, task_authority):
         "baseline_refs": typed["baseline_refs"],
         "reference_refs": typed["reference_refs"],
         "declared_scope": {key: source[key] for key in ("read_roots", "write_roots")},
+        # Why: S0 records the input_contract hashes; naming the contract file by its fixed
+        # path keeps every hash resolvable to a file instead of a filesystem-wide search.
+        "input_contract": {"path": contract["path"],
+                           "note": "read this file for each hash and the file that carries it; "
+                                   "never search the filesystem for a hash"},
     }
     return (
         "# Reviewed Coordinator handoff\n\n"
@@ -233,14 +238,47 @@ def assemble(ref):
     baseline_before = check_baselines(baselines) if baselines else []
     snapshots = snapshots_io.collect(static_refs)
     handoff = directory / "handoff.md"
-    publish_new(handoff, handoff_text(source, typed, task_summary, task_authority).encode("utf-8"))
+    contract_path = directory / "input-contract.json"
+    fragment_path = directory / "prompt-fragment.txt"
+    stdin_path = directory / "stdin.txt"
+    # Why: S0 must record the input_contract hashes, and a hash with no path invites the
+    # reader to search the filesystem for its preimage. The handoff names the contract file
+    # by its fixed path (no bytes needed), and the contract file names a file for every hash.
+    handoff_bytes = handoff_text(source, typed, task_summary, task_authority,
+                                 {"path": str(contract_path)}).encode("utf-8")
+    publish_new(handoff, handoff_bytes)
     raw_plan = build_plan(**launch_kwargs(source["launch"], handoff))
+    fragment = raw_plan.get("prompt_fragment")
+    require(isinstance(fragment, str) and fragment, "operator_materials_launch_invalid")
+    require(digest(handoff_bytes) == digest(handoff.read_bytes()),
+            "operator_materials_handoff_changed")
     launch_plan = directory / "launch-plan.json"
     publish_new(launch_plan, raw_plan)
     bound = bind_prompt(raw_plan, handoff)
-    input_bytes(bound)
+    stdin = input_bytes(bound)
     bound_plan = directory / "bound-launch-plan.json"
     publish_new(bound_plan, bound)
+    fragment_bytes = fragment.encode("utf-8")
+    spec = bound["input_contract"]
+    require(digest(fragment_bytes) == spec["fragment_sha256"] and digest(stdin) == spec["stdin_sha256"]
+            and digest(handoff_bytes) == spec["brief_sha256"],
+            "operator_materials_input_contract_mismatch")
+    publish_new(fragment_path, fragment_bytes)
+    publish_new(stdin_path, stdin)
+    contract = {
+        "schema_version": 1,
+        "kind": "coordinator_input_contract_sources",
+        "assembly_id": source["assembly_id"],
+        "input_contract": spec,
+        "sources": {"brief": str(handoff), "fragment": str(fragment_path),
+                    "stdin": str(stdin_path), "plan": str(bound_plan)},
+        "note": "Record each hash from the file at its path above; brief is a hash of handoff.md "
+                "itself and stdin is the rendered phase contract plus handoff. Never search the "
+                "filesystem for a hash and never substitute another material.",
+        "created_at": now(),
+        "execution_authorized": False,
+    }
+    publish_new(contract_path, contract)
     mappings, frozen = snapshots_io.publish(directory, snapshots, prefix="source", publisher=publish_new)
     baseline_after = check_baselines(baselines) if baselines else []
     require(baseline_after == baseline_before, "operator_materials_baseline_drift")
@@ -263,7 +301,9 @@ def assemble(ref):
             "launch_config_refs": launch_refs,
         },
         "artifacts": {"handoff": file_ref(handoff), "launch_plan": file_ref(launch_plan),
-                      "bound_launch_plan": file_ref(bound_plan)},
+                      "bound_launch_plan": file_ref(bound_plan),
+                      "input_contract": file_ref(contract_path),
+                      "prompt_fragment": file_ref(fragment_path), "stdin": file_ref(stdin_path)},
         "source_snapshots": mappings, "created_at": completed_at,
         "final_checklist_includes_self": False,
         "agent_started": False, "run_created": False, "gate_issued": False,
