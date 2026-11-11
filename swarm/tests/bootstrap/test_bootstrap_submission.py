@@ -149,7 +149,7 @@ class SubmissionTests(unittest.TestCase):
                 with self.assertRaises(TimeoutError):
                     tool.submit(action["intent"], ref)
                 self.assertEqual(client.query(f.control, final_ref).status, "confirmed")
-                with self.assertRaisesRegex(ValueError, "result_already_committed"):
+                with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
                     tool.submit(action["intent"], ref)
                 self.assertEqual(commit.call_count, 2)
             self.assertTrue(owner.armed)
@@ -178,7 +178,7 @@ class SubmissionTests(unittest.TestCase):
             self.assertIn("partially_committed", str(caught.exception))
             # The half-committed state is real and now named: the record is durable,
             # the output is absent on disk.
-            self.assertTrue(Path(completion_slot(f.root, "fields-intent")).exists())
+            self.assertTrue(Path(completion_slot(tool.root, "fields-intent")).exists())
             self.assertFalse(Path(action["result_path"]).exists())
 
     def test_the_output_phase_never_asks_the_owner_again(self):
@@ -215,6 +215,27 @@ class SubmissionTests(unittest.TestCase):
             self.assertNotIn(True, calls)  # the output phase asked nobody
             self.assertEqual(client.query(f.control, file_ref(Path(action["result_path"]))).status,
                              "confirmed")
+
+    def test_the_record_fence_outranks_a_busy_owner(self):
+        """attempt24: five retries reported a permanent fence as a transient busy.
+
+        `submit()` asked the owner first, so a busy executor hid the record that no
+        retry could ever cross. The fence is now read from disk before that call, and
+        when the final output already exists the answer is "already done".
+        """
+        from bootstrap_actions import completion_slot
+        from observation_budget import ObservationBusy
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            ref = file_ref(candidate)
+            tool.submit(action["intent"], ref)
+            self.assertTrue(Path(completion_slot(f.root, "fields-intent")).exists())
+            with patch.object(client, "commit_new", side_effect=ObservationBusy()), \
+                    patch.object(client, "query", side_effect=ObservationBusy()):
+                with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
+                    tool.submit(action["intent"], ref)
 
     def test_unpinned_or_mismatched_submission_contract_is_rejected(self):
         with submission_fixture() as (f, owner, client, _, tool, action):

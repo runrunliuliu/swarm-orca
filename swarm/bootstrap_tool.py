@@ -525,10 +525,35 @@ class RoleTool(BootstrapMachine, ActionReader):
         """
         require(not os.path.lexists(self.paths.get(target, target)), "bootstrap_result_already_committed")
 
+    def submitted_action_name(self, intent_ref):
+        """The action this intent names, read from disk without asking the owner."""
+        value = parse(pinned(intent_ref))
+        name = value.get("action") if isinstance(value, dict) else None
+        require(name in ACTIONS, "bootstrap_action_binding_mismatch")
+        return name
+
+    def forbid_submitted_action(self, name):
+        """Decide the record fence before any owner round trip, and say which one.
+
+        attempt24 retried five times on `bootstrap_owner_busy_not_executed` because
+        `local_check()` hit the busy owner before this fence was read: a permanent
+        refusal was reported as a transient one. When the action's own final output
+        is already on disk the truthful answer is "already done", not "reconcile".
+        """
+        if not os.path.lexists(completion_slot(self.root, name)):
+            return
+        # A visible output is not a confirmed one, so this never claims "done":
+        # `inspect_action` reads the owner's own status for that distinction.
+        raise ValueError("bootstrap_submission_requires_reconciliation")
+
     def submit(self, intent_ref, source_ref):
-        self.local_check()
+        # The fence is read from disk before any owner round trip, including the
+        # one inside `action_intent()`: a busy executor must never be able to
+        # present a permanent refusal as a transient one (attempt24).
+        self.forbid_submitted_action(self.submitted_action_name(intent_ref))
         intent = self.action_intent(intent_ref)
         name = intent["action"]
+        self.local_check()
         require(self.slot(name) == intent_ref and intent["actor"] == self.actor,
                 "bootstrap_action_binding_mismatch")
         require(name in SUBMIT_TARGETS, "bootstrap_action_requires_specialized_tool")
@@ -538,7 +563,6 @@ class RoleTool(BootstrapMachine, ActionReader):
         raw = self.candidate_bytes(source_ref, submission)
         self.submission_output_empty(target)
         record = completion_slot(self.root, name)
-        require(not os.path.lexists(record), "bootstrap_submission_requires_reconciliation")
 
         def validate(*, confirmations=True):
             self.validate_candidate(intent_ref, raw, confirmations=confirmations)
@@ -616,6 +640,7 @@ class RoleTool(BootstrapMachine, ActionReader):
 
     def submit_readiness(self, intent_ref, probe_refs):
         require(self.actor == "coordinator", "bootstrap_original_role_required")
+        self.forbid_submitted_action(self.submitted_action_name(intent_ref))
         intent = self.action_intent(intent_ref)
         require(intent["action"] == "final-evidence-intent", "bootstrap_action_binding_mismatch")
         contract = self.submission(intent["action"])
@@ -626,7 +651,6 @@ class RoleTool(BootstrapMachine, ActionReader):
         outputs = [dict(path=output["final_path"], sha256=digest(raw)) for output, raw in zip(contract["outputs"], values)]
         record = completion_slot(self.root, intent["action"])
         self.submission_output_empty("final_readiness")
-        require(not os.path.lexists(record), "bootstrap_submission_requires_reconciliation")
 
         def validate(*, confirmations=True):
             slot = self.slot if confirmations else self.pinned_slot
@@ -716,14 +740,13 @@ class RoleTool(BootstrapMachine, ActionReader):
 
     def complete(self, intent_ref):
         """Dispatch a pinned action, deriving file pins locally; never generate evidence."""
+        self.forbid_submitted_action(self.submitted_action_name(intent_ref))
         intent = self.action_intent(intent_ref)
         spec = ACTIONS[intent["action"]]
         if spec.mode == "produce":
             return self.produce(intent_ref)
         contract = self.submission(intent["action"])
         require(intent["payload"].get("submission") == contract, "bootstrap_submission_contract_mismatch")
-        require(not os.path.lexists(completion_slot(self.root, intent["action"])),
-                "bootstrap_submission_requires_reconciliation")
         refs = [file_ref(output["candidate_path"]) for output in contract["outputs"]]
         return self.submit(intent_ref, refs[0]) if spec.mode == "submit" else self.submit_readiness(intent_ref, refs)
 
