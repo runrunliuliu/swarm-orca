@@ -75,6 +75,35 @@ class StrictCoordinatorTests(unittest.TestCase):
     def plan(self):
         return build_plan(**self.trae.args, strict_coordinator=True)
 
+    def test_helper_root_pins_the_helper_tree_in_fragment_and_prompt(self):
+        # Why: the plan names the helper tree in the prompt. Left implicit, that is
+        # whichever tree assembled the materials, which need not be the attempt's
+        # reviewed baseline — an Operator checks exactly this.
+        import tempfile
+        from pathlib import Path
+
+        root = Path(tempfile.mkdtemp(prefix="helper-root-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
+        for name in ("coordinator_launch.py", "coordinator-strict-start.md",
+                     "coordinator-worker-plan.md", "coordinator_tui_continue.py"):
+            (root / name).write_text("# pinned helper fixture\n")
+
+        plan = build_plan(**self.trae.args, strict_coordinator=True, helper_root=str(root))
+        self.assertIn(str(root / "coordinator_launch.py"), plan["prompt_fragment"])
+        self.assertIn(str(root / "coordinator-strict-start.md"), plan["prompt_fragment"])
+        args = shlex.split(plan["native_launch"]["agent_args"])
+        prompt = args[-1]
+        self.assertIn(str(root / "coordinator_launch.py"), prompt)
+        self.assertIn(str(root / "coordinator-worker-plan.md"), plan["prompt_fragment"])
+
+        # A tree without the helpers is refused rather than pinned half-populated.
+        (root / "coordinator_launch.py").unlink()
+        with self.assertRaisesRegex(ValueError, "strict_helper_root_incomplete"):
+            build_plan(**self.trae.args, strict_coordinator=True, helper_root=str(root))
+        # A relative root is refused: the prompt must carry an absolute path.
+        with self.assertRaisesRegex(ValueError, "strict_helper_root_invalid"):
+            build_plan(**self.trae.args, strict_coordinator=True, helper_root="swarm")
+
     def test_plan_uses_pinned_argv_prompt_without_executable_capture(self):
         self.trae.prompt.write_text("approved 'quotes' $(not-a-command)\n汉字\n")
         plan = self.plan()

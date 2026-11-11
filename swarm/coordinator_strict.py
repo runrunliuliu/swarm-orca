@@ -84,17 +84,43 @@ def caller_result(value, runtime):
     return value
 
 
-def strict_bootstrap_prompt(plan):
+HELPER_FILES = ("coordinator_launch.py", "coordinator-strict-start.md",
+                "coordinator-worker-plan.md", "coordinator_tui_continue.py")
+
+
+def helper_root_root(helper_root):
+    """Resolve the helper tree an attempt is pinned to; never guess across trees.
+
+    The default keeps historical behaviour (the tree that assembled the plan), but a
+    materials input may pin another reviewed tree, and then it must really carry the
+    helper files: a prompt pointing at a half-populated tree is worse than none.
+    """
+    if helper_root is None:
+        return Path(__file__).resolve().parent
+    require(isinstance(helper_root, str) and helper_root, "strict_helper_root_invalid")
+    root = Path(helper_root)
+    require(root.is_absolute() and root.resolve() == root and root.is_dir(),
+            "strict_helper_root_invalid")
+    require(all((root / name).is_file() for name in HELPER_FILES),
+            "strict_helper_root_incomplete")
+    return root
+
+
+def strict_bootstrap_prompt(plan, root=None):
     """Small native prompt for terminal.create; the full contract stays pinned.
 
     Orca's native Trae TUI launch is constrained by AgentArgs. The business
     contract remains the rendered stdin validated by input_contract; this prompt
     only tells the live Coordinator how to find and verify the pinned material.
+
+    `root` pins the helper tree. Without it the prompt names whichever tree
+    assembled the plan, which is not necessarily the attempt's reviewed baseline.
     """
-    helper = str(Path(__file__).resolve().with_name("coordinator_launch.py"))
-    protocol = str(Path(__file__).resolve().with_name("coordinator-strict-start.md"))
-    worker_protocol = str(Path(__file__).resolve().with_name("coordinator-worker-plan.md"))
-    continuation = str(Path(__file__).resolve().with_name("coordinator_tui_continue.py"))
+    root = Path(root) if root is not None else Path(__file__).resolve().parent
+    helper = str(root / "coordinator_launch.py")
+    protocol = str(root / "coordinator-strict-start.md")
+    worker_protocol = str(root / "coordinator-worker-plan.md")
+    continuation = str(root / "coordinator_tui_continue.py")
     contract = plan["input_contract"]
     directory = Path(plan["startup_delivery"]["directory"])
     caller_receipt = directory.parent / "initial-caller.json"
@@ -180,7 +206,8 @@ def strict_bootstrap_prompt(plan):
     return "\n".join(lines) + "\n"
 
 
-def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
+def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None, helper_root=None):
+    root = helper_root_root(helper_root)
     require(plan["phase"] == "bootstrap" and plan["resume_session"] is None
             and plan.get("replacement_run") is None, "strict_requires_fresh_native_bootstrap")
     archive = Path(plan["artifact_dirs"]["archive"])
@@ -222,9 +249,9 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
                 json.dumps([plan["cwd"], *plan["task_write_roots"]]) + ".")
     plan["prompt_fragment"] += (
         " Verified helper entry (use this absolute path, not the target repository's cwd): "
-        + shlex.join([sys.executable, "-B", str(Path(__file__).resolve().with_name("coordinator_launch.py"))])
+        + shlex.join([sys.executable, "-B", str(root / "coordinator_launch.py")])
         + ". Request schema and delivery protocol: "
-        + str(Path(__file__).resolve().with_name("coordinator-strict-start.md"))
+        + str(root / "coordinator-strict-start.md")
         + ". Fixed startup delivery layout: " + json.dumps(delivery) + ". After final readiness, "
         "use strict-config-request --input <reviewed-input> --input-sha256 <pin> --execute "
         "to publish request_path from pinned session_observation, caller, runtime/workspace, "
@@ -246,14 +273,20 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None):
         "deriving paths during the gate TTL. " + (
         "After startup, end model turns only with the TUI still alive and the continuation or "
         "dependency wakeup durably recorded. Continuation helper: " +
-        str(Path(__file__).resolve().with_name("coordinator_tui_continue.py")) + "."
+        str(root / "coordinator_tui_continue.py") + "."
         if tui else "Do not end the exec turn for terminal follow-up; "
         "if the task brief requires that, stop and report the incompatible launch contract."))
     plan = bind_prompt(plan, plan["prompt_file"])
     stdin = input_bytes(plan)
     require(b"\0" not in stdin and len(stdin) <= MAX_PINNED_INPUT_BYTES,
             "strict_native_prompt_too_large_or_invalid")
-    prompt = strict_bootstrap_prompt(plan)
+    # Why: parts of the contract are shared text that embeds this module's own tree.
+    # Rewriting that prefix once is what keeps every helper path in the prompt on the
+    # tree the attempt is pinned to, not the tree that happened to assemble it.
+    own_root = str(Path(__file__).resolve().parent)
+    if str(root) != own_root:
+        plan["prompt_fragment"] = plan["prompt_fragment"].replace(own_root, str(root))
+    prompt = strict_bootstrap_prompt(plan, root)
     require("\0" not in prompt, "strict_native_prompt_too_large_or_invalid")
     # Check the final quoted UTF-8 payload against the native RPC contract.
     # Trae's argv ends with its "-" stdin sentinel; a Pi argv has no sentinel, so its

@@ -90,7 +90,7 @@ def build_plan(*, codex=None, trae=None, pi=None, cwd, archive_dir=None, write_d
                runtime_config=BASE / "coordinator-runtime.json",
                trae_runtime_config=None, pi_policy=None, prompt_file=None, bootstrap_dir=None,
                resume_session=None, replacement_run=None, strict_coordinator=False,
-               registered_bootstrap=False, reviewed_inputs=None):
+               registered_bootstrap=False, reviewed_inputs=None, helper_root=None):
     if pi is not None:
         # Pi pins its own reviewed policy (provider, model selector, thinking level); it has
         # no effort/Max surface and no exec shape, so selection is derived from the policy
@@ -109,7 +109,7 @@ def build_plan(*, codex=None, trae=None, pi=None, cwd, archive_dir=None, write_d
             raise ValueError("Pi Coordinator requires --strict-coordinator; there is no exec shape")
         from coordinator_strict import strict_plan
         return strict_plan(plan, registered_bootstrap=registered_bootstrap,
-                           reviewed_inputs=reviewed_inputs)
+                           reviewed_inputs=reviewed_inputs, helper_root=helper_root)
     selection = read_config(model_config, "selection")
     if set(selection) != {"mode", "agent", "model", "effort", "max_mode"}:
         raise ValueError("invalid Coordinator selection fields")
@@ -125,7 +125,7 @@ def build_plan(*, codex=None, trae=None, pi=None, cwd, archive_dir=None, write_d
         if strict_coordinator:
             from coordinator_strict import strict_plan
             return strict_plan(plan, registered_bootstrap=registered_bootstrap,
-                               reviewed_inputs=reviewed_inputs)
+                               reviewed_inputs=reviewed_inputs, helper_root=helper_root)
         if plan["execution"]["launch_mode"] == "tui":
             raise ValueError("TUI requires --strict-coordinator native launch")
         return plan

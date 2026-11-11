@@ -92,7 +92,7 @@ def launch_kwargs(launch, handoff):
     if agent == "trae":
         allowed = {"agent", "trae", "cwd", "archive_dir", "bootstrap_dir", "write_dirs",
                    "model_config", "trae_runtime_config", "resume_session", "replacement_run",
-                   "strict_coordinator", "registered_bootstrap", "reviewed_inputs"}
+                   "strict_coordinator", "registered_bootstrap", "reviewed_inputs", "helper_root"}
         require(set(launch) <= allowed and {"trae", "cwd", "model_config", "trae_runtime_config"} <= set(launch),
                 "operator_materials_launch_invalid")
         return dict(trae=launch["trae"], archive_dir=launch.get("archive_dir"),
@@ -101,10 +101,11 @@ def launch_kwargs(launch, handoff):
                     resume_session=launch.get("resume_session"), replacement_run=launch.get("replacement_run"),
                     strict_coordinator=launch.get("strict_coordinator", False),
                     registered_bootstrap=launch.get("registered_bootstrap", False),
-                    reviewed_inputs=launch.get("reviewed_inputs"), **common)
+                    reviewed_inputs=launch.get("reviewed_inputs"),
+                    helper_root=launch.get("helper_root"), **common)
     if agent == "pi":
         allowed = {"agent", "pi", "cwd", "bootstrap_dir", "write_dirs", "pi_policy",
-                   "strict_coordinator", "registered_bootstrap", "reviewed_inputs"}
+                   "strict_coordinator", "registered_bootstrap", "reviewed_inputs", "helper_root"}
         require(set(launch) <= allowed
                 and {"pi", "cwd", "bootstrap_dir", "pi_policy"} <= set(launch),
                 "operator_materials_launch_invalid")
@@ -112,7 +113,8 @@ def launch_kwargs(launch, handoff):
                     pi_policy=launch["pi_policy"], prompt_file=handoff,
                     strict_coordinator=launch.get("strict_coordinator", False),
                     registered_bootstrap=launch.get("registered_bootstrap", False),
-                    reviewed_inputs=launch.get("reviewed_inputs"), **common)
+                    reviewed_inputs=launch.get("reviewed_inputs"),
+                    helper_root=launch.get("helper_root"), **common)
     raise MaterialsError("operator_materials_launch_invalid")
 
 
