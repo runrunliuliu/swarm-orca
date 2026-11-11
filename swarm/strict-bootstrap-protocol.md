@@ -456,6 +456,11 @@ STOP 两种顺序、持久 STOP 失败、禁止覆盖、精确字节恢复和 S5
 Phase 3 的同链并发/恢复矩阵见[离线文档 §11](strict-bootstrap-offline.md)，Phase 4 目标核验见 §12，
 Phase 5 才是真实 live 验收。
 
+## 定位
+
+要按符号找实现时先看 [ORIENTATION.md](ORIENTATION.md)（生成，`--check` 守着行区间），
+不要用 grep 从名字反推位置——那正是它替代的步骤。
+
 ## 后续章节
 
 #10 – #13（离线纵向闭环、同链失败/收尾、开发交付与 S5 生命周期交接）已移到

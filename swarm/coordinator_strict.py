@@ -156,6 +156,10 @@ def strict_bootstrap_prompt(plan, root=None):
         # Generated from the action table, so a stage cannot be missing from the page an Operator
         # reads while the code still expects it (see swarm/generate_runbook.py --check).
         "Operator runbook (generated): " + str(Path(protocol).with_name("operator-runbook.md")),
+        # Read on demand, not up front: it is an index of line ranges, and adding it to the
+        # required reading would grow the reading this change exists to shrink.
+        "Symbol orientation (generated, read on demand): "
+        + str(Path(protocol).with_name("ORIENTATION.md")),
         "Startup delivery layout: " + delivery,
         "First, read the prompt file, the strict startup protocol and the operator runbook in "
         "full; verify the supplied pins before caller-check or any filesystem writes.",
