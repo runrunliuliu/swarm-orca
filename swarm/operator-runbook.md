@@ -25,25 +25,20 @@
 
 ## 命令形状
 
+由 `bootstrap_actions.command()` 渲染，与 action 回执里的 `complete_argv` /
+`inspect_argv` 同源；**直接使用回执给的 argv**，不要照本页手拼。
+
 ```bash
-# 取下一步（返回 complete_argv / inspect_argv，不要自己拼参数）
-python3 -B bootstrap_tool.py pull --owner <owner.json> --owner-sha256 <sha> --actor <role> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap pull --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap produce --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap submit --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap readiness --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 
-# 机械产物（caller/observation 由 helper 产出，不是模型）
-python3 -B bootstrap_tool.py produce --owner <owner.json> --owner-sha256 <sha> --actor <role> \
-  --intent <intent.json> --intent-sha256 <sha> --execute
-
-# 提交候选：人写字节，或由意图里的模板 materialize（仅 fields-intent）
-python3 -B bootstrap_tool.py submit --owner <owner.json> --owner-sha256 <sha> --actor <role> \
-  --intent <intent.json> --intent-sha256 <sha> --input <candidate.json> --input-sha256 <sha> --execute
-python3 -B bootstrap_tool.py submit ... --from-template --execute
-
-# 完成阶段与对账
-python3 -B bootstrap_tool.py complete --owner <owner.json> --owner-sha256 <sha> --actor <role> \
-  --intent <intent.json> --intent-sha256 <sha> --execute
-# complete 不接受 --input：它从 contract.outputs 的 candidate_path 本地取 pin。
-python3 -B bootstrap_tool.py inspect-action --owner <owner.json> --owner-sha256 <sha> \
-  --actor <role> --intent <intent.json> --intent-sha256 <sha>
+# submit 还需候选：--input <candidate.json> --input-sha256 <sha>，
+# 或（仅 fields-intent）--from-template。complete 不接受 --input：
+# 它从 contract.outputs 的 candidate_path 本地取 pin。
 ```
 
 ## 不要这样做

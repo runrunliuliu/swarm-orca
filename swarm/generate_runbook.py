@@ -59,31 +59,30 @@ def render() -> str:
         completion = "produce" if spec.mode == "produce" else f"{name.removesuffix('-intent')}-submission.json"
         lines.append(f"| `{name}` | {spec.actor} | {spec.mode} | `{spec.target}` | `{completion}` | "
                      f"{STAGE_SECTIONS.get(name, '§4')} |")
+    # Why generated: the action's own receipt carries `complete_argv` / `inspect_argv` built by
+    # `bootstrap_actions.command`, so a hand-written "python3 bootstrap_tool.py ..." block was a
+    # second, wrong entry point. The argv below is rendered by the same builder the receipt uses.
+    import shlex
+    from bootstrap_actions import command as action_command
+    owner_placeholder = {"path": "<owner.json>", "sha256": "<owner-sha256>"}
+    intent_placeholder = {"path": "<intent.json>", "sha256": "<intent-sha256>"}
+    lines += ["", "## 命令形状", "",
+              "由 `bootstrap_actions.command()` 渲染，与 action 回执里的 `complete_argv` /",
+              "`inspect_argv` 同源；**直接使用回执给的 argv**，不要照本页手拼。", "", "```bash"]
+    script = str(ROOT / "coordinator_launch.py")
+    for mode in ("pull", "produce", "submit", "readiness", "complete", "inspect-action"):
+        argv = action_command(owner_placeholder, "<role>", mode, intent_placeholder)
+        # Why rewritten: `command()` embeds this checkout's absolute paths, and a runbook that
+        # leaks /mnt/<host>/... would differ per machine and fail its own --check elsewhere.
+        rendered = [token.replace(script, "<swarm>/coordinator_launch.py")
+                    for token in argv]
+        if rendered[0] == sys.executable or rendered[0].endswith("/python3"):
+            rendered[0] = "python3"
+        lines.append(" ".join(shlex.quote(token) if " " in token else token for token in rendered))
+    lines += ["", "# submit 还需候选：--input <candidate.json> --input-sha256 <sha>，",
+              "# 或（仅 fields-intent）--from-template。complete 不接受 --input：",
+              "# 它从 contract.outputs 的 candidate_path 本地取 pin。", "```", ""]
     lines += [
-        "",
-        "## 命令形状",
-        "",
-        "```bash",
-        "# 取下一步（返回 complete_argv / inspect_argv，不要自己拼参数）",
-        "python3 -B bootstrap_tool.py pull --owner <owner.json> --owner-sha256 <sha> --actor <role> --execute",
-        "",
-        "# 机械产物（caller/observation 由 helper 产出，不是模型）",
-        "python3 -B bootstrap_tool.py produce --owner <owner.json> --owner-sha256 <sha> --actor <role> \\",
-        "  --intent <intent.json> --intent-sha256 <sha> --execute",
-        "",
-        "# 提交候选：人写字节，或由意图里的模板 materialize（仅 fields-intent）",
-        "python3 -B bootstrap_tool.py submit --owner <owner.json> --owner-sha256 <sha> --actor <role> \\",
-        "  --intent <intent.json> --intent-sha256 <sha> --input <candidate.json> --input-sha256 <sha> --execute",
-        "python3 -B bootstrap_tool.py submit ... --from-template --execute",
-        "",
-        "# 完成阶段与对账",
-        "python3 -B bootstrap_tool.py complete --owner <owner.json> --owner-sha256 <sha> --actor <role> \\",
-        "  --intent <intent.json> --intent-sha256 <sha> --execute",
-        "# complete 不接受 --input：它从 contract.outputs 的 candidate_path 本地取 pin。",
-        "python3 -B bootstrap_tool.py inspect-action --owner <owner.json> --owner-sha256 <sha> \\",
-        "  --actor <role> --intent <intent.json> --intent-sha256 <sha>",
-        "```",
-        "",
         "## 不要这样做",
         "",
         "- 手写 `complete_argv` / `inspect_argv`：它们由 helper 返回，重拼会漂移。",

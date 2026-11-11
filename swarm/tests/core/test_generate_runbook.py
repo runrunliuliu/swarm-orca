@@ -74,11 +74,30 @@ class RunbookTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 2)
             self.assertIn("stale", completed.stderr)
 
+    def test_the_argv_come_from_the_action_builder_not_a_second_entry_point(self):
+        # Why: `bootstrap_tool.py pull ...` is a different entry point from the
+        # `coordinator_launch.py strict-bootstrap <mode>` argv the action receipt actually
+        # returns. A runbook that names the wrong one sends an Operator down a path the tool does
+        # not produce.
+        text = (ROOT / "operator-runbook.md").read_text()
+        self.assertIn("coordinator_launch.py strict-bootstrap pull", text)
+        for line in text.splitlines():
+            if line.startswith("python3 "):
+                self.assertNotIn("bootstrap_tool.py", line)
+
+    def test_the_runbook_carries_no_absolute_path_from_this_checkout(self):
+        # Why: `command()` embeds this machine's paths; a committed runbook must stay portable or
+        # its own --check fails on the next checkout.
+        text = (ROOT / "operator-runbook.md").read_text()
+        self.assertNotIn("/mnt/", text)
+        self.assertNotIn("/home/", text)
+        self.assertIn("<swarm>/coordinator_launch.py", text)
+
     def test_the_runbook_does_not_offer_an_input_to_complete(self):
         # Why: `complete` reads the candidate pin from contract.outputs; passing --input there
         # would be rejected, so the page must not suggest it.
         text = (ROOT / "operator-runbook.md").read_text()
-        complete = [line for line in text.splitlines() if "bootstrap_tool.py complete" in line]
+        complete = [line for line in text.splitlines() if "strict-bootstrap complete" in line]
         self.assertTrue(complete)
         argv = [line for line in text.splitlines()[text.splitlines().index(complete[0]):][:3]
                 if not line.lstrip().startswith("#")]
