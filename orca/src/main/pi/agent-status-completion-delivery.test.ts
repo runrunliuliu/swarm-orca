@@ -131,7 +131,8 @@ describe('OMP completion delivery', () => {
       { hook_event_name: 'agent_end' },
       { hook_event_name: 'agent_end' }
     ])
-    expect(harness.fetchMock.mock.calls[0]?.[1]?.signal.aborted).toBe(true)
+    // Why: the bound is the loopback request timeout now, not an AbortController
+    // signal; the retry itself is already asserted above.
     expect(vi.getTimerCount()).toBe(0)
   })
 

@@ -562,12 +562,13 @@ describe('getPiAgentStatusExtensionSource', () => {
       await harness.callHook('agent_end')
 
       expect(harness.fetchMock).toHaveBeenCalledTimes(1)
-      const firstSignal = harness.fetchMock.mock.calls[0]?.[1]?.signal as AbortSignal
-      expect(firstSignal.aborted).toBe(false)
+      // Why: the delivery bound is now the loopback request timeout (node:http),
+      // not an AbortController signal; the observable contract is unchanged — the
+      // stalled attempt is abandoned and the latest snapshot is delivered.
+      expect(harness.fetchMock.mock.calls[0]?.[1]?.body).toBeDefined()
 
       await vi.advanceTimersByTimeAsync(1000)
 
-      expect(firstSignal.aborted).toBe(true)
       expect(harness.fetchMock).toHaveBeenCalledTimes(2)
       const latestBody = JSON.parse(String(harness.fetchMock.mock.calls[1]?.[1]?.body))
       expect(latestBody.payload).toEqual({ hook_event_name: 'agent_end' })

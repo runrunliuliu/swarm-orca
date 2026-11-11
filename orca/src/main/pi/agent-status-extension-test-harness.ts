@@ -36,6 +36,7 @@ export type AgentStatusExtensionHarness = {
   commands: Record<string, { handler: (args: string, context: HookContext) => Promise<void> }>
   killMock: ReturnType<typeof vi.fn>
   fetchMock: ReturnType<typeof vi.fn>
+  httpRequestMock: ReturnType<typeof vi.fn>
   spawnMock: ReturnType<typeof vi.fn>
   spawnedChildren: FakeCurlChild[]
   fsMock: {
@@ -86,6 +87,72 @@ export function createAgentStatusExtensionHarness(args: {
       (async () => ({
         ok: true
       }))
+  )
+
+  // Why: the generated extension now delivers over `node:http` so a process-wide
+  // proxy dispatcher cannot capture the loopback POST. The http mock funnels every
+  // delivery into the same fetchMock tuple `[url, { method, headers, body }]`, so
+  // existing assertions keep observing one delivery point regardless of transport.
+  const httpRequestMock = vi.fn(
+    (
+      options: {
+        host?: string
+        port?: number | string
+        path?: string
+        method?: string
+        headers?: Record<string, string>
+      },
+      onResponse: (response: { resume: () => void; on: (event: string, handler: () => void) => void; statusCode?: number }) => void
+    ) => {
+      const emitter = new EventEmitter()
+      const url = `http://${String(options.host)}:${String(options.port)}${String(options.path)}`
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const settle = () => {
+        if (timer !== null) clearTimeout(timer)
+        timer = null
+      }
+      const request = {
+        on: (event: string, handler: (...args: unknown[]) => void) => {
+          emitter.on(event, handler)
+          return request
+        },
+        end: (body: string) => {
+          // Why: the extension's bound is a request timeout, not an AbortController;
+          // the stalled-request test needs the same timer to fire here.
+          const timeoutMs = options.timeout
+          if (typeof timeoutMs === 'number' && timeoutMs > 0) {
+            timer = setTimeout(() => {
+              timer = null
+              emitter.emit('error', new Error('Orca hook delivery timed out'))
+            }, timeoutMs)
+            if (typeof timer.unref === 'function') timer.unref()
+          }
+          void Promise.resolve(
+            fetchMock(url, { method: options.method, headers: options.headers, body } as RequestInit)
+          )
+            .then((result) => {
+              settle()
+              const ok = (result as { ok?: boolean } | undefined)?.ok !== false
+              onResponse({
+                resume: () => undefined,
+                on: (event, handler) => {
+                  if (event === 'end') handler()
+                },
+                statusCode: ok ? 204 : 500
+              })
+            })
+            .catch((error: unknown) => {
+              settle()
+              emitter.emit('error', error)
+            })
+        },
+        destroy: (error?: Error) => {
+          settle()
+          emitter.emit('error', error ?? new Error('request destroyed'))
+        }
+      }
+      return request
+    }
   )
 
   const spawnedChildren: FakeCurlChild[] = []
@@ -142,6 +209,9 @@ export function createAgentStatusExtensionHarness(args: {
     }
     if (specifier === 'child_process') {
       return { spawn: spawnMock }
+    }
+    if (specifier === 'node:http' || specifier === 'http') {
+      return { request: httpRequestMock }
     }
     throw new Error(`unexpected require(${specifier})`)
   })
@@ -215,6 +285,7 @@ export function createAgentStatusExtensionHarness(args: {
     setModelMock,
     commands,
     fetchMock,
+    httpRequestMock,
     killMock,
     spawnMock,
     spawnedChildren,
