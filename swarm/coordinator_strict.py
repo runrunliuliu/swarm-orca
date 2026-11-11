@@ -161,8 +161,12 @@ def strict_bootstrap_prompt(plan, root=None):
         "do not create it or write caller/status/raw evidence there.",
         caller_line,
         "For that historical path, use strict-config-request with pinned session observation, caller, runtime/workspace, task_deadline and final readiness.",
-        "For an explicitly registered strict-bootstrap attempt, use coordinator_launch.py strict-bootstrap plan "
-        "with the independently pinned --owner and --owner-sha256 from the S0 handoff first. Follow its original-role "
+        "For an explicitly registered strict-bootstrap attempt, publish your own S0 skill-read evidence at the "
+        "fixed S0 path first: the plan needs the Operator's independently pinned S0 handoff, and the Operator only "
+        "provisions after that evidence exists. strict-bootstrap plan before S0 is expected to fail with "
+        "bootstrap_operation_unverifiable; that failure is the pre-S0 state, not a reason to skip S0 or to stop. "
+        "Then use coordinator_launch.py strict-bootstrap plan "
+        "with the independently pinned --owner and --owner-sha256 from the S0 handoff. Follow its original-role "
         "bounded pull/submit stages: caller, observation, fields and independent review, contract wait return, "
         "real final readiness, independent readiness review, second wait return, controlled build, then S5. "
         "Do not bypass that path with direct strict-config-request; retain the same owner pin on every S5 command. "

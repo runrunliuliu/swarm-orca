@@ -75,6 +75,16 @@ class StrictCoordinatorTests(unittest.TestCase):
     def plan(self):
         return build_plan(**self.trae.args, strict_coordinator=True)
 
+    def test_contract_states_the_s0_before_plan_ordering(self):
+        # Why: a Coordinator that ran `strict-bootstrap plan` before publishing S0 hit
+        # bootstrap_operation_unverifiable (no owner yet) and waited — while the launcher
+        # waits for S0. The ordering rule belongs to the contract, not to each brief.
+        prompt = shlex.split(self.plan()["native_launch"]["agent_args"])[-1]
+        self.assertIn("publish your own S0 skill-read evidence", prompt)
+        self.assertIn("bootstrap_operation_unverifiable", prompt)
+        self.assertLess(prompt.index("publish your own S0 skill-read evidence"),
+                        prompt.index("with the independently pinned --owner"))
+
     def test_helper_root_pins_the_helper_tree_in_fragment_and_prompt(self):
         # Why: the plan names the helper tree in the prompt. Left implicit, that is
         # whichever tree assembled the materials, which need not be the attempt's
