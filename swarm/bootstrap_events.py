@@ -73,17 +73,21 @@ class EvidenceReader:
             pinned(ref)
 
 
-def observation_supported(observation):
+def observation_supported(observation, expected_adapter=None):
     """The observation must belong to the TUI adapter it claims.
 
     The adapter->kind mapping lives in `tui_adapter`; a literal kind list here is how
-    a Pi observation got refused after it had already been committed.
+    a Pi observation got refused after it had already been committed. An internally
+    consistent observation is still not enough: the pair must also be the adapter the
+    declared coordinator provider can attest, or a Trae-shaped observation would be
+    accepted on a Pi attempt (same defect class, opposite direction).
     """
     if not isinstance(observation, dict):
         return False
     kind = observation.get("kind")
     adapter = kind_adapter(kind) if isinstance(kind, str) else None
-    return adapter is not None and observation.get("adapter") == adapter
+    return (adapter is not None and observation.get("adapter") == adapter
+            and (expected_adapter is None or adapter == expected_adapter))
 
 
 def binding(reader, root, sha, attempt):
@@ -265,7 +269,11 @@ def _check(root, sha, attempt, clock, result, *, reader=None):
                 observation = reader.read(source["session_observation"], paths["session_observation"])
                 require(observation.get("caller_receipt") == source["caller_receipt"],
                         "observation_caller_pin_mismatch")
-                require(observation_supported(observation), "unsupported_observation_adapter")
+                from provider_capability import declared
+                capability = declared(b["coordinator"]["agent"])
+                require(observation_supported(observation, capability.tui_adapter
+                                              if capability is not None else None),
+                        "unsupported_observation_adapter")
                 observed = timestamp(observation["observed_at"])
                 require(observed <= marker_time and clock - observed
                         <= timedelta(seconds=b["context_max_age_seconds"]),

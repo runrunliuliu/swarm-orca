@@ -180,6 +180,15 @@ class BootstrapEventsTests(unittest.TestCase):
         self.assertFalse(observation_supported({"kind": "pi_tui_startup_anchor"}))
         self.assertFalse(observation_supported({"adapter": "pi-tui-runtime-v1", "kind": "other"}))
         self.assertFalse(observation_supported(None))
+        # A self-consistent pair is still refused when it is not the adapter the
+        # declared coordinator provider can attest: a Trae-shaped observation on a
+        # Pi attempt is the same defect class in the false-accept direction.
+        self.assertTrue(observation_supported({"adapter": "pi-tui-runtime-v1", "kind": "pi_tui_startup_anchor"},
+                                              "pi-tui-runtime-v1"))
+        self.assertFalse(observation_supported({"adapter": "trae-tui-runtime-v1", "kind": "trae_tui_startup_anchor"},
+                                               "pi-tui-runtime-v1"))
+        self.assertFalse(observation_supported({"adapter": "pi-tui-runtime-v1", "kind": "pi_tui_startup_anchor"},
+                                               "trae-tui-runtime-v1"))
 
     def test_a_pi_coordinator_binding_is_accepted_and_an_unknown_agent_is_not(self):
         # Why: the owner binds whichever provider this build can verify for a bootstrap

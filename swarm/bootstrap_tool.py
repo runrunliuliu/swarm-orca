@@ -165,6 +165,18 @@ def _ref_of(value):
 NON_EXECUTION_RECORD_SUFFIX = ".not-admitted"
 
 
+class SubmissionInFlight(ValueError):
+    """A submission record is durable and its outputs are not.
+
+    `ObservationBusy` proves nothing was dispatched, which is why `pull()` may treat
+    it as pending. That guarantee ends the moment the record is admitted: the same
+    busy code then means "half committed", and reporting it as pending makes the
+    caller retry a stage whose record guard can never re-admit it (attempt19).
+    This class keeps that state loud and attributable until the commit path stops
+    producing it.
+    """
+
+
 def non_execution(exc):
     """True only for a *proved* non-execution, never for an unknown outcome.
 
@@ -488,7 +500,10 @@ class RoleTool(BootstrapMachine, ActionReader):
         def recheck(_):
             validate()
 
-        self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck)
+        try:
+            self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck)
+        except ObservationBusy as exc:
+            raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
         self.local_check()
         return {"result": self.slot(target), "execution_authorized": False}
 
@@ -569,9 +584,13 @@ class RoleTool(BootstrapMachine, ActionReader):
         admitted = self.emit(record, dict(schema_version=1, kind="strict_bootstrap_submission",
             intent=intent_ref, inputs=probe_refs, outputs=[*outputs, manifest_ref], created_at=now(),
             execution_authorized=False), self.actor, [intent_ref], check=before_admission)
-        for output, raw in zip(outputs, values):
-            self.emit(output["path"], raw, self.actor, [intent_ref, admitted], check=lambda _: validate())
-        return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs], check=lambda _: validate())
+        try:
+            for output, raw in zip(outputs, values):
+                self.emit(output["path"], raw, self.actor, [intent_ref, admitted], check=lambda _: validate())
+            return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs],
+                             check=lambda _: validate())
+        except ObservationBusy as exc:
+            raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
 
     def advance(self, *, until_stage=None, timeout=120, poll=30):
         """Run this role's own mechanical stages in one bounded call.

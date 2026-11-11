@@ -155,6 +155,38 @@ class SubmissionTests(unittest.TestCase):
             self.assertTrue(owner.armed)
             self.assertEqual(pinned(final_ref), pinned(ref))
 
+    def test_a_busy_between_record_and_output_is_loud_not_pending(self):
+        """attempt19: the record was durable, the output was not, and pull said pending.
+
+        `ObservationBusy` proves nothing was dispatched only until the submission
+        record is admitted. After that the same code means "half committed": pull
+        must not report a retryable stage whose record guard can never re-admit it.
+        """
+        from bootstrap_actions import completion_slot
+        from bootstrap_tool import SubmissionInFlight
+        from observation_budget import ObservationBusy
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            ref = file_ref(candidate)
+            original = client.commit_new
+
+            def busy_after_record(*args, **kwargs):
+                if kwargs["target"] == action["result_path"]:
+                    raise ObservationBusy()
+                return original(*args, **kwargs)
+
+            with patch.object(client, "commit_new", side_effect=busy_after_record):
+                with self.assertRaises(SubmissionInFlight) as caught:
+                    tool.submit(action["intent"], ref)
+            self.assertNotIsInstance(caught.exception, ObservationBusy)
+            self.assertIn("partially_committed", str(caught.exception))
+            # The half-committed state is real and now named: the record is durable,
+            # the output is absent on disk.
+            self.assertTrue(Path(completion_slot(f.root, "fields-intent")).exists())
+            self.assertFalse(Path(action["result_path"]).exists())
+
     def test_unpinned_or_mismatched_submission_contract_is_rejected(self):
         with submission_fixture() as (f, owner, client, _, tool, action):
             candidate = Path(action["submission"]["candidate_path"])
