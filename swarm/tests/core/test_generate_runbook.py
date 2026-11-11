@@ -44,6 +44,14 @@ class RunbookTests(unittest.TestCase):
         # The moved chapters must not still be inline: the split is the point.
         self.assertNotIn("## 10. Phase 2", protocol)
 
+    def test_the_protocol_has_no_dangling_section_numbers(self):
+        # Why: two cross-references pointed at "第 11 节 / 第 12 节" after the split, which now
+        # live in another file. A number without a target is how a reader ends up re-deriving a
+        # chapter that moved.
+        protocol = (ROOT / "strict-bootstrap-protocol.md").read_text()
+        for number in ("第 10 节", "第 11 节", "第 12 节", "第 13 节"):
+            self.assertNotIn(number, protocol, f"{number} still referenced inline")
+
     def test_the_offline_document_kept_its_chapter_numbers(self):
         offline = (ROOT / "strict-bootstrap-offline.md").read_text()
         for heading in ("## 10.", "## 11.", "## 12.", "## 13."):

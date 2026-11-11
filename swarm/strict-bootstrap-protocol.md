@@ -21,7 +21,8 @@
 | Operator 执行机会 | 精确原 Operator 的有界工具返回；固定 intent 对账，未知不重发 | 生产 RoleTool 双侧交还动作，模型审查/真实 provider 仍待 live 验证 |
 
 不能将互斥、静态 pins 或内存确认当作活身份认证。三个 P1 的原语/接口在 Phase 1 固定，
-原 builder 的离线闭环在 Phase 2 接通；Phase 4 开发及验证范围见第 12 节。
+原 builder 的离线闭环在 Phase 2 接通；Phase 4 开发及验证范围见
+[离线与历史验证 §12](strict-bootstrap-offline.md#12-phase-4-开发交付生产工具与实际-s5-入口)。
 
 ## 2. 固定路径、S0 与公共类型
 
@@ -451,7 +452,8 @@ STOP 两种顺序、持久 STOP 失败、禁止覆盖、精确字节恢复和 S5
 
 本地测试不证明目标存储断电耐久、生产认证、
 真实审查质量、双侧模型执行机会或历史 strict-start 已支持 STOP。
-Phase 3 的同链并发/恢复矩阵见第 11 节；Phase 4 目标核验见第 12 节；Phase 5 才是真实 live 验收。
+Phase 3 的同链并发/恢复矩阵见[离线文档 §11](strict-bootstrap-offline.md)，Phase 4 目标核验见 §12，
+Phase 5 才是真实 live 验收。
 
 ## 后续章节
 
