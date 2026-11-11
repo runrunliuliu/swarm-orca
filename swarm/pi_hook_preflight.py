@@ -8,15 +8,14 @@ reader cannot say is *why* the row is missing: the pane can be a live, writable,
 never place a row. Two verified shapes produce that silence on this build, and
 neither is a provider capability gap:
 
-1. Delivery. The generated Pi status extension posts its snapshot with the
-   runtime's global `fetch`. A Pi runtime installs an environment-proxy HTTP
-   dispatcher for that global fetch, so a request to `127.0.0.1` is handed to the
-   configured proxy unless the no-proxy list names loopback **literally**. The
-   no-proxy matcher understands exact hosts, `.suffix` and `*`, not CIDR ranges,
-   so a list that only carries `127.0.0.0/8` leaves loopback proxied and the
-   snapshot dies as a swallowed delivery error (the Pi path has no curl fallback,
-   by design). Every other hook sender in the same agent family shells out to a
-   proxy-bypassing client, which is why their rows exist on the same host.
+1. Delivery. A sender that posts with the runtime's global `fetch` is handed to
+   the configured environment proxy unless the no-proxy list names loopback
+   **literally**: the dispatcher's matcher understands exact hosts, `.suffix` and
+   `*`, not CIDR ranges, so a list that only carries `127.0.0.0/8` leaves loopback
+   proxied and the snapshot dies as a swallowed delivery error. This is what the
+   shipped extension did; a build carrying the loopback-`http` transport is immune
+   to it, so a hijacked global fetch is now **advisory**: it says a fetch-based
+   sender would fail, not that this pane did.
 2. Shape. A Pi `session_start` snapshot is published as a *resume identity*
    (`providerSessionOnly`), not as live attribution; the strict reader rejects it
    on purpose. A pane whose only delivered event was `session_start` therefore
@@ -146,7 +145,9 @@ def transport(environ, host=LOOPBACK_HOST):
                                       or entry["hostname"] in (host, "localhost", "::1", "*")],
         "cidr_entries_ignored": [entry["raw"] for entry in entries if entry["cidr"]],
         "loopback_bypasses_proxy": bypassed,
-        "global_fetch_delivers": bypassed or proxy is None,
+        # Advisory only: this is about a *fetch-based* sender. A shipped sender on
+        # the loopback-http transport delivers regardless of these variables.
+        "fetch_sender_would_deliver": bypassed or proxy is None,
         "reason": TRANSPORT_HIJACKED if proxy is not None and not bypassed else TRANSPORT_DIRECT,
     }
 
@@ -202,15 +203,18 @@ def preflight(*, environ, row, worktree_id=None, tab_id=None,
         "provider": provider,
         "diagnostic_only": True,
         "execution_authorized": False,
-        # "Looks able to deliver", never "delivered". The reader decides that.
-        "channel_plausible": channel["global_fetch_delivers"] and verdict.get("usable", False),
+        # "Looks able to deliver", never "delivered". The reader decides that. The
+        # verdict rests on the observed row, not on the proxy variables: a hijacked
+        # global fetch only tells you a fetch-based sender would have failed.
+        "channel_plausible": verdict.get("usable", False),
         "transport": channel,
         "row": verdict,
         "reasons": reasons,
         "missing_evidence": verdict["missing_evidence"] or (
             [] if verdict.get("usable") else [MISSING_PANE_ROW]),
         "note": "A passing preflight says the channel might deliver. Only a fresh "
-                "runtime_binding capture may bind a pane.",
+                "runtime_binding capture may bind a pane. Transport reasons are "
+                "advisory for fetch-based senders; the row is the evidence.",
     }
 
 

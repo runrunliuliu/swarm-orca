@@ -50,20 +50,22 @@ class Transport(unittest.TestCase):
         self.assertEqual(channel["proxy_variable"], "http_proxy")
         self.assertEqual(channel["no_proxy_source"], "NO_PROXY")
         self.assertFalse(channel["loopback_bypasses_proxy"])
-        self.assertFalse(channel["global_fetch_delivers"])
+        # Advisory for fetch-based senders only; the loopback-http transport
+        # ignores proxy variables, so this no longer decides the channel verdict.
+        self.assertFalse(channel["fetch_sender_would_deliver"])
         self.assertEqual(channel["reason"], preflight.TRANSPORT_HIJACKED)
         self.assertEqual(channel["cidr_entries_ignored"], ["127.0.0.0/8"])
 
     def test_a_literal_loopback_entry_keeps_the_post_direct(self):
         channel = preflight.transport(dict(self.PROXIED, NO_PROXY="localhost,127.0.0.1"))
         self.assertTrue(channel["loopback_bypasses_proxy"])
-        self.assertTrue(channel["global_fetch_delivers"])
+        self.assertTrue(channel["fetch_sender_would_deliver"])
         self.assertEqual(channel["reason"], preflight.TRANSPORT_DIRECT)
 
     def test_no_proxy_configured_at_all_is_direct(self):
         self.assertEqual(preflight.transport({})["reason"], preflight.TRANSPORT_DIRECT)
         self.assertTrue(preflight.transport({"https_proxy": "http://p:1", "no_proxy": "*"})
-                        ["global_fetch_delivers"])
+                        ["fetch_sender_would_deliver"])
 
     def test_lowercase_no_proxy_wins_even_when_it_is_weaker(self):
         # The runtime prefers `no_proxy`; a weaker lowercase list must not be
@@ -71,7 +73,7 @@ class Transport(unittest.TestCase):
         channel = preflight.transport({"http_proxy": "http://p:1", "no_proxy": "",
                                        "NO_PROXY": "127.0.0.1"})
         self.assertEqual(channel["no_proxy_source"], "no_proxy")
-        self.assertFalse(channel["global_fetch_delivers"])
+        self.assertFalse(channel["fetch_sender_would_deliver"])
 
 
 class RowVerdict(unittest.TestCase):
@@ -121,9 +123,16 @@ class Record(unittest.TestCase):
         self.assertIs(record["diagnostic_only"], True)
         self.assertIs(record["execution_authorized"], False)
 
-    def test_transport_reason_is_reported_first_and_blocks_plausibility(self):
+    def test_transport_reason_is_reported_first_but_a_usable_row_still_decides(self):
+        # A delivered row is the evidence: the loopback-http transport ignores the
+        # proxy, so a hijacked global fetch no longer makes the channel implausible.
         record = preflight.preflight(environ=Transport.PROXIED, row=usable_row(),
                                      worktree_id="wt", tab_id="tab")
+        self.assertEqual(record["reasons"][0], preflight.TRANSPORT_HIJACKED)
+        self.assertTrue(record["channel_plausible"])
+
+    def test_a_hijacked_transport_without_a_row_is_reported_as_implausible(self):
+        record = preflight.preflight(environ=Transport.PROXIED, row=None)
         self.assertEqual(record["reasons"][0], preflight.TRANSPORT_HIJACKED)
         self.assertFalse(record["channel_plausible"])
 
@@ -159,7 +168,7 @@ class Ingress(unittest.TestCase):
                                        "--tab-id", "tab", "--json"])
         record = json.loads(out.getvalue())
         self.assertEqual(code, 0)
-        self.assertFalse(record["channel_plausible"])
+        self.assertTrue(record["channel_plausible"])
         self.assertEqual(record["row"]["reasons"], [preflight.ROW_USABLE])
         self.assertIn(preflight.TRANSPORT_HIJACKED, record["reasons"])
 
