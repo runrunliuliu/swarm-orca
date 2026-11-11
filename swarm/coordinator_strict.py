@@ -365,9 +365,14 @@ def native_plan(ref, *, cli, runtime, workspace, materials=None, operator_input=
             bootstrap_dir=plan["artifact_dirs"]["archive"], write_dirs=plan["task_write_roots"],
             selection=plan["selection"], runtime_config=plan["runtime_config"],
             prompt_file=plan["prompt_file"], resume_session=None)
+    # Why: a plan built with a pinned helper tree records `helper_root`, and
+    # `strict_plan` only writes that key when it receives the root. Rebuilding
+    # without it therefore always differs from the reviewed plan and would refuse
+    # every pinned-helper plan as `strict_native_plan_changed`.
     rebuilt = strict_plan(rebuilt,
                           registered_bootstrap=plan.get("registered_bootstrap") is True,
-                          reviewed_inputs=plan.get("reviewed_inputs"))
+                          reviewed_inputs=plan.get("reviewed_inputs"),
+                          helper_root=plan.get("helper_root"))
     require(plan == rebuilt, "strict_native_plan_changed")
     verified = verify_native_inputs(ref, plan, cli=cli, runtime=runtime, workspace=workspace,
                                     materials_ref=materials, operator_input_ref=operator_input)

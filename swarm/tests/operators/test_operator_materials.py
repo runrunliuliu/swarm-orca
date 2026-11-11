@@ -88,6 +88,21 @@ class OperatorMaterialsTests(unittest.TestCase):
                          "--input-sha256", self.input_ref["sha256"], "--execute"])
         return code, json.loads(output.getvalue())
 
+    def test_pi_policy_is_a_pinned_launch_config_ref(self):
+        # Why: the Pi branch requires pi_policy, so it must be pinned with the other
+        # launch configs instead of only being re-read later by the reader.
+        from operator_materials import launch_config_refs
+
+        policy = self.ref("pi-policy.json", {"schema_version": 1, "scope": "swarm_coordinator_only",
+                                             "provider": "pi", "model": {"provider": "platform", "id": "m"},
+                                             "thinking_level": "medium"})
+        pi_refs = launch_config_refs({"agent": "pi", "pi_policy": policy["path"]})
+        self.assertEqual([ref["path"] for ref in pi_refs], [policy["path"]])
+        trae_refs = launch_config_refs({"agent": "trae", "model_config": self.model["path"],
+                                        "trae_runtime_config": self.runtime["path"]})
+        self.assertEqual([ref["path"] for ref in trae_refs],
+                         [self.model["path"], self.runtime["path"]])
+
     def test_every_input_contract_hash_has_a_file_to_read(self):
         # Why: an input_contract hash with no path makes the Coordinator hunt for its
         # preimage across the filesystem; each hash must resolve to a pinned file.

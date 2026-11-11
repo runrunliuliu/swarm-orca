@@ -101,6 +101,7 @@ export function createAgentStatusExtensionHarness(args: {
         path?: string
         method?: string
         headers?: Record<string, string>
+        timeout?: number
       },
       onResponse: (response: { resume: () => void; on: (event: string, handler: () => void) => void; statusCode?: number }) => void
     ) => {

@@ -74,6 +74,11 @@ def launch_config_refs(launch):
     for key in ("model_config", "runtime_config", "trae_runtime_config"):
         if key in launch:
             refs.append(file_ref(path(launch[key])))
+    # Why: a Pi launch's reviewed input is the pi policy, and it is a required
+    # input of that branch — it must be pinned like the other launch configs, not
+    # only re-read later by the reader.
+    if "pi_policy" in launch:
+        refs.append(file_ref(path(launch["pi_policy"])))
     return refs
 
 
