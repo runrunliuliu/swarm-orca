@@ -504,3 +504,13 @@ Operator 必须按**当前环境实测**判断可用余量，不得假设某个�
 只有后续调用更新后的脚本、生成并审查的新契约/计划采用新默认及阶段提示；旧契约和运行中
 进程不热更新。阶段提示参与启动计划 hash，旧计划不可用新提示重签后冒充原计划；
 本修复不会同步远端副本、恢复既有 Run 或自动开启新 attempt。
+
+## 等待的唯一形式
+
+等待另一个 Agent 只允许一种形式：`orca orchestration check --wait --types … --timeout-ms 300000 --json`
+（或用 `swarm/wait_for_events.py` 同一契约的封装）。`sleep N`（N≥60）、反复轮询 inbox、循环重读同一个文件都
+不是等待策略。三条硬约束：返回的是整批 FIFO Delivery（`--types` 只是唤醒条件，不过滤返回行，唤醒后按类型分发
+并复核 settle）；stderr 每 15 s 一条 `_keepalive` 是 CLI 存活提示，不是消息也不是进度；单片 ≤300 s，被唤醒后
+重新进片。空返回或超时只允许「枚举 + 再等」，不授权 start/release/abandon/retry。
+完整规则与退出码语义见 [swarm-orchestration skill](skills/swarm-orchestration/SKILL.md) 的
+“Waiting: one blocking call, never a blind sleep”。

@@ -375,3 +375,13 @@ lifecycle 保存已知退出码和空 receipt。耗尽后的 lifecycle 重启仍
 共 40 项，共享夹具在 `tests/startup_handoff_fixture.py`）、`tests/operators/test_operator_startup.py` 和
 `tests/bootstrap/test_bootstrap_production.py`；生产 helpers 的离线纵向测试不替代真实 provider、
 NAS 新链实测、独立审查或 live 验收。
+
+## 等待的唯一形式
+
+等待另一个 Agent 只允许一种形式：`orca orchestration check --wait --types … --timeout-ms 300000 --json`
+（或用 `swarm/wait_for_events.py` 同一契约的封装）。`sleep N`（N≥60）、反复轮询 inbox、循环重读同一个文件都
+不是等待策略。三条硬约束：返回的是整批 FIFO Delivery（`--types` 只是唤醒条件，不过滤返回行，唤醒后按类型分发
+并复核 settle）；stderr 每 15 s 一条 `_keepalive` 是 CLI 存活提示，不是消息也不是进度；单片 ≤300 s，被唤醒后
+重新进片。空返回或超时只允许「枚举 + 再等」，不授权 start/release/abandon/retry。
+完整规则与退出码语义见 [swarm-orchestration skill](skills/swarm-orchestration/SKILL.md) 的
+“Waiting: one blocking call, never a blind sleep”。
