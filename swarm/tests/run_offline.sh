@@ -31,6 +31,11 @@
 # When tests run, the exit status is unittest's own. `--list` exits 0 and a
 # mode/option conflict exits 2, and both are the script's own statuses, not the suite's.
 #
+# What `--modules` deliberately cannot do: it takes the module list as given and knows nothing
+# about a diff, so it cannot notice that a change touches a shared module whose blast radius is
+# wider than the names it was handed. A gate claim therefore goes through `tests/run_blast.sh
+# --range`, which derives the list from the diff; `--modules` is the mechanism underneath it.
+#
 # Why SLOW exists (measured 2026-11-09 on an idle machine: those 4 modules were 301 s of a
 # 467 s full run, 65% of the suite). Their cost is real work — the owner-socket RPC path
 # (about 2000 round trips, each with a subprocess signature verification), fsync durability
@@ -138,8 +143,8 @@ for arg in "$@"; do
         continue
     fi
     case $arg in
-        -p|-s|-t|--pattern|--start-directory|--top-level-directory) option_argument_pending=1 ;;
-        -p*|-s*|-t*|--pattern=*|--start-directory=*|--top-level-directory=*|\
+        -k|-p|-s|-t|--pattern|--start-directory|--top-level-directory) option_argument_pending=1 ;;
+        -k*|-p*|-s*|-t*|--pattern=*|--start-directory=*|--top-level-directory=*|\
         -v|-vv|-vvv|--verbose|-q|--quiet|-f|--failfast|-b|--buffer|-c|--catch) ;;
         -*) echo "run_offline.sh: unknown runner option: $arg" >&2
             exit 2 ;;

@@ -22,6 +22,7 @@ cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
 range_spec=
 dry_run=0
+jobs=
 while [ $# -gt 0 ]; do
     case $1 in
         --range)
@@ -30,7 +31,7 @@ while [ $# -gt 0 ]; do
         --dry-run) dry_run=1; shift ;;
         -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
         --jobs) [ $# -ge 2 ] || { echo "run_blast.sh: --jobs needs a positive integer" >&2; exit 2; }
-                exec sh tests/run_offline.sh --jobs "$2" ;;
+                jobs=$2; shift 2 ;;
         *) echo "run_blast.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -44,5 +45,10 @@ set -- $(printf '%s' "$json" | python3 -c 'import json,sys; print(" ".join(json.
 if [ "$dry_run" = 1 ]; then
     echo "run_blast.sh: dry run, $# module(s) would run"
     exit 0
+fi
+# The job count is passed through, never executed early: doing that would run the full suite and
+# drop the selection this script just computed.
+if [ -n "$jobs" ]; then
+    exec sh tests/run_offline.sh --jobs "$jobs" --modules "$@"
 fi
 exec sh tests/run_offline.sh --modules "$@"

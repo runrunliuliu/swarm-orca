@@ -278,7 +278,8 @@ class BlastRadiusTests(unittest.TestCase):
         for module in sorted(self.radius.available):
             if self.blast.Path(self.radius.tests[module]).stem[len("test_"):] in self.radius.sources:
                 continue
-            if self.radius.test_imports.get(module):
+            imported_sources = self.radius.test_imports.get(module, set()) & set(self.radius.sources)
+            if imported_sources:
                 continue
             unexplained.append(module)
         self.assertEqual(unexplained, [], "test modules reach no source and import none")

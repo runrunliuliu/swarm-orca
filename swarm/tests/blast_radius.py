@@ -53,6 +53,7 @@ UNTESTED: dict[str, str] = {}
 # pins the selector's behaviour.
 RUNNER_PATHS: dict[str, tuple[str, ...]] = {
     "run_offline.sh": ("*",),
+    "run_blast.sh": ("*",),
     "run_modules.py": ("*",),
     "blast_radius.py": ("core.test_offline_baseline",),
 }
@@ -82,6 +83,18 @@ def imported_modules(path: Path) -> set[str]:
     return found
 
 
+def source_files() -> dict[str, Path]:
+    """Top-level modules *and* packages: `swarm_ledger/` is a package whose tests import it."""
+    files = {path.stem: path for path in sorted(ROOT.glob("*.py"))
+             if path.name != "run_modules.py"}
+    for package in sorted(ROOT.glob("*/")):
+        if package.name in {"tests", "docs", "examples", "field-guide", "skills", "runit"}:
+            continue
+        if (package / "__init__.py").exists():
+            files[package.name] = package
+    return files
+
+
 def policy_matches(name: str, patterns: tuple[str, ...]) -> bool:
     for pattern in patterns:
         if pattern == "*" or pattern == name:
@@ -93,8 +106,7 @@ def policy_matches(name: str, patterns: tuple[str, ...]) -> bool:
 
 class Radius:
     def __init__(self) -> None:
-        self.sources = {path.stem: path for path in sorted(ROOT.glob("*.py"))
-                        if path.name != "run_modules.py"}
+        self.sources = source_files()
         self.tests: dict[str, Path] = {}
         for path in sorted(list(ROOT.glob("tests/test*.py")) + list(ROOT.glob("tests/*/test*.py"))):
             area = path.parent.name
@@ -102,8 +114,11 @@ class Radius:
         self.available = set(module_names())
         self.test_imports = {name: {imported.split(".")[-1] for imported in imported_modules(path)}
                              for name, path in self.tests.items()}
-        self.source_imports = {name: {imported.split(".")[-1] for imported in imported_modules(path)}
-                               for name, path in self.sources.items()}
+        # A package's own imports are its `__init__.py`: reading the directory is not a file.
+        self.source_imports = {
+            name: {imported.split(".")[-1] for imported in
+                   imported_modules(path if path.is_file() else path / "__init__.py")}
+            for name, path in self.sources.items()}
         self.same_basename: dict[str, str] = {}
         for test_name, path in self.tests.items():
             base = path.stem[len("test_"):]
@@ -179,6 +194,9 @@ def select(range_spec: str) -> tuple[dict[str, dict[str, str]], list[str], list[
                        if policy_matches(module, patterns)}
         elif str(path).startswith("swarm/") and path.suffix == ".py" and name in radius.sources:
             reasons = radius.tests_for_source(name)
+        elif str(path).startswith("swarm/") and path.suffix == ".py":
+            package = path.parent.name
+            reasons = radius.tests_for_source(package) if package in radius.sources else {}
         else:
             skipped.append(change)
             continue
