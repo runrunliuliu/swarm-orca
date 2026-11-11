@@ -163,6 +163,16 @@ class BootstrapEventsTests(unittest.TestCase):
         self.assertEqual(self.check(attempt_binding_sha256="0" * 64)["state"], "blocked_stale_or_mismatch")
         self.assertEqual(self.check(expect_attempt="different")["reason"], "attempt_mismatch")
 
+    def test_a_pi_coordinator_binding_is_accepted_and_an_unknown_agent_is_not(self):
+        # Why: the owner binds whichever provider this build can verify for a bootstrap
+        # role. A hardcoded Trae refused every Pi coordinator after its registration.
+        self.b["coordinator"]["agent"] = "pi"
+        self.bind()
+        self.assertNotEqual(self.check().get("reason"), "invalid_or_nonindependent_identity")
+        self.b["coordinator"]["agent"] = "unknown-tui"
+        self.bind()
+        self.assertEqual(self.check()["reason"], "invalid_or_nonindependent_identity")
+
     def test_expired_attempt_and_future_binding(self):
         self.assertEqual(self.check(clock=timestamp(self.b["deadline"]))["state"], "blocked_deadline_exceeded")
         self.assertEqual(self.check(clock=timestamp(self.b["created_at"]) - timedelta(seconds=1))["reason"],

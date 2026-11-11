@@ -88,9 +88,15 @@ def binding(reader, root, sha, attempt):
     path(value["workspace"]["path"], directory=True)
     shape(value["coordinator"], {"terminal", "incarnation", "process_incarnation", "pane_key", "agent"})
     shape(value["operator"], {"terminal", "incarnation", "provider", "session"})
+    # Why: the coordinator's provider is declared evidence, not a constant. The owner
+    # binds the pane for whichever provider this build can verify for a bootstrap role;
+    # hardcoding Trae refused every Pi coordinator after its registration was accepted.
+    from provider_capability import BOOTSTRAP_ROLE, declared
+    coordinator_capability = declared(value["coordinator"]["agent"])
     require(all(text(v) for v in value["coordinator"].values())
             and all(text(v) for v in value["operator"].values())
-            and value["coordinator"]["agent"] == "trae"
+            and coordinator_capability is not None
+            and not coordinator_capability.missing(BOOTSTRAP_ROLE)
             and value["coordinator"]["terminal"] != value["operator"]["terminal"],
             "invalid_or_nonindependent_identity")
     require(value["coordinator"]["process_incarnation"].rsplit(":", 1)[-1]
