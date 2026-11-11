@@ -482,6 +482,16 @@ class RoleTool(BootstrapMachine, ActionReader):
         require(recorded == regenerated, "bootstrap_template_drift")
         candidate = Path(submission["candidate_path"])
         publish_new(candidate, regenerated)
+        try:
+            # Validate before the caller sees a Ref: a rejected candidate must not be left on disk
+            # for the next attempt to trip over (the submit path would also fail, but later, and
+            # with the tool's bytes already published).
+            self.validate_candidate(intent_ref, pinned(file_ref(candidate)))
+        except BaseException:
+            try:
+                candidate.unlink()
+            finally:
+                raise
         return file_ref(candidate)
 
     def submit(self, intent_ref, source_ref=None, from_template=False):
@@ -667,6 +677,18 @@ def connect(owner_ref):
     return control, AuthorityClient(control, owner_ref)
 
 
+def candidate_ref(args):
+    """The caller-supplied candidate Ref, or None when the tool materializes the bytes.
+
+    Why a helper: every submit used to build `{path: args.input, sha256: args.input_sha256}`
+    unconditionally, which turned `--from-template` (no `--input`) into `{path: None}` and made
+    the documented command unusable while the direct tool call still passed its test.
+    """
+    if args.from_template:
+        return None
+    return dict(path=args.input, sha256=args.input_sha256)
+
+
 def cli_main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("provision", "serve", "arm", "stop", "query", "heartbeat", "reconcile", "pull", "produce", "submit", "readiness", "complete", "advance", "inspect-action", "build", "plan"))
@@ -722,9 +744,14 @@ def cli_main(argv=None):
                     # exits; only externally observed exit permits reconciliation.
                     raise
             return 0
+        if getattr(args, "from_template", False) and args.mode != "submit":
+            # Why refuse instead of ignoring: a flag that is accepted and dropped reads as "the
+            # tool will do it for me" on stages where materializing a candidate is exactly what
+            # must not happen (review/readiness carry a human decision).
+            raise ValueError("bootstrap_from_template_requires_submit")
         owner_ref = dict(path=args.owner, sha256=args.owner_sha256)
         control, authority = connect(owner_ref)
-        ref = dict(path=args.input, sha256=args.input_sha256)
+        ref = candidate_ref(args)
         if args.mode == "query":
             result = asdict(authority.query(control, ref))
         elif args.mode == "heartbeat":

@@ -134,6 +134,25 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(parse(pinned(result["result"])),
                              action["payload"]["candidate_template"])
 
+    def test_candidate_ref_is_none_when_the_tool_materializes_the_bytes(self):
+        # Why this exists: the direct tool call passes source_ref=None, so a CLI that fabricated
+        # {path: None, sha256: None} kept the unit test green while the documented command could
+        # never work. The argv contract is pinned here instead of through a live runtime.
+        from argparse import Namespace
+        from bootstrap_tool import candidate_ref
+        self.assertIsNone(candidate_ref(Namespace(from_template=True, input=None, input_sha256=None)))
+        self.assertEqual(candidate_ref(Namespace(from_template=False, input="/c.json", input_sha256="ab")),
+                         {"path": "/c.json", "sha256": "ab"})
+
+    def test_from_template_is_refused_outside_submit_before_any_connection(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = cli_main(["readiness", "--owner", "/nonexistent", "--owner-sha256", "00" * 32,
+                             "--actor", "operator", "--intent", "/nonexistent",
+                             "--intent-sha256", "00" * 32, "--from-template", "--execute"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("bootstrap_from_template_requires_submit", output.getvalue())
+
     def test_from_template_refuses_a_review_stage(self):
         # Why: a review candidate carries decision/notes/reviewed_at. Materializing it would put
         # the tool's bytes where a reviewer's judgement belongs.
