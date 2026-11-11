@@ -162,9 +162,6 @@ def _ref_of(value):
     return None
 
 
-NON_EXECUTION_RECORD_SUFFIX = ".not-admitted"
-
-
 class SubmissionInFlight(ValueError):
     """A submission record is durable and its outputs are not.
 
@@ -187,18 +184,7 @@ def non_execution(exc):
     return isinstance(exc, ObservationBusy) or getattr(exc, "commit_state", None) == "not_admitted"
 
 
-def release_not_executed(execution):
-    """Free the production slot after a proved non-execution, keeping the record.
-
-    The execute marker means "a production was started and its outcome is unknown".
-    A refused-before-dispatch commit is not that, and leaving the marker behind
-    wedges the slot forever: every later produce answers
-    `bootstrap_production_outcome_requires_reconciliation`. The attempt is kept as
-    a renamed record, so the evidence still shows what was tried.
-    """
-    record = str(execution) + NON_EXECUTION_RECORD_SUFFIX
-    os.replace(str(execution), record)
-    return record
+NOT_EXECUTED_SUFFIX = ".not-admitted"
 
 
 class RoleTool(BootstrapMachine, ActionReader):
@@ -268,6 +254,43 @@ class RoleTool(BootstrapMachine, ActionReader):
             subject_refs=request["subject_refs"], evidence_refs=request["evidence_refs"], operator=request["operator"],
             decision=None, notes=None, reviewed_at=None, identity_verified=False, execution_authorized=False)
 
+    def not_executed_proof(self, execution):
+        """The local proof that the last result commit was refused before dispatch.
+
+        It pins the admitted marker it belongs to, so a stale or foreign file can
+        never authorize reusing a different marker.
+        """
+        path = str(execution) + NOT_EXECUTED_SUFFIX
+        if not os.path.lexists(path):
+            return None
+        try:
+            return parse(Path(path).read_bytes())
+        except ValueError:
+            return None
+
+    def record_not_executed(self, execution):
+        """Keep the admitted marker and record *why* a retry may reuse it.
+
+        Renaming the marker away (the previous release path) left the owner's
+        attempt record pointing at a file that no longer existed, so the next
+        production could never publish the marker again.
+        """
+        value = dict(schema_version=1, kind="strict_bootstrap_not_executed",
+                     marker=file_ref(execution), at=now(), execution_authorized=False)
+        target = str(execution) + NOT_EXECUTED_SUFFIX
+        temporary = target + ".tmp"
+        with open(temporary, "wb") as handle:
+            handle.write(canonical(value) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+
+    def clear_not_executed(self, execution):
+        try:
+            os.unlink(str(execution) + NOT_EXECUTED_SUFFIX)
+        except FileNotFoundError:
+            pass
+
     def produce(self, intent_ref):
         """Mechanical caller/observation only. Never fields or model approval."""
         from trae_coordinator import native
@@ -283,10 +306,29 @@ class RoleTool(BootstrapMachine, ActionReader):
         target = "caller_receipt" if name == "caller-intent" else "session_observation"
         require(self.slot(target) is None, "bootstrap_result_already_committed")
         execution = str(self.root / "control" / ("caller-execute.json" if name == "caller-intent" else "observe-execute.json"))
-        require(self.slot(execution) is None, "bootstrap_production_outcome_requires_reconciliation")
-        self.emit(execution, dict(kind="strict_bootstrap_production_intent", intent=intent_ref,
-                                 actor=self.actor, started_at=now(), execution_authorized=False),
-                  self.actor, [intent_ref])
+        # The marker says "this production started", which stays true when the
+        # result commit is refused, so a retry reuses the admitted marker instead of
+        # publishing it again (the owner refuses forever) or renaming it away (which
+        # only hid the owner's own record of it — attempt21).
+        marker = self.slot(execution)
+        if marker is None:
+            self.emit(execution, dict(kind="strict_bootstrap_production_intent", intent=intent_ref,
+                                     actor=self.actor, started_at=now(), execution_authorized=False),
+                      self.actor, [intent_ref])
+        else:
+            recorded = parse(pinned(marker))
+            require(recorded.get("kind") == "strict_bootstrap_production_intent"
+                    and recorded.get("intent") == intent_ref and recorded.get("actor") == self.actor,
+                    "bootstrap_production_outcome_requires_reconciliation")
+            # Reuse is allowed only for a *proved* non-execution of the previous
+            # attempt. An unknown outcome (native timeout, lost reply) must still
+            # refuse: nothing here may replay a production that may have happened.
+            proof = self.not_executed_proof(execution)
+            require(proof is not None and proof.get("kind") == "strict_bootstrap_not_executed"
+                    and proof.get("schema_version") == 1
+                    and proof.get("execution_authorized") is False
+                    and proof.get("marker") == marker,
+                    "bootstrap_production_outcome_requires_reconciliation")
         if name == "caller-intent":
             require(os.environ.get("ORCA_TERMINAL_HANDLE") == self.b["coordinator"]["terminal"],
                     "bootstrap_original_coordinator_context_required")
@@ -312,14 +354,17 @@ class RoleTool(BootstrapMachine, ActionReader):
             try:
                 value = observer(**options)
             except ObservationBusy:
-                release_not_executed(execution)
+                self.record_not_executed(execution)
                 raise
         try:
-            return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
-        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            result = self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
+        except Exception as exc:  # noqa: BLE001 - classified, recorded, then re-raised
             if non_execution(exc):
-                release_not_executed(execution)
+                self.record_not_executed(execution)
             raise
+        # The production is complete; a later stage must not inherit the proof.
+        self.clear_not_executed(execution)
+        return result
 
     def step(self):
         state = self.local_check()
