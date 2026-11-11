@@ -256,5 +256,87 @@ class ParallelGateTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
 
 
+class TargetedSelectionTests(unittest.TestCase):
+    """`--modules` runs exactly what it names, and never claims more than that.
+
+    Why the negative cases matter more than the positive one: a bare positional module name
+    used to be forwarded to unittest, which then ran the whole suite *and* loaded the named
+    module inside every worker (`tests` + 101 x 3 assertions, all green). A silent widening
+    that reports `OK` is worse than a refusal, so each refusal is pinned here.
+    """
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests" / "run_offline.sh"
+    helper = root / "tests" / "run_modules.py"
+
+    def run_runner(self, *args, timeout=300):
+        return subprocess.run(["sh", str(self.script), *args], cwd=self.root,
+                              capture_output=True, text=True, timeout=timeout)
+
+    def test_modules_runs_only_the_named_module(self):
+        proc = self.run_runner("--modules", "core.test_log_io")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("selection: 1/", proc.stdout)
+        self.assertIn("(explicit)", proc.stdout)
+        self.assertIn("modules: 1/1", proc.stdout)
+        self.assertIn("TARGETED OK", proc.stdout)
+
+    def test_a_targeted_run_never_says_pass_or_ok_alone(self):
+        # Why: `offline PASS` and a bare `OK` are the full-suite words. A targeted run has to be
+        # impossible to quote as one, so it may not contain "PASS" at all.
+        proc = self.run_runner("--modules", "core.test_log_io")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        combined = proc.stdout + proc.stderr
+        self.assertNotIn("PASS", combined)
+        self.assertNotRegex(combined, r"(?m)^OK$")
+
+    def test_an_unknown_module_exits_two_and_names_itself(self):
+        proc = self.run_runner("--modules", "core.no_such_module")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("unknown module: core.no_such_module", proc.stderr)
+        self.assertIn("valid names", proc.stderr)
+        self.assertNotIn("modules:", proc.stdout)
+
+    def test_a_bare_dotted_positional_is_refused_before_any_module_starts(self):
+        # Why: this is the shape that silently ran the whole suite and reported OK.
+        proc = self.run_runner("core.test_log_io")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("use --modules", proc.stderr)
+        self.assertNotIn("modules:", proc.stdout)
+        self.assertNotIn("tests:", proc.stdout)
+
+    def test_a_bare_test_file_positional_is_refused_too(self):
+        proc = self.run_runner("test_log_io.py")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("use --modules", proc.stderr)
+
+    def test_an_unknown_runner_option_is_refused_instead_of_forwarded(self):
+        proc = self.run_runner("--nope")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("unknown runner option: --nope", proc.stderr)
+
+    def test_one_named_module_gets_one_worker(self):
+        # Why: the default is 4, but asking for four workers to run one module is the case the
+        # `--jobs exceeds` refusal exists for; the explicit form must take min(4, k) instead.
+        proc = self.run_runner("--modules", "core.test_log_io")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("jobs: 1", proc.stdout)
+
+    def test_an_explicit_job_count_above_the_selection_is_still_refused(self):
+        # Why: min(4, k) is a default, not a licence to flatten what the caller spelled out.
+        proc = self.run_runner("--modules", "core.test_log_io", "--jobs", "4")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("exceeds", proc.stderr)
+
+    def test_the_helper_refuses_a_module_name_after_the_separator(self):
+        # Why: the second gate. Fixing only the shell runner leaves
+        # `run_modules.py --jobs 4 -- core.test_log_io` fanning the module out to every worker.
+        proc = subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", "2", "--",
+                               "core.test_log_io"], cwd=self.root, input="core.test_log_io\n",
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("belong on stdin", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,11 +5,17 @@
 # private RSI checkout (RSI_CHECKER_TEST_ROOT). Both change what "offline PASS" means,
 # so this runner clears them instead of inheriting them. It reads no other config.
 #
-# Usage: tests/run_offline.sh [--fast | --list] [--jobs N] [extra unittest options]
+# Usage: tests/run_offline.sh [--fast | --list] [--jobs N] [--modules a.b c.d] [extra unittest options]
 #
 #   (default)  every discovered module. Optional: a change is verified by the modules its
 #           blast radius names, and only a run that actually executed every module may be
 #           reported as an "offline PASS".
+#   --modules a.b c.d  run exactly these modules (dotted names as printed by `--list`).
+#           The summary then says `selection: k/N modules (explicit)` and the status word is
+#           `TARGETED OK`, never `PASS`: a targeted run does not describe the whole suite.
+#           Unknown names exit 2; a bare positional module name is refused instead of being
+#           forwarded to unittest (that silently ran the whole suite), and `--jobs` defaults
+#           to `min(4, k)` so one named module does not ask for four workers.
 #   --fast  every module except the wall-time dominators named in SLOW below. Iteration
 #           feedback for the area you are changing; never a gate claim.
 #   --list  print the modules the current mode would run, then exit 0.
@@ -89,6 +95,17 @@ while [ $# -gt 0 ]; do
             jobs=$2
             jobs_given=1
             shift 2 ;;
+        --modules)
+            shift
+            # Consume the module list that follows: every token up to the next option.
+            [ $# -gt 0 ] || { echo "run_offline.sh: --modules needs at least one module name" >&2; exit 2; }
+            while [ $# -gt 0 ]; do
+                case $1 in
+                    -*) break ;;
+                esac
+                explicit_modules="${explicit_modules:+$explicit_modules }$1"
+                shift
+            done ;;
         *) break ;;
     esac
 done
@@ -108,6 +125,30 @@ if [ "$mode" = fast ]; then
         esac
     done
 fi
+
+# A positional module name used to be forwarded to unittest, which then ran the whole suite (and
+# repeated the named module inside every worker). Refuse it here, where the exit status is the
+# runner's own, instead of reporting a suite the caller never asked for.
+# Each option's own argument is skipped, so `-p test_capacity_io.py` stays the documented
+# iteration form instead of being read as a positional module name.
+option_argument_pending=0
+for arg in "$@"; do
+    if [ "$option_argument_pending" = 1 ]; then
+        option_argument_pending=0
+        continue
+    fi
+    case $arg in
+        -p|-s|-t|--pattern|--start-directory|--top-level-directory) option_argument_pending=1 ;;
+        -p*|-s*|-t*|--pattern=*|--start-directory=*|--top-level-directory=*|\
+        -v|-vv|-vvv|--verbose|-q|--quiet|-f|--failfast|-b|--buffer|-c|--catch) ;;
+        -*) echo "run_offline.sh: unknown runner option: $arg" >&2
+            exit 2 ;;
+        *.*|*.py|*/*) echo "run_offline.sh: positional module names were removed; use --modules a.b c.d" >&2
+            exit 2 ;;
+        *) echo "run_offline.sh: unexpected positional argument: $arg" >&2
+            exit 2 ;;
+    esac
+done
 
 if [ "$jobs" -gt 1 ] && [ "$list_only" != 1 ]; then
     for arg in "$@"; do
@@ -144,25 +185,75 @@ modules() {
     done
 }
 
+# The selection is either the explicit `--modules` list or what `modules()` prints. Both go
+# through one printer so `--list` and a real run cannot drift apart.
+selected() {
+    if [ -n "${explicit_modules:-}" ]; then
+        for module in $explicit_modules; do printf '%s\n' "$module"; done
+    else
+        modules
+    fi
+}
+
+if [ -n "${explicit_modules:-}" ]; then
+    if [ "$mode" = fast ]; then
+        echo "run_offline.sh: --modules names exact modules and cannot be combined with --fast" >&2
+        exit 2
+    fi
+    # One space-separated haystack with sentinels, so a module name can only match a whole token
+    # (`test_log_io` must not match `core.test_log_io_x`).
+    known=" $(modules | tr '\n' ' ') "
+    known_count=$(printf '%s' "$known" | wc -w | tr -d ' ')
+    for module in $explicit_modules; do
+        case "$known" in
+            *" $module "*) ;;
+            *)
+                printf 'run_offline.sh: unknown module: %s; --list prints the %s valid names\n' \
+                    "$module" "$known_count" >&2
+                exit 2 ;;
+        esac
+    done
+    # A discovery option selects tests, not modules; combining it with an explicit module list
+    # would report a coverage neither of them describes.
+    for arg in "$@"; do
+        case $arg in
+            -p|-p*|--pattern|--pattern=*|-s|-s*|--start-directory|--start-directory=*)
+                echo "run_offline.sh: --modules selects modules and cannot be combined with $arg" >&2
+                exit 2 ;;
+        esac
+    done
+    explicit_count=$(printf '%s\n' $explicit_modules | wc -l | tr -d ' ')
+    if [ "$jobs_given" = 0 ]; then
+        # `min(4, k)`: asking for four workers to run one module only starts workers that never
+        # receive work, which the `--jobs` check below would refuse.
+        jobs=4
+        [ "$explicit_count" -lt 4 ] && jobs=$explicit_count
+    fi
+fi
+
 if [ "$list_only" = 1 ]; then
-    modules
+    selected
     exit 0
 fi
 
-if [ "$jobs" -gt 1 ]; then
+if [ -n "${explicit_modules:-}" ] || [ "$jobs" -gt 1 ]; then
     # A job count above the selected module count only starts workers that never receive work.
     # That cannot help, so it is refused here instead of being flattened silently: the caller
     # asked for something the runner would not do.
-    selected=$(modules | wc -l | tr -d ' ')
-    if [ "$jobs" -gt "$selected" ]; then
-        echo "run_offline.sh: --jobs $jobs exceeds the $selected selected modules; use --jobs 1" >&2
+    selected_count=$(selected | wc -l | tr -d ' ')
+    if [ "$jobs" -gt "$selected_count" ]; then
+        echo "run_offline.sh: --jobs $jobs exceeds the $selected_count selected modules; use --jobs 1" >&2
         exit 2
     fi
-    # Why the list goes over stdin: selection stays in `modules()`, so a parallel gate cannot
+    # Why the list goes over stdin: selection stays in `selected()`, so a parallel gate cannot
     # drift from what `--list` prints. tests/run_modules.py only executes and aggregates.
+    # The two variables below let the helper report a targeted run as targeted; without them the
+    # runner's own summary would have to duplicate the selection and could drift.
     exec env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
+        RUN_OFFLINE_SELECTION="${explicit_modules:+explicit}" \
+        RUN_OFFLINE_TOTAL="$(modules | wc -l | tr -d ' ')" \
         PYTHONPATH=.:tests python3 -B tests/run_modules.py --jobs "$jobs" -- "$@" <<EOF
-$(modules)
+$(selected)
 EOF
 fi
 if [ "$mode" = fast ]; then
