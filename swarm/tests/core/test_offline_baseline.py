@@ -426,6 +426,14 @@ class TargetedSelectionTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 2, proc.stdout)
         self.assertIn("exceeds", proc.stderr)
 
+    def test_the_helper_accepts_an_option_value_after_the_separator(self):
+        # Why: `-k pattern` is a documented unittest option, and its value is not a module name.
+        # Rejecting it would turn a filtered run into an exit 2 after the shell layer allowed it.
+        completed = subprocess.run(
+            [sys.executable, "-B", str(self.helper), "--jobs", "2", "--", "-k", "test_log"],
+            cwd=self.root, input="core.test_log_io\n", capture_output=True, text=True, timeout=120)
+        self.assertNotIn("belong on stdin", completed.stderr)
+
     def test_the_helper_refuses_a_module_name_after_the_separator(self):
         # Why: the second gate. Fixing only the shell runner leaves
         # `run_modules.py --jobs 4 -- core.test_log_io` fanning the module out to every worker.

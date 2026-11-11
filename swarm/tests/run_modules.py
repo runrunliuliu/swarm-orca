@@ -21,6 +21,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# unittest options whose value is a separate token. Anything here may appear after `--` without
+# being mistaken for a module name by the stray-argument gate below.
+VALUE_OPTIONS = {
+    "-k", "-p", "-s", "-t", "--pattern", "--start-directory", "--top-level-directory",
+    "--durations",
+}
+
 
 def count_tests(output):
     """Return the test count a unittest run reported, or None when it is unknown."""
@@ -52,7 +59,19 @@ def main():
     # Why refuse here as well as in the shell runner: a caller that skips the runner and passes a
     # module name after `--` made every worker run that module too (unittest takes the extra argv
     # as more modules to load), which inflates the test count while every module still reports ok.
-    stray = [token for token in extra if not token.startswith("-")]
+    # A token that is the *value* of an option (`-k pattern`) is not a module name, so the scan
+    # walks the argv instead of testing each token on its own.
+    stray = []
+    pending_value = False
+    for token in extra:
+        if pending_value:
+            pending_value = False
+            continue
+        if token in VALUE_OPTIONS:
+            pending_value = True
+            continue
+        if not token.startswith("-"):
+            stray.append(token)
     if stray:
         parser.error(
             "module names belong on stdin, not after --: " + " ".join(stray)
