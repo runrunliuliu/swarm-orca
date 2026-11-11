@@ -22,6 +22,8 @@ TARGET = ROOT / "operator-runbook.md"
 
 # Which protocol section each stage is governed by. Kept here (not in the protocol) because it is
 # navigation, and navigation is what this file is for.
+NON_EXECUTING_MODES = {"inspect-action", "query", "heartbeat", "plan"}
+
 STAGE_SECTIONS = {
     "caller-intent": "§2 固定路径、S0 与公共类型",
     "observe-intent": "§2 固定路径、S0 与公共类型",
@@ -78,10 +80,17 @@ def render() -> str:
                     for token in argv]
         if rendered[0] == sys.executable or rendered[0].endswith("/python3"):
             rendered[0] = "python3"
+        # `command()` only carries --execute for `complete` (the receipt field), but the CLI refuses
+        # pull/produce/submit/readiness without it (`bootstrap_explicit_execute_required`), so the
+        # page shows the invocation, not the receipt fragment.
+        if mode not in NON_EXECUTING_MODES:
+            rendered.append("--execute")
         lines.append(" ".join(shlex.quote(token) if " " in token else token for token in rendered))
     lines += ["", "# submit 还需候选：--input <candidate.json> --input-sha256 <sha>，",
               "# 或（仅 fields-intent）--from-template。complete 不接受 --input：",
-              "# 它从 contract.outputs 的 candidate_path 本地取 pin。", "```", ""]
+              "# 它从 contract.outputs 的 candidate_path 本地取 pin。",
+              "# 除 inspect-action 外都带 --execute：CLI 拒绝缺它的调用",
+              "# （bootstrap_explicit_execute_required）。", "```", ""]
     lines += [
         "## 不要这样做",
         "",

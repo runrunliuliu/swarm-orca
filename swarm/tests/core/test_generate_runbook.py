@@ -85,6 +85,16 @@ class RunbookTests(unittest.TestCase):
             if line.startswith("python3 "):
                 self.assertNotIn("bootstrap_tool.py", line)
 
+    def test_every_executing_sample_carries_execute(self):
+        # Why: the CLI refuses pull/produce/submit/readiness without --execute
+        # (bootstrap_explicit_execute_required), and `command()` only sets it for `complete`.
+        # A sample without it would be copied and rejected.
+        text = (ROOT / "operator-runbook.md").read_text()
+        for line in text.splitlines():
+            if line.startswith("python3 ") and "inspect-action" not in line:
+                self.assertTrue(line.rstrip().endswith("--execute"), line)
+        self.assertIn("bootstrap_explicit_execute_required", text)
+
     def test_the_runbook_carries_no_absolute_path_from_this_checkout(self):
         # Why: `command()` embeds this machine's paths; a committed runbook must stay portable or
         # its own --check fails on the next checkout.

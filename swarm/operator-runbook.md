@@ -29,16 +29,18 @@
 `inspect_argv` 同源；**直接使用回执给的 argv**，不要照本页手拼。
 
 ```bash
-python3 -B <swarm>/coordinator_launch.py strict-bootstrap pull --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
-python3 -B <swarm>/coordinator_launch.py strict-bootstrap produce --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
-python3 -B <swarm>/coordinator_launch.py strict-bootstrap submit --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
-python3 -B <swarm>/coordinator_launch.py strict-bootstrap readiness --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
-python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap pull --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap produce --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap submit --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap readiness --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute
+python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256> --execute --execute
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 
 # submit 还需候选：--input <candidate.json> --input-sha256 <sha>，
 # 或（仅 fields-intent）--from-template。complete 不接受 --input：
 # 它从 contract.outputs 的 candidate_path 本地取 pin。
+# 除 inspect-action 外都带 --execute：CLI 拒绝缺它的调用
+# （bootstrap_explicit_execute_required）。
 ```
 
 ## 不要这样做
