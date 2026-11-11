@@ -238,13 +238,16 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None, helpe
     from coordinator_strict_delivery import layout
     delivery = layout(plan["artifact_dirs"]["archive"])
     phase = "strict-tui-bootstrap" if tui else "strict-bootstrap"
+    if helper_root is not None:
+        # Only a pinned root enters the plan; the default shape stays untouched.
+        plan = dict(plan, helper_root=str(root))
     plan = dict(plan, phase=phase, strict_coordinator=True,
                 registered_bootstrap=bool(registered_bootstrap),
                 reviewed_inputs=reviewed_inputs,
                 reviewed_input_snapshot_count=None if prepared is None else prepared["snapshot_count"],
                 reviewed_input_baseline_count=None if prepared is None else prepared["baseline_count"],
                 startup_delivery=delivery,
-                prompt_fragment=phase_contract(phase) + provider_verification_text(agent) +
+                prompt_fragment=phase_contract(phase, root) + provider_verification_text(agent) +
                 plan["runtime_config"] + ". Canonical cwd/write roots: " +
                 json.dumps([plan["cwd"], *plan["task_write_roots"]]) + ".")
     plan["prompt_fragment"] += (
