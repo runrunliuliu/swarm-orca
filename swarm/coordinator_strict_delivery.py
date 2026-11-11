@@ -189,10 +189,32 @@ def prepared(ref, config_ref, preparation_ref):
     return expected, contract, initial, receipt
 
 
+def activation_path(expected):
+    """The lifecycle activation this request's own strict-start directory implies."""
+    return Path(expected["directory"]).parent / "lifecycle" / "activation.json"
+
+
+def require_lifecycle_prepared(activation):
+    """A registered attempt may not publish a start config without its lifecycle.
+
+    Historical (unregistered) attempts keep their exact behaviour: the guard only
+    binds when an S5 guard is active for this call.
+    """
+    from bootstrap_s5 import current
+    require(current.get() is None or activation.exists(), "strict_lifecycle_required")
+
+
 @protect("deliver", "operator")
 def deliver(ref, config_ref, preparation_ref, review_ref=None):
     """Operator explicitly publishes reviewed pins; never executes their content."""
-    _, _, target, _ = request(ref)
+    expected, _, target, _ = request(ref)
+    # Fail before the review work, not after it. With a registered attempt owner the
+    # publication below is impossible until `operator_startup.py prepare` has written
+    # the lifecycle activation bound to this same base config, and attempt18 spent the
+    # tail of its turn completing preparation and review only to be refused here. The
+    # refusal and its authority are unchanged; only its position and cost are.
+    activation = activation_path(expected)
+    require_lifecycle_prepared(activation)
     expected, contract, _, _ = prepared(ref, config_ref, preparation_ref)
     check_actor_context(contract, "operator")
     publication = {"schema_version": 1, "kind": "strict_start_config_publication",
@@ -205,9 +227,6 @@ def deliver(ref, config_ref, preparation_ref, review_ref=None):
         publication.update(schema_version=2, review=review_ref)
     else:
         require(review_ref is None, "strict_config_legacy_review_unsupported")
-    activation = Path(expected["directory"]).parent / "lifecycle" / "activation.json"
-    from bootstrap_s5 import current
-    require(current.get() is None or activation.exists(), "strict_lifecycle_required")
     if activation.exists():
         active_ref = file_ref(activation)
         active, _, _, _ = load(active_ref)

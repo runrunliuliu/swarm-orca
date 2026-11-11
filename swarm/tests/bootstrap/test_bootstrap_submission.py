@@ -156,12 +156,6 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(pinned(final_ref), pinned(ref))
 
     def test_a_busy_between_record_and_output_is_loud_not_pending(self):
-        """attempt19: the record was durable, the output was not, and pull said pending.
-
-        `ObservationBusy` proves nothing was dispatched only until the submission
-        record is admitted. After that the same code means "half committed": pull
-        must not report a retryable stage whose record guard can never re-admit it.
-        """
         from bootstrap_actions import completion_slot
         from bootstrap_tool import SubmissionInFlight
         from observation_budget import ObservationBusy
@@ -186,6 +180,41 @@ class SubmissionTests(unittest.TestCase):
             # the output is absent on disk.
             self.assertTrue(Path(completion_slot(f.root, "fields-intent")).exists())
             self.assertFalse(Path(action["result_path"]).exists())
+
+    def test_the_output_phase_never_asks_the_owner_again(self):
+        """attempt19's actual mechanism: the output recheck lost the owner to the other role.
+
+        The record admission already obtained every confirmation the output phase
+        needs, so the phase must replay the pinned chain locally instead of taking
+        the single-executor owner a second time. A busy there is not a retryable
+        non-execution: the record is durable and the action can never be re-admitted.
+        """
+        import bootstrap_driver
+        from bootstrap_actions import completion_slot
+        from observation_budget import ObservationBusy
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            record = Path(completion_slot(f.root, "fields-intent"))
+            original = bootstrap_driver.chain_confirmations
+            calls = []
+
+            def owner_is_taken_after_the_record(*args, **kwargs):
+                calls.append(record.exists())
+                if record.exists():
+                    raise ObservationBusy()
+                return original(*args, **kwargs)
+
+            with patch.object(bootstrap_driver, "chain_confirmations",
+                              side_effect=owner_is_taken_after_the_record):
+                result = tool.submit(action["intent"], file_ref(candidate))
+            self.assertEqual(result["result"]["path"], action["result_path"])
+            self.assertTrue(Path(action["result_path"]).exists())
+            self.assertIn(False, calls)  # the record admission still confirmed the chain
+            self.assertNotIn(True, calls)  # the output phase asked nobody
+            self.assertEqual(client.query(f.control, file_ref(Path(action["result_path"]))).status,
+                             "confirmed")
 
     def test_unpinned_or_mismatched_submission_contract_is_rejected(self):
         with submission_fixture() as (f, owner, client, _, tool, action):

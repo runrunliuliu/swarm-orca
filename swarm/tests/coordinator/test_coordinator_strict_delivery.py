@@ -213,6 +213,34 @@ class StrictDeliveryTests(unittest.TestCase):
                 wait_for_config(self.ref)
         self.assert_no_start()
 
+    def test_a_registered_attempt_is_refused_before_the_review_work(self):
+        """attempt18: preparation and review were spent, then the lifecycle was missing.
+
+        The lifecycle requirement is unchanged; it must decide before the operator
+        pays for preparation review, and the garbage refs below prove the ordering:
+        they would raise their own pin errors if they were read first.
+        """
+        from bootstrap_s5 import current
+
+        class Guard:
+            def verify_read(self, ref):
+                return None
+
+        token = current.set(Guard())
+        self.addCleanup(current.reset, token)
+        missing = {"path": str(self.bootstrap / "absent.json"), "sha256": "0" * 64}
+        with self.assertRaisesRegex(ValueError, "strict_lifecycle_required"):
+            deliver(self.ref, missing, missing)
+        self.assertFalse((self.bootstrap / "lifecycle").exists())
+
+    def test_a_historical_unregistered_attempt_keeps_its_old_path(self):
+        # No S5 guard is active, so the lifecycle stays optional exactly as before.
+        self.prepare()
+        with patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_operator"}):
+            result = deliver(self.ref, self.result["config"], self.result["preparation"])
+        self.assertTrue(result["ok"])
+        self.assertFalse((self.bootstrap / "lifecycle").exists())
+
     def test_publication_wrong_request_is_rejected(self):
         self.prepare()
         self.publication(request=dict(self.ref, sha256="0" * 64))

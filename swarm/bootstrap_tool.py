@@ -244,12 +244,13 @@ class RoleTool(BootstrapMachine, ActionReader):
                     inspect_argv=command(self.authority.owner_ref, self.actor, "inspect-action", intent),
                     execution_authorized=False)
 
-    def validate_action(self, intent_ref):
+    def validate_action(self, intent_ref, *, confirmations=True):
         value = self.action_intent(intent_ref)
         spec = ACTIONS[value["action"]]
         require(value["payload"].get("operation") == self.operation(value["action"]),
                 "bootstrap_action_contract_mismatch")
-        require(len(self.local_check()["validated_markers"]) == spec.markers, "bootstrap_action_stage_mismatch")
+        require(len(self.local_check(confirmations=confirmations)["validated_markers"]) == spec.markers,
+                "bootstrap_action_stage_mismatch")
         return value
 
     def template(self, stage, request_ref):
@@ -471,6 +472,14 @@ class RoleTool(BootstrapMachine, ActionReader):
             raise
         require(existing is None, "bootstrap_result_already_committed")
 
+    def submission_output_absent(self, target):
+        """Local form of the same guard, for a phase whose owner is already committed.
+
+        `publish_new` refuses an existing target anyway (`O_EXCL`), so this only
+        moves the answer from "unknown" (a failed write) to the same clean refusal.
+        """
+        require(not os.path.lexists(self.paths.get(target, target)), "bootstrap_result_already_committed")
+
     def submit(self, intent_ref, source_ref):
         self.local_check()
         intent = self.action_intent(intent_ref)
@@ -486,10 +495,13 @@ class RoleTool(BootstrapMachine, ActionReader):
         record = completion_slot(self.root, name)
         require(not os.path.lexists(record), "bootstrap_submission_requires_reconciliation")
 
-        def validate():
-            self.validate_candidate(intent_ref, raw)
+        def validate(*, confirmations=True):
+            self.validate_candidate(intent_ref, raw, confirmations=confirmations)
             self.candidate_bytes(source_ref, submission)
-            self.submission_output_empty(target)
+            if confirmations:
+                self.submission_output_empty(target)
+            else:
+                self.submission_output_absent(target)
 
         validate()
         expected = dict(path=self.paths[target], sha256=digest(raw))
@@ -498,24 +510,35 @@ class RoleTool(BootstrapMachine, ActionReader):
             execution_authorized=False), self.actor, [intent_ref], check=lambda _: validate())
 
         def recheck(_):
-            validate()
+            # Everything the owner already attested in the record admission is
+            # replayed from the pinned files here. Asking it again is what lost
+            # attempt19's output to the other role's poll: the record was durable,
+            # so that busy was no longer a retryable non-execution.
+            validate(confirmations=False)
 
         try:
-            self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck)
-        except ObservationBusy as exc:
-            raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
-        self.local_check()
-        return {"result": self.slot(target), "execution_authorized": False}
+            self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck, confirmations=False)
+        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            if non_execution(exc):
+                raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
+            if str(exc) == "bootstrap_confirmation_unavailable":
+                # The bytes are on disk and attempted on the owner; `reconcile`
+                # is the supported entry for exactly this shape.
+                raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
+            raise
+        self.local_check(confirmations=False)
+        return {"result": expected, "execution_authorized": False}
 
-    def validate_candidate(self, intent_ref, raw):
-        intent = self.validate_action(intent_ref)
+    def validate_candidate(self, intent_ref, raw, *, confirmations=True):
+        slot = self.slot if confirmations else self.pinned_slot
+        intent = self.validate_action(intent_ref, confirmations=confirmations)
         name = intent["action"]
         stage = name.removesuffix("-intent")
         request_key = "fields_production_request" if stage == "fields" else stage + "_review_request"
-        request_ref = self.slot(request_key)
+        request_ref = slot(request_key)
         require(request_ref is not None and intent["payload"].get("request") == request_ref
                 and intent["prerequisites"] == [request_ref], "bootstrap_action_request_mismatch")
-        upstream = self.slot(EVENTS[2] if stage == "readiness" else EVENTS[1])
+        upstream = slot(EVENTS[2] if stage == "readiness" else EVENTS[1])
         request = parse(pinned(request_ref))
         if stage == "fields":
             version(request, "strict_bootstrap_fields_production_request", {
@@ -524,26 +547,27 @@ class RoleTool(BootstrapMachine, ActionReader):
             require(request["request_id"] == self.b["attempt_id"] + ":fields"
                 and request["attempt_binding"] == self.control.attempt_binding and request["upstream"] == upstream
                 and request["operator"] == self.b["operator"] and request["fixed_inputs"] == self.b["fixed_inputs"]
-                and request["evidence_refs"] == [self.slot("caller_receipt"), self.slot("session_observation")]
+                and request["evidence_refs"] == [slot("caller_receipt"), slot("session_observation")]
                 and request["result_path"] == self.paths["contract_fields"] and request["deadline"] == self.b["deadline"]
                 and request["execution_authorized"] is False, "bootstrap_action_request_mismatch")
             require(timestamp(parse(pinned(upstream))["created_at"]) <= timestamp(request["created_at"])
                     <= timestamp(now()), "bootstrap_action_request_time_mismatch")
             source = dict(runtime=self.b["runtime"], workspace=self.b["workspace"], cli=self.b["fixed_inputs"]["cli"],
-                coordinator=parse(pinned(upstream))["coordinator"], caller_receipt=self.slot("caller_receipt"),
-                session_observation=self.slot("session_observation"))
+                coordinator=parse(pinned(upstream))["coordinator"], caller_receipt=slot("caller_receipt"),
+                session_observation=slot("session_observation"))
             contract_fields(self.b, source, parse(raw))
         else:
-            subject = self.slot("contract_fields" if stage == "contract" else "final_readiness")
-            evidence = ([self.slot("caller_receipt"), self.slot("session_observation"), self.b["fixed_inputs"]["skill_read_evidence"]]
+            subject = slot("contract_fields" if stage == "contract" else "final_readiness")
+            evidence = ([slot("caller_receipt"), slot("session_observation"), self.b["fixed_inputs"]["skill_read_evidence"]]
                 if stage == "contract" else [self.b["fixed_inputs"]["skill_read_evidence"],
-                                            *[self.slot(p) for p in self.b["file_tool_evidence_paths"]]])
+                                            *[slot(p) for p in self.b["file_tool_evidence_paths"]]])
             earliest = parse(pinned(upstream if stage == "contract" else subject))["created_at"]
             reader = CandidateReader(self.paths[ACTIONS[name].target], raw)
             review(reader, self.b, self.control.attempt_binding, stage, upstream, [subject], evidence,
                    timestamp(earliest), timestamp(now()), require_approval=False)
             reader.recheck()
-            chain_confirmations(self.authority, self.control, self.b, reader)
+            if confirmations:
+                chain_confirmations(self.authority, self.control, self.b, reader)
 
     def submit_readiness(self, intent_ref, probe_refs):
         require(self.actor == "coordinator", "bootstrap_original_role_required")
@@ -559,15 +583,20 @@ class RoleTool(BootstrapMachine, ActionReader):
         self.submission_output_empty("final_readiness")
         require(not os.path.lexists(record), "bootstrap_submission_requires_reconciliation")
 
-        def validate():
-            self.validate_action(intent_ref)
-            require(intent["prerequisites"] == [self.slot(EVENTS[2])]
-                    and intent["payload"].get("fields") == self.slot("contract_fields")
+        def validate(*, confirmations=True):
+            slot = self.slot if confirmations else self.pinned_slot
+            self.validate_action(intent_ref, confirmations=confirmations)
+            require(intent["prerequisites"] == [slot(EVENTS[2])]
+                    and intent["payload"].get("fields") == slot("contract_fields")
                     and intent["payload"].get("probes") == self.b["file_tool_evidence_paths"],
                     "bootstrap_action_request_mismatch")
             for ref, output in zip(probe_refs, contract["outputs"]):
                 self.candidate_bytes(ref, output)
-            self.submission_output_empty("final_readiness")
+            # Identical guard, two attestations: before the record the owner must
+            # prove it never wrote these slots; afterwards the record itself is
+            # that proof and a local existence check keeps the write honest.
+            (self.submission_output_empty if confirmations
+             else self.submission_output_absent)("final_readiness")
 
         validate()
         for output in outputs:
@@ -586,11 +615,16 @@ class RoleTool(BootstrapMachine, ActionReader):
             execution_authorized=False), self.actor, [intent_ref], check=before_admission)
         try:
             for output, raw in zip(outputs, values):
-                self.emit(output["path"], raw, self.actor, [intent_ref, admitted], check=lambda _: validate())
+                self.emit(output["path"], raw, self.actor, [intent_ref, admitted],
+                          check=lambda _: validate(confirmations=False), confirmations=False)
             return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs],
-                             check=lambda _: validate())
-        except ObservationBusy as exc:
-            raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
+                             check=lambda _: validate(confirmations=False), confirmations=False)
+        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            if non_execution(exc):
+                raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
+            if str(exc) == "bootstrap_confirmation_unavailable":
+                raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
+            raise
 
     def advance(self, *, until_stage=None, timeout=120, poll=30):
         """Run this role's own mechanical stages in one bounded call.

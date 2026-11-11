@@ -326,6 +326,12 @@ Pi 与 Trae 的差异必须在契约里显式承担，不假装等价：
 `coordinator_tui_continue.py` 会以 `tui_continuation_adapter_unsupported` 明确拒绝非 Trae TUI 的
 continuation 契约（此前只报笼统的 `tui_continuation_requires_gated_run`），不是 Run 缺失，也不是身份问题。
 
+同一类边界：`operator_session.py` 的 `observe()`（CLI 别名 `operator_prepare observe-coordinator`
+/ `observe-session`）是**遗留的 Trae-only 观察入口**，它的输入 schema 没有 provider 字段，且两侧的
+`runtime_config` 都是同一个 Ref 形状，所以它无法“按声明拒绝”而只能被声明为 Trae-only；pi 侧的对应
+入口是 `bootstrap_identity` / `operator_session.observe_identity`（先经 `provider_capability` 解析
+声明 provider，再决定读取器）。不要把 `observe()` 当成 pi 的替代入口。
+
 | 入口 | 缺失/未知声明 | 已知但证据不可读 |
 | --- | --- | --- |
 | `bootstrap_identity.py`（两个 gate role） | `bootstrap_registration_provider_required`；未知名 `bootstrap_registration_provider_unsupported` | `bootstrap_operator_provider_evidence_unavailable` / `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
