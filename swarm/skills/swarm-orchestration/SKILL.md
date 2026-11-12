@@ -142,6 +142,49 @@ values, and this repo chooses not to use them so an interrupt stays distinguisha
 `swarm/wait_for_events.py` implements exactly this contract (keepalive filtered, timeout as its own
 exit status, nothing else printed into the message stream) when a shell pipeline is awkward.
 
+#### Waiting for another pane: one turn boundary, and only with turn evidence
+
+The mailbox rule above is unchanged. A peer pane's *turn* is a different channel and has its own
+single-call form, not a `sleep` and a screen read:
+
+```bash
+# Save the submission receipt: this is the only proof that a turn started.
+orca terminal send --terminal <peer> --text "…" --enter --wait-submit 30 --json > send.json
+# Then wait once. Re-enter only after a 124.
+python3 swarm/wait_pane.py --terminal <peer> --turn-evidence send.json --idle-timeout 300
+```
+
+- One call, `--idle-timeout` at most 300 s (same policy as the mailbox window). Exit 0 means the
+  turn *this receipt started* reached its boundary — it is **not** "the work is done": verify the
+  products before acting. A wake is not a receipt.
+- `tui-idle` alone is never a completion signal: the pane is idle *before* it starts working. The
+  wait requires the `turn_started` stage of the same submission, bound to the same terminal
+  process incarnation. Without it `wait_pane.py` exits 4 `unverifiable` and does not fall back to
+  watching the screen; providers that answer `provider: "unsupported"` never produce
+  `turn_started`, so that handoff needs another channel or a human.
+- Exit 5 `interaction_required` means a trust/approval/update prompt is waiting: that is a human
+  decision, not a longer window.
+- Reading a peer's screen stays a diagnostic act, never a verdict: no `terminal read` loop, no
+  `sleep`, no "looks done". Racy observations are exactly what the receipt replaces.
+
+#### Waiting for a file to be published: inotify, with the deadline in charge
+
+```bash
+python3 swarm/wait_for_file.py --path <published.json> --timeout-ms 300000 --json
+python3 swarm/wait_for_file.py --path <log.jsonl> --mode change --timeout-ms 120000
+```
+
+An event may only shorten this wait; the deadline decides. Exit 0 = the path appeared, or
+`st_mtime_ns`+`st_size` moved; 124 = timeout; 4 = the parent is not reachable, answered
+immediately and never retried into a timeout; 2 = usage or transport. After 0, re-read the bytes
+with `file_ref` and the schema: a non-atomic writer is visible here before it is complete, and
+`--mode change` cannot see a rewrite that keeps both size and timestamp.
+
+These are the only two additions. `--for output-change` is not an option in this repo (PTY output
+is token-level noise, not a decision point), and none of the three channels covers a human
+decision, an external job, a gate or a local process exit. Design, invariants and what each
+channel does *not* prove: [pane handoff wait](../../docs/design/pane-handoff-wait.md).
+
 For TUI continuation read [the TUI contract](../../coordinator-tui.md),
 [lifecycle](../../operator-startup.md) and [monitor](../../operator-monitor.md).
 A non-Agent sender is not the Operator Agent. Preserve fixed execution mode and native-event

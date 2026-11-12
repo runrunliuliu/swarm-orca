@@ -385,3 +385,37 @@ NAS 新链实测、独立审查或 live 验收。
 重新进片。空返回或超时只允许「枚举 + 再等」，不授权 start/release/abandon/retry。
 完整规则与退出码语义见 [swarm-orchestration skill](skills/swarm-orchestration/SKILL.md) 的
 “Waiting: one blocking call, never a blind sleep”。
+
+### 等另一个 pane：一次回合边界，且必须先有回合证据
+
+上面的 mailbox 规则不变。对端 pane 的**回合**是另一条通道，它也有一次性形式，不是「sleep 一段时间再读屏幕」：
+
+```bash
+# 保存提交回执：这是「这一回合已经开始」的唯一证据。
+orca terminal send --terminal <peer> --text "…" --enter --wait-submit 30 --json > send.json
+# 然后只等一次；只有超时（124）才重新进片。
+python3 swarm/wait_pane.py --terminal <peer> --turn-evidence send.json --idle-timeout 300
+```
+
+- 单片 `--idle-timeout` ≤300 s（与 mailbox 同一策略）。返回 0 只表示**这次回执启动的那一回合**到达了边界，
+  不等于「活干完了」：仍要复核产物；唤醒不是回执。
+- `tui-idle` 本身永远不是完成判据：pane 在开始工作**之前**就是空闲的。等待必须绑定同一次提交的
+  `turn_started` 阶段与同一个 terminal 进程 incarnation；拿不到就退出 4 `unverifiable`，**不**回退去盯屏幕。
+  该 provider 回 `provider: "unsupported"` 时永远没有 `turn_started`，这类交接要换通道或转人工。
+- 退出 5 `interaction_required` 表示该 pane 卡在 trust/approval/update 提示上：那是人工决策，不是把窗口拉长。
+- 读对端屏幕只是诊断，不是判定：不写 `terminal read` 轮询、不 `sleep`、不用「看起来结束了」。
+
+### 等文件发布：inotify 提前唤醒，deadline 说了算
+
+```bash
+python3 swarm/wait_for_file.py --path <published.json> --timeout-ms 300000 --json
+python3 swarm/wait_for_file.py --path <log.jsonl> --mode change --timeout-ms 120000
+```
+
+事件只能缩短等待，deadline 决定结果。退出 0 = 路径已出现或 `st_mtime_ns`+`st_size` 已变；124 = 超时；
+4 = 父目录不可达（立即返回，不会退化成轮询到超时）；2 = 用法/传输失败。返回 0 后仍须用 `file_ref` 与 schema
+复核字节：非原子写入在写完前就可见，`--mode change` 也看不见「同尺寸同时间戳」的改写。
+
+以上两条是唯一新增的形态。本仓**不**采用 `--for output-change`（PTY 输出是 token 级噪声，不是决策点），
+三条通道也**都不**覆盖人工决策、外部长任务、gate 阶段门与本地进程退出。设计、不变量与各通道不证明什么，见
+[对端等待设计](docs/design/pane-handoff-wait.md)。

@@ -1,6 +1,6 @@
 # 对端等待（pane handoff / peer wait）：用原生阻塞取代 sleep 轮询（实施方案）
 
-状态：**草案；已过两位独立评审（两轮结论均为 approve-with-changes，见 §11）；未实现**。本文只给诊断、
+状态：**P1–P5 已实现并过离线回归（§7 第 1–4 条）；P6 与 live 对照（§7 第 5–6 条）未执行**。本文只给诊断、
 设计、实现包与验收判据，**不构成**部署、重启、启动 Agent、修改运行中 attempt/Run 或放宽任何 gate 的授权；
 也不授权在主检出落地。等待的授权语义仍以
 [strict 启动](../../coordinator-strict-start.md)、[Operator 启动](../../operator-startup.md) 与

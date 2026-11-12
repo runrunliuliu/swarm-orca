@@ -20,7 +20,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（118 个：协议文档点名的顶层定义与方法）
+## 符号索引（122 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -89,7 +89,9 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `exclusive` | `trae_exec_capture.py:27-28` | `def exclusive` / `class exclusive` |
 | `execute` | `coordinator_driver.py:777-791` | `def execute` / `class execute` |
 | `fence` | `coordinator_tui_continue.py:719-721` | `def fence` / `class fence` |
-| `fence` | `operator_monitor.py:129-143` | `def fence` / `class fence` |
+| `fence` | `operator_monitor.py:136-150` | `def fence` / `class fence` |
+| `file_ref` | `coordinator_io.py:237-238` | `def file_ref` / `class file_ref` |
+| `fingerprint` | `wait_for_file.py:55-66` | `def fingerprint` / `class fingerprint` |
 | `freshness` | `coordinator_tui_continue.py:40-64` | `def freshness` / `class freshness` |
 | `identity` | `coordinator_startup.py:55-70` | `def identity` / `class identity` |
 | `idle` | `publication_wait.py:118-127` | `def idle` / `class idle` |
@@ -103,7 +105,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `marker` | `bootstrap_driver.py:186-201` | `def marker` / `class marker` |
 | `materialize_template` | `bootstrap_tool.py:561-583` | `def materialize_template` / `class materialize_template` |
 | `mutation` | `coordinator_tui_workflow.py:44-64` | `def mutation` / `class mutation` |
-| `native` | `operator_monitor.py:106-121` | `def native` / `class native` |
+| `native` | `operator_monitor.py:107-128` | `def native` / `class native` |
 | `native` | `trae_coordinator.py:349-361` | `def native` / `class native` |
 | `native_plan` | `coordinator_strict.py:354-420` | `def native_plan` / `class native_plan` |
 | `observe` | `bootstrap_control.py:933-939` | `def observe` / `class observe` |
@@ -159,7 +161,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `read` | `pi_transcript.py:37-80` | `def read` / `class read` |
 | `read` | `trae_tui.py:31-32` | `def read` / `class read` |
 | `reader` | `tui_adapter.py:49-57` | `def reader` / `class reader` |
-| `receipt` | `operator_monitor.py:216-224` | `def receipt` / `class receipt` |
+| `receipt` | `operator_monitor.py:223-231` | `def receipt` / `class receipt` |
 | `recheck` | `bootstrap_events.py:71-73` | `def recheck` / `class recheck` |
 | `recheck` | `bootstrap_tool.py:91-93` | `def recheck` / `class recheck` |
 | `recheck` | `coordinator_snapshots.py:31-34` | `def recheck` / `class recheck` |
@@ -180,16 +182,18 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `reviewed` | `operator_prepare.py:62-132` | `def reviewed` / `class reviewed` |
 | `run` | `blocking_io.py:104-140` | `def run` / `class run` |
 | `run` | `bootstrap_driver.py:468-474` | `def run` / `class run` |
-| `run` | `operator_monitor.py:376-451` | `def run` / `class run` |
+| `run` | `operator_monitor.py:383-458` | `def run` / `class run` |
 | `run` | `operator_monitor_cross_runtime.py:70-72` | `def run` / `class run` |
 | `run` | `operator_monitor_deploy.py:171-228` | `def run` / `class run` |
 | `run` | `operator_startup.py:315-440` | `def run` / `class run` |
 | `run` | `trae_exec_capture.py:157-222` | `def run` / `class run` |
+| `run` | `wait_pane.py:182-183` | `def run` / `class run` |
 | `run_preflight` | `native_preflight.py:566-766` | `def run_preflight` / `class run_preflight` |
 | `runtime` | `operator_continuity_route.py:77-84` | `def runtime` / `class runtime` |
 | `scope` | `observation_budget.py:123-136` | `def scope` / `class scope` |
 | `scope` | `operator_continuity_route.py:57-74` | `def scope` / `class scope` |
 | `scope` | `startup_cli.py:20-31` | `def scope` / `class scope` |
+| `send` | `bootstrap_control.py:543-547` | `def send` / `class send` |
 | `session_id` | `pi_transcript.py:31-34` | `def session_id` / `class session_id` |
 | `settle` | `bootstrap_control.py:478-510` | `def settle` / `class settle` |
 | `sha` | `software_development.py:39-40` | `def sha` / `class sha` |
@@ -227,12 +231,14 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `timestamp` | `coordinator_io.py:241-244` | `def timestamp` / `class timestamp` |
 | `unavailable` | `operator_readiness.py:28-34` | `def unavailable` / `class unavailable` |
 | `unknown` | `bootstrap_s5.py:50-54` | `def unknown` / `class unknown` |
+| `update` | `trae_exec_capture.py:62-63` | `def update` / `class update` |
 | `validate_candidate` | `bootstrap_tool.py:657-695` | `def validate_candidate` / `class validate_candidate` |
 | `validate_request` | `coordinator_strict_delivery.py:53-122` | `def validate_request` / `class validate_request` |
 | `verify_prepared` | `coordinator_request_prepare.py:192-217` | `def verify_prepared` / `class verify_prepared` |
 | `verify_prepared` | `operator_prepare.py:247-291` | `def verify_prepared` / `class verify_prepared` |
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
 | `wait` | `publication_wait.py:66-99` | `def wait` / `class wait` |
+| `wait` | `wait_for_file.py:83-109` | `def wait` / `class wait` |
 
 ## 不要这样做
 
