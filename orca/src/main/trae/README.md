@@ -38,3 +38,9 @@ Tests cover 16 concurrent grants, local and SSH spawn routing, the opt-out,
 restores, broad-path refusal, config/workspace symlinks and file-lock contention.
 These tests do not establish a successful live Worker run; the change must be built
 and deployed before the running Orca service can use it.
+
+Trusting a pane a person opened by hand, in a folder that person named, is a
+deliberate product decision accepted by the repository owner when the
+orchestration-only gate was removed: the menu and this writer produce the same
+record, so the gate only decided who answered. The single control is the global
+`agentWorkspaceTrustEnabled` setting; there is no per-surface switch.
