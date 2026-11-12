@@ -24,6 +24,7 @@ import coordinator_tui_scheduler as scheduling
 from coordinator_tui_turn_end import turn_end
 from terminal_idle_wait import IdleWaitResult
 from coordinator_worker_profiles import PROFILES
+from publication_wait_fixture import polling_watch
 import operators.test_operator_startup as legacy
 
 
@@ -95,7 +96,8 @@ class HandoffCase(unittest.TestCase):
         with patch.dict(os.environ, ORCA_TERMINAL_HANDLE="term_test"), \
                 patch.object(strict, "native", side_effect=native), \
                 patch.object(strict_check, "native", side_effect=native), \
-                patch.object(strict, "time", wraps=time) as clock:
+                patch.object(strict, "time", wraps=time) as clock, \
+                patch("publication_wait.watch", polling_watch(sleep)):
             clock.sleep.side_effect = sleep
             result = strict.wait_and_create(self.plan["strict_start"])
         self.assertEqual(result["lifecycle"], self.ref)

@@ -15,6 +15,11 @@ unfalsifiable, so only these count:
   (b)  test imports it: a test module that imports `m` directly
   (b2) one hop back:    a `swarm/*.py` module importing `m`, then that module's (a)+(b)
   (c)  policy:          SHARED_MAP says the radius is wider than any import scan shows
+  (d)  test helper:     a changed file under `swarm/tests/` -> the test modules importing it
+
+(d) exists because a shared fixture is neither a source nor a test module: editing one selected
+nothing at all, and the command's only escape was a hand-widened run — the unrepeatable
+judgement this tool replaces. It is one hop, like (b), not the closure.
 
 The transitive closure is excluded on purpose: it is nearly the whole suite, which would turn
 every change into a full run — the behaviour this replaces.
@@ -153,6 +158,16 @@ class Radius:
                         reasons.setdefault(name, "c")
         return reasons
 
+    def tests_for_helper(self, path: Path) -> dict[str, str]:
+        """A changed helper under `tests/` selects the test modules that import it by name.
+
+        Why: `tests/offline_env.py` and the `*_fixture.py` files are neither source modules nor
+        test modules, so before this they mapped to nothing and the command failed closed. It is
+        one hop, because a helper's importers are the modules that can actually be affected.
+        """
+        return {test_name: "helper" for test_name, imports in self.test_imports.items()
+                if path.stem in imports}
+
     def tests_for_test(self, module: str) -> dict[str, str]:
         """A test change selects itself and the same-basename tests of what it imports.
 
@@ -192,6 +207,8 @@ def select(range_spec: str) -> tuple[dict[str, dict[str, str]], list[str], list[
             patterns = RUNNER_PATHS[path.name]
             reasons = {module: "runner" for module in radius.available
                        if policy_matches(module, patterns)}
+        elif str(path).startswith("swarm/tests/"):
+            reasons = radius.tests_for_helper(path)
         elif str(path).startswith("swarm/") and path.suffix == ".py" and name in radius.sources:
             reasons = radius.tests_for_source(name)
         elif str(path).startswith("swarm/") and path.suffix == ".py":

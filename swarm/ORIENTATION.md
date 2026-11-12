@@ -20,7 +20,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（113 个：协议文档点名的顶层定义与方法）
+## 符号索引（114 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -90,13 +90,14 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `execute` | `coordinator_driver.py:777-791` | `def execute` / `class execute` |
 | `freshness` | `coordinator_tui_continue.py:40-59` | `def freshness` / `class freshness` |
 | `identity` | `coordinator_startup.py:55-70` | `def identity` / `class identity` |
-| `idle` | `publication_wait.py:103-108` | `def idle` / `class idle` |
+| `idle` | `publication_wait.py:118-127` | `def idle` / `class idle` |
 | `intent` | `bootstrap_driver.py:131-145` | `def intent` / `class intent` |
 | `invocation` | `coordinator_prepare.py:26-48` | `def invocation` / `class invocation` |
 | `layout` | `bootstrap_protocol.py:32-33` | `def layout` / `class layout` |
-| `layout` | `coordinator_strict_delivery.py:28-33` | `def layout` / `class layout` |
-| `live` | `coordinator_strict_start.py:173-180` | `def live` / `class live` |
+| `layout` | `coordinator_strict_delivery.py:29-34` | `def layout` / `class layout` |
+| `live` | `coordinator_strict_start.py:174-181` | `def live` / `class live` |
 | `live` | `operator_sender_correct.py:40-55` | `def live` / `class live` |
+| `log` | `publication_wait.py:139-149` | `def log` / `class log` |
 | `marker` | `bootstrap_driver.py:147-162` | `def marker` / `class marker` |
 | `materialize_template` | `bootstrap_tool.py:463-485` | `def materialize_template` / `class materialize_template` |
 | `mutation` | `coordinator_tui_workflow.py:44-64` | `def mutation` / `class mutation` |
@@ -116,7 +117,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `original` | `operator_sender_correct.py:21-37` | `def original` / `class original` |
 | `path` | `coordinator_io.py:51-56` | `def path` / `class path` |
 | `peer` | `bootstrap_identity.py:77-82` | `def peer` / `class peer` |
-| `plan` | `coordinator_strict_start.py:183-251` | `def plan` / `class plan` |
+| `plan` | `coordinator_strict_start.py:184-252` | `def plan` / `class plan` |
 | `policy` | `startup_execution.py:34-51` | `def policy` / `class policy` |
 | `policy` | `tui_adapter.py:55-71` | `def policy` / `class policy` |
 | `prepare` | `coordinator_handoff.py:63-84` | `def prepare` / `class prepare` |
@@ -132,7 +133,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `prepare` | `operator_startup.py:114-150` | `def prepare` / `class prepare` |
 | `prepare_request` | `coordinator_request_prepare.py:104-113` | `def prepare_request` / `class prepare_request` |
 | `prepare_request` | `coordinator_strict_request.py:98-143` | `def prepare_request` / `class prepare_request` |
-| `prepared` | `coordinator_strict_delivery.py:138-189` | `def prepared` / `class prepared` |
+| `prepared` | `coordinator_strict_delivery.py:139-190` | `def prepared` / `class prepared` |
 | `process` | `bootstrap_identity.py:40-52` | `def process` / `class process` |
 | `prompt` | `coordinator_driver.py:441-532` | `def prompt` / `class prompt` |
 | `publication` | `bootstrap_s5.py:155-173` | `def publication` / `class publication` |
@@ -140,7 +141,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `publish` | `bootstrap_s5.py:150-153` | `def publish` / `class publish` |
 | `publish` | `coordinator_background.py:106-127` | `def publish` / `class publish` |
 | `publish` | `coordinator_snapshots.py:17-28` | `def publish` / `class publish` |
-| `publish` | `coordinator_strict_start.py:266-317` | `def publish` / `class publish` |
+| `publish` | `coordinator_strict_start.py:267-318` | `def publish` / `class publish` |
 | `publish` | `startup_handoff.py:52-65` | `def publish` / `class publish` |
 | `publish_new` | `coordinator_io.py:268-286` | `def publish_new` / `class publish_new` |
 | `query` | `bootstrap_control.py:283-299` | `def query` / `class query` |
@@ -160,7 +161,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `reconcile` | `bootstrap_control.py:365-384` | `def reconcile` / `class reconcile` |
 | `reconcile` | `bootstrap_protocol.py:116-117` | `def reconcile` / `class reconcile` |
 | `reconcile` | `operator_authority.py:168-180` | `def reconcile` / `class reconcile` |
-| `request` | `coordinator_strict_delivery.py:47-49` | `def request` / `class request` |
+| `request` | `coordinator_strict_delivery.py:48-50` | `def request` / `class request` |
 | `require_operator_context` | `coordinator_startup.py:158-162` | `def require_operator_context` / `class require_operator_context` |
 | `resolve` | `coordinator_worker_profiles.py:77-136` | `def resolve` / `class resolve` |
 | `resolve` | `startup_cli.py:43-57` | `def resolve` / `class resolve` |
@@ -222,11 +223,11 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `unavailable` | `operator_readiness.py:28-34` | `def unavailable` / `class unavailable` |
 | `unknown` | `bootstrap_s5.py:50-54` | `def unknown` / `class unknown` |
 | `validate_candidate` | `bootstrap_tool.py:543-579` | `def validate_candidate` / `class validate_candidate` |
-| `validate_request` | `coordinator_strict_delivery.py:52-121` | `def validate_request` / `class validate_request` |
+| `validate_request` | `coordinator_strict_delivery.py:53-122` | `def validate_request` / `class validate_request` |
 | `verify_prepared` | `coordinator_request_prepare.py:192-217` | `def verify_prepared` / `class verify_prepared` |
 | `verify_prepared` | `operator_prepare.py:247-291` | `def verify_prepared` / `class verify_prepared` |
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
-| `wait` | `publication_wait.py:51-84` | `def wait` / `class wait` |
+| `wait` | `publication_wait.py:66-99` | `def wait` / `class wait` |
 
 ## 不要这样做
 

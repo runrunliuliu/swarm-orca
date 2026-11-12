@@ -76,8 +76,9 @@ Run the narrowest command that covers the change. **A full-suite run is not requ
 while iterating and not before delivery. The blast radius is now a command, not a judgement call:
 `tests/run_blast.sh --range <rev>` maps a diff to modules and runs them. Its rules are fixed in
 `tests/blast_radius.py` (same basename, tests that import the module, one hop of source
-importers, plus the explicit `SHARED_MAP` policy) so two people cannot get two answers; it is not
-the transitive closure and not "grep for the name". An empty selection exits 2 — "nothing was
+importers, a changed helper under `tests/` mapped to the test modules importing it, plus the
+explicit `SHARED_MAP` policy) so two people cannot get two answers; it is not the transitive
+closure and not "grep for the name". An empty selection exits 2 — "nothing was
 selected" is never reported as a pass. What it cannot see (dynamic imports, subprocess argv,
 fixture-only coupling) is stated in `run_blast.sh --help`; widen by hand or run the full suite
 when that is the honest option. Run `tests/core/test_offline_baseline.py` whenever you edit the runner,

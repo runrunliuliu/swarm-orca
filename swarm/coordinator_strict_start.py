@@ -18,6 +18,7 @@ import uuid
 
 from coordinator_io import file_ref, now, parse, path, pinned, publish_new, timestamp
 from coordinator_creation_time import creation_bounds, next_creation_second
+import publication_wait
 import tui_adapter
 from coordinator_startup import GateError, require_operator_context, run_gate, validate
 from coordinator_strict import StrictCheckError, caller_result, check_session, require
@@ -335,17 +336,28 @@ def wait_and_create(ref):
         "ready_at": now()})
     ready_ref = file_ref(directory / "ready.json")
     bundle_path = directory / "gate-ready.json"
-    while True:
-        checkpoint()
-        require(time.monotonic() < stop and timestamp(now()) < timestamp(config["deadline"]),
-                "strict_start_wait_expired")
-        # Only ENOENT means wait. Invalid/failed publications and permission errors stop.
-        try:
-            bundle_ref = file_ref(bundle_path)
-        except FileNotFoundError:
-            time.sleep(min(0.25, max(0, stop - time.monotonic())))
-            continue
-        break
+    # Watch once, not per iteration: an event may only *shorten* this wait, so the deadline and
+    # the `file_ref` re-check below still decide. `watch()` returning None (inotify unavailable)
+    # keeps the pre-change 250 ms polling cadence, so that host behaves exactly as before. The
+    # fallback period for a lost event is the real worst-case delivery latency, so it is logged.
+    watcher = publication_wait.watch(bundle_path)
+    try:
+        while True:
+            checkpoint()
+            require(time.monotonic() < stop and timestamp(now()) < timestamp(config["deadline"]),
+                    "strict_start_wait_expired")
+            # Only ENOENT means wait. Invalid/failed publications and permission errors stop.
+            try:
+                bundle_ref = file_ref(bundle_path)
+            except FileNotFoundError:
+                publication_wait.idle(
+                    watcher, min(publication_wait.FALLBACK_SECONDS, max(0.0, stop - time.monotonic())))
+                continue
+            break
+    finally:
+        publication_wait.log("start_gate", watcher)
+        if watcher is not None:
+            watcher.close()
     bundle = parse(pinned(bundle_ref))
     require(bundle.get("schema_version") == 1 and bundle.get("kind") == "strict_start_gate_publication"
             and bundle.get("ok") is True

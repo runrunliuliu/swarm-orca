@@ -8,6 +8,8 @@ an event can only cut the wait short. These assertions pin that, including the d
 inotify cannot be opened at all.
 """
 
+import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -15,6 +17,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stderr
 from unittest.mock import patch
 
 import publication_wait
@@ -65,6 +68,17 @@ class PublicationWaitTests(unittest.TestCase):
         self.assertFalse(publication_wait.idle(None, 0.1))
         self.assertGreaterEqual(time.monotonic() - started, 0.09)
 
+    def test_without_inotify_the_wait_keeps_the_pre_change_poll_period(self):
+        # Why: "no inotify here" must not become a slower deployment. Nothing can shorten that
+        # wait, so it spends the 250 ms the two strict waits spent before this change - not the
+        # 1.5 s fallback that exists for a lost event where watches do work.
+        self.assertEqual(publication_wait.POLL_SECONDS, 0.25)
+        started = time.monotonic()
+        self.assertFalse(publication_wait.idle(None, 5.0))
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.2)
+        self.assertLess(elapsed, 0.9)
+
     def test_the_watcher_reports_counters_a_deployment_can_read(self):
         # Why: "is inotify working here?" must be answerable from logs. events=0 with timeouts>0
         # after a successful wait means the fallback period is the real delivery latency.
@@ -77,6 +91,38 @@ class PublicationWaitTests(unittest.TestCase):
             self.assertGreater(watcher.events, 0)
         finally:
             watcher.close()
+
+    def test_the_fallback_period_stays_the_documented_worst_case(self):
+        # Why: the fallback period *is* the worst-case delivery latency, so it may not drift back
+        # down to the 250 ms poll this replaces (that would delete the saving) nor up to a period
+        # a startup window cannot absorb. The startup log prints it; this pins the range.
+        self.assertGreaterEqual(publication_wait.FALLBACK_SECONDS, 1.0)
+        self.assertLessEqual(publication_wait.FALLBACK_SECONDS, 2.0)
+
+    def test_the_log_line_states_the_fallback_period_and_the_counters(self):
+        # Why: the deployment machine has to read the fallback period and whether events arrive
+        # from the startup log alone; a diagnostics line that omits either is not observable.
+        watcher = publication_wait.watch(self.dir / "gate-ready.json")
+        try:
+            publication_wait.idle(watcher, 0.05)
+            out = io.StringIO()
+            with redirect_stderr(out):
+                publication_wait.log("gate", watcher)
+        finally:
+            watcher.close()
+        row = json.loads(out.getvalue().strip())
+        self.assertEqual(row, {"event": "publication_wait", "kind": "gate", "inotify": True,
+                               "events": 0, "timeouts": 1,
+                               "fallback_seconds": publication_wait.FALLBACK_SECONDS})
+
+    def test_the_log_line_never_claims_inotify_when_it_is_unavailable(self):
+        # The period in the log is the one actually in force: the pre-change poll, not the fallback.
+        out = io.StringIO()
+        with redirect_stderr(out):
+            publication_wait.log("gate", None)
+        row = json.loads(out.getvalue().strip())
+        self.assertEqual((row["inotify"], row["events"], row["timeouts"]), (False, 0, 0))
+        self.assertEqual(row["fallback_seconds"], publication_wait.POLL_SECONDS)
 
 if __name__ == "__main__":
     unittest.main()

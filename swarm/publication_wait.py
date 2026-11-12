@@ -8,20 +8,35 @@ unmeasured and, on Linux NFSv4.1 with `acdirmax=30s`, an event may never arrive 
 So the contract here is: **inotify may only shorten a wait, never define it**. The caller keeps its
 deadline and its `lstat`; `idle()` blocks at most `fallback` seconds and always returns, whether an
 event arrived or not. If inotify cannot be opened at all, `watch()` returns None and `idle(None, s)`
-is plain `time.sleep(s)` - a deployment where events never arrive therefore degrades to exactly
-today's behaviour instead of hanging.
+is the plain sleep the two waits used before this change, at the same period - a deployment where
+inotify is unavailable therefore degrades to exactly today's behaviour instead of hanging or
+slowing down.
 
 `stats` exists so a deployment can observe which path it is on: a high `timeouts` count next to a
 low `events` count means inotify is not delivering there, and the fallback period is the real
-delivery latency.
+delivery latency. `log` writes that line, so "is inotify working on this mount?" is answered by the
+startup log instead of by a later slowdown.
 """
 
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import select
+import sys
 import time
+
+# The period the two strict waits spent per probe before this change. A host where inotify cannot
+# be opened keeps exactly that cadence: the degraded path has to be today's behaviour, not the
+# fallback that exists for a lost event on a host where events normally arrive.
+POLL_SECONDS = 0.25
+
+# The worst-case delivery latency once a watch exists: a wait always returns within this period
+# even when no event arrives, so this number, not the event, bounds detection. It is logged for
+# that reason and is kept at 1-2 s on purpose - a smaller value re-creates the 250 ms poll this
+# primitive replaces for every wait, hiding whether events work at all.
+FALLBACK_SECONDS = 1.5
 
 IN_CREATE = 0x00000100
 IN_CLOSE_WRITE = 0x00000008
@@ -101,8 +116,34 @@ def watch(target) -> Watcher | None:
 
 
 def idle(watcher: Watcher | None, seconds: float) -> bool:
-    """Wait up to `seconds` for a publication; False means "re-check by polling"."""
+    """Wait up to `seconds` for a publication; False means "re-check by polling".
+
+    With no watcher nothing can shorten the wait, so it spends the pre-change poll period rather
+    than the larger fallback: that path must be the old loop, not a slower one.
+    """
     if watcher is None:
-        time.sleep(max(0.0, seconds))
+        time.sleep(max(0.0, min(seconds, POLL_SECONDS)))
         return False
     return watcher.wait(seconds)
+
+
+def stats(watcher: Watcher | None) -> dict:
+    """The counters a deployment reads back; `inotify` False means the old polling cadence."""
+    if watcher is None:
+        return {"inotify": False, "events": 0, "timeouts": 0,
+                "fallback_seconds": POLL_SECONDS}
+    return {"inotify": True, "events": watcher.events, "timeouts": watcher.timeouts,
+            "fallback_seconds": FALLBACK_SECONDS}
+
+
+def log(kind: str, watcher: Watcher | None) -> None:
+    """One stderr line per startup wait: diagnostics, not a receipt (no paths, no payloads).
+
+    A closed or broken stderr raises `ValueError`/`OSError`; a diagnostic must never replace the
+    wait's own exception, so both are swallowed here.
+    """
+    row = {"event": "publication_wait", "kind": kind, **stats(watcher)}
+    try:
+        print(json.dumps(row, sort_keys=True), file=sys.stderr, flush=True)
+    except (OSError, ValueError):
+        pass
