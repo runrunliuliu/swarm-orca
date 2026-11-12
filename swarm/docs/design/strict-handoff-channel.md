@@ -403,9 +403,10 @@ coordinator_launch.py strict-bootstrap-wait-stage \
 
 | 模块（新增） | 用例要点 |
 | --- | --- |
-| `tests/bootstrap/test_bootstrap_stage_wait.py` | stage→路径只经 `layout()`（改 `PATHS` 即红）；stage 已过 → 立即 0 且 `already_satisfied: true`、`validated_count >= N`、不花窗口（**无退出 3**）；缺 stage → deadline 124（用 `tests/publication_wait_fixture.py` 的 `PollingWatcher` 控制时间，不用 sleep）；父目录缺失 → 4 且立即返回；路径在但解析不过 → 5 且只读一次；`marker_sequence_gap` 透传；binding sha/attempt 不符 → 既有码且退出 2；0 时输出的 **evidence Ref** 与磁盘字节 sha 一致，且调用方少带它时下游工具必须拒绝；全程不连 owner（夹具断言没有 socket 调用） |
+| `tests/bootstrap/test_bootstrap_stage_wait.py` | stage→路径只经 `layout()`（改 `PATHS` 即红）；stage 已过 → 立即 0 且 `already_satisfied: true`、`validated_count >= N`、不花窗口（**无退出 3**）；缺 stage → deadline 124（用 `tests/publication_wait_fixture.py` 的 `PollingWatcher` 控制时间，不用 sleep）；attempt 目录 / binding 缺失 → 4 且立即返回（**`events/` 父目录缺失是等待，不是 4**：第一个 marker 之前它本来还不存在，判 4 会拒掉协议里第一次等待）；路径在但解析不过 → 5 且只读一次；`marker_sequence_gap` 透传；binding sha/attempt 不符 → 既有码且退出 2；0 时输出的 **evidence Ref** 与磁盘字节 sha 一致；**携带 evidence Ref 是调用方义务，当前没有下游消费者做强制**（规则约束，不是运行门禁）；全程不连 owner（夹具断言没有 socket 调用） |
 | `tests/bootstrap/test_bootstrap_handoff.py` | A/B 断言 2×2 矩阵（pin 对/错 × sender 对/错），只有「双对」才 accepted；同 `handoff_id` 五项全同 → duplicate（3）且不写第二份；**同 `handoff_id` 但 `payload_sha256`（或 `refs`）不同 → `handoff_duplicate_conflict`（5）且不覆盖、不消费**；`--peek` 出现在 CLI argv 且不消费（假 CLI 夹具）；写记录失败 → 未消费、消息仍可再取；`link` 后读回不同 → `handoff_record_conflict` 且不二次写；`created_at` 缺失 → 记 `unknown` 而不是 0；`from_handle == "unknown"` → `handoff_sender_unanchored` |
-| `tests/core/test_wait_for_events.py`（扩，或新增等价用例） | **provider 报 `unsupported` 时 R3 不成立**：`--wait-submit` 只回 `input_accepted`/`provider: "unsupported"` 时，策略/工具必须拒绝 steering 路径（只能 mailbox 或人工），不得回退成「看 `input_accepted` 当回执」；**老 runtime 触发 `peek_wait_unsupported` 时 fail-closed**（不退化成消费式等待，也不把已读掉的消息当已完成）；结构+耗时口径下「空批 rc 0」被判定为超时，而不是空批 |
+| `tests/bootstrap/test_bootstrap_handoff.py`（已落） | **老 runtime 触发 `peek_wait_unsupported` 时 fail-closed**（不退化成消费式等待，也不把已读掉的消息当已完成）；结构+耗时口径下「空批 rc 0」被判定为超时，而不是空批 |
+| 无测试（**规则约束**） | 「provider 报 `unsupported` 时 R3 不成立」只在三处入口文档里约束发送方：`--wait-submit` 只回 `input_accepted` 时不得当回合证据、不得据此用 steering 送 handoff。它没有运行侧门禁，也没有消费者可以强制；把它写成测试等于给一个不存在的校验发合格证 |
 | `tests/coordinator/test_coordinator_launch.py`（扩） | 新 verb 的 dispatch 与参数校验；既有 `strict-bootstrap` / `strict-bootstrap-state` 的 argv 面**逐字节不变**（回归） |
 
 文档一致性：三处入口文档出现新小节标题（与 README 注册行一起检查，避免「文档写了但没人读」）。
@@ -580,3 +581,20 @@ owner-blocking）。
    的“mode 漂移只拒绝不修复”不变，协议里也写明了这句。
 
 状态仍是**离线实现完成、live 未验收**。
+
+### v3.3（2026-11-12，验收表回填）
+
+§5.1 有 3 行与实现不符，本版只改这三行，不动代码与其它章节：
+
+1. **「父目录缺失 → 4」改成「attempt 目录 / binding 缺失 → 4」**。实现（与 §3.2.2 表）一直如此：`events/`
+   在第一个 marker 之前不存在，判 4 会拒掉协议里的第一次等待；测试
+   `test_unreachable_attempt_answers_four_immediately` / `test_missing_binding_file_is_unreachable_not_a_wait`
+   就是这两个判据。原文那句是实现之前的草稿，未随实现回写。
+2. **evidence Ref「下游少带必须拒绝」降为规则约束**：当前没有下游消费者能强制，写成验收项等于给不存在的
+   校验发合格证；改为「携带是调用方义务，无运行门禁」。
+3. **原 `tests/core/test_wait_for_events.py`（扩）一行拆分**：`peek_wait_unsupported` 与「空批 rc 0 判超时」
+   实际落在 `tests/bootstrap/test_bootstrap_handoff.py`；「provider unsupported 时 R3 不成立」只有文档规则，
+   没有测试也不应有测试。
+
+三处都是**把验收表对齐到已提交的实现**，没有放宽任何判据；离线结果（42/109 模块、1097 tests、
+TARGETED OK）不受影响，live 仍未验收。
