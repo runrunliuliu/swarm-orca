@@ -76,6 +76,34 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'wait'],
+    summary: 'Declare that a pane is expected to be quiet (suppresses stall judgement)',
+    usage:
+      'orca incident wait --terminal <handle> --reason <text> [--until <rfc3339>] [--actor <name>] [--json]\n' +
+      '       orca incident wait --terminal <handle> --clear [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'reason', 'until', 'clear', 'actor'],
+    examples: [
+      'orca incident wait --terminal term_abc --reason "long training run" --until 2026-11-13T20:00:00Z',
+      'orca incident wait --terminal term_abc --clear'
+    ],
+    notes: [
+      'The declaration binds to the pane epoch observed in the last sample, so a respawned pane never inherits it.',
+      '--until must be a future RFC3339 timestamp; without it the declaration lives until --clear.',
+      '--actor is self-reported and unverified (§19.1); it defaults to "unspecified".'
+    ]
+  },
+  {
+    path: ['incident', 'stalls'],
+    summary: 'Show the last stall sample per pane (read-only; never writes an incident)',
+    usage: 'orca incident stalls [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    examples: ['orca incident stalls', 'orca incident stalls --json'],
+    notes: [
+      'A pane is listed with its state, age, threshold, wait declaration and would-stall verdict.',
+      'Writing no_progress incidents is off by default and controlled by INCIDENT_STALL_WRITE=on in the host process; this command never writes.'
+    ]
+  },
+  {
     path: ['incident', 'prune'],
     destructive: true,
     summary: 'Delete old closed/invalid/duplicate incidents (dry run by default)',

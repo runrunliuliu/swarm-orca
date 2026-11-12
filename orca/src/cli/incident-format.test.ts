@@ -11,7 +11,8 @@ import {
   formatIncidentDecision,
   formatIncidentList,
   formatIncidentPrune,
-  formatIncidentShow
+  formatIncidentShow,
+  formatIncidentStalls
 } from './incident-format'
 
 const coverage = {
@@ -28,6 +29,16 @@ const coverage = {
     dropped: 0,
     lastDroppedReason: null,
     lastRun: null
+  },
+  stallSample: {
+    sampledAt: 1_700_000_000_000,
+    panes: 1,
+    wouldStall: 0,
+    stalled: 0,
+    declaredWaits: 0,
+    writeEnabled: false,
+    writes: 0,
+    lastWriteAt: null
   }
 }
 
@@ -222,6 +233,43 @@ describe('formatIncidentPrune', () => {
     const text = formatIncidentPrune(result)
     expect(text).toContain('deleted 2 of 2')
     expect(text).toContain('Decision rows were retained')
+  })
+})
+
+describe('formatIncidentStalls (M3-3)', () => {
+  it('prints one row per pane with age, threshold, verdict and declaration', () => {
+    const text = formatIncidentStalls(
+      [
+        {
+          paneKey: 'tab-1:leaf-1',
+          terminalHandle: 'term-1',
+          state: 'working',
+          ageMs: 46 * 60_000,
+          thresholdMs: 45 * 60_000,
+          wouldStall: true,
+          reason: 'stalled',
+          declaredWait: 'long build'
+        }
+      ],
+      coverage
+    )
+    expect(text).toContain('tab-1:leaf-1')
+    expect(text).toContain('46m')
+    expect(text).toContain('45m')
+    expect(text).toContain('stalled')
+    expect(text).toContain('long build')
+    expect(text).toContain('Stall sampler:')
+    expect(text).toContain('Writing incidents: off')
+    expect(text).toContain('this command never writes')
+  })
+
+  it('says so when no sample exists yet', () => {
+    const text = formatIncidentStalls([], {
+      ...coverage,
+      stallSample: { ...coverage.stallSample, sampledAt: null, panes: 0 }
+    })
+    expect(text).toContain('none yet')
+    expect(text).toContain('No panes sampled')
   })
 })
 

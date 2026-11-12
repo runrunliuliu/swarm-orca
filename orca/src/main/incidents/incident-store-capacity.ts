@@ -8,6 +8,7 @@ import type Database from '../sqlite/sync-database'
 import type { IncidentCoverage } from './incident-types'
 import type { IncidentStoreLimits } from './incident-store-contract'
 import { readShadowReplayCoverage } from './incident-shadow-coverage'
+import { readStallSampleCoverage } from './incident-stall-coverage'
 
 const META_TABLE = 'incident_store_meta'
 const CAPACITY_LATCH_KEY = 'capacity_limited'
@@ -76,7 +77,8 @@ export function createCapacityGate(options: {
         maxRows: limits.maxRows,
         maxBytes: limits.maxBytes
       },
-      shadowReplay: readShadowReplayCoverage(db)
+      shadowReplay: readShadowReplayCoverage(db),
+      stallSample: readStallSampleCoverage(db)
     }
   }
 

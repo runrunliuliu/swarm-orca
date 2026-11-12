@@ -52,6 +52,7 @@ import { createWslCliReconciliationStartupBarrier } from './wsl-cli-reconciliati
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { reportProfileStateWriteFailure } from './profile-state-write-failure'
 import { scheduleIncidentShadowReconcile } from '../incidents/incidents-startup'
+import { startStallSampler } from '../incidents/incidents-stall-sampler'
 
 export async function initializeReadyFoundation(): Promise<void> {
   logStartupMilestone('app-ready')
@@ -73,6 +74,10 @@ export async function initializeReadyFoundation(): Promise<void> {
   // this is the first point that holds the canonical user-data path. It defers one turn and reports
   // its own failures; nothing below waits on it (§14 allows exactly one M2 mount point).
   scheduleIncidentShadowReconcile(canonicalUserDataPath)
+  // Why here too: M3-3's grayscale observation needs a cadence, and this is the one startup point
+  // that owns the user-data path. The interval is unref'd, does no work without a store, and is never
+  // on the PTY or status write path (see incidents-stall-sampler.ts for the alternatives rejected).
+  startStallSampler()
   installMainThreadHangWatchdog({ userDataPath: canonicalUserDataPath })
   state.hangDetection = consumeHangDetectionMarker(hangDetectionMarkerPath(canonicalUserDataPath))
   if (state.hangDetection) {

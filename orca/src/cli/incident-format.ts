@@ -12,6 +12,7 @@ import type {
   IncidentStatus,
   IncidentView
 } from '../main/incidents/incident-types'
+import { formatStallSampleNote } from '../main/incidents/incident-stall-coverage'
 import type {
   IncidentListResult,
   PruneResult
@@ -130,6 +131,7 @@ export function formatIncidentList(result: IncidentListResult): string {
   lines.push('')
   lines.push(formatIncidentCoverage(result.coverage))
   lines.push(formatShadowReplay(result.coverage))
+  lines.push(formatStallSampleNote(result.coverage.stallSample))
   if (result.coverage.shadowReplay.incomplete) {
     // Why spelled out: an empty list plus an unfinished replay is the one combination an operator
     // must not read as "no incidents".
@@ -216,6 +218,52 @@ export function formatIncidentShow(
     lines.push('')
     lines.push(formatIncidentCoverage(options.coverage))
   }
+  return lines.join('\n')
+}
+
+/** `orca incident stalls`: the grayscale view. Prints the last sample, never writes. */
+export function formatIncidentStalls(
+  rows: readonly {
+    paneKey: string
+    terminalHandle: string | null
+    state: string
+    ageMs: number
+    thresholdMs: number
+    wouldStall: boolean
+    reason: string
+    declaredWait: string | null
+  }[],
+  coverage: IncidentCoverage
+): string {
+  const minutes = (ms: number): string => `${Math.floor(ms / 60_000)}m`
+  const lines: string[] = []
+  const sampledAt = coverage.stallSample.sampledAt
+  lines.push(
+    sampledAt === null
+      ? 'Stall sample: none yet (the sampler records one per minute while the runtime is up).'
+      : `Stall sample: ${new Date(sampledAt).toISOString()} (${coverage.stallSample.panes} pane(s))`
+  )
+  if (rows.length === 0) {
+    lines.push('No panes sampled.')
+  } else {
+    lines.push(
+      `${pad('PANE', 28)} ${pad('STATE', 9)} ${pad('AGE', 8)} ${pad('THRESHOLD', 10)} ` +
+        `${pad('WOULD', 6)} ${pad('REASON', 20)} DECLARED`
+    )
+    for (const row of rows) {
+      lines.push(
+        `${pad(row.paneKey, 28)} ${pad(row.state, 9)} ${pad(minutes(row.ageMs), 8)} ` +
+          `${pad(minutes(row.thresholdMs), 10)} ${pad(row.wouldStall ? 'yes' : 'no', 6)} ` +
+          `${pad(row.reason, 20)} ${row.declaredWait ?? '—'}`
+      )
+    }
+  }
+  lines.push('')
+  lines.push(formatStallSampleNote(coverage.stallSample))
+  lines.push(
+    `Writing incidents: ${coverage.stallSample.writeEnabled ? 'on' : 'off'} ` +
+      '(switch INCIDENT_STALL_WRITE=on; this command never writes).'
+  )
   return lines.join('\n')
 }
 

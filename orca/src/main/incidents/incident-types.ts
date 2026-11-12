@@ -190,6 +190,22 @@ export type IncidentCoverage = {
    * finish reading the hints", which must never be rendered as "nothing happened".
    */
   shadowReplay: IncidentShadowReplayCoverage
+  /**
+   * The stall sampler's last pass (M3-3). This is the grayscale surface: how many panes exist, how
+   * many *would* stall, how many are declared quiet, and whether the writer is even enabled.
+   */
+  stallSample: IncidentStallSampleCoverage
+}
+
+export type IncidentStallSampleCoverage = {
+  sampledAt: number | null
+  panes: number
+  wouldStall: number
+  stalled: number
+  declaredWaits: number
+  writeEnabled: boolean
+  writes: number
+  lastWriteAt: number | null
 }
 
 export function isIncidentClass(value: unknown): value is IncidentClass {

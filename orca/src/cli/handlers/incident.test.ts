@@ -16,6 +16,8 @@ import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../../main/in
 import { createIncidentStore, type IncidentStore } from '../../main/incidents/incident-store'
 import { incidentsDatabaseFileFor } from '../../main/incidents/incidents-paths'
 import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
+import { sampleStallState } from '../../main/incidents/incidents-stall-sampler'
+import { listActiveWaits } from '../../main/incidents/incident-wait'
 import type { PtyExitIncidentFacts } from '../../main/incidents/incident-pty-exit'
 import { INCIDENT_HANDLERS } from './incident'
 
@@ -248,6 +250,121 @@ describe('incident decide', () => {
     })
     const noReason = context('incident decide', { id, to: 'watch' })
     await expect(INCIDENT_HANDLERS['incident decide'](noReason.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+  })
+})
+
+describe('incident stalls (M3-3)', () => {
+  it('shows the last sample without writing anything', async () => {
+    const writable = store()
+    const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      sampleStallState({
+        db: opened.db,
+        store: writable,
+        now: 1_700_000_000_000,
+        rows: [
+          {
+            paneKey: 'tab-1:leaf-1',
+            terminalHandle: 'term-1',
+            state: 'working',
+            stateStartedAt: 1_700_000_000_000 - 46 * 60_000,
+            turnStartedAt: null,
+            observedAt: 1_700_000_000_000 - 1_000
+          }
+        ],
+        writeEnabled: false,
+        userDataPath: userData
+      })
+    } finally {
+      opened.db.close()
+    }
+
+    const shown = context('incident stalls')
+    await INCIDENT_HANDLERS['incident stalls'](shown.ctx)
+    const text = shown.output.join('\n')
+    expect(text).toContain('tab-1:leaf-1')
+    expect(text).toContain('working')
+    expect(text).toContain('insufficient_cycles')
+    expect(text).toContain('Writing incidents: off')
+    expect(store().countIncidents()).toBe(0)
+  })
+
+  it('reports an empty sample instead of failing when the store has none yet', async () => {
+    const shown = context('incident stalls')
+    await INCIDENT_HANDLERS['incident stalls'](shown.ctx)
+    expect(shown.output.join('\n')).toContain('No panes sampled')
+  })
+})
+
+describe('incident wait (M3-1)', () => {
+  function seedSample(): void {
+    const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      sampleStallState({
+        db: opened.db,
+        store: store(),
+        now: 1_700_000_000_000,
+        rows: [
+          {
+            paneKey: 'tab-1:leaf-1',
+            terminalHandle: 'term-1',
+            state: 'working',
+            stateStartedAt: 1_699_999_000_000,
+            turnStartedAt: null,
+            observedAt: 1_699_999_999_000
+          }
+        ],
+        writeEnabled: false,
+        userDataPath: userData
+      })
+    } finally {
+      opened.db.close()
+    }
+  }
+
+  it('declares a wait bound to the observed epoch, then clears it', async () => {
+    seedSample()
+    const declared = context('incident wait', {
+      terminal: 'term-1',
+      reason: 'long training run',
+      actor: 'alice'
+    })
+    await INCIDENT_HANDLERS['incident wait'](declared.ctx)
+    expect(declared.output.join('\n')).toContain('Declared wait for tab-1:leaf-1')
+    expect(declared.output.join('\n')).toContain('epoch 1699999000000')
+
+    const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      const active = listActiveWaits(opened.db, { now: Date.now() })
+      expect(active).toHaveLength(1)
+      expect(active[0]).toMatchObject({ epoch: '1699999000000', reason: 'long training run' })
+    } finally {
+      opened.db.close()
+    }
+
+    const cleared = context('incident wait', { terminal: 'tab-1:leaf-1', clear: true })
+    await INCIDENT_HANDLERS['incident wait'](cleared.ctx)
+    expect(cleared.output.join('\n')).toContain('Cleared 1 wait declaration')
+  })
+
+  it('refuses an unknown terminal, a missing reason, and a past deadline', async () => {
+    seedSample()
+    const unknown = context('incident wait', { terminal: 'nope', reason: 'r' })
+    await expect(INCIDENT_HANDLERS['incident wait'](unknown.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const noReason = context('incident wait', { terminal: 'term-1' })
+    await expect(INCIDENT_HANDLERS['incident wait'](noReason.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const past = context('incident wait', {
+      terminal: 'term-1',
+      reason: 'r',
+      until: '2001-01-01T00:00:00Z'
+    })
+    await expect(INCIDENT_HANDLERS['incident wait'](past.ctx)).rejects.toMatchObject({
       code: 'invalid_argument'
     })
   })

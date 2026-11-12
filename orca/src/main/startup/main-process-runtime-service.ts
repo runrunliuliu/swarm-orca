@@ -9,6 +9,10 @@ import { app } from 'electron'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { getLocalPtyProvider, getSshPtyProvider, clearProviderPtyState } from '../ipc/pty'
 import { agentHookServer } from '../agent-hooks/server'
+import {
+  configureStallSamplerSource,
+  stallRowsFromStatusSnapshot
+} from '../incidents/incidents-stall-sampler'
 import { browserManager } from '../browser/browser-manager'
 import { loadAgentSessionClaimSigner } from '../runtime/agent-session-claim-identity'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
@@ -163,6 +167,12 @@ export function initializeMainProcessRuntime(): OrcaRuntimeService {
   state.runtime = runtime
   agentHookServer.subscribeEnrichedStatus((enriched) =>
     recordObservedAgentStatusPaneIdentity(observedPaneIdentities, enriched.paneKey, runtime)
+  )
+  // Why here: this is the one place that already resolves the hook server's live status rows, and
+  // the sampler reads them on its own tick — a status update therefore costs it nothing extra
+  // (§7.2, M3-3). The adapter is pure and tested separately.
+  configureStallSamplerSource(() =>
+    stallRowsFromStatusSnapshot(agentHookServer.getStatusSnapshot())
   )
   // Why before anything can attach: a client host that reattaches to a restarted runtime is only
   // handed its pages back if the runtime found them first.

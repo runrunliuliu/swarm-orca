@@ -7,6 +7,7 @@
 // human triages.
 
 import { existsSync } from 'node:fs'
+import type Database from '../main/sqlite/sync-database'
 import { RuntimeClientError } from './runtime/types'
 import { getDefaultUserDataPath } from './runtime/metadata'
 import { openIncidentsDatabase } from '../main/incidents/incidents-database'
@@ -20,6 +21,8 @@ import { incidentsDatabaseFileFor } from '../main/incidents/incidents-paths'
 
 export type OpenedIncidentStore = {
   store: IncidentStore
+  /** The raw connection (null for the "no store yet" stub), for the M3 wait/sample tables. */
+  db: Database.Database | null
   path: string
   close: () => void
 }
@@ -52,6 +55,16 @@ function unavailableStore(): IncidentStore {
       dropped: 0,
       lastDroppedReason: null,
       lastRun: null
+    },
+    stallSample: {
+      sampledAt: null,
+      panes: 0,
+      wouldStall: 0,
+      stalled: 0,
+      declaredWaits: 0,
+      writeEnabled: false,
+      writes: 0,
+      lastWriteAt: null
     }
   }
   return {
@@ -95,7 +108,7 @@ export function openIncidentStore(options: {
       // Falls through to the writable open below, which makes the directory and migrates an empty
       // file. Only a write command may do this; `list` must leave the disk untouched (M1 C4).
     } else if (!options.requireExisting) {
-      return { store: unavailableStore(), path, close: () => undefined }
+      return { store: unavailableStore(), db: null, path, close: () => undefined }
     } else {
       throw new RuntimeClientError(
         'invalid_argument',
@@ -111,6 +124,7 @@ export function openIncidentStore(options: {
       fileSizeBytes: opened.fileSizeBytes,
       readOnly: opened.readOnly
     }),
+    db: opened.db,
     path,
     close: () => opened.db.close()
   }

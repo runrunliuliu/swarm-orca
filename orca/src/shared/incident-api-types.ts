@@ -38,6 +38,18 @@ export type IncidentShadowReplayDto = {
   lastRun: { lines: number; bytes: number; ms: number } | null
 }
 
+/** The stall sampler's last pass (M3-3). */
+export type IncidentStallSampleDto = {
+  sampledAt: number | null
+  panes: number
+  wouldStall: number
+  stalled: number
+  declaredWaits: number
+  writeEnabled: boolean
+  writes: number
+  lastWriteAt: number | null
+}
+
 /** §11.5: never collapse these two into one boolean again. */
 export type IncidentCoverageDto = {
   remoteIncidentCapture: 'unsupported'
@@ -52,6 +64,7 @@ export type IncidentCoverageDto = {
     maxBytes: number
   }
   shadowReplay: IncidentShadowReplayDto
+  stallSample: IncidentStallSampleDto
 }
 
 export type IncidentEvidencePointerDto = {
