@@ -121,6 +121,8 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
             "binding": before, "hook": after_hook, "caller_receipt": caller_receipt,
             "policy": policy_reader.settings(policy), "policy_ref": pi_policy,
             "observed_at": evidence["observed_at"],
+            # The turn a checkpoint belongs to; `observed_at` tracks settings.
+            "turn_at": evidence["turn_started_at"],
             "effective": {**observed, "cwd": evidence["cwd"]},
             "log_path": str(log), "log_device": evidence["file_identity"]["device"],
             "log_inode": evidence["file_identity"]["inode"],

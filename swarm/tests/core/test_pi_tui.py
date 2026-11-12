@@ -233,6 +233,10 @@ class PiTuiTests(PiTuiFixture):
         transcript = pi_transcript.read(self.log)
         self.assertEqual(transcript["settings_record_id"], "turn0001")
         self.assertGreater(timestamp(transcript["activity_at"]), timestamp(transcript["observed_at"]))
+        # The appended user message starts the current turn, so the turn anchor
+        # moves even though the accepted settings (and their freshness) do not.
+        self.assertEqual(timestamp(transcript["turn_started_at"]),
+                         timestamp(transcript["activity_at"]))
 
     def test_a_second_chain_start_cannot_carry_the_accepted_settings(self):
         self.write_log()

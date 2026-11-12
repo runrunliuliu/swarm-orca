@@ -52,7 +52,12 @@ def freshness(contract, evidence, deadline):
     # Reserve time for checkpoint/domain review + enqueue. This is scheduling
     # advice, not permission to finish an action after evidence expires.
     checkpoint_by = expires - timedelta(seconds=min(180, max_age / 2))
-    return {"context_observed_at": evidence["observed_at"], "context_age_seconds": age,
+    return {"context_observed_at": evidence["observed_at"],
+            # A turn-level anchor: an adapter whose `observed_at` moves per model
+            # step (pi) reports the turn start separately, so "is this the current
+            # turn?" never degenerates into "is this the newest step?".
+            "turn_observed_at": evidence.get("turn_at") or evidence["observed_at"],
+            "context_age_seconds": age,
             "context_expires_at": (observed + timedelta(seconds=max_age)).isoformat(),
             "valid_until": expires.isoformat(), "checkpoint_by": checkpoint_by.isoformat(),
             "checkpoint_due": current >= checkpoint_by,

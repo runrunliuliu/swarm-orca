@@ -57,8 +57,9 @@ def _turn_end(config_ref, *, prevalidated_scheduler_head=None, call=native):
         source = parse(pinned(record["domain_check"]["source"]))
         require(isinstance(source.get("observed_at"), str), "tui_checkpoint_turn_timestamp_required")
         if prevalidated_scheduler_head is None:
-            require(timestamp(checked["freshness"]["context_observed_at"])
-                    <= timestamp(source["observed_at"]) <= timestamp(now()),
+            turn_at = (checked["freshness"].get("turn_observed_at")
+                       or checked["freshness"]["context_observed_at"])
+            require(timestamp(turn_at) <= timestamp(source["observed_at"]) <= timestamp(now()),
                     "tui_checkpoint_not_from_current_turn")
         else:
             require(head == prevalidated_scheduler_head, "tui_checkpoint_superseded")
