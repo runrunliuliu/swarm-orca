@@ -11,7 +11,7 @@ import { getAgentDotState } from './worktree-card-agent-summary'
 import { getAgentRowPrimaryText } from '@/lib/agent-row-primary-text'
 import { formatAgentToolPreview } from '@/lib/agent-row-tool-preview'
 import { shortenTerminalActivityText } from '../../../../shared/terminal-activity-summary'
-import { agentNoUpdateLabel } from '@/lib/agent-row-decay-state'
+import { agentNoStatusEvidenceLabel, agentNoUpdateLabel } from '@/lib/agent-row-decay-state'
 import { useAgentRowConversationName } from '@/components/dashboard/use-agent-row-conversation-name'
 import { lastEnteredDoneAt } from '@/components/dashboard/agent-finished-timestamp'
 import CacheTimer, { usePromptCacheCountdownForPane } from './CacheTimer'
@@ -43,6 +43,11 @@ export function getCompactAgentSecondary(
   // from is how long the silence has run; the user supplies the meaning.
   if (agent.state === 'unverifiable') {
     return agentNoUpdateLabel(agent.entry, now)
+  }
+  // Why: this pane never reported at all — an elapsed gap would be a fabricated one. Say
+  // what is missing (a status) rather than guessing the agent's business.
+  if (agent.state === 'no-evidence') {
+    return agentNoStatusEvidenceLabel()
   }
   // Why: the lead turn is over in monitoring, so its last tool line is stale; name the state instead.
   if (agent.state === 'working' && agent.entry.workingMode === 'monitoring') {
@@ -234,7 +239,18 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
           <AgentStateDot
             state={dotState}
             size="sm"
-            title={sendTargetDisabledReason ? null : undefined}
+            // Why: the dot's default label describes a stale report ("No recent update"); a
+            // never-reporting pane needs the no-evidence wording instead.
+            title={
+              sendTargetDisabledReason
+                ? null
+                : agent.state === 'no-evidence'
+                  ? agentNoStatusEvidenceLabel()
+                  : undefined
+            }
+            // Why also the accessible name: the dashed glyph's state label describes a stale
+            // report, which is the wording this row exists to stop asserting.
+            ariaLabel={agent.state === 'no-evidence' ? agentNoStatusEvidenceLabel() : undefined}
             tooltipSide="right"
           />
           {!hideIcon && (

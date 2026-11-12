@@ -26,7 +26,14 @@ type WorktreeCardStatusSlotProps = {
   className?: string
 }
 
-const QUIET_REVIEW_REPLACEABLE_STATUSES = new Set<WorktreeStatus>(['active', 'done', 'inactive'])
+const QUIET_REVIEW_REPLACEABLE_STATUSES = new Set<WorktreeStatus>([
+  'active',
+  'done',
+  'inactive',
+  // Why: `no-evidence` is a quiet live status too — review/branch identity is the more
+  // actionable cue, and its tooltip stays reachable through the sr-only label.
+  'no-evidence'
+])
 // Why: a missing review display can also mean provider state is unavailable,
 // so the passive label names the identity cue without claiming no review exists.
 function getDefaultBranchIdentityLabel(): string {

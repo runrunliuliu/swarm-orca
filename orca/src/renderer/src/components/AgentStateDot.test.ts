@@ -142,6 +142,23 @@ describe('AgentStateDot', () => {
     expect(markup).toContain('aria-label="Done"')
   })
 
+  // Why this is separate from `title`: one glyph can stand for two facts (a stale report and a
+  // report that never arrived share the dashed ring), so the caller that knows which one it has
+  // must be able to name it to assistive tech — while a relative-time tooltip must NOT become
+  // the accessible name.
+  it('lets a caller name the shared glyph for assistive tech', () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(AgentStateDot, {
+        state: 'unverifiable',
+        title: 'No status reported',
+        ariaLabel: 'No status reported'
+      })
+    )
+
+    expect(markup).toContain('aria-label="No status reported"')
+    expect(markup).not.toContain('aria-label="No recent update"')
+  })
+
   it('lets a caller with an existing tooltip suppress the shared tooltip', () => {
     const markup = renderToStaticMarkup(
       React.createElement(AgentStateDot, { state: 'interrupted', title: null })

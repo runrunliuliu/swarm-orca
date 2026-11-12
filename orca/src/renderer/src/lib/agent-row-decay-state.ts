@@ -4,8 +4,13 @@ import {
   type AgentStatusState
 } from '../../../shared/agent-status-types'
 
-/** Row states: the hook-reported statuses plus the two Orca derives when an entry goes stale. */
-export type AgentRowState = AgentStatusState | 'idle' | 'unverifiable'
+/**
+ * Row states: the hook-reported statuses plus the ones Orca derives from its own
+ * evidence — `idle` (a named pane nothing claims is working), `unverifiable` (a
+ * report that went quiet while the PTY is still held), and `no-evidence` (a named
+ * agent pane that never reported anything, e.g. hooks are not installed).
+ */
+export type AgentRowState = AgentStatusState | 'idle' | 'unverifiable' | 'no-evidence'
 
 type DecayInput = Pick<AgentStatusEntry, 'state' | 'restoredUnconfirmed'>
 
@@ -41,6 +46,17 @@ export function formatCompactDuration(deltaMs: number): string {
     return `${hours}h`
   }
   return `${Math.floor(hours / 24)}d`
+}
+
+/**
+ * The label for a `no-evidence` row. It names the gap in Orca's knowledge, not the
+ * agent's activity: no status was ever reported for this pane, which for a launched
+ * agent usually means its hooks are not installed (an externally started app-server,
+ * a wrapper launcher, a plain `CODEX_HOME` without Orca's hook config). Deliberately
+ * does not read as `idle` ("nothing is happening") or `done` ("it finished").
+ */
+export function agentNoStatusEvidenceLabel(): string {
+  return 'No status reported'
 }
 
 /**

@@ -1,7 +1,13 @@
 import type { DashboardAgentRow } from '@/components/dashboard/useDashboardData'
 import { formatAgentTypeLabel, isClaudeManagementTitle } from '@/lib/agent-status'
 import { isCursorAgentTitle } from '../../../../shared/agent-title-core'
-import { classifyTitleActivity, resolveTitleActivityLabel } from '@/lib/pane-agent-evidence'
+import {
+  classifyTitleActivity,
+  paneHasNoStatusEvidence,
+  resolveTitleActivityLabel,
+  titleClaimsStatus
+} from '@/lib/pane-agent-evidence'
+import { agentNoStatusEvidenceLabel } from '@/lib/agent-row-decay-state'
 import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import type {
   AgentStatusEntry,
@@ -190,12 +196,33 @@ function buildTitleDerivedAgentRow(args: {
   if (!agentType) {
     return null
   }
-  // Why: the title sets activity only; a plain title on a process-identified pane is idle.
+  // Why: the title sets activity only. A plain title on a process-identified pane carries no
+  // claim at all, which the row below names rather than reading as idle.
   const status = titleStatus ?? 'idle'
   const rowLabel = agentType === titleAgentType && label ? label : formatAgentTypeLabel(agentType)
-  const rowState = titleStatusToRowState(status)
-  const secondary =
-    status === 'permission' ? 'Needs input' : status === 'working' ? 'Running' : 'Idle'
+  // Why: reaching this row means no hook row owns the pane (the caller skips seen pane keys),
+  // and these rows exist only for live-PTY tabs. So an identified agent whose title claims no
+  // status has reported nothing at all: name that instead of "Idle", which asserts the agent
+  // has nothing to do. Titles that do claim one (spinner, needs-input, the `claude agents` /
+  // `cursor agent` literals) keep today's row state — see `titleClaimsStatus`.
+  const noStatusEvidence = paneHasNoStatusEvidence({
+    hasAgentIdentity: true,
+    hasLivePty: true,
+    hasHookClaim: false,
+    hasTitleClaim: titleClaimsStatus(title)
+  })
+  const rowState: DashboardAgentRow['state'] = noStatusEvidence
+    ? 'no-evidence'
+    : titleStatusToRowState(status)
+  const secondary = noStatusEvidence
+    ? agentNoStatusEvidenceLabel()
+    : status === 'permission'
+      ? 'Needs input'
+      : status === 'working'
+        ? 'Running'
+        : 'Idle'
+  // Why: `AgentStatusEntry.state` has no member for "no claim"; the honest state lives on the
+  // row (`state` above), which is what every surface renders.
   const entryState: AgentStatusState = rowState === 'waiting' ? 'waiting' : 'working'
   const entry: AgentStatusEntry = {
     paneKey,
@@ -212,9 +239,9 @@ function buildTitleDerivedAgentRow(args: {
     // render, not observed once, so a counter would churn a new revision per frame and break
     // memoization. Deriving revision from `now` keeps the stamp deterministic in the same clock
     // the row already publishes as updatedAt, and monotonic for the pane.
-    // The origin tag is the point: `entryState` above collapses a title-derived IDLE row to
-    // 'working' while the row itself reports idle. That contradiction is out of scope here —
-    // this tag is what makes it findable instead of indistinguishable from a real hook row.
+    // The origin tag is the point: `entryState` above collapses a title-derived IDLE/no-evidence
+    // row to 'working' while the row itself reports no claim. That contradiction is out of scope
+    // here — this tag is what makes it findable instead of indistinguishable from a real hook row.
     observation: {
       origin: 'title',
       authorityId: TITLE_DERIVED_AGENT_ROW_AUTHORITY_ID,

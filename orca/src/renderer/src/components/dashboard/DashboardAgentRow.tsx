@@ -8,7 +8,11 @@ import { DashboardAgentRowMessage } from './DashboardAgentRowMessage'
 import { DashboardAgentRowTrailingControls } from './DashboardAgentRowTrailingControls'
 import { DashboardAgentRowToolStep } from './DashboardAgentRowToolStep'
 import { showsAgentToolPreview } from '@/lib/agent-row-tool-preview'
-import { agentNoUpdateLabel, formatCompactDuration } from '@/lib/agent-row-decay-state'
+import {
+  agentNoStatusEvidenceLabel,
+  agentNoUpdateLabel,
+  formatCompactDuration
+} from '@/lib/agent-row-decay-state'
 import { agentRowDisplayDotState, agentRowDotState as asDotState } from '@/lib/agent-row-dot-state'
 import { agentVerdictDisplayMark } from '../../../../shared/agent-main-agent-verdict'
 import type { DashboardAgentRow as DashboardAgentRowData } from './useDashboardData'
@@ -44,6 +48,11 @@ function stateDotTooltipLabel(
 ): string {
   if (dotState === 'interrupted') {
     return 'Interrupted by user'
+  }
+  // Why: a pane that never reported has no elapsed gap to quote, and "No recent update" would
+  // imply Orca once heard from it.
+  if (agent.state === 'no-evidence') {
+    return agentNoStatusEvidenceLabel()
   }
   // Why: report the observation, not a verdict on the agent — the elapsed gap is what
   // lets the user apply context Orca has no way to know (a long build, a slow download).
@@ -179,8 +188,12 @@ const DashboardAgentRow = React.memo(function DashboardAgentRow({
   const dotState: AgentDotState = agentRowDisplayDotState(agent)
   const dotTooltipLabel = stateDotTooltipLabel(agent, dotState, now)
   // Why: the elapsed gap is the whole content of an `unverifiable` row, so it rides the
-  // row's own timestamp slot rather than hiding in a hover tooltip.
-  const noUpdateLabel = dotState === 'unverifiable' ? rowNoUpdateLabel(agent, now) : null
+  // row's own timestamp slot rather than hiding in a hover tooltip. A `no-evidence` row has
+  // no gap to quote, so it keeps ordinary timestamps.
+  const noUpdateLabel =
+    dotState === 'unverifiable' && agent.state !== 'no-evidence'
+      ? rowNoUpdateLabel(agent, now)
+      : null
 
   // Why: always show the chevron so the row's right edge doesn't flicker as content grows/shrinks.
 

@@ -14,9 +14,11 @@ import type { AgentRowState } from '@/lib/agent-row-decay-state'
  * allowlist in main (`dashboard-payload-validation.ts`) and read by pop-out windows that may
  * predate the member, so a new value would be dropped rather than rendered. Publishing today's
  * `idle` keeps those surfaces at today's behavior instead of silently losing the card.
+ * `no-evidence` rides the same rule: a hook-less agent pane published as `idle` is exactly the
+ * silence the renderer-side wording exists to fix, and no remote surface knows the difference.
  */
 export function dashboardCardDotState(state: AgentRowState): DashboardCardDotState {
-  return state === 'unverifiable' ? 'idle' : state
+  return state === 'unverifiable' || state === 'no-evidence' ? 'idle' : state
 }
 
 export type DashboardRowBucketProjection = {
