@@ -56,7 +56,14 @@ DEFAULT_TIMEOUT_MS = 300_000
 
 def _payload(exit_code, stage, outcome, *, reason=None, state=None, already_satisfied=None,
              validated_count=None, ref=None, elapsed_ms=None, detail=None):
-    """One shape for every answer, so a caller cannot mistake one case for another."""
+    """One shape for every answer, so a caller cannot mistake one case for another.
+
+    `already_satisfied`/`validated_count` are **only** for exit 0: they distinguish "it was already
+    there" from "it just arrived", which is a property of a success. A failure carries its reason
+    and state and nothing else — a chain length attached to a 124 would read as progress a caller
+    could carry forward, and it is not (design §3.2.2). Diagnosis of "how far did it get" belongs
+    to `strict-bootstrap-state --check`, which says what it is: a read-only diagnostic.
+    """
     body = {"event": "wait_stage", "ok": exit_code == VALIDATED, "stage": stage,
             "outcome": outcome, "exit": exit_code, "execution_authorized": False}
     if reason is not None:
@@ -187,7 +194,7 @@ def wait_stage(*, bootstrap, expect_attempt, binding_sha256, stage, timeout_ms=D
     status, _counters = waiter(target, "appear", timeout_ms)
     if status == wait_for_file.TIMEOUT:
         return _payload(TIMEOUT, stage, "timeout", reason="bootstrap_wait_stage_timeout",
-                        validated_count=count, elapsed_ms=int((monotonic() - started) * 1000))
+                        elapsed_ms=int((monotonic() - started) * 1000))
 
     reader = EvidenceReader()
     count, error = _validated(reader, root, binding_sha256, expect_attempt, clock)
@@ -200,7 +207,6 @@ def wait_stage(*, bootstrap, expect_attempt, binding_sha256, stage, timeout_ms=D
         # The path appeared but the chain still stops short: a real defect, not a slow writer.
         return _payload(PRESENT_UNVALIDATED, stage, "present_unvalidated",
                         reason="bootstrap_wait_stage_present_unvalidated",
-                        validated_count=count,
                         elapsed_ms=int((monotonic() - started) * 1000))
     return _payload(VALIDATED, stage, "validated", already_satisfied=False, validated_count=count,
                     ref=reader.refs[target], elapsed_ms=int((monotonic() - started) * 1000))

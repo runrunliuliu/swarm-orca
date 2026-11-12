@@ -84,7 +84,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `dispatch` | `bootstrap_control.py:586-673` | `def dispatch` / `class dispatch` |
 | `dispatch` | `coordinator_first_dispatch.py:351-359` | `def dispatch` / `class dispatch` |
 | `drain` | `bootstrap_driver.py:336-369` | `def drain` / `class drain` |
-| `envelope` | `bootstrap_handoff.py:132-164` | `def envelope` / `class envelope` |
+| `envelope` | `bootstrap_handoff.py:170-202` | `def envelope` / `class envelope` |
 | `events` | `coordinator_background.py:157-158` | `def events` / `class events` |
 | `exact` | `coordinator_worker_plan.py:27-31` | `def exact` / `class exact` |
 | `exclusive` | `trae_exec_capture.py:27-28` | `def exclusive` / `class exclusive` |

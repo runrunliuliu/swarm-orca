@@ -147,18 +147,29 @@ S0 handoff 是**一条投递**，不是一段要贴回屏幕的文本：发送�
 
 1. **字节（A）**：`refs` 每一项都能被 `pinned` 校验（`handoff_pin_mismatch`）。
 2. **身份（B）**：投递行 `from_handle` 与 binding 的 `operator.terminal` 相等（`handoff_sender_mismatch`）；
-   `from_handle` 缺失或为字面量 `unknown` 是 `handoff_sender_unanchored`（runtime 方法层对未携带
-   `params.from` 的调用记的就是 `unknown`）。
+   `from_handle` 缺失、为空串/纯空白、或为字面量 `unknown` 一律是 `handoff_sender_unanchored`
+   （runtime 方法层对未携带 `params.from` 的调用记的就是 `unknown`；空值不是一个可以“宽松处理”的输入）。
 
 **B 是自洽检查：防误填/防事故，不防冒充。** CLI 会按 `--from`、注入的会话地址、
 `ORCA_TERMINAL_HANDLE` 依次解析发送者，但普通 PTY pane 可以声明另一个 handle；本文不得被描述为认证
 或安全边界。接收侧输出必带 `sender_anchor: "binding-operator"`，使读者看出锚点来自 binding 自身字段。
 
-接收成功后写一条本地回执 `control/handoff/<handoff_id>.json`（目录 `0700`，`publish_new` 独占写入后
-读回比较；不清理、不可覆盖；`execution_authorized:false`），它**不是**任何 gate 的输入，也不代表
-handoff 已被采纳。同一 `handoff_id` 再次到达时逐项比较 `payload_sha256`/`refs`/`from_handle`/`subject`/
-`sender_anchor`：全同 → 无副作用（可再等）；任一项不同 → `handoff_duplicate_conflict`，**不得覆盖、
-不得代选**。
+**批次里的不可读行不跳过。** 只要一条 `type=handoff` 的行的信封无法解析（形状、字段、摘要任一不符），
+整个批次就拒绝（`handoff_payload_invalid`），**包括**它标的是另一个 `attempt_id` 的情形：一个读不懂的
+邮箱不是可以跨过去的邮箱，本工具不猜“那大概是别人的”。
+
+**同一 `handoff_id` 的同一批多行**先按 id 聚合：`payload_sha256`/`refs`/`from_handle`/`subject`/
+`sender_anchor` 全同 → 视为同一投递（幂等）；任一项不同 → `handoff_duplicate_conflict`
+（不写记录、不消费、不代选）。不同 id 同时指向本 attempt 是同一个冲突。
+
+接收成功后写一条本地回执 `control/handoff/<handoff_id>.json`（`execution_authorized:false`）：
+目录要求是同 UID 拥有的**非 symlink `0700` 目录**；`control/` 与 `control/handoff/` 不存在时由接收方
+创建（每建一层都 fsync 上一层），已存在但 mode 不符或是 symlink 则失败关闭
+（`handoff_record_dir_unsafe`），不改权限也不跟随链接。记录由 `publish_new` 独占写入并**读回比较**；
+link 已落地但父目录 fsync 未证实时不等于成功，而是 `needs_reconcile`（`handoff_record_conflict`，
+**不可重放**）。它**不是**任何 gate 的输入，也不代表 handoff 已被采纳。同一 `handoff_id` 再次到达时逐项
+比较 `payload_sha256`/`refs`/`from_handle`/`subject`/`sender_anchor`：全同 → 无副作用（可再等）；
+任一项不同 → `handoff_duplicate_conflict`，**不得覆盖、不得代选**。
 
 拒绝码与退出状态（同为 `strict-bootstrap-handoff-accept` 的契约，完整表见
 [handoff 通道设计](docs/design/strict-handoff-channel.md) §4.2）：0 接受；3 无事可做

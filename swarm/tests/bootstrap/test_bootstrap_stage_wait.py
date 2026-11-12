@@ -12,7 +12,6 @@ from unittest import mock
 
 import bootstrap_protocol
 import bootstrap_stage_wait
-from bootstrap_events import EvidenceReader
 from bootstrap_protocol import EVENTS, layout, stage_path
 from coordinator_io import file_ref
 import bootstrap.test_bootstrap_events as events_tests
@@ -152,7 +151,32 @@ class StageWaitTests(unittest.TestCase):
         self.assertEqual(result["exit"], 4, result)
         self.assertEqual(result["diagnostics"], {"stage_path": "stage_parent_not_a_directory"})
 
+    def test_only_exit_zero_carries_the_progress_fields(self):
+        # `already_satisfied`/`validated_count` are the two flavours of success, not a progress
+        # signal a failure may hand back: a chain length attached to a 124 is exactly what a caller
+        # would carry forward as "we got to stage k". Design 3.2.2, review R4.
+        usage = self.wait(binding_sha256="0" * 64)
+        unreachable = self.wait(bootstrap=str(self.root / "not-there"))
+        self.events.chain(0)
+        timeout = self.wait(stage=1, waiter=lambda *a: (wait_for_file.TIMEOUT, {}))
+        self.events.chain(1)
+        satisfied = self.wait(stage=1)
+        self.events.put(EVENTS[1], {})
+        unvalidated = self.wait(stage=2)
+        for name, payload in (("2", usage), ("4", unreachable), ("124", timeout), ("5", unvalidated)):
+            with self.subTest(exit=name):
+                self.assertNotIn("validated_count", payload)
+                self.assertNotIn("already_satisfied", payload)
+                self.assertNotIn("ref", payload)
+                self.assertEqual(payload["exit"], int(name), payload)
+        for field in ("already_satisfied", "validated_count", "ref", "elapsed_ms"):
+            self.assertIn(field, satisfied)
+        self.assertEqual(satisfied["validated_count"], 1)
+
     def test_real_waiter_wakes_when_the_marker_is_published(self):
+        # The only case in this module that uses a real clock and the real inotify waiter, on
+        # purpose: it is the one thing a fake waiter cannot prove (that `wait_for_file` actually
+        # wakes on a same-client publish). Everything else injects the waiter.
         self.events.chain(0)
         timer = threading.Timer(0.2, self.events.chain, kwargs=dict(count=1))
         timer.start()

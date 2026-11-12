@@ -155,6 +155,7 @@ class HandoffAcceptTests(unittest.TestCase):
             "messages": [], "count": 0}}, "empty.json")))
         self.assertEqual(empty["exit"], 3)
         self.assertEqual(empty["reason"], "handoff_absent_no_effect")
+        self.assertTrue(empty["may_replay"])  # waiting again is allowed; writing again is not
         foreign = self.accept(receipt=self.receipt(
             [self.row(attempt="some-other-attempt")], name="foreign.json"))
         self.assertEqual(foreign["exit"], 3)
@@ -188,7 +189,44 @@ class HandoffAcceptTests(unittest.TestCase):
         result = self.accept(receipt=self.receipt(rows, name="two.json"))
         self.assertEqual(result["exit"], 5)
         self.assertEqual(result["reason"], "handoff_duplicate_conflict")
+        self.assertEqual(result["diagnostics"], {"batch": "multiple_handoff_ids"})
         self.assertFalse(self.record("handoff-a").exists())
+
+    def test_one_id_with_different_content_in_one_batch_is_a_conflict(self):
+        # A repeated id is only "the same delivery" when all five compared fields agree. Anything
+        # else means two handoffs wearing one id, and the receiver must not take the first row.
+        good = self.row(handoff_id="handoff-copy")
+        variants = {
+            "payload": self.row(handoff_id="handoff-copy", msg_id="msg-2", refs=[self.other_ref]),
+            "sender": self.row(handoff_id="handoff-copy", msg_id="msg-2",
+                               sender="term_somebody_else"),
+            "subject": self.row(handoff_id="handoff-copy", msg_id="msg-2", subject="another one"),
+        }
+        for index, (name, other) in enumerate(variants.items()):
+            with self.subTest(field=name):
+                result = self.accept(receipt=self.receipt(
+                    [good, other], name="same-id-%d.json" % index))
+                self.assertEqual(result["exit"], 5, result)
+                self.assertEqual(result["reason"], "handoff_duplicate_conflict")
+                self.assertEqual(result["diagnostics"], {"batch": "same_id_different_content"})
+                self.assertFalse(self.record("handoff-copy").exists())
+
+    def test_one_id_with_identical_rows_is_one_delivery(self):
+        rows = [self.row(handoff_id="handoff-dup"),
+                self.row(handoff_id="handoff-dup", msg_id="msg-2")]
+        result = self.accept(receipt=self.receipt(rows, name="same-id-ok.json"))
+        self.assertEqual(result["exit"], 0, result)
+        self.assertEqual(result["msg_id"], "msg-1")  # FIFO: the first copy is the one recorded
+        self.assertEqual(parse(self.record("handoff-dup").read_bytes())["msg_id"], "msg-1")
+
+    def test_a_malformed_row_for_another_attempt_still_blocks_the_batch(self):
+        # Fail-closed by decision: an unreadable mailbox row is not a row we may skip past.
+        foreign = self.row(handoff_id="handoff-foreign", msg_id="msg-2", attempt="other-attempt")
+        foreign["payload"] = "not json"
+        result = self.accept(receipt=self.receipt([self.row(), foreign], name="foreign-bad.json"))
+        self.assertEqual(result["exit"], 5, result)
+        self.assertEqual(result["reason"], "handoff_payload_invalid")
+        self.assertFalse(self.record().exists())
 
     def test_wait_path_peeks_and_makes_exactly_one_bounded_call(self):
         calls = []
@@ -271,6 +309,28 @@ class HandoffAcceptTests(unittest.TestCase):
         self.assertEqual(result["exit"], 5, result)
         self.assertEqual(result["reason"], "handoff_record_conflict")
         self.assertEqual(result["state"], "needs_reconcile")
+        self.assertEqual(result["diagnostics"], {"bytes": "different"})
+
+    def test_a_link_whose_directory_fsync_failed_is_not_accepted(self):
+        # `publish_new` links first and fsyncs the parent directory second. Equal bytes therefore
+        # prove the link landed, not that the directory entry is durable — and "the receipt exists
+        # but is not durable" must not be reported as accepted.
+        writes = []
+
+        def publish(target, value):
+            writes.append(Path(target))
+            Path(target).write_bytes(canonical(value) + b"\n")
+            raise OSError("fsync of the parent directory failed")
+
+        with mock.patch.object(bootstrap_handoff, "publish_new", publish):
+            result = self.accept(receipt=self.receipt([self.row()]))
+        self.assertEqual(result["exit"], 5, result)
+        self.assertEqual(result["reason"], "handoff_record_conflict")
+        self.assertEqual(result["state"], "needs_reconcile")
+        self.assertEqual(result["diagnostics"],
+                         {"directory_durability": "unverified", "bytes": "visible"})
+        self.assertFalse(result["may_replay"])
+        self.assertEqual(writes, [self.record()])  # exactly one link attempt, never a second write
 
     def test_an_unwritable_record_is_not_admitted_and_may_be_retried(self):
         def broken(target, value):
@@ -292,6 +352,68 @@ class HandoffAcceptTests(unittest.TestCase):
         result = self.accept(receipt=self.receipt([self.row()]))
         self.assertEqual(result["exit"], 5, result)
         self.assertEqual(result["reason"], "handoff_record_dir_unsafe")
+        self.assertEqual(result["diagnostics"],
+                         {"directory": "control/handoff", "problem": "not_a_directory"})
+
+    def test_a_symlinked_record_directory_is_never_followed(self):
+        elsewhere = self.receipts / "elsewhere"
+        elsewhere.mkdir(mode=0o700)
+        (self.root / "control").mkdir(exist_ok=True)
+        os.chmod(self.root / "control", 0o700)
+        (self.root / "control" / "handoff").symlink_to(elsewhere, target_is_directory=True)
+        result = self.accept(receipt=self.receipt([self.row()]))
+        self.assertEqual(result["exit"], 5, result)
+        self.assertEqual(result["reason"], "handoff_record_dir_unsafe")
+        self.assertEqual(result["diagnostics"],
+                         {"directory": "control/handoff", "problem": "symlink"})
+        self.assertEqual(list(elsewhere.iterdir()), [])
+
+    def test_a_mode_drifted_record_directory_is_refused_not_repaired(self):
+        # Repairing the mode would hide that something else wrote into this tree; the tool reports
+        # instead, so the operator sees the drift.
+        (self.root / "control").mkdir(mode=0o700, exist_ok=True)
+        os.chmod(self.root / "control", 0o700)
+        handoff = self.root / "control" / "handoff"
+        handoff.mkdir(mode=0o700)
+        os.chmod(handoff, 0o755)
+        result = self.accept(receipt=self.receipt([self.row()]))
+        self.assertEqual(result["exit"], 5, result)
+        self.assertEqual(result["reason"], "handoff_record_dir_unsafe")
+        self.assertEqual(result["diagnostics"],
+                         {"directory": "control/handoff", "problem": "mode", "mode": "0o755"})
+        self.assertEqual(os.stat(handoff).st_mode & 0o777, 0o755)  # untouched
+        self.assertFalse(self.record().exists())
+
+    def test_creation_fsyncs_each_parent_in_order(self):
+        order = []
+
+        def fsync(target):
+            order.append(("fsync", Path(target).name))
+
+        def publish(target, value):
+            order.append(("publish", Path(target).name))
+            Path(target).write_bytes(canonical(value) + b"\n")
+
+        with mock.patch.object(bootstrap_handoff, "fsync_dir", fsync):
+            with mock.patch.object(bootstrap_handoff, "publish_new", publish):
+                result = self.accept(receipt=self.receipt([self.row()]))
+        self.assertEqual(result["exit"], 0, result)
+        # control/ created -> fsync root; control/handoff/ created -> fsync control; then the write.
+        self.assertEqual(order, [("fsync", self.root.name), ("fsync", "control"),
+                                 ("publish", "handoff-0001.json")])
+        self.assertEqual(os.stat(self.root / "control").st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(self.root / "control" / "handoff").st_mode & 0o777, 0o700)
+
+    def test_an_unstartable_cli_is_a_transport_answer_not_a_crash(self):
+        def missing(argv):
+            raise FileNotFoundError("no such executable")
+
+        result = self.accept(wait=True, runner=missing)
+        self.assertEqual(result["exit"], 2, result)
+        self.assertEqual(result["reason"], "handoff_delivery_unreadable")
+        self.assertEqual(result["state"], "not_admitted")
+        self.assertTrue(result["may_replay"])
+        self.assertFalse(self.record().exists())
 
     def test_the_receipt_path_never_spawns_or_opens_a_socket(self):
         with mock.patch.object(socket, "socket", side_effect=AssertionError("no socket")):
@@ -299,6 +421,16 @@ class HandoffAcceptTests(unittest.TestCase):
                 result = self.accept(receipt=self.receipt([self.row()]))
         self.assertEqual(result["exit"], 0)
         self.assertFalse((self.root / "control" / "owner.json").exists())
+
+    def test_the_cli_entry_reports_an_unstartable_process_without_a_traceback(self):
+        with mock.patch.object(subprocess, "run", side_effect=OSError("exec format error")):
+            out = io.StringIO()
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
+                code = bootstrap_handoff.cli_main([
+                    "--bootstrap", str(self.root), "--expect-attempt", "attempt-test",
+                    "--attempt-binding-sha256", self.binding["sha256"], "--wait", "--json"])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(out.getvalue())["reason"], "handoff_delivery_unreadable")
 
     def test_cli_requires_exactly_one_input_mode(self):
         common = ["--bootstrap", str(self.root), "--expect-attempt", "attempt-test",

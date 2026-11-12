@@ -44,12 +44,13 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import time
 
 from bootstrap_events import BootstrapError, EvidenceReader, binding as read_binding
-from coordinator_io import (FilePinChanged, canonical, digest, now, path, pinned,
+from coordinator_io import (FilePinChanged, canonical, digest, fsync_dir, now, path, pinned,
                             publish_new, timestamp, validate_ref)
 from wait_for_events import (EMPTY, MESSAGES, TIMEOUT, USAGE_OR_TRANSPORT, classify, parse,
                              rows_of, unwrap)
@@ -77,13 +78,19 @@ HANDOFF_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{7,63}")
 
 
 class Refusal(ValueError):
-    """A typed refusal: `code` is the reason, `exit` the status, `state` the P0 outcome class."""
+    """A typed refusal: `code` is the reason, `exit` the status, `state` the P0 outcome class.
 
-    def __init__(self, code, exit_code, state=None, **extra):
+    `may_replay` is carried on every refusal because it is the one bit a caller must not have to
+    infer from a code: "nothing was written and nothing was consumed" and "something may have
+    landed" lead to opposite next actions.
+    """
+
+    def __init__(self, code, exit_code, state=None, may_replay=False, **extra):
         super().__init__(code)
         self.code = code
         self.exit = exit_code
         self.state = state
+        self.may_replay = may_replay
         self.extra = extra
 
 
@@ -106,26 +113,57 @@ def record_path(root, handoff_id):
     return Path(root) / "control" / "handoff" / (handoff_id + ".json")
 
 
-def _directory(target):
-    """Create `control/handoff/` at 0700, refusing anything that is not a plain directory.
+def _levels(target):
+    """The two directory levels a receipt needs: `control/`, then `control/handoff/`."""
+    handoff = Path(target)
+    control = handoff.parent
+    return ((control, "control", control.parent), (handoff, "control/handoff", control))
 
-    The receiver owns this directory, so an unexpected shape here (a symlink, a file) is not
-    "somebody else's business": following it would write the receipt somewhere this attempt does
-    not control.
+
+def _verify(target, label):
+    """Refuse one level unless it is either absent or a plain 0700 directory.
+
+    Not "close enough": a symlink here writes the receipt somewhere this attempt does not control,
+    and a group/world-readable directory exposes delivery identities and message ids. Mode drift is
+    reported rather than repaired — repairing it would hide that something else wrote in this tree.
     """
     target = Path(target)
-    _guard(target)
-    if not target.exists():
-        target.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(target, 0o700)
+    if target.is_symlink():
+        raise Refusal("handoff_record_dir_unsafe", REFUSED,
+                      detail={"directory": label, "problem": "symlink"})
+    if target.exists() and not target.is_dir():
+        raise Refusal("handoff_record_dir_unsafe", REFUSED,
+                      detail={"directory": label, "problem": "not_a_directory"})
+    if target.exists():
+        mode = stat.S_IMODE(target.stat().st_mode)
+        if mode != 0o700:
+            raise Refusal("handoff_record_dir_unsafe", REFUSED,
+                          detail={"directory": label, "problem": "mode", "mode": oct(mode)})
     return target
 
 
 def _guard(target):
     """Refuse an unsafe record directory without creating or writing anything."""
-    for candidate in (Path(target).parent, Path(target)):
-        if candidate.is_symlink() or (candidate.exists() and not candidate.is_dir()):
-            raise Refusal("handoff_record_dir_unsafe", REFUSED)
+    for level, label, _parent in _levels(target):
+        _verify(level, label)
+    return Path(target)
+
+
+def _directory(target):
+    """Create `control/` and `control/handoff/` at 0700, fsyncing the parent of each level.
+
+    Same discipline `bootstrap_tool.provision` applies to the attempt root: a directory created
+    here is a durable published fact (`mkdir` + `chmod` + parent fsync), not an implementation
+    detail that may vanish with the next crash. The receipt write itself stays with `publish_new`,
+    which fsyncs the directory it writes into.
+    """
+    for level, label, parent in _levels(target):
+        _verify(level, label)
+        if level.exists():
+            continue
+        level.mkdir(mode=0o700)
+        os.chmod(level, 0o700)
+        fsync_dir(parent)
     return Path(target)
 
 
@@ -217,14 +255,24 @@ def _read_record(target):
         return {}
 
 
+def _identity(value, row):
+    """The five fields that decide "same delivery" vs "different delivery".
+
+    Used in both places that compare two claims of one `handoff_id`: rows of the same batch, and a
+    delivery against an existing acceptance record. One helper, so the two comparisons can never
+    drift into testing different things.
+    """
+    return {"payload_sha256": value["payload_sha256"], "refs": value["refs"],
+            "from_handle": row.get("from_handle"), "subject": row.get("subject"),
+            "sender_anchor": SENDER_ANCHOR}
+
+
 def _existing(target, value, row):
     """Duplicate vs conflict against an existing record: (exit_code, reason) or (None, None)."""
     recorded = _read_record(target)
     if recorded is None:
         return None, None
-    candidate = {"payload_sha256": value["payload_sha256"], "refs": value["refs"],
-                 "from_handle": row.get("from_handle"), "subject": row.get("subject"),
-                 "sender_anchor": SENDER_ANCHOR}
+    candidate = _identity(value, row)
     for field in COMPARED_FIELDS:
         if not isinstance(recorded, dict) or recorded.get(field) != candidate[field]:
             # Same id, different content: id reuse or a rewritten handoff. Not ours to arbitrate.
@@ -235,27 +283,41 @@ def _existing(target, value, row):
 def _commit_record(target, value):
     """Write the receipt, then classify by reading the bytes back (the P0 discipline).
 
-    `publish_new` links complete temporary bytes onto the target, so a visible file is never a
-    partial write. An error after the link is therefore classified by read-back rather than
-    guessed: same bytes = admitted, absent = not admitted, different = needs reconciliation
-    (never a second write). Returns `"duplicate"` when another claimant already linked that path.
+    `publish_new` links complete temporary bytes onto the target and only *then* fsyncs the parent
+    directory, so the two failures after a link are not the same fact:
+
+    * nothing linked (the target is not there) = not admitted, safe to try again;
+    * linked but the directory fsync did not complete = the bytes are visible and their durability
+      is unproven. A read-back cannot prove a missing fsync, so this is `needs_reconcile` and never
+      "accepted": treating equal bytes as success is exactly how "the receipt is there but not
+      durable" would be reported as done.
+
+    Returns `"duplicate"` when another claimant already linked that path (FileExistsError).
     """
     raw = canonical(value) + b"\n"
+    unproven = None
     try:
         publish_new(Path(target), value)
     except FileExistsError:
         return "duplicate"
     except OSError:
-        pass
+        # The exception cannot tell us which step failed; the read-back can tell whether a link
+        # landed, and only "no link at all" is retryable.
+        unproven = "directory_durability_unverified"
     try:
         actual = Path(target).read_bytes()
     except FileNotFoundError:
         raise Refusal("handoff_record_unwritable", USAGE, state="not_admitted",
                       may_replay=True) from None
     except OSError:
-        raise Refusal("handoff_record_conflict", REFUSED, state="needs_reconcile") from None
+        raise Refusal("handoff_record_conflict", REFUSED, state="needs_reconcile",
+                      detail={"directory_durability": "unverified"}) from None
+    if unproven is not None:
+        raise Refusal("handoff_record_conflict", REFUSED, state="needs_reconcile",
+                      detail={"directory_durability": "unverified", "bytes": "visible"})
     if actual != raw:
-        raise Refusal("handoff_record_conflict", REFUSED, state="needs_reconcile")
+        raise Refusal("handoff_record_conflict", REFUSED, state="needs_reconcile",
+                      detail={"bytes": "different"})
     return None
 
 
@@ -270,7 +332,7 @@ def _batch(receipt, runner_result):
             # A zero exit with unparsable stdout is not "no messages"; it is a receipt we cannot read.
             status = USAGE_OR_TRANSPORT
         if status == TIMEOUT:
-            raise Refusal("handoff_wait_timeout", WAIT_TIMEOUT)
+            raise Refusal("handoff_wait_timeout", WAIT_TIMEOUT, may_replay=True)
         if status == USAGE_OR_TRANSPORT:
             raise Refusal("handoff_delivery_unreadable", USAGE, state="not_admitted",
                           may_replay=True)
@@ -289,22 +351,40 @@ def _batch(receipt, runner_result):
 
 
 def _select(rows, expect_attempt):
-    """(row, value) for this attempt, or a Refusal carrying the exit status."""
+    """(row, value) for this attempt, or a Refusal carrying the exit status.
+
+    Rows are grouped by `handoff_id` before anything is chosen. Two rows of one attempt with one id
+    are only "the same delivery" when all five compared fields agree; otherwise the batch contains
+    two different handoffs wearing one id, which the receiver must not resolve by taking the first
+    one. Different ids for one attempt are the same conflict, not a choice either.
+
+    A handoff row whose envelope cannot be parsed stops the batch even when it names another
+    attempt: a mailbox we cannot read is not a mailbox we may skip past. That is deliberate
+    fail-closed behaviour, stated in the protocol section, not an oversight.
+    """
     handoffs = [row for row in rows if isinstance(row, dict) and row.get("type") == HANDOFF_TYPE]
     if not handoffs:
-        raise Refusal("handoff_absent_no_effect", ABSENT)
-    ours = []
+        raise Refusal("handoff_absent_no_effect", ABSENT, may_replay=True)
+    ours = {}
     for row in handoffs:
         value = envelope(row)
         if value["attempt_id"] != expect_attempt:
             continue
-        ours.append((row, value))
+        ours.setdefault(value["handoff_id"], []).append((row, value))
     if not ours:
-        raise Refusal("handoff_absent_no_effect", ABSENT)
-    if len({value["handoff_id"] for _, value in ours}) > 1:
+        raise Refusal("handoff_absent_no_effect", ABSENT, may_replay=True)
+    if len(ours) > 1:
         # Two different handoffs for one attempt in one batch: do not pick one.
-        raise Refusal("handoff_duplicate_conflict", REFUSED)
-    return ours[0]
+        raise Refusal("handoff_duplicate_conflict", REFUSED,
+                      detail={"batch": "multiple_handoff_ids"})
+    copies = next(iter(ours.values()))
+    first = _identity(copies[0][1], copies[0][0])
+    for row, value in copies[1:]:
+        if _identity(value, row) != first:
+            # One id, two contents in one batch. Same verdict as a rewritten record.
+            raise Refusal("handoff_duplicate_conflict", REFUSED,
+                          detail={"batch": "same_id_different_content"})
+    return copies[0]
 
 
 def _check_argv(cli, types, timeout_ms):
@@ -319,8 +399,17 @@ def _check_argv(cli, types, timeout_ms):
 
 
 def _invoke(argv):
-    started = time.monotonic()
-    completed = subprocess.run(argv, capture_output=True, text=True)
+    """One bounded CLI call; `(None, "")` when the CLI could not even start.
+
+    A missing or non-executable `orca` is a transport answer, not a crash: `classify` maps a
+    non-zero/absent exit to USAGE_OR_TRANSPORT, which this module reports as an unreadable delivery
+    (nothing consumed, retryable). Letting `OSError` escape here would turn a deployment mistake
+    into a stack trace the caller cannot classify.
+    """
+    try:
+        completed = subprocess.run(argv, capture_output=True, text=True)
+    except OSError:
+        return None, ""
     return completed.returncode, completed.stdout
 
 
@@ -362,7 +451,12 @@ def accept_handoff(*, bootstrap, expect_attempt, binding_sha256, receipt=None,
         if wait:
             argv = _check_argv(cli, types, timeout_ms)
             started = monotonic()
-            returncode, stdout = runner(argv)
+            try:
+                returncode, stdout = runner(argv)
+            except OSError:
+                # An injected runner and the real CLI fail the same way: no answer, nothing
+                # consumed. `classify` reads an absent exit status as a transport result.
+                returncode, stdout = None, ""
             elapsed_ms = (monotonic() - started) * 1000
             rows = _batch(None, (returncode, stdout, elapsed_ms, timeout_ms))
         else:
@@ -383,9 +477,9 @@ def accept_handoff(*, bootstrap, expect_attempt, binding_sha256, receipt=None,
         outcome, reason = _existing(target, value, row)
         if outcome is not None:
             return _payload(outcome, "duplicate" if outcome == ABSENT else "refused",
-                            reason=reason, handoff_id=value["handoff_id"],
-                            msg_id=row.get("id"), refs=value["refs"],
-                            diagnostics={"pin": pin, "sender": sender})
+                            reason=reason, may_replay=outcome == ABSENT,
+                            handoff_id=value["handoff_id"], msg_id=row.get("id"),
+                            refs=value["refs"], diagnostics={"pin": pin, "sender": sender})
         if pin is not None or sender is not None:
             return _payload(REFUSED, "refused", reason=pin or sender,
                             failures=[code for code in (pin, sender) if code],
@@ -396,15 +490,18 @@ def accept_handoff(*, bootstrap, expect_attempt, binding_sha256, receipt=None,
         if _commit_record(target, record) == "duplicate":
             outcome, reason = _existing(target, value, row)
             return _payload(outcome, "duplicate" if outcome == ABSENT else "refused",
-                            reason=reason, handoff_id=value["handoff_id"], msg_id=row.get("id"),
+                            reason=reason, may_replay=outcome == ABSENT,
+                            handoff_id=value["handoff_id"], msg_id=row.get("id"),
                             refs=value["refs"], diagnostics={"pin": pin, "sender": sender})
         ref = {"path": str(target), "sha256": digest(canonical(record) + b"\n")}
         return _payload(ACCEPTED, "accepted", handoff_id=value["handoff_id"],
                         msg_id=row.get("id"), from_handle=row.get("from_handle"),
                         refs=value["refs"], record=ref)
     except Refusal as refusal:
-        return _payload(refusal.exit, "refused", reason=refusal.code,
-                        state=refusal.state, **refusal.extra)
+        return _payload(refusal.exit,
+                        "absent" if refusal.exit == ABSENT else "refused",
+                        reason=refusal.code, state=refusal.state,
+                        may_replay=refusal.may_replay, **refusal.extra)
 
 
 def cli_main(argv=None):

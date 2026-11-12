@@ -382,7 +382,7 @@ coordinator_launch.py strict-bootstrap-wait-stage \
 | `handoff_duplicate_no_effect` | 3 | 同 `handoff_id` 的接受记录已存在，且 `payload_sha256`/`refs`/`from_handle`/`subject`/`sender_anchor` **逐项全同** | 否 | false（**不产生新回合、不消费**） |
 | `handoff_duplicate_conflict` | 5 | 同 `handoff_id` 但上述五项**任一项不同**（ID 复用或同一份被重写） | 是 | false（不覆盖既有记录、不消费、**不得“取新的那份”**） |
 | `handoff_delivery_unreadable` | 2 | CLI 回执半包/被杀/非 0 退出（`state=not_admitted`：未消费任何投递） | 是 | true（未消费，可再等） |
-| `handoff_record_conflict` | 5 | `publish_new` 之后读回字节不同（`state=needs_reconcile`） | 是 | false（绝不写第二份） |
+| `handoff_record_conflict` | 5 | ① `publish_new` 之后读回字节不同；② link 已落地但父目录 fsync 未证实（字节可见、durability 未知）——两种都是 `state=needs_reconcile` | 是 | false（绝不写第二份） |
 
 实现时补上的四行（设计表原本没覆盖这三种情形，实现不能自己选一个近似码）：
 
@@ -390,7 +390,7 @@ coordinator_launch.py strict-bootstrap-wait-stage \
 | --- | --- | --- | --- | --- |
 | `handoff_wait_timeout` | 124 | `check --peek --wait` 的窗口用完（形状+自测耗时判为超时，见 §3.3.5/B11） | 是 | true（未消费，可再等） |
 | `handoff_record_unwritable` | 2 | 回执根本没落盘（`publish_new` 失败且读回不存在，`state=not_admitted`） | 是 | true（未消费、未写，可重试） |
-| `handoff_record_dir_unsafe` | 5 | `control/handoff/` 是符号链接或非常规目录 | 是 | false |
+| `handoff_record_dir_unsafe` | 5 | `control/` 或 `control/handoff/` 是符号链接、不是目录，或已存在但 mode ≠ `0700`（不改权限、不跟随链接） | 是 | false |
 | `handoff_attempt_unreachable` | 4 | attempt 目录或 binding 不可达 | 是 | false |
 
 写记录后的失败分类（沿用 P0 纪律）：`link` 成功后任何错误都先**读回**——字节相同 → `admitted`；
@@ -547,3 +547,21 @@ owner-blocking）。
 不动 `PATHS`）住在 `bootstrap_protocol.py`；`wait-stage` 的「不可达」判据不做在 marker 的父目录上——
 `events/` 在第一个 marker 之前本来就不存在，在那儿返 4 会拒绝等待 S1（见§3.2.2 的 4 行）。
 状态仍是**离线实现完成、live 未验收**；本文不因实现完成而变成「已验收」。
+
+### v3.1（2026-11-12，代码评审整改回填）
+
+两份独立代码评审对 `838f2a32` 均为 reject；整改（`review fixes` 提交）改了四处行为，相应收紧本文：
+
+1. **§3.3.5 的 duplicate 判定扩到「同一批多行」**：同一 attempt 的一个批次里，同一 `handoff_id` 的多行
+   必须先按五项字段聚合比较，任一项不同就是 `handoff_duplicate_conflict`（不写记录、不消费、不代选）。
+   原实现只拒「多个不同 id」，同 id 多行直接取第一条，等于把冲突吞成成功。
+2. **§3.3.4 的目录语义落实到 mode 与 fsync**：`control/` 与 `control/handoff/` 都要求非 symlink、`0700`；
+   新建每一层都 fsync 上一层；已存在但 mode 不符 → `handoff_record_dir_unsafe`（不修权限）。
+3. **§3.3.4 的「写后读回」不足以保证成功**：`publish_new` 在 link **之后**才 fsync 父目录，所以
+   「link 成功 + 字节相同」仍可能是「目录 durability 未证实」。该情形归 `handoff_record_conflict`
+   （`state=needs_reconcile`，`may_replay:false`），不因字节相同而 accepted。
+4. **§3.2.2 的 0 字段不被借用**：`already_satisfied`/`validated_count` 只属于退出 0；124/5/4/2 的 payload
+   不带 `validated_count`（它不是可携带的进度信号，进度诊断归 `strict-bootstrap-state --check`）。
+
+另补两句与实现逐字对齐的文档（不改变断言）：任何一条 handoff 行的信封不可解析都阻断整批（含标了
+另一个 attempt 的行）；`from_handle` 为缺失/空串/纯空白/`unknown` 一律 `handoff_sender_unanchored`。
