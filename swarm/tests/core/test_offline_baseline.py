@@ -309,6 +309,15 @@ class BlastRadiusTests(unittest.TestCase):
         self.assertEqual(self.blast.SHARED_MAP["blocking_io"],
                          ("core.*", "bootstrap.*", "operators.*"))
 
+    def test_a_changed_test_helper_selects_the_modules_that_import_it(self):
+        # Why: a shared fixture is neither a source nor a test module, so a change to one used to
+        # select nothing and hard-fail the command - whose only escape was a hand-widened run,
+        # the judgement this tool exists to replace.
+        reasons = self.radius.tests_for_helper(self.root / "tests" / "startup_handoff_fixture.py")
+        self.assertIn("core.test_startup_handoff", reasons)
+        self.assertEqual(set(reasons.values()), {"helper"})
+        self.assertTrue(set(reasons) <= self.radius.available)
+
     def test_an_empty_diff_is_a_failure_not_a_pass(self):
         completed = subprocess.run(
             [sys.executable, "-B", str(self.root / "tests" / "blast_radius.py"),

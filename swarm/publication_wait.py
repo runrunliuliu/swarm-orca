@@ -13,15 +13,23 @@ today's behaviour instead of hanging.
 
 `stats` exists so a deployment can observe which path it is on: a high `timeouts` count next to a
 low `events` count means inotify is not delivering there, and the fallback period is the real
-delivery latency.
+delivery latency. `log` writes that line, so "is inotify working on this mount?" is answered by the
+startup log instead of by a later slowdown.
 """
 
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import select
+import sys
 import time
+
+# The worst-case delivery latency: a wait always returns within this period even when no event
+# arrives, so this number, not the event, bounds detection. It is logged for that reason and is
+# kept at 1-2 s on purpose - a smaller value re-creates the 250 ms poll this primitive replaces.
+FALLBACK_SECONDS = 1.5
 
 IN_CREATE = 0x00000100
 IN_CLOSE_WRITE = 0x00000008
@@ -106,3 +114,21 @@ def idle(watcher: Watcher | None, seconds: float) -> bool:
         time.sleep(max(0.0, seconds))
         return False
     return watcher.wait(seconds)
+
+
+def stats(watcher: Watcher | None) -> dict:
+    """The counters a deployment reads back; `inotify` False means the wait was a plain sleep."""
+    if watcher is None:
+        return {"inotify": False, "events": 0, "timeouts": 0,
+                "fallback_seconds": FALLBACK_SECONDS}
+    return {"inotify": True, "events": watcher.events, "timeouts": watcher.timeouts,
+            "fallback_seconds": FALLBACK_SECONDS}
+
+
+def log(kind: str, watcher: Watcher | None) -> None:
+    """One stderr line per startup wait: diagnostics, not a receipt (no paths, no payloads)."""
+    row = {"event": "publication_wait", "kind": kind, **stats(watcher)}
+    try:
+        print(json.dumps(row, sort_keys=True), file=sys.stderr, flush=True)
+    except OSError:
+        pass

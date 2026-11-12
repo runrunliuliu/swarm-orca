@@ -7,8 +7,9 @@
 #   --dry-run       print the selection and stop (no module starts).
 #
 # Selection rules live in tests/blast_radius.py and are fixed there on purpose: same basename,
-# tests that import the module, one hop of source importers, plus the explicit SHARED_MAP
-# policy. It is not the transitive closure and it is not "grep for the name".
+# tests that import the module, one hop of source importers, a changed helper under `tests/` ->
+# the test modules importing it, plus the explicit SHARED_MAP policy. It is not the transitive
+# closure and it is not "grep for the name".
 #
 # What this cannot see: dynamic imports, modules invoked as a subprocess
 # (`python3 <module>.py`), and coupling that exists only through fixtures. Those are stated
