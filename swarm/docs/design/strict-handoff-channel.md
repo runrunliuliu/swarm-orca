@@ -463,16 +463,15 @@ live 对照当场暴露了两个离线套件看不到的缺陷，已修（提交
   的收尾义务。CLI 也自述「terminal-only mailbox, delivery is not durable after that terminal closes」。
 
 同一晚又跑了一次（attempt2）：`wait-stage` 阻塞期间 Coordinator 真的发布了 S1，第一次校验仍返 5
-`marker_time_mismatch`，但这次不是同一原因——**读侧时钟早于 marker 自己的 `created_at` 约 80 ms**
-（reader `now()` 16:21:04.826 < marker `created_at` 16:21:04.906，file mtime 16:21:04.942）。同一 marker
-稍后重探返回 **0**，evidence Ref `9281ad1d…` 与磁盘一致。
+`marker_time_mismatch`。**原因是我上一版修复自己的 bug**，不是亚秒竞态：`fixed_clock = clock` 写在默认值
+赋值之后，于是「调用方有没有注入时钟」永远为真，唤醒后重读时钟的那行永远不生效，校验仍然用入口时钟（16:20:55.8）
+去比一个 9 秒后才发布的 marker（16:21:04.9）。改为先记下注入值再填默认值后，同一凌晨的 19 个用例全绿。
 
-也就是唤醒瞬间存在一个**亚秒竞态**：`previous_time <= marker_time <= clock` 里的 `clock` 是读侧此刻的时钟，
-而 marker 的 `created_at` 由发布方在自己那次 `now()` 里写好，两者之间可以差出几十毫秒。这一条**没有**在本次改动里
-动，因为它是 gate 判据（「不接受未来时间的证据」），放宽需要 owner 决定。两个候选：
-
-1. 有界容差（例如 ≤1 s，并在文档里写明「时钟读取粒度竞态」而不是「未来证据」）；
-2. 把读侧时钟换成 `max(now(), marker 的 mtime)`，用文件系统时间作第二个见证。
+关于「亚秒竞态」：我最初把 80 ms 的差值读成竞态，那是把*返回时刻*当成了*用于校验的时刻*；证据不支持那个结论，
+所以本节按上面的真实原因记录。代码里仍保留一次**有界重读**（仅在 `marker_time_mismatch` 时重采一次时钟再校验，
+不是容差、不是放宽）：它覆盖「唤醒早于 marker 完全可见」这一尚未被观测到的形态，并有用例证明
+（`test_a_wake_that_precedes_full_visibility_re_samples_once`），但没有 live 证据；反向用例
+`test_a_clock_behind_the_evidence_stays_refused_without_a_tolerance` 钉住「不是容差」。
 
 本次交付仍然是「live 反例 + 离线用例」，没有据此外推「E1 不再复现」。
 

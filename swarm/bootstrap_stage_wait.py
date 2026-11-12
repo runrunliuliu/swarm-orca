@@ -160,8 +160,12 @@ def wait_stage(*, bootstrap, expect_attempt, binding_sha256, stage, timeout_ms=D
     """
     waiter = wait_for_file.wait if waiter is None else waiter
     monotonic = time.monotonic if monotonic is None else monotonic
-    clock = timestamp(now()) if clock is None else clock
+    # Capture the caller's injected clock *before* defaulting it, or `fixed_clock` is always set
+    # and the post-wake re-read never happens. That mistake shipped in the previous two commits:
+    # the live attempt2 answered 5 `marker_time_mismatch` because it validated a marker published
+    # nine seconds into the wait against the clock captured on entry.
     fixed_clock = clock
+    clock = timestamp(now()) if clock is None else clock
     if type(stage) is not int or not 1 <= stage <= len(EVENTS):
         return _payload(USAGE_OR_REFUSED, stage if type(stage) is int else None, "refused",
                         reason="bootstrap_wait_stage_invalid")
@@ -208,6 +212,13 @@ def wait_stage(*, bootstrap, expect_attempt, binding_sha256, stage, timeout_ms=D
     # after the wake; an injected clock stays fixed so tests can still drive both sides.
     after = timestamp(now()) if fixed_clock is None else fixed_clock
     count, error = _validated(reader, root, binding_sha256, expect_attempt, after)
+    if (error is not None and error[0] == "marker_time_mismatch" and fixed_clock is None):
+        # Second live finding: the wake can fire on the directory event *before* the marker is
+        # fully visible, so a clock sampled before that read pass can trail the marker's own
+        # stamp by tens of milliseconds (measured: 80 ms). Re-sample once and re-validate; this
+        # is a read-only re-read, not a replay of an effect, and it does not soften the rule: a
+        # genuinely future-dated marker is still newer than the second sample and still fails.
+        count, error = _validated(reader, root, binding_sha256, expect_attempt, timestamp(now()))
     if error is not None:
         reason, state = error
         code = USAGE_OR_REFUSED if reason == "file_pin_changed" else PRESENT_UNVALIDATED

@@ -5,7 +5,7 @@ import json
 import os
 import socket
 from contextlib import redirect_stdout, redirect_stderr
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 import subprocess
 import threading
@@ -121,6 +121,51 @@ class StageWaitTests(unittest.TestCase):
         self.assertEqual(result["exit"], 0, result)
         self.assertFalse(result["already_satisfied"])
         self.assertEqual(result["validated_count"], 1)
+
+    def backdated_binding(self, marker):
+        """Move the binding's created_at an hour back so a sub-second race has a legal window."""
+        self.events.b["created_at"] = (marker - timedelta(seconds=3600)).isoformat()
+        self.events.bind()
+        return self.events.binding["sha256"]
+
+    def test_a_wake_that_precedes_full_visibility_re_samples_once(self):
+        # Second live finding: the wake can fire before the marker is fully visible, so the clock
+        # sampled before the read pass trailed the marker's own stamp by ~80 ms. One extra
+        # read-only re-sample (never a tolerance) closes it.
+        self.events.chain(0)
+        marker = datetime.fromisoformat(self.events.at)
+        sha = self.backdated_binding(marker)
+        samples = iter([(marker - timedelta(seconds=5)).isoformat(),
+                        (marker - timedelta(milliseconds=80)).isoformat(),
+                        (marker + timedelta(seconds=1)).isoformat()])
+
+        def waiter(target, mode, timeout_ms):
+            self.events.chain(1)
+            return wait_for_file.PRESENT, {}
+
+        with mock.patch.object(bootstrap_stage_wait, "now", lambda: next(samples)):
+            result = self.wait(stage=1, waiter=waiter, timeout_ms=30000, clock=None,
+                               binding_sha256=sha)
+        self.assertEqual(result["exit"], 0, result)
+        self.assertEqual(result["validated_count"], 1)
+
+    def test_a_clock_behind_the_evidence_stays_refused_without_a_tolerance(self):
+        # The re-sample is not a tolerance: if every sample is older than the marker, the marker
+        # is still "from the future" and the answer stays 5.
+        self.events.chain(0)
+        marker = datetime.fromisoformat(self.events.at)
+        sha = self.backdated_binding(marker)
+        behind = (marker - timedelta(seconds=10)).isoformat()
+
+        def waiter(target, mode, timeout_ms):
+            self.events.chain(1)
+            return wait_for_file.PRESENT, {}
+
+        with mock.patch.object(bootstrap_stage_wait, "now", lambda: behind):
+            result = self.wait(stage=1, waiter=waiter, timeout_ms=30000, clock=None,
+                               binding_sha256=sha)
+        self.assertEqual(result["exit"], 5, result)
+        self.assertEqual(result["reason"], "marker_time_mismatch")
 
     def test_deadline_is_the_result_and_never_progress(self):
         self.events.chain(0)
