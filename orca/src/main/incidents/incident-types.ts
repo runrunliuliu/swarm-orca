@@ -97,6 +97,8 @@ export type IncidentEvidencePointer = {
   /** Lines of context the renderer may read around the offsets. §6.3 caps this at 50. */
   lineWindow?: number
   truncated?: boolean
+  /** File size at verification time; `sha256` + `bytes` is what makes a pointer checkable. */
+  bytes?: number
 }
 
 /**
@@ -110,6 +112,10 @@ export type IncidentEvidence = {
   unknownBoundaries: string[]
   /** A digest of the agent-session identity, when the PTY record carried one. Never a raw id. */
   agentIdentityDigest?: string
+  /** Self-report only (§7.5): the required `--code`, kept out of the frozen §6.2 columns. */
+  code?: string
+  /** Self-report only: the reporter's minimal reproduction, bounded and redacted on write. */
+  repro?: string
 }
 
 export type IncidentRecord = {

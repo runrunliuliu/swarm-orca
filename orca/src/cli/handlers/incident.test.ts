@@ -5,7 +5,8 @@
  * The store is a real SQLite file in a temp user-data directory and the handlers are the real ones,
  * so this covers path resolution + store + formatter together rather than mocking the middle.
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -329,5 +330,94 @@ describe('incident prune', () => {
     await expect(INCIDENT_HANDLERS['incident prune'](ctx)).rejects.toMatchObject({
       code: 'invalid_argument'
     })
+  })
+})
+
+describe('incident report', () => {
+  it('creates the store on the first report and records an untriaged row', async () => {
+    expect(existsSync(incidentsDatabaseFileFor(userData))).toBe(false)
+    const reported = context('incident report', {
+      class: 'tool_error',
+      code: 'tool_schema_mismatch',
+      summary: 'write tool rejected a valid patch'
+    })
+    await INCIDENT_HANDLERS['incident report'](reported.ctx)
+    const text = reported.output.join('\n')
+    expect(text).toContain('Reported:')
+    expect(text).toContain('status=untriaged')
+    expect(text).toContain('not independently verified')
+
+    const listed = context('incident list')
+    await INCIDENT_HANDLERS['incident list'](listed.ctx)
+    const listText = listed.output.join('\n')
+    expect(listText).toContain('tool_error')
+    expect(listText).toContain('untriaged')
+    expect(listText).toContain('tool_schema_mismatch')
+    // The shadow hint is written for the CLI path too, so a crash between here and the next start
+    // does not lose the report.
+    expect(existsSync(join(userData, 'incidents', 'shadow.ndjson'))).toBe(true)
+  })
+
+  it('is idempotent for a repeated --source-id', async () => {
+    const flags = { class: 'crash', code: 'worker_died', 'source-id': 'req-pinned' }
+    const first = context('incident report', flags, true)
+    await INCIDENT_HANDLERS['incident report'](first.ctx)
+    const firstPayload = JSON.parse(first.output.join('\n')) as { incidentId: string; outcome: string }
+    expect(firstPayload.outcome).toBe('inserted')
+
+    const second = context('incident report', flags, true)
+    await INCIDENT_HANDLERS['incident report'](second.ctx)
+    const secondPayload = JSON.parse(second.output.join('\n')) as {
+      incidentId: string
+      outcome: string
+    }
+    expect(secondPayload.outcome).toBe('duplicate')
+    expect(secondPayload.incidentId).toBe(firstPayload.incidentId)
+    expect(store().countIncidents()).toBe(1)
+  })
+
+  it('requires --class and --code', async () => {
+    const noClass = context('incident report', { code: 'x' })
+    await expect(INCIDENT_HANDLERS['incident report'](noClass.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const noCode = context('incident report', { class: 'crash' })
+    await expect(INCIDENT_HANDLERS['incident report'](noCode.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+  })
+
+  it('refuses an evidence path that does not exist, before creating anything', async () => {
+    const reported = context('incident report', {
+      class: 'crash',
+      code: 'worker_died',
+      evidence: join(userData, 'missing.log')
+    })
+    await expect(INCIDENT_HANDLERS['incident report'](reported.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    expect(existsSync(join(userData, 'incidents'))).toBe(false)
+  })
+
+  it('stores a verified pointer (digest + size) for a real evidence file', async () => {
+    const evidencePath = join(userData, 'agent.log')
+    writeFileSync(evidencePath, 'line one\nline two\n')
+    const digest = createHash('sha256').update('line one\nline two\n').digest('hex')
+
+    const reported = context('incident report', {
+      class: 'crash',
+      code: 'worker_died',
+      evidence: evidencePath,
+      'source-id': 'req-evidence'
+    })
+    await INCIDENT_HANDLERS['incident report'](reported.ctx)
+
+    const view = store().getIncident(store().listIncidents().incidents[0].id)!
+    expect(view.evidence.pointers).toHaveLength(1)
+    expect(view.evidence.pointers[0]).toMatchObject({ path: evidencePath, sha256: digest, bytes: 18 })
+    // Pointers only: the file body is not copied into the row or the shadow.
+    expect(readFileSync(join(userData, 'incidents', 'shadow.ndjson'), 'utf8')).not.toContain(
+      'line one'
+    )
   })
 })

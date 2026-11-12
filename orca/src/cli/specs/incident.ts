@@ -50,6 +50,31 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'report'],
+    summary: "Record an incident you observed yourself (self-report, local only)",
+    usage:
+      'orca incident report --class <class> --code <code> [--summary <text>] [--evidence <path>]... [--repro <text>] [--source-id <id>] [--json]',
+    allowedFlags: [
+      ...GLOBAL_FLAGS,
+      'class',
+      'code',
+      'summary',
+      'evidence',
+      'repro',
+      'source-id'
+    ],
+    repeatableFlags: ['evidence'],
+    examples: [
+      'orca incident report --class tool_error --code tool_schema_mismatch --summary "write tool rejected a valid patch"',
+      'orca incident report --class crash --code worker_died --evidence ./agent.log --repro "run the same dispatch twice"'
+    ],
+    notes: [
+      '--class and --code are required. The record starts untriaged: a self-report is T3 and is never independently verified by this command.',
+      '--evidence paths must exist on this host; only the path, size and sha256 are stored (never the contents).',
+      '--source-id makes the report idempotent: repeating it with the same id appends nothing.'
+    ]
+  },
+  {
     path: ['incident', 'prune'],
     destructive: true,
     summary: 'Delete old closed/invalid/duplicate incidents (dry run by default)',

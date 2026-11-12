@@ -1,19 +1,13 @@
-// `orca incident list | show | decide | prune` (issue-sedimentation.md v2.2 §12, M1).
+// `orca incident list | show | decide | report | prune` (issue-sedimentation.md v2.3 §12).
 //
 // Records are local-only (§19.1): a selector that names another machine is refused rather than
 // silently answered for this one. Store access lives in incident-store-access.ts, formatting in
-// incident-format.ts; this file is flag validation plus the four commands.
+// incident-format.ts; this file is flag validation plus the commands.
 
 import type { CommandHandler, HandlerContext } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
-import { rejectRemoteSelectionFlags } from '../remote-selection-flag-rejection'
 import { DEFAULT_INCIDENT_RETENTION_DAYS } from '../../main/incidents/incident-store'
-import {
-  isIncidentClass,
-  isIncidentStatus,
-  type IncidentClass,
-  type IncidentStatus
-} from '../../main/incidents/incident-types'
+import { isIncidentStatus, type IncidentStatus } from '../../main/incidents/incident-types'
 import { renderIncidentMarkdown } from '../../main/incidents/incident-render'
 import {
   formatIncidentDecision,
@@ -22,25 +16,13 @@ import {
   formatIncidentShow
 } from '../incident-format'
 import { openIncidentStore } from '../incident-store-access'
-
-function refuseNonLocalSelector(ctx: HandlerContext, command: string): void {
-  rejectRemoteSelectionFlags(
-    ctx.flags,
-    `\`${command}\`. Incidents are recorded by the host that owns the PTY; run the command there.`
-  )
-  if (ctx.flags.has('host')) {
-    throw new RuntimeClientError(
-      'invalid_argument',
-      `\`--host\` does not retarget \`${command}\`. Incident records exist only on the host that ` +
-        'wrote them (remote capture is unsupported).'
-    )
-  }
-}
-
-function stringFlag(ctx: HandlerContext, name: string): string | null {
-  const value = ctx.flags.get(name)
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
-}
+import { reportIncident } from './incident-report'
+import {
+  parseIncidentClass,
+  printIncidentJson,
+  refuseNonLocalIncidentSelector,
+  stringFlag
+} from './incident-shared'
 
 function intFlag(ctx: HandlerContext, name: string): number | null {
   const raw = stringFlag(ctx, name)
@@ -67,17 +49,6 @@ function parseStatus(value: string, flag: string): IncidentStatus {
     throw new RuntimeClientError('invalid_argument', `Unsupported --${flag} "${value}".`)
   }
   return value
-}
-
-function parseClass(value: string): IncidentClass {
-  if (!isIncidentClass(value)) {
-    throw new RuntimeClientError('invalid_argument', `Unsupported --class "${value}".`)
-  }
-  return value
-}
-
-function printJson(value: unknown): void {
-  console.log(JSON.stringify(value, null, 2))
 }
 
 function describeDecisionFailure(
@@ -110,7 +81,7 @@ function describeDecisionFailure(
 
 export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   'incident list': async (ctx) => {
-    refuseNonLocalSelector(ctx, 'orca incident list')
+    refuseNonLocalIncidentSelector(ctx, 'orca incident list')
     const status = stringFlag(ctx, 'status')
     const classFlag = stringFlag(ctx, 'class')
     const opened = openIncidentStore({ requireExisting: false, readOnly: true })
@@ -118,10 +89,10 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
       const result = opened.store.listIncidents({
         limit: intFlag(ctx, 'limit') ?? 50,
         ...(status !== null ? { status: parseStatus(status, 'status') } : {}),
-        ...(classFlag !== null ? { class: parseClass(classFlag) } : {})
+        ...(classFlag !== null ? { class: parseIncidentClass(classFlag) } : {})
       })
       if (ctx.json) {
-        printJson(result)
+        printIncidentJson(result)
         return
       }
       console.log(formatIncidentList(result))
@@ -131,7 +102,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   },
 
   'incident show': async (ctx) => {
-    refuseNonLocalSelector(ctx, 'orca incident show')
+    refuseNonLocalIncidentSelector(ctx, 'orca incident show')
     const id = requireId(ctx)
     const opened = openIncidentStore({ requireExisting: true, readOnly: true })
     try {
@@ -142,14 +113,14 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
       if (ctx.flags.get('md') === true) {
         const markdown = renderIncidentMarkdown(view)
         if (ctx.json) {
-          printJson({ incidentId: view.id, markdown })
+          printIncidentJson({ incidentId: view.id, markdown })
           return
         }
         console.log(markdown)
         return
       }
       if (ctx.json) {
-        printJson({ incident: view, coverage: opened.store.coverage() })
+        printIncidentJson({ incident: view, coverage: opened.store.coverage() })
         return
       }
       console.log(formatIncidentShow(view, { coverage: opened.store.coverage() }))
@@ -159,7 +130,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   },
 
   'incident decide': async (ctx) => {
-    refuseNonLocalSelector(ctx, 'orca incident decide')
+    refuseNonLocalIncidentSelector(ctx, 'orca incident decide')
     const id = requireId(ctx)
     const toFlag = stringFlag(ctx, 'to')
     if (toFlag === null) {
@@ -193,7 +164,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
         )
       }
       if (ctx.json) {
-        printJson({
+        printIncidentJson({
           incidentId: id,
           decisionId: result.decisionId ?? null,
           fromStatus: result.fromStatus ?? null,
@@ -216,8 +187,10 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
     }
   },
 
+  'incident report': reportIncident,
+
   'incident prune': async (ctx) => {
-    refuseNonLocalSelector(ctx, 'orca incident prune')
+    refuseNonLocalIncidentSelector(ctx, 'orca incident prune')
     if (ctx.flags.get('dry-run') === true && ctx.flags.get('apply') === true) {
       throw new RuntimeClientError(
         'invalid_argument',
@@ -230,7 +203,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
     try {
       const result = opened.store.pruneIncidents({ dryRun, olderThanDays: keepDays })
       if (ctx.json) {
-        printJson(result)
+        printIncidentJson(result)
         return
       }
       console.log(formatIncidentPrune(result))

@@ -76,17 +76,23 @@ function unavailableStore(): IncidentStore {
 export function openIncidentStore(options: {
   requireExisting: boolean
   readOnly: boolean
+  /** `incident report` creates the store: the first report on a host is the first row. */
+  createIfMissing?: boolean
 }): OpenedIncidentStore {
   const path = incidentsDatabaseFile()
   if (!existsSync(path)) {
-    if (!options.requireExisting) {
+    if (options.createIfMissing === true && options.readOnly === false) {
+      // Falls through to the writable open below, which makes the directory and migrates an empty
+      // file. Only a write command may do this; `list` must leave the disk untouched (M1 C4).
+    } else if (!options.requireExisting) {
       return { store: unavailableStore(), path, close: () => undefined }
+    } else {
+      throw new RuntimeClientError(
+        'invalid_argument',
+        `No incident store on this host (${path}). Incidents are recorded by the running Orca runtime; ` +
+          'start Orca on this host and let it record one, or check that you are on the host you meant.'
+      )
     }
-    throw new RuntimeClientError(
-      'invalid_argument',
-      `No incident store on this host (${path}). Incidents are recorded by the running Orca runtime; ` +
-        'start Orca on this host and let it record one, or check that you are on the host you meant.'
-    )
   }
   const opened = openIncidentsDatabase(path, { readOnly: options.readOnly })
   return {

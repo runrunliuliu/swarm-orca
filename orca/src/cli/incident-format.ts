@@ -200,6 +200,30 @@ export function formatIncidentDecision(input: {
   return `${input.incidentId}: ${input.fromStatus} → ${input.toStatus} (actor=${input.actor}, decision=${input.decisionId})`
 }
 
+/** One-line confirmation for `incident report`, naming the rank the record starts at. */
+export function formatIncidentReport(result: {
+  incidentId: string | null
+  outcome: 'inserted' | 'duplicate'
+  class: string
+  code: string
+  shadow: 'written' | 'failed' | 'skipped'
+}): string {
+  const head =
+    result.outcome === 'duplicate'
+      ? `Already recorded: ${result.incidentId ?? '(unknown id)'}`
+      : `Reported: ${result.incidentId ?? '(unknown id)'}`
+  const shadow =
+    result.shadow === 'written'
+      ? 'shadow hint written'
+      : result.shadow === 'failed'
+        ? 'shadow hint NOT written (replay will not cover this row)'
+        : 'shadow skipped'
+  return (
+    `${head} (class=${result.class}, code=${result.code}, status=untriaged; ` +
+    `self-report is not independently verified; ${shadow})`
+  )
+}
+
 export function formatIncidentPrune(result: PruneResult): string {
   const counts = Object.entries(result.byStatus)
     .map(([status, count]) => `${status}=${count}`)

@@ -61,7 +61,9 @@ export function parseEvidence(value: unknown): IncidentEvidence {
           unknownBoundaries,
           ...(typeof record.agentIdentityDigest === 'string'
             ? { agentIdentityDigest: record.agentIdentityDigest }
-            : {})
+            : {}),
+          ...(typeof record.code === 'string' ? { code: record.code } : {}),
+          ...(typeof record.repro === 'string' ? { repro: record.repro } : {})
         }
       }
     } catch {

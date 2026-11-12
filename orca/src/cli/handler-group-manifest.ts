@@ -270,7 +270,13 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
   },
   {
     name: 'incident',
-    keys: ['incident list', 'incident show', 'incident decide', 'incident prune'],
+    keys: [
+      'incident list',
+      'incident show',
+      'incident decide',
+      'incident report',
+      'incident prune'
+    ],
     load: async () => (await import('./handlers/incident.js')).INCIDENT_HANDLERS
   }
 ]
