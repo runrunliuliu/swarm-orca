@@ -221,8 +221,10 @@ Measured, because "read it if useful" does not change behaviour: on the same rea
 model, panes given this rule as a pointer ran 23–29 symbol searches where panes told nothing ran
 33–43, and 26.5 model turns against 35.5. Searches were 52–70% of every measured pane's tool calls,
 so this is the largest single lever on orientation time — fewer probes, not more per turn. The
-numbers are from a controlled A/B outside this repository; they are stated for the reason the rule
-exists, not as a promise about another task.
+A/B and, as important, what it did not measure are recorded in
+[the measurement note](swarm/docs/measurement/orientation-pointer.md); its per-run data and
+transcripts are not distributed with this repository. The numbers are stated for the reason the
+rule exists, not as a promise about another task.
 
 ## Skills
 
