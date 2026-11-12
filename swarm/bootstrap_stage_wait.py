@@ -161,6 +161,7 @@ def wait_stage(*, bootstrap, expect_attempt, binding_sha256, stage, timeout_ms=D
     waiter = wait_for_file.wait if waiter is None else waiter
     monotonic = time.monotonic if monotonic is None else monotonic
     clock = timestamp(now()) if clock is None else clock
+    fixed_clock = clock
     if type(stage) is not int or not 1 <= stage <= len(EVENTS):
         return _payload(USAGE_OR_REFUSED, stage if type(stage) is int else None, "refused",
                         reason="bootstrap_wait_stage_invalid")
@@ -201,7 +202,12 @@ def wait_stage(*, bootstrap, expect_attempt, binding_sha256, stage, timeout_ms=D
                         elapsed_ms=int((monotonic() - started) * 1000))
 
     reader = EvidenceReader()
-    count, error = _validated(reader, root, binding_sha256, expect_attempt, clock)
+    # The marker appeared *during* this call, so it is legitimately newer than the clock captured
+    # on entry. Validating with that stale clock rejected exactly the case this tool exists for
+    # (live finding: a real owner publish answered 5 `marker_time_mismatch`). Re-read the clock
+    # after the wake; an injected clock stays fixed so tests can still drive both sides.
+    after = timestamp(now()) if fixed_clock is None else fixed_clock
+    count, error = _validated(reader, root, binding_sha256, expect_attempt, after)
     if error is not None:
         reason, state = error
         code = USAGE_OR_REFUSED if reason == "file_pin_changed" else PRESENT_UNVALIDATED

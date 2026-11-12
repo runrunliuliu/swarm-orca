@@ -5,6 +5,7 @@ import json
 import os
 import socket
 from contextlib import redirect_stdout, redirect_stderr
+from datetime import timedelta
 from pathlib import Path
 import subprocess
 import threading
@@ -99,6 +100,27 @@ class StageWaitTests(unittest.TestCase):
         self.assertEqual(result["validated_count"], 1)
         self.assertEqual(seen, [(self.paths[EVENTS[0]], "appear", 30000)])
         self.assertEqual(result["ref"], file_ref(self.paths[EVENTS[0]]))
+
+    def test_a_marker_published_during_the_wait_is_newer_than_the_entry_clock(self):
+        # Live finding: the clock was captured on entry and reused after the wake, so a marker the
+        # owner published *during* this call was "newer than now" and answered 5
+        # `marker_time_mismatch` — the exact case this tool exists for. The clock is re-read after
+        # the wake; an injected clock stays fixed.
+        self.events.chain(0)
+        fixture = self.events.clock
+        entry = (fixture - timedelta(seconds=5)).isoformat()
+        after = (fixture + timedelta(seconds=5)).isoformat()
+        stamps = iter([entry, after])
+
+        def waiter(target, mode, timeout_ms):
+            self.events.chain(1)
+            return wait_for_file.PRESENT, {}
+
+        with mock.patch.object(bootstrap_stage_wait, "now", lambda: next(stamps)):
+            result = self.wait(stage=1, waiter=waiter, timeout_ms=30000, clock=None)
+        self.assertEqual(result["exit"], 0, result)
+        self.assertFalse(result["already_satisfied"])
+        self.assertEqual(result["validated_count"], 1)
 
     def test_deadline_is_the_result_and_never_progress(self):
         self.events.chain(0)
