@@ -163,14 +163,12 @@ def _ref_of(value):
 
 
 class SubmissionInFlight(ValueError):
-    """A submission record is durable and its outputs are not.
+    """A submission was admitted as one unit but its confirmation could not be read.
 
-    `ObservationBusy` proves nothing was dispatched, which is why `pull()` may treat
-    it as pending. That guarantee ends the moment the record is admitted: the same
-    busy code then means "half committed", and reporting it as pending makes the
-    caller retry a stage whose record guard can never re-admit it (attempt19).
-    This class keeps that state loud and attributable until the commit path stops
-    producing it.
+    The unit itself is atomic (`emit_batch`), so a proved non-execution admits
+    nothing and stays retryable. The remaining named state is a durable unit whose
+    confirmation query failed: the bytes are on disk and attempted on the owner, so
+    `reconcile` is the supported entry and retrying the submission is not.
     """
 
 
@@ -574,29 +572,26 @@ class RoleTool(BootstrapMachine, ActionReader):
 
         validate()
         expected = dict(path=self.paths[target], sha256=digest(raw))
-        admitted = self.emit(record, dict(schema_version=1, kind="strict_bootstrap_submission",
-            intent=intent_ref, inputs=[source_ref], outputs=[expected], created_at=now(),
-            execution_authorized=False), self.actor, [intent_ref], check=lambda _: validate())
-
-        def recheck(_):
-            # Everything the owner already attested in the record admission is
-            # replayed from the pinned files here. Asking it again is what lost
-            # attempt19's output to the other role's poll: the record was durable,
-            # so that busy was no longer a retryable non-execution.
-            validate(confirmations=False)
-
+        # One owner call admits the record and writes its output, so the durable
+        # record can never exist without the output it announces (attempts 19/24).
+        # The recheck only replays pins the record admission already covers.
         try:
-            self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck, confirmations=False)
+            refs = self.emit_batch(
+                [(target, raw),
+                 (record, dict(schema_version=1, kind="strict_bootstrap_submission",
+                               intent=intent_ref, inputs=[source_ref], outputs=[expected],
+                               created_at=now(), execution_authorized=False))],
+                self.actor, [intent_ref], check=lambda _: validate(confirmations=False),
+                confirmations=False)
         except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
-            if non_execution(exc):
-                raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
+            # One admission means a proved non-execution admitted nothing at all, so
+            # it stays the retryable class `pull()` already treats as pending. Only a
+            # durable-but-unconfirmed unit needs a named recovery.
             if str(exc) == "bootstrap_confirmation_unavailable":
-                # The bytes are on disk and attempted on the owner; `reconcile`
-                # is the supported entry for exactly this shape.
                 raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
             raise
         self.local_check(confirmations=False)
-        return {"result": expected, "execution_authorized": False}
+        return {"result": refs[0], "execution_authorized": False}
 
     def validate_candidate(self, intent_ref, raw, *, confirmations=True):
         slot = self.slot if confirmations else self.pinned_slot
@@ -679,21 +674,29 @@ class RoleTool(BootstrapMachine, ActionReader):
             validate()
             for output in outputs:
                 self.submission_output_empty(output["path"])
-        admitted = self.emit(record, dict(schema_version=1, kind="strict_bootstrap_submission",
-            intent=intent_ref, inputs=probe_refs, outputs=[*outputs, manifest_ref], created_at=now(),
-            execution_authorized=False), self.actor, [intent_ref], check=before_admission)
+        # The record, every probe output and the readiness manifest are one unit:
+        # a durable record announcing probes that do not exist is unrecoverable.
+        unit = list(zip([output["path"] for output in outputs], values))
+        unit += [(self.paths["final_readiness"], manifest)]
+        unit += [(record, dict(schema_version=1, kind="strict_bootstrap_submission",
+                               intent=intent_ref, inputs=probe_refs, outputs=[*outputs, manifest_ref],
+                               created_at=now(), execution_authorized=False))]
+        def check_unit(_entries):
+            # The owner runs this before admitting anything, so every probe output
+            # must still be absent then — not only when the caller looked.
+            before_admission(None)
         try:
-            for output, raw in zip(outputs, values):
-                self.emit(output["path"], raw, self.actor, [intent_ref, admitted],
-                          check=lambda _: validate(confirmations=False), confirmations=False)
-            return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs],
-                             check=lambda _: validate(confirmations=False), confirmations=False)
+            refs = self.emit_batch(unit, self.actor, [intent_ref], check=check_unit,
+                                   confirmations=False)
         except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
-            if non_execution(exc):
-                raise SubmissionInFlight("bootstrap_submission_partially_committed") from exc
+            # One admission means a proved non-execution admitted nothing at all, so
+            # it stays the retryable class `pull()` already treats as pending. Only a
+            # durable-but-unconfirmed unit needs a named recovery.
             if str(exc) == "bootstrap_confirmation_unavailable":
                 raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
             raise
+        # The unit is ordered outputs, manifest, record; the manifest is the result.
+        return refs[len(outputs)]
 
     def advance(self, *, until_stage=None, timeout=120, poll=30):
         """Run this role's own mechanical stages in one bounded call.

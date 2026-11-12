@@ -147,6 +147,26 @@ class BootstrapMachine:
         self.notify()  # Notifications never substitute for the confirmation query.
         return reply.target
 
+    def emit_batch(self, values, actor, prerequisites=(), check=None, *, confirmations):
+        """Publish several targets as one admitted unit and return their refs.
+
+        Used where a durable bookkeeping record must never exist without its
+        outputs (a submission record plus its outputs, or the readiness manifest
+        plus its probes). One owner call admits and writes all of them, so the
+        other role's poll cannot split the unit between two round trips.
+        """
+        entries = [(self.paths.get(name, name),
+                    value if isinstance(value, bytes) else canonical(value) + b"\n")
+                   for name, value in values]
+        def recheck():
+            self.local_check(confirmations=confirmations)
+            if check is not None:
+                check(entries)
+        refs = self.authority.commit_batch(self.control, actor=actor, entries=entries,
+                                           prerequisites=list(prerequisites), recheck=recheck)
+        self.notify()  # Notifications never substitute for a confirmation query.
+        return refs
+
     def intent(self, name, actor, prerequisites, **payload):
         existing = self.slot(name)
         if existing is not None:

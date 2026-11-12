@@ -319,6 +319,47 @@ class CommitOwner:
         self.attempted_raw[target] = raw
         return ref
 
+    def commit_batch(self, control, *, actor, entries, prerequisites, recheck):
+        """Admit and publish one unit of targets in a single serial section.
+
+        `commit_new` admits one target per call, so a refusal between a submission
+        record and its outputs left a durable record with no output and no recovery
+        (attempts 19 and 24). Everything here happens under one admission: all
+        targets are checked, recorded, written and confirmed before the serial
+        section ends, so no other role's poll can split the unit. This is not a
+        filesystem transaction: a write that fails midway is still published as an
+        unknown outcome.
+        """
+        with self.serial:
+            io.require(isinstance(entries, list) and entries, "bootstrap_rpc_invalid")
+            refs = [dict(path=path, sha256=io.digest(raw)) for path, raw in entries]
+            io.require(len({ref["path"] for ref in refs}) == len(refs), "bootstrap_rpc_invalid")
+            for ref in refs:
+                io.require(ref["path"] not in self.attempted, "bootstrap_commit_requires_reconciliation")
+            for (path, raw), ref in zip(entries, refs):
+                self.admit_target(control, actor, path, raw)
+            for ref in prerequisites:
+                io.require(self.query(control, ref).status == "confirmed", "bootstrap_prerequisite_unconfirmed")
+            recheck()
+            # Adapter and identity are re-read once for the whole unit.
+            self.active(control)
+            for (path, raw), ref in zip(entries, refs):
+                self.record_attempt(path, raw)
+            # Durability order is the caller's: the unit's bookkeeping record is
+            # written last, so a crash can only leave outputs without their record
+            # (recoverable by inspection), never a record announcing outputs that do
+            # not exist (the attempt19/24 fence).
+            for (path, raw), ref in zip(entries, refs):
+                try:
+                    io.publish_new(Path(path), raw)
+                except BaseException as exc:
+                    self.invalidate()
+                    stated(exc, "unknown")
+                    raise
+                self.published[path] = ref
+                self.confirmations.add((path, ref["sha256"]))
+            return [Confirmation(control, ref, "confirmed", state="committed") for ref in refs]
+
     def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
         for attempt in range(2):
             with self.serial:
@@ -357,8 +398,12 @@ class CommitOwner:
                     return Confirmation(control, ref, "confirmed", state="committed")
             self.refresh(force=True)
 
-    def admit(self, control, *, actor, target, raw, prerequisites, recheck):
-        """Everything that must hold before the owner records an intent."""
+    def admit_target(self, control, actor, target, raw):
+        """Per-target gates every commit path must pass, including a batch.
+
+        Extracted so `commit_new`, `settle` and `commit_batch` cannot drift: the
+        lifecycle `spec.json` checks are not a special case a batch may skip.
+        """
         self.active(control)
         io.require(self.role_for(target) == actor, "bootstrap_role_or_path_mismatch")
         if target == str(self.root.parent / "lifecycle" / "spec.json"):
@@ -367,6 +412,10 @@ class CommitOwner:
             io.require("runtime" in spec, "startup_runtime_policy_required")
             io.require(spec["bootstrap_owner"] == io.file_ref(self.root / "owner.json"),
                        "startup_original_owner_required")
+
+    def admit(self, control, *, actor, target, raw, prerequisites, recheck):
+        """Everything that must hold before the owner records an intent."""
+        self.admit_target(control, actor, target, raw)
         for ref in prerequisites:
             io.require(self.query(control, ref).status == "confirmed", "bootstrap_prerequisite_unconfirmed")
         recheck()  # Read-only; never repeat publication or a producer.
@@ -562,6 +611,17 @@ class OwnerServer:
             io.require(not args, "bootstrap_rpc_invalid")
             owner.stop(control)
             return {"stopped": True}
+        if op == "commit-batch":
+            io.require(set(args) == {"actor", "entries", "prerequisites"}
+                       and args["actor"] == actor, "bootstrap_rpc_role_mismatch")
+            io.require(isinstance(args["entries"], list)
+                       and all(set(item) == {"target", "raw"} for item in args["entries"]),
+                       "bootstrap_rpc_invalid")
+            entries = [(item["target"], bytes.fromhex(item["raw"])) for item in args["entries"]]
+            confirmations = owner.commit_batch(control, actor=actor, entries=entries,
+                                               prerequisites=args["prerequisites"],
+                                               recheck=lambda: unchanged(identity))
+            return {"confirmations": [asdict(item) for item in confirmations]}
         if op == "settle":
             io.require(set(args) == {"target", "raw"}, "bootstrap_rpc_invalid")
             return asdict(owner.settle(control, actor=actor, target=args["target"], raw=bytes.fromhex(args["raw"])))
@@ -844,6 +904,21 @@ class AuthorityClient:
         io.require(result == asdict(Confirmation(control, ref, "confirmed", state="committed")),
                    "bootstrap_confirmation_mismatch")
         return Confirmation(control, ref, "confirmed", state="committed")
+
+    def commit_batch(self, control, *, actor, entries, prerequisites, recheck):
+        """One owner round trip admits the whole unit; `recheck` runs locally first."""
+        io.require(control == self.control, "bootstrap_control_mismatch")
+        recheck()
+        result = self.rpc("commit-batch", actor=actor, prerequisites=list(prerequisites),
+                          entries=[{"target": path, "raw": raw.hex()} for path, raw in entries])
+        refs = [dict(path=path, sha256=io.digest(raw)) for path, raw in entries]
+        confirmations = result.get("confirmations") if isinstance(result, dict) else None
+        io.require(isinstance(confirmations, list) and len(confirmations) == len(refs)
+                   and [item.get("target") for item in confirmations] == refs
+                   and all(item.get("status") == "confirmed" and item.get("state") == "committed"
+                           for item in confirmations),
+                   "bootstrap_confirmation_mismatch")
+        return refs
 
     def stop(self, control):
         io.require(control == self.control, "bootstrap_control_mismatch")

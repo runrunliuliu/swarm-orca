@@ -164,58 +164,103 @@ class WorkflowTests(unittest.TestCase):
         with workflow_fixture("final-evidence-intent", probe_names=["a.json", "b.json"]) as (f, owner, client, workflow, tool, action):
             workflow.write_candidates(action)
             before = (dict(owner.attempted), set(owner.confirmations))
-            original = client.commit_new
+            original = client.commit_batch
             def change(*args, **kwargs):
                 Path(action["submission"]["outputs"][-1]["candidate_path"]).write_bytes(b"changed")
                 return original(*args, **kwargs)
-            with patch.object(client, "commit_new", side_effect=change), self.assertRaisesRegex(ValueError, "file_pin_changed"):
+            with patch.object(client, "commit_batch", side_effect=change), self.assertRaisesRegex(ValueError, "file_pin_changed"):
                 tool.complete(action["intent"])
             self.untouched(owner, before, action)
 
-    def test_partial_batch_is_inspected_read_only_and_never_replayed(self):
+    def test_a_lost_batch_reply_is_inspected_read_only_and_never_replayed(self):
+        """The record and every probe are one admission, so a lost reply cannot split them."""
         with workflow_fixture("final-evidence-intent", probe_names=["a.json", "b.json"]) as (f, owner, client, workflow, tool, action):
             workflow.write_candidates(action)
-            original = client.commit_new
+            original = client.commit_batch
             outputs = action["submission"]["outputs"]
             def lose_reply(*args, **kwargs):
-                result = original(*args, **kwargs)
-                if kwargs["target"] == outputs[0]["final_path"]:
-                    raise TimeoutError("first probe reply lost")
-                return result
-            with patch.object(client, "commit_new", side_effect=lose_reply), self.assertRaises(TimeoutError):
+                original(*args, **kwargs)
+                raise TimeoutError("batch reply lost after the unit was admitted")
+            with patch.object(client, "commit_batch", side_effect=lose_reply), self.assertRaises(TimeoutError):
                 tool.complete(action["intent"])
             before = (dict(owner.attempted), set(owner.confirmations))
-            with patch.object(client, "commit_new", side_effect=AssertionError("must not mutate")):
+            with patch.object(client, "commit_batch", side_effect=AssertionError("must not mutate")):
                 result = tool.inspect_action(action["intent"])
-                self.assertEqual(result["state"], "reconciliation_required")
+                # The unit landed whole, so the action is complete — and still not
+                # retryable: a complete action is never re-submitted.
+                self.assertEqual(result["state"], "confirmed")
                 self.assertEqual(result["submission_record_status"], "confirmed")
-                self.assertEqual(result["outputs"][0]["status"], "confirmed")
+                for item in result["outputs"]:
+                    self.assertEqual(item["status"], "confirmed")
                 self.assertFalse(result["retry_allowed"])
                 with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
                     tool.complete(action["intent"])
             self.assertEqual((owner.attempted, owner.confirmations), before)
-            self.assertFalse(Path(outputs[1]["final_path"]).exists())
-            self.assertFalse(Path(action["result_path"]).exists())
+            # The unit is whole: nothing announces a probe that does not exist.
+            for output in outputs:
+                self.assertTrue(Path(output["final_path"]).exists())
+            self.assertTrue(Path(action["result_path"]).exists())
 
-    def test_submission_record_reply_loss_and_visible_unconfirmed_final_never_authorize_retry(self):
+    def test_the_fence_is_unchanged_by_a_visible_unconfirmed_final(self):
+        """A hand-written output never turns a recorded submission into a retry."""
         with workflow_fixture("fields-intent") as (f, owner, client, workflow, tool, action):
             workflow.write_candidates(action)
-            original = client.commit_new
+            original = client.commit_batch
             def lose_reply(*args, **kwargs):
                 original(*args, **kwargs)
-                raise TimeoutError("submission record reply lost")
-            with patch.object(client, "commit_new", side_effect=lose_reply), self.assertRaises(TimeoutError):
+                raise TimeoutError("submission reply lost")
+            with patch.object(client, "commit_batch", side_effect=lose_reply), self.assertRaises(TimeoutError):
                 tool.complete(action["intent"])
-            publish_new(Path(action["result_path"]), pinned(file_ref(action["submission"]["candidate_path"])))
+            Path(action["result_path"]).write_bytes(b"hand written\n")
             before = (dict(owner.attempted), set(owner.confirmations))
-            with patch.object(client, "commit_new", side_effect=AssertionError("must not mutate")):
+            with patch.object(client, "commit_batch", side_effect=AssertionError("must not mutate")):
                 result = tool.inspect_action(action["intent"])
+                # Overwriting a confirmed output is a pin change, not a new intent.
                 self.assertEqual(result["state"], "reconciliation_required")
                 self.assertEqual(result["outputs"][0]["status"], "durability_unverified")
                 self.assertFalse(result["retry_allowed"])
                 with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
                     tool.complete(action["intent"])
             self.assertEqual((owner.attempted, owner.confirmations), before)
+
+    def test_a_batch_runs_the_same_per_target_admission_as_a_single_commit(self):
+        """`commit_new` calls `admit_target` per target; a batch must not bypass it."""
+        from bootstrap_control import CommitOwner
+
+        with production() as (f, owner, identity, client, _):
+            identity.actor = "operator"
+            target = str(f.root.parent / "lifecycle" / "spec.json")
+            (f.root.parent / "lifecycle").mkdir(mode=0o700, exist_ok=True)
+            admit_target = CommitOwner.admit_target
+            seen = []
+
+            def record(self, control, actor, path, raw):
+                seen.append(path)
+                return admit_target(self, control, actor, path, raw)
+
+            with patch.object(CommitOwner, "admit_target", record), \
+                    self.assertRaises(ValueError):
+                # Any refusal is fine; the invariant is that admission ran per target.
+                client.commit_batch(f.control, actor="operator",
+                                    entries=[(target, b"{}\n"), (str(f.root / "control" / "probe.json"), b"{}\n")],
+                                    prerequisites=[], recheck=lambda: None)
+            self.assertIn(target, seen)
+
+    def test_a_probe_output_written_between_validation_and_admission_still_refuses(self):
+        """The owner-side recheck must see the probe outputs, not the caller's snapshot."""
+        with workflow_fixture("final-evidence-intent", probe_names=["a.json", "b.json"]) as (f, owner, client, workflow, tool, action):
+            workflow.write_candidates(action)
+            outputs = action["submission"]["outputs"]
+            original = client.commit_batch
+
+            def write_then_commit(*args, **kwargs):
+                Path(outputs[0]["final_path"]).write_bytes(b"raced\n")
+                return original(*args, **kwargs)
+
+            with patch.object(client, "commit_batch", side_effect=write_then_commit), \
+                    self.assertRaisesRegex(ValueError, "bootstrap_owner_output_unconfirmed"):
+                tool.complete(action["intent"])
+            self.assertFalse(Path(outputs[1]["final_path"]).exists())
 
     def test_wrong_stage_and_legacy_operation_are_not_executed_or_upgraded(self):
         with production() as (f, owner, identity, client, owner_ref):

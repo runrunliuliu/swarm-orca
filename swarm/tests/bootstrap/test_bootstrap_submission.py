@@ -108,13 +108,13 @@ class SubmissionTests(unittest.TestCase):
                 publish_new(candidate, action["payload"]["candidate_template"])
                 ref = file_ref(candidate)
                 attempted, confirmations = dict(owner.attempted), set(owner.confirmations)
-                original = client.commit_new
+                original = client.commit_batch
                 def mutate_then_commit(*args, **kwargs):
                     candidate.write_bytes(b"changed")
                     return original(*args, **kwargs)
                 if when == "before_submit":
                     candidate.write_bytes(b"changed")
-                with patch.object(client, "commit_new", side_effect=mutate_then_commit), \
+                with patch.object(client, "commit_batch", side_effect=mutate_then_commit), \
                         self.assertRaisesRegex(ValueError, "file_pin_changed"):
                     tool.submit(action["intent"], ref)
                 self.assert_unchanged(owner, attempted, confirmations)
@@ -133,88 +133,59 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(pinned(action["intent"]), original)
             self.assert_unchanged(owner, attempted, confirmations)
 
-    def test_submit_reply_loss_queries_exact_final_pin_without_republication(self):
+    def test_a_lost_reply_leaves_the_whole_unit_durable_and_unrepeatable(self):
+        """Record and output are one admission, so a lost reply cannot split them."""
         with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
             candidate = Path(action["submission"]["candidate_path"])
             publish_new(candidate, action["payload"]["candidate_template"])
             ref = file_ref(candidate)
             final_ref = dict(ref, path=action["result_path"])
-            original = client.commit_new
+            original = client.commit_batch
             def commit_then_lose_reply(*args, **kwargs):
-                result = original(*args, **kwargs)
-                if kwargs["target"] == action["result_path"]:
-                    raise TimeoutError("test reply lost after owner commit")
-                return result
-            with patch.object(client, "commit_new", side_effect=commit_then_lose_reply) as commit:
+                original(*args, **kwargs)
+                raise TimeoutError("test reply lost after the unit was admitted")
+            with patch.object(client, "commit_batch", side_effect=commit_then_lose_reply) as commit:
                 with self.assertRaises(TimeoutError):
                     tool.submit(action["intent"], ref)
-                self.assertEqual(client.query(f.control, final_ref).status, "confirmed")
-                with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
-                    tool.submit(action["intent"], ref)
-                self.assertEqual(commit.call_count, 2)
+            # Either both targets are durable or neither: here the owner admitted both.
+            self.assertEqual(client.query(f.control, final_ref).status, "confirmed")
+            self.assertEqual(commit.call_count, 1)
+            with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
+                tool.submit(action["intent"], ref)
             self.assertTrue(owner.armed)
             self.assertEqual(pinned(final_ref), pinned(ref))
 
-    def test_a_busy_between_record_and_output_is_loud_not_pending(self):
+    def test_a_busy_on_the_unit_proves_nothing_was_admitted_and_the_retry_works(self):
+        """attempt19/24 died because a busy could arrive between record and output.
+
+        The unit is one admission now, so that window is gone: a busy leaves no
+        record and no output, and the same call succeeds once the owner is free.
+        """
         from bootstrap_actions import completion_slot
-        from bootstrap_tool import SubmissionInFlight
         from observation_budget import ObservationBusy
 
         with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
             candidate = Path(action["submission"]["candidate_path"])
             publish_new(candidate, action["payload"]["candidate_template"])
             ref = file_ref(candidate)
-            original = client.commit_new
-
-            def busy_after_record(*args, **kwargs):
-                if kwargs["target"] == action["result_path"]:
-                    raise ObservationBusy()
-                return original(*args, **kwargs)
-
-            with patch.object(client, "commit_new", side_effect=busy_after_record):
-                with self.assertRaises(SubmissionInFlight) as caught:
-                    tool.submit(action["intent"], ref)
-            self.assertNotIsInstance(caught.exception, ObservationBusy)
-            self.assertIn("partially_committed", str(caught.exception))
-            # The half-committed state is real and now named: the record is durable,
-            # the output is absent on disk.
-            self.assertTrue(Path(completion_slot(tool.root, "fields-intent")).exists())
-            self.assertFalse(Path(action["result_path"]).exists())
-
-    def test_the_output_phase_never_asks_the_owner_again(self):
-        """attempt19's actual mechanism: the output recheck lost the owner to the other role.
-
-        The record admission already obtained every confirmation the output phase
-        needs, so the phase must replay the pinned chain locally instead of taking
-        the single-executor owner a second time. A busy there is not a retryable
-        non-execution: the record is durable and the action can never be re-admitted.
-        """
-        import bootstrap_driver
-        from bootstrap_actions import completion_slot
-        from observation_budget import ObservationBusy
-
-        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
-            candidate = Path(action["submission"]["candidate_path"])
-            publish_new(candidate, action["payload"]["candidate_template"])
-            record = Path(completion_slot(f.root, "fields-intent"))
-            original = bootstrap_driver.chain_confirmations
+            original = client.commit_batch
             calls = []
 
-            def owner_is_taken_after_the_record(*args, **kwargs):
-                calls.append(record.exists())
-                if record.exists():
+            def busy_once(*args, **kwargs):
+                calls.append(1)
+                if len(calls) == 1:
                     raise ObservationBusy()
                 return original(*args, **kwargs)
 
-            with patch.object(bootstrap_driver, "chain_confirmations",
-                              side_effect=owner_is_taken_after_the_record):
-                result = tool.submit(action["intent"], file_ref(candidate))
+            with patch.object(client, "commit_batch", side_effect=busy_once):
+                with self.assertRaises(ObservationBusy):
+                    tool.submit(action["intent"], ref)
+                self.assertFalse(Path(completion_slot(tool.root, "fields-intent")).exists())
+                self.assertFalse(Path(action["result_path"]).exists())
+                result = tool.submit(action["intent"], ref)
+            self.assertTrue(Path(completion_slot(tool.root, "fields-intent")).exists())
             self.assertEqual(result["result"]["path"], action["result_path"])
             self.assertTrue(Path(action["result_path"]).exists())
-            self.assertIn(False, calls)  # the record admission still confirmed the chain
-            self.assertNotIn(True, calls)  # the output phase asked nobody
-            self.assertEqual(client.query(f.control, file_ref(Path(action["result_path"]))).status,
-                             "confirmed")
 
     def test_the_record_fence_outranks_a_busy_owner(self):
         """attempt24: five retries reported a permanent fence as a transient busy.
