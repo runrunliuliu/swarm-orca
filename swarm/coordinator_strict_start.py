@@ -310,7 +310,11 @@ def publish(ref, ready_ref):
         if current.get() is not None:
             # Preserve admitted native outcome even if STOP won during run_gate.
             publish_new(gate_path, receipt)
-            checkpoint()
+            # The receipt is already admitted and published; a busy owner read here
+            # must not become a terminal failure bundle in the one-shot gate slot
+            # (attempt26: the gate verified and the bundle still recorded a failure).
+            budget = (timestamp(config["deadline"]) - timestamp(now())).total_seconds()
+            checkpoint_until(time.monotonic() + min(30.0, max(0.0, budget)))
         require(timestamp(ready["ready_at"]) <= timestamp(receipt["started_at"]),
                 "strict_start_gate_predates_readiness")
         load(ref)
