@@ -422,6 +422,27 @@ coordinator_launch.py strict-bootstrap-wait-stage \
 
 **不得**把 5.1 的结果表述为 live 验收；也不得用 5.1 声称「E1 不会再现」。
 
+#### 5.2.1 首次 live 对照（2026-11-12，受控环境）
+
+用一个**合成但字节真实**的 attempt（binding 过 `bootstrap_events.binding()`、refs 过 `pinned()`）加**真实 Orca pane 与真实 mailbox** 做的对照，不是真 attempt 的业务结果：
+
+| # | 观测 | 结论 |
+| --- | --- | --- |
+| 1 | 接收方在 `--wait` 中阻塞；发送方 `orchestration send` 完成后 **30 ms / 32 ms**（两次）接收方返回（旧形态是空转到 320 s 分片）| mailbox 能唤配正在等待的接收方，steering 不能 |
+| 1b | 接收侧会话转录：12 个工具调用，`sleep` 计数 **0**、`terminal read` 计数 **0** | 等待没有退化成轮询 |
+| 2 | 接受记录含 `msg_id`/`from_handle`/`sender_anchor: binding-operator`/payload sha + ref sha | 字段与设计一致 |
+| 3 | 错 pane 投递（pin 全对、sender 不对）→ 退出 5 `handoff_sender_mismatch`，`diagnostics.pin = null`，**未写记录** | 两个断言独立，live 上也没有「pin 对就算过」的短路 |
+| 4 | `wait-stage` 在 marker 出现的 **246 ms** 后被唤醒（预算 60 s），因 marker 不合法返 5 `present_unvalidated` | 唤醒不是回执；呼醒后仍验链，不合法就 fail-closed，不烧完窗口 |
+| 5 | 重入未消费的同一投递 → 3 `handoff_duplicate_no_effect`（`may_replay: false`）| 等待不消费投递；消费是调用方的显式动作 |
+
+live 对照当场暴露了两个离线套件看不到的缺陷，已修（提交见 §11 v4）：
+
+- `accepted_at` 在调用入口就取时钟，于是「等了 5 秒」的接受记录写出的时间**早于**投递自己的 `created_at`；
+  修复后实测接受时间晚于投递 **0.754 s**。
+- binding 完好但固定输入（role skill / workspace）已被删除时，诊断一律报 `attempt_binding: missing`，把人指向错的那个文件；现在分开报 `pinned_input`。
+
+仍未做（不声称）：真 attempt 业务链的 S0→S5 全链；`wait-stage` 返回 0 的 live 路径（需要真 owner 发布合法 marker）；受控错 pane 以外的身份伪造场景。
+
 ## 6. 不变量与红线
 
 沿用 [liveness §5](strict-bootstrap-liveness.md) 的红线，另加通道相关条目：
@@ -598,3 +619,10 @@ owner-blocking）。
 
 三处都是**把验收表对齐到已提交的实现**，没有放宽任何判据；离线结果（42/109 模块、1097 tests、
 TARGETED OK）不受影响，live 仍未验收。
+
+### v4（2026-11-12，live 对照回填）
+
+按 §5.2.1 的首次 live 对照修了两个只在那里面暴露的缺陷（代码 + 测试，见对应提交）：`accepted_at`
+改在写记录时取时钟；不可达诊断分开报 `attempt_binding` 与 `pinned_input`。同时把 §5.2 的观测结果写进 5.2.1，
+并明写仍然没做的事：真 attempt 全链、`wait-stage` 返回 0 的 live 路径、冒充类场景。
+这仍不是 live 验收：受控台架证明的是通道与断言行为，不是业务链通过。
