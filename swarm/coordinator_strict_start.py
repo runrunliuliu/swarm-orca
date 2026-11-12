@@ -150,6 +150,26 @@ def validate_start_window(config, *, checked_at=None):
     return remaining
 
 
+def checkpoint_until(stop):
+    """Keep the one live waiter alive across a busy owner.
+
+    `checkpoint()` is read-only (owner `active` plus the pinned inputs), so a busy
+    executor proves nothing was decided. Aborting the waiter for it is how attempt23
+    lost its Run: `ready.json` and the Operator gate were both published and no
+    waiter was left to consume them. Nothing is admitted here, and every retry
+    rechecks the same window, so this never extends the deadline.
+    """
+    from observation_budget import ObservationBusy
+    while True:
+        try:
+            checkpoint()
+            return
+        except ObservationBusy:
+            if time.monotonic() >= stop:
+                raise
+            time.sleep(0.1)
+
+
 def require_unstarted_attempt(directory):
     """Presence is a replay fence, not proof of native success or failure.
 
@@ -291,7 +311,11 @@ def publish(ref, ready_ref):
         if current.get() is not None:
             # Preserve admitted native outcome even if STOP won during run_gate.
             publish_new(gate_path, receipt)
-            checkpoint()
+            # The receipt is already admitted and published; a busy owner read here
+            # must not become a terminal failure bundle in the one-shot gate slot
+            # (attempt26: the gate verified and the bundle still recorded a failure).
+            budget = (timestamp(config["deadline"]) - timestamp(now())).total_seconds()
+            checkpoint_until(time.monotonic() + min(30.0, max(0.0, budget)))
         require(timestamp(ready["ready_at"]) <= timestamp(receipt["started_at"]),
                 "strict_start_gate_predates_readiness")
         load(ref)
@@ -343,7 +367,10 @@ def wait_and_create(ref):
     watcher = publication_wait.watch(bundle_path)
     try:
         while True:
-            checkpoint()
+            # `checkpoint_until` is the branch's fix for attempt23: a busy owner read is not a
+            # publication verdict, and aborting here leaves the published gate with no waiter.
+            # It retries inside the same window, so the deadline below is still the decision.
+            checkpoint_until(stop)
             require(time.monotonic() < stop and timestamp(now()) < timestamp(config["deadline"]),
                     "strict_start_wait_expired")
             # Only ENOENT means wait. Invalid/failed publications and permission errors stop.
@@ -375,7 +402,7 @@ def wait_and_create(ref):
     # Leave a whole native second inside the gate; never widen the gate itself.
     require(earliest + timedelta(seconds=1) <= cutoff, "strict_start_no_safe_creation_window")
     while True:
-        checkpoint()
+        checkpoint_until(stop)
         current_time = timestamp(now())
         require(time.monotonic() < stop and timestamp(receipt["completed_at"]) <= current_time < cutoff,
                 "strict_operator_session_receipt_stale")

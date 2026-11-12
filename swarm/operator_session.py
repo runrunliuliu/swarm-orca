@@ -235,6 +235,17 @@ def observe_operator(ref):
 
 
 def observe(ref):
+    """Legacy Trae-TUI Coordinator observation; NOT provider-dispatched.
+
+    This entry (reached as `operator_prepare observe-coordinator|observe-session`)
+    always runs the Trae reader and publishes `provider: "trae"`. Its input schema
+    carries no provider field, and a provider-specific `runtime_config` Ref looks
+    identical for both providers, so there is nothing here to refuse *on*: guessing
+    from a path shape would be the same defect in a new place. It is therefore an
+    explicitly Trae-only legacy surface (protocol §5.1 "still not supported"); the
+    Pi path is `bootstrap_identity` / `observe_identity`, which resolve the declared
+    provider through `provider_capability` before any native query.
+    """
     source = parse(pinned(ref))
     require(isinstance(source, dict) and set(source) == {
         "schema_version", "cli", "runtime", "terminal", "incarnation", "workspace",

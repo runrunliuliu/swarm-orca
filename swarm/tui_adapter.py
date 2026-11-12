@@ -32,6 +32,11 @@ def policy_key(adapter):
     return {TRAE_ADAPTER: "trae_runtime_config", PI_ADAPTER: "pi_policy"}.get(adapter)
 
 
+def provider(adapter):
+    """Which provider name a TUI pane carries (`agentIdentity`) for this adapter."""
+    return {TRAE_ADAPTER: "trae", PI_ADAPTER: "pi"}.get(adapter)
+
+
 def kind_adapter(kind):
     """Map an observation kind back to the adapter that may have produced it."""
     if kind in ("trae_tui_startup_anchor", "trae_tui_session_observation"):

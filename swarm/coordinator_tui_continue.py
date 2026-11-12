@@ -52,7 +52,12 @@ def freshness(contract, evidence, deadline):
     # Reserve time for checkpoint/domain review + enqueue. This is scheduling
     # advice, not permission to finish an action after evidence expires.
     checkpoint_by = expires - timedelta(seconds=min(180, max_age / 2))
-    return {"context_observed_at": evidence["observed_at"], "context_age_seconds": age,
+    return {"context_observed_at": evidence["observed_at"],
+            # A turn-level anchor: an adapter whose `observed_at` moves per model
+            # step (pi) reports the turn start separately, so "is this the current
+            # turn?" never degenerates into "is this the newest step?".
+            "turn_observed_at": evidence.get("turn_at") or evidence["observed_at"],
+            "context_age_seconds": age,
             "context_expires_at": (observed + timedelta(seconds=max_age)).isoformat(),
             "valid_until": expires.isoformat(), "checkpoint_by": checkpoint_by.isoformat(),
             "checkpoint_due": current >= checkpoint_by,
@@ -375,13 +380,10 @@ def validate_config(config, *, require_executing=True):
     require(isinstance(acceptance, dict) and set(acceptance) == {"requirements"}, "tui_acceptance_invalid")
     if "authority_binding" in config:
         validate_binding(config["authority_binding"], contract, acceptance)
-    # Why: continuation after S5 is bound to the Trae TUI contract (session/turn
-    # context/oracle semantics). A Pi Run reaches S5 but has no migrated continuation
-    # contract yet, so say that instead of reporting a missing gated Run.
-    if tui_adapter.is_tui(contract.get("adapter")) and not continuation_adapter_supported(contract["adapter"]):
-        raise TuiError("tui_continuation_adapter_unsupported")
-    require(contract["adapter"] == TUI_ADAPTER and contract["run"] is not None,
-            "tui_continuation_requires_gated_run")
+    # Every TUI adapter this build knows may continue its own Run; an adapter outside
+    # that set is refused by name instead of being reported as a missing gated Run.
+    require(tui_adapter.is_tui(contract.get("adapter")), "tui_continuation_adapter_unsupported")
+    require(contract["run"] is not None, "tui_continuation_requires_gated_run")
     require(config.get("scheduler", {}).get("terminal") != contract["coordinator"]["terminal"],
             "tui_scheduler_requires_operator")
     if "startup_lifecycle" in config:
@@ -667,18 +669,11 @@ def live_runtime_epoch(cli, runtime, call, initial, contract):
     }
 
 
-def continuation_adapter_supported(adapter):
-    """Continuation after S5 is migrated for the Trae TUI contract only.
-
-    A Pi Run can reach S5, but its turn-end/continuation contract is not migrated
-    (strict-bootstrap-protocol §5.1). Keep that a named refusal instead of letting the
-    generic "no gated Run" error suggest the Run is missing.
-    """
-    return adapter == TUI_ADAPTER
-
-
 def fence_with_runtime(contract, call):
-    from trae_tui import observe
+    """Fence the live Coordinator turn through the reviewed reader of its own adapter."""
+    adapter = contract["adapter"]
+    observer, policy_key = tui_adapter.reader(adapter)
+    provider = tui_adapter.provider(adapter)
     cli, runtime = contract["cli"]["path"], contract["runtime"]
     c, r = contract["coordinator"], contract["run"]
     require(os.environ.get("ORCA_TERMINAL_HANDLE") == c["terminal"], "tui_original_context_required")
@@ -688,7 +683,7 @@ def fence_with_runtime(contract, call):
     terminal = call(cli, live_runtime, ["terminal", "show", "--terminal", c["terminal"]])["terminal"]
     require(terminal.get("incarnationId") == c["incarnation"]
             and terminal.get("worktreeId") == contract["workspace"]["id"]
-            and terminal.get("agentIdentity") == "trae" and terminal.get("connected") is True
+            and terminal.get("agentIdentity") == provider and terminal.get("connected") is True
             and terminal.get("orphaned") is False, "tui_agent_unverifiable")
     def check_owner():
         shown = call(cli, live_runtime, ["orchestration", "run-show", "--id", r["id"]])
@@ -700,12 +695,19 @@ def fence_with_runtime(contract, call):
 
     check_owner()
     o = contract["observation"]
-    evidence = observe(cli=cli, runtime=live_runtime, terminal=c["terminal"], incarnation=c["incarnation"],
+    options = dict(cli=cli, runtime=live_runtime, terminal=c["terminal"], incarnation=c["incarnation"],
         workspace=contract["workspace"]["id"], cwd=contract["workspace"]["path"],
         profile=o["profile"], caller_receipt=o["caller_receipt"], log_root=o["log_root"], roots=o["roots"],
-        trae_runtime_config=contract["runtime_config"]["path"], expected_thread=c["session"],
+        expected_thread=c["session"],
         context_max_age_seconds=contract["freshness"]["context_max_age_seconds"], startup_anchor=o["startup_anchor"],
-        caller_receipt_runtime=runtime, accepted_runtime_rebind=runtime_rebind)
+        caller_receipt_runtime=runtime)
+    options[policy_key] = tui_adapter.input_value(adapter, contract["runtime_config"])
+    if policy_key == "trae_runtime_config":
+        options["accepted_runtime_rebind"] = runtime_rebind
+    else:
+        # A Pi anchor requires one runtime id; a rebind is not a supported shape.
+        require(runtime_rebind is None, "tui_runtime_rebind_unsupported")
+    evidence = observer(**options)
     require(evidence["thread_id"] == c["session"], "tui_provider_session_changed")
     # Settings/log inspection does not lease authority during its I/O window.
     check_owner()

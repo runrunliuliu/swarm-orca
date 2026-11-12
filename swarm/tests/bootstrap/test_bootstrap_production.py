@@ -1322,19 +1322,119 @@ class ProvedNonExecutionTests(unittest.TestCase):
             self.assertFalse(non_execution(unknown), state)
         self.assertFalse(non_execution(ValueError("bootstrap_owner_busy_not_executed")))
 
-    def test_release_keeps_the_record_and_frees_the_slot(self):
-        import tempfile
-        from pathlib import Path
-        from bootstrap_tool import NON_EXECUTION_RECORD_SUFFIX, release_not_executed
+    def test_a_pi_fields_template_declares_the_workspace_as_a_write_root(self):
+        """The domain checkpoint cannot live in the bootstrap directory (attempt32 F3)."""
+        with production() as (f, owner, identity, client, _):
+            tool = RoleTool(f.control, client, "coordinator")
+            try:
+                capability = tool.coordinator_capability()
+                roots = tool.observation_roots()
+                self.assertEqual(roots[0], str(tool.root))
+                if capability.tui_adapter == "pi-tui-runtime-v1":
+                    self.assertIn(f.b["workspace"]["path"], roots)
+                else:
+                    self.assertEqual(roots, [str(tool.root)])
+            finally:
+                tool.close()
 
-        with tempfile.TemporaryDirectory() as root:
-            execution = Path(root) / "observe-execute.json"
-            execution.write_text('{"kind":"strict_bootstrap_production_intent"}\n')
-            record = release_not_executed(execution)
-            self.assertFalse(execution.exists())
-            self.assertEqual(record, str(execution) + NON_EXECUTION_RECORD_SUFFIX)
-            self.assertEqual(Path(record).read_text(), '{"kind":"strict_bootstrap_production_intent"}\n')
-            # A second release overwrites the record instead of raising.
-            execution.write_text("{}\n")
-            self.assertEqual(release_not_executed(execution), record)
-            self.assertFalse(execution.exists())
+    def test_a_proved_non_execution_lets_the_retry_reuse_the_admitted_marker(self):
+        """attempt21: the marker was admitted, the result commit was refused, and the
+        retry could neither re-publish the marker nor rename it away.
+
+        Reuse stays conditional: an *unknown* native outcome still refuses below.
+        """
+        from bootstrap_tool import NOT_EXECUTED_SUFFIX
+        from observation_budget import ObservationBusy
+
+        with production() as (f, owner, identity, client, _):
+            tool = RoleTool(f.control, client, "coordinator")
+            try:
+                action = tool.pull(30)
+                execution = str(tool.root / "control" / "caller-execute.json")
+                original = tool.emit
+
+                def refuse_result(name, value, actor, prerequisites=(), check=None, confirmations=True):
+                    if name == "caller_receipt":  # the result, not the marker
+                        raise ObservationBusy()
+                    return original(name, value, actor, prerequisites, check=check,
+                                    confirmations=confirmations)
+
+                with patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_test"}), \
+                        patch("trae_coordinator.native", return_value=dict(f.base.tui.caller)), \
+                        patch.object(tool, "emit", side_effect=refuse_result):
+                    with self.assertRaises(ObservationBusy):
+                        tool.produce(action["intent"])
+                self.assertTrue(Path(execution).exists())
+                proof = parse(Path(execution + NOT_EXECUTED_SUFFIX).read_bytes())
+                self.assertEqual(proof["marker"], file_ref(execution))
+                before = dict(owner.attempted)
+                with patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_test"}), \
+                        patch("trae_coordinator.native", return_value=dict(f.base.tui.caller)) as native:
+                    tool.produce(action["intent"])
+                self.assertFalse(Path(execution + NOT_EXECUTED_SUFFIX).exists())
+                # The marker is reused, never re-published: only the result is new.
+                self.assertEqual(owner.attempted[execution], before[execution])
+                native.assert_called_once()  # the read-only production re-ran once
+            finally:
+                tool.close()
+
+    def test_a_busy_observer_also_records_the_retry_proof(self):
+        """The other proved non-execution: the observer itself is refused."""
+        from bootstrap_tool import NOT_EXECUTED_SUFFIX
+        from observation_budget import ObservationBusy
+
+        class Capability:
+            tui_adapter = "pi-tui-runtime-v1"
+
+        from bootstrap_role_fixture import RoleWorkflow
+
+        with production() as (f, owner, identity, client, owner_ref):
+            action = RoleWorkflow(f, identity, owner_ref).until("observe-intent")
+            identity.actor = "operator"
+            tool = RoleTool(f.control, client, "operator")
+            try:
+                execution = str(tool.root / "control" / "observe-execute.json")
+
+                def busy(**_kwargs):
+                    raise ObservationBusy()
+
+                with patch.object(tool, "coordinator_capability", return_value=Capability()), \
+                        patch("bootstrap_tool.tui_adapter.reader", return_value=(busy, "pi_policy")), \
+                        patch("bootstrap_tool.tui_adapter.input_value", return_value=None):
+                    with self.assertRaises(ObservationBusy):
+                        tool.produce(action["intent"])
+                self.assertTrue(Path(execution).exists())
+                proof = tool.not_executed_proof(execution)
+                self.assertEqual(proof["marker"], file_ref(execution))
+            finally:
+                tool.close()
+
+    def test_an_unknown_or_foreign_proof_keeps_the_marker_unreusable(self):
+        from bootstrap_tool import NOT_EXECUTED_SUFFIX
+
+        with production() as (f, owner, identity, client, _):
+            tool = RoleTool(f.control, client, "coordinator")
+            try:
+                action = tool.pull(30)
+                execution = str(tool.root / "control" / "caller-execute.json")
+                with patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_test"}), \
+                        patch("trae_coordinator.native", side_effect=TimeoutError("unknown")):
+                    with self.assertRaises(TimeoutError):
+                        tool.produce(action["intent"])
+                with self.assertRaisesRegex(ValueError, "requires_reconciliation"):
+                    tool.produce(action["intent"])
+                foreign = dict(schema_version=1, kind="strict_bootstrap_not_executed",
+                               marker=dict(path=execution, sha256="0" * 64),
+                               execution_authorized=False)
+                Path(execution + NOT_EXECUTED_SUFFIX).write_bytes(canonical(foreign) + b"\n")
+                with self.assertRaisesRegex(ValueError, "requires_reconciliation"):
+                    tool.produce(action["intent"])
+                # An exactly-pinned but malformed proof is not a protocol either.
+                for bad in (dict(foreign, marker=file_ref(execution), kind="other"),
+                            dict(foreign, marker=file_ref(execution), schema_version=2),
+                            dict(foreign, marker=file_ref(execution), execution_authorized=True)):
+                    Path(execution + NOT_EXECUTED_SUFFIX).write_bytes(canonical(bad) + b"\n")
+                    with self.assertRaisesRegex(ValueError, "requires_reconciliation"):
+                        tool.produce(action["intent"])
+            finally:
+                tool.close()

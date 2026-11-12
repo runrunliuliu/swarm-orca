@@ -24,6 +24,41 @@ import publication_wait
 REAL_WATCH = publication_wait.watch
 
 
+class S5IntentReuseTests(unittest.TestCase):
+    """Every S5 command re-enters the guard, so its own intent must be adoptable.
+
+    Re-publishing it made the second invocation of any S5 command impossible once
+    the first had admitted its intent (attempt20 `s5-deliver.json`, attempt22
+    `s5-review.json`). Only the start time may differ; anything else is a different
+    command and stays refused.
+    """
+
+    def value(self, **changes):
+        base = dict(kind="strict_bootstrap_s5_intent", action="review", actor="operator",
+                    control_id="ctl", generation="1",
+                    request={"path": "/r.json", "sha256": "a" * 64},
+                    association={"path": "/a.json", "sha256": "b" * 64},
+                    execution_authorized=False)
+        return dict(base, **changes)
+
+    def test_the_same_command_is_adopted_across_start_times(self):
+        from bootstrap_s5 import still_intent
+
+        first, second = self.value(started_at="t1"), self.value(started_at="t2")
+        self.assertTrue(still_intent({k: v for k, v in first.items() if k != "started_at"}, second))
+
+    def test_a_different_action_request_or_control_is_not_the_same_intent(self):
+        from bootstrap_s5 import still_intent
+
+        expected = {k: v for k, v in self.value(started_at="t1").items() if k != "started_at"}
+        for change in (dict(action="deliver"), dict(actor="coordinator"), dict(generation="2"),
+                       dict(request={"path": "/other.json", "sha256": "a" * 64}),
+                       dict(association={"path": "/a.json", "sha256": "c" * 64})):
+            with self.subTest(change=change):
+                self.assertFalse(still_intent(expected, self.value(started_at="t2", **change)))
+        self.assertFalse(still_intent(expected, None))
+
+
 class StrictDeliveryTests(unittest.TestCase):
     def setUp(self):
         self.prep = prepare_tests.StrictPrepareTests()
@@ -236,6 +271,50 @@ class StrictDeliveryTests(unittest.TestCase):
         with patch("coordinator_strict_start.native", side_effect=changed):
             with self.assertRaisesRegex(ValueError, "strict_launch_authority_changed"):
                 wait_for_config(self.ref)
+        self.assert_no_start()
+
+    def test_a_registered_attempt_is_refused_before_the_review_work(self):
+        """attempt18: preparation and review were spent, then the lifecycle was missing.
+
+        The lifecycle requirement is unchanged; it must decide before the operator
+        pays for preparation review, and the garbage refs below prove the ordering:
+        they would raise their own pin errors if they were read first.
+        """
+        from bootstrap_s5 import current
+
+        class Guard:
+            def verify_read(self, ref):
+                return None
+
+        token = current.set(Guard())
+        self.addCleanup(current.reset, token)
+        missing = {"path": str(self.bootstrap / "absent.json"), "sha256": "0" * 64}
+        with self.assertRaisesRegex(ValueError, "strict_lifecycle_required"):
+            deliver(self.ref, missing, missing)
+        self.assertFalse((self.bootstrap / "lifecycle").exists())
+
+    def test_a_historical_unregistered_attempt_keeps_its_old_path(self):
+        # No S5 guard is active, so the lifecycle stays optional exactly as before.
+        self.prepare()
+        with patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_operator"}):
+            result = deliver(self.ref, self.result["config"], self.result["preparation"])
+        self.assertTrue(result["ok"])
+        self.assertFalse((self.bootstrap / "lifecycle").exists())
+
+    def test_a_recorded_but_unwritten_publication_names_its_recovery(self):
+        """attempt20 ended here with a generic delivery failure and no way to act.
+
+        The owner records the publication intent before writing it; when the write
+        did not happen the operator must be told to reconcile that entry, while the
+        publication stays unpublishable by any other route.
+        """
+        self.prepare()
+        with patch("coordinator_strict_delivery.publish_new",
+                   side_effect=ValueError("bootstrap_commit_requires_reconciliation")), \
+                patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_operator"}):
+            with self.assertRaisesRegex(ValueError, "strict_config_publication_requires_reconcile"):
+                deliver(self.ref, self.result["config"], self.result["preparation"])
+        self.assertFalse(Path(self.locations["publication_path"]).exists())
         self.assert_no_start()
 
     def test_publication_wrong_request_is_rejected(self):

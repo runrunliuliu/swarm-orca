@@ -231,7 +231,7 @@ class SourceObservationTests(unittest.TestCase):
                 waits.append(args)
                 return IdleWaitResult("ready")
             return self.call(args, *rest)
-        with patch("coordinator_tui_scheduler.observe", return_value=copy.deepcopy(self.r.s.ended)) as observer:
+        with patch("trae_tui.observe", return_value=copy.deepcopy(self.r.s.ended)) as observer:
             source.observe_source(self.r.d.ref, call=call, caller_call=self.caller)
             self.assertEqual(observer.call_count, 2)
             self.assertTrue(observer.call_args.kwargs["completed_turn"])

@@ -321,12 +321,23 @@ Pi 与 Trae 的差异必须在契约里显式承担，不假装等价：
   观察器不声称已核实其生效（Trae 侧由 `turn_context.sandbox_policy` + `observe_write_roots` 核验）。
 - pi 的 anchor 要求同一 runtime id（不做 Trae 的 epoch rebind）；换 runtime 即重新建立 anchor。
 
-**仍未支持**：Run 之后的 TUI continuation/scheduler（`coordinator_tui_continue.py`、
-`coordinator_tui_scheduler.py`）以及 operator materials 的 launch-plan 生成器
-（`coordinator_launch.py` / `trae_coordinator.build_trae_plan`）仍按 Trae 路径写；pi Coordinator
+**仍未支持**：`coordinator_tui_scheduler.py` 的 completed-turn 读取
+（`from trae_tui import observe` + `completed_turn=True`）仍是 Trae-only，pi 自动调度不能做；
+operator materials 的 launch-plan 生成器（`coordinator_launch.py` / `trae_coordinator.build_trae_plan`）
+也仍按 Trae 路径写。`coordinator_tui_continue.py` 的 adapter fence 已接通两个 TUI adapter（见下），
+但只有单元覆盖、没有 live 证据。pi Coordinator
 的 S0–S5 已可核验，但这些后续组件要单独迁移。S5 之后、Run 已建立时，
-`coordinator_tui_continue.py` 会以 `tui_continuation_adapter_unsupported` 明确拒绝非 Trae TUI 的
-continuation 契约（此前只报笼统的 `tui_continuation_requires_gated_run`），不是 Run 缺失，也不是身份问题。
+`coordinator_tui_continue.py` 现在通过 `tui_adapter` 的适配器接缝选择 reader：Trae 与 Pi 的 TUI 契约
+都走各自的 `observe`/policy 输入，未知 adapters 仍以 `tui_continuation_adapter_unsupported` 明确拒绝
+（此前非 Trae 一律拒绝）。**注意**：pi 的 continuation 代码路径已接好并有单元覆盖，但尚未在真实链条上
+取得证据——attempt25 的 continuation 停在更早的 domain 输入（缺 `domain_binding`），没走到 adapter 校验；
+在拿到真实 Run 的 turn-end 证据之前，不得声称 pi continuation 已验证。
+
+同一类边界：`operator_session.py` 的 `observe()`（CLI 别名 `operator_prepare observe-coordinator`
+/ `observe-session`）是**遗留的 Trae-only 观察入口**，它的输入 schema 没有 provider 字段，且两侧的
+`runtime_config` 都是同一个 Ref 形状，所以它无法“按声明拒绝”而只能被声明为 Trae-only；pi 侧的对应
+入口是 `bootstrap_identity` / `operator_session.observe_identity`（先经 `provider_capability` 解析
+声明 provider，再决定读取器）。不要把 `observe()` 当成 pi 的替代入口。
 
 | 入口 | 缺失/未知声明 | 已知但证据不可读 |
 | --- | --- | --- |

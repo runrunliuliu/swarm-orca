@@ -86,6 +86,10 @@ class CommitOwner:
         self.closed = False
         self.stopped = False
         self.confirmations, self.attempted, self.published = set(), {}, {}
+        # The bytes of each recorded-but-unconfirmed attempt, in memory only.
+        # `reconcile` may finish such an attempt from these bytes; nothing else
+        # ever writes them, so no caller can supply an output.
+        self.attempted_raw = {}
         self.process = host_process()
         self.owner = io.directory_lock(self.root, "owner", create=False)
         self.check_inode = self.owner.__enter__()
@@ -213,8 +217,7 @@ class CommitOwner:
                 stated(exc, "not_admitted")
                 raise
             raw = io.canonical(value) + b"\n"
-            ref = dict(path=target, sha256=io.digest(raw))
-            self.attempted[target] = ref
+            ref = self.record_attempt(target, raw)
             try:
                 io.publish_new(Path(target), raw)
             except BaseException as exc:
@@ -278,7 +281,13 @@ class CommitOwner:
             return "unknown"
         if (target["path"], target["sha256"]) in self.confirmations:
             return "committed"
-        return "unknown" if self.published.get(target["path"]) == target else "needs_reconcile"
+        if self.published.get(target["path"]) == target:
+            return "unknown"
+        # Attempted, unpublished, and this owner no longer holds the bytes it
+        # recorded: no reconcile can complete it, so never report a class that
+        # promises one. (Within one owner lifetime every attempt keeps its bytes.)
+        return ("needs_reconcile" if self.attempted_raw.get(target["path"]) is not None
+                else "unknown")
 
     def query(self, control, target):
         io.validate_ref(target)
@@ -297,6 +306,61 @@ class CommitOwner:
         else:
             status = "confirmed" if (target["path"], target["sha256"]) in self.confirmations else "durability_unverified"
         return Confirmation(control, target, status, state=self.state_of(target))
+
+    def record_attempt(self, target, raw):
+        """The one place an attempt is recorded: ref for query/state, bytes for reconcile.
+
+        Both halves must be written together. A ref without its bytes is the
+        attempt20 shape: the outcome class promises a reconcile that no entry can
+        complete (`bootstrap_attempted_output_unavailable`).
+        """
+        ref = dict(path=target, sha256=io.digest(raw))
+        self.attempted[target] = ref
+        self.attempted_raw[target] = raw
+        return ref
+
+    def commit_batch(self, control, *, actor, entries, prerequisites, recheck):
+        """Admit and publish one unit of targets in a single serial section.
+
+        `commit_new` admits one target per call, so a refusal between a submission
+        record and its outputs left a durable record with no output and no recovery
+        (attempts 19 and 24). Everything here happens under one admission: all
+        targets are checked, recorded, written and confirmed before the serial
+        section ends, so no other role's poll can split the unit. This is not a
+        filesystem transaction: a write that fails midway is still published as an
+        unknown outcome.
+        """
+        with self.serial:
+            io.require(isinstance(entries, list) and entries, "bootstrap_rpc_invalid")
+            refs = [dict(path=path, sha256=io.digest(raw)) for path, raw in entries]
+            io.require(len({ref["path"] for ref in refs}) == len(refs), "bootstrap_rpc_invalid")
+            for ref in refs:
+                io.require(ref["path"] not in self.attempted, "bootstrap_commit_requires_reconciliation")
+            for (path, raw), ref in zip(entries, refs):
+                self.admit_target(control, actor, path, raw)
+            for ref in prerequisites:
+                io.require(self.query(control, ref).status == "confirmed", "bootstrap_prerequisite_unconfirmed")
+            recheck()
+            # Adapter and identity are re-read once for the whole unit.
+            self.active(control)
+            # Order is the caller's, and each target is recorded immediately before
+            # its own write: the bookkeeping record is last, so when its write is
+            # reached every output it announces is already durable. This is what
+            # keeps `reconcile(path=record)` from ever publishing a record alone —
+            # pre-recording the whole unit would leave the record's bytes in
+            # `attempted_raw` while its outputs failed, and reconcile would then
+            # publish exactly the fence this commit removes.
+            for (path, raw), ref in zip(entries, refs):
+                self.record_attempt(path, raw)
+                try:
+                    io.publish_new(Path(path), raw)
+                except BaseException as exc:
+                    self.invalidate()
+                    stated(exc, "unknown")
+                    raise
+                self.published[path] = ref
+                self.confirmations.add((path, ref["sha256"]))
+            return [Confirmation(control, ref, "confirmed", state="committed") for ref in refs]
 
     def commit_new(self, control, *, actor, target, raw, prerequisites, recheck):
         for attempt in range(2):
@@ -324,10 +388,7 @@ class CommitOwner:
                     stated(exc, "not_admitted")
                     raise
                 else:
-                    ref = dict(path=target, sha256=io.digest(raw))
-                    # The intent record precedes the write: attempted-and-absent is
-                    # a class of its own, never inferred from publish_new raising.
-                    self.attempted[target] = ref
+                    ref = self.record_attempt(target, raw)
                     try:
                         io.publish_new(Path(target), raw)
                     except BaseException as exc:
@@ -339,8 +400,12 @@ class CommitOwner:
                     return Confirmation(control, ref, "confirmed", state="committed")
             self.refresh(force=True)
 
-    def admit(self, control, *, actor, target, raw, prerequisites, recheck):
-        """Everything that must hold before the owner records an intent."""
+    def admit_target(self, control, actor, target, raw):
+        """Per-target gates every commit path must pass, including a batch.
+
+        Extracted so `commit_new`, `settle` and `commit_batch` cannot drift: the
+        lifecycle `spec.json` checks are not a special case a batch may skip.
+        """
         self.active(control)
         io.require(self.role_for(target) == actor, "bootstrap_role_or_path_mismatch")
         if target == str(self.root.parent / "lifecycle" / "spec.json"):
@@ -349,6 +414,10 @@ class CommitOwner:
             io.require("runtime" in spec, "startup_runtime_policy_required")
             io.require(spec["bootstrap_owner"] == io.file_ref(self.root / "owner.json"),
                        "startup_original_owner_required")
+
+    def admit(self, control, *, actor, target, raw, prerequisites, recheck):
+        """Everything that must hold before the owner records an intent."""
+        self.admit_target(control, actor, target, raw)
         for ref in prerequisites:
             io.require(self.query(control, ref).status == "confirmed", "bootstrap_prerequisite_unconfirmed")
         recheck()  # Read-only; never repeat publication or a producer.
@@ -362,16 +431,39 @@ class CommitOwner:
             io.publish_new(self.root / "STOP.json", dict(kind="strict_bootstrap_stop",
                 control=asdict(control), owner=self.process, stopped_at=io.now(), execution_authorized=False))
 
-    def reconcile(self, control, *, target, recheck):
+    def reconcile(self, control, *, target=None, path=None, recheck):
+        """Complete or re-barrier ONE commit this owner recorded itself.
+
+        `target` keeps its meaning: the exact ref of bytes already on disk. `path`
+        addresses the owner's own recorded attempt instead, which is the only way
+        to name it after the caller lost the reply (the recorded ref is in memory
+        and its bytes may include a clock reading the caller cannot reproduce).
+        When nothing was written yet, the owner publishes the bytes it recorded
+        itself; their digest must still be the recorded ref, so this can never
+        adopt caller bytes or a second intent.
+        """
         with self.serial:
             self.bound(control)
             self.invalidate()
             io.require(not self.stopped and not os.path.lexists(self.root / "STOP.json"), "bootstrap_stopped")
             self.identity.check()
+            io.require(isinstance(path, str) != (target is not None), "bootstrap_rpc_invalid")
+            if target is None:
+                target = self.attempted.get(path)
+                io.require(target is not None, "bootstrap_original_commit_unknown")
             # This serial call proves the owner's original publisher is drained;
             # there is no adoption of arbitrary files or replay of native actions.
             io.require(self.attempted.get(target["path"]) == target, "bootstrap_original_commit_unknown")
             recheck()
+            if not os.path.lexists(target["path"]):
+                raw = self.attempted_raw.get(target["path"])
+                io.require(raw is not None and io.digest(raw) == target["sha256"],
+                           "bootstrap_attempted_output_unavailable")
+                io.publish_new(Path(target["path"]), raw)
+                io.require(io.file_ref(Path(target["path"])) == target, "bootstrap_publish_mismatch")
+                self.published[target["path"]] = target
+                self.confirmations.add((target["path"], target["sha256"]))
+                return Confirmation(control, target, "confirmed")
             io.pinned(target)
             fd = os.open(target["path"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             try:
@@ -406,8 +498,7 @@ class CommitOwner:
             except ValueError as exc:
                 stated(exc, "not_admitted")
                 raise
-            ref = dict(path=target, sha256=io.digest(raw))
-            self.attempted[target] = ref
+            ref = self.record_attempt(target, raw)
             try:
                 io.publish_new(Path(target), raw)
             except BaseException as exc:
@@ -522,6 +613,17 @@ class OwnerServer:
             io.require(not args, "bootstrap_rpc_invalid")
             owner.stop(control)
             return {"stopped": True}
+        if op == "commit-batch":
+            io.require(set(args) == {"actor", "entries", "prerequisites"}
+                       and args["actor"] == actor, "bootstrap_rpc_role_mismatch")
+            io.require(isinstance(args["entries"], list)
+                       and all(set(item) == {"target", "raw"} for item in args["entries"]),
+                       "bootstrap_rpc_invalid")
+            entries = [(item["target"], bytes.fromhex(item["raw"])) for item in args["entries"]]
+            confirmations = owner.commit_batch(control, actor=actor, entries=entries,
+                                               prerequisites=args["prerequisites"],
+                                               recheck=lambda: unchanged(identity))
+            return {"confirmations": [asdict(item) for item in confirmations]}
         if op == "settle":
             io.require(set(args) == {"target", "raw"}, "bootstrap_rpc_invalid")
             return asdict(owner.settle(control, actor=actor, target=args["target"], raw=bytes.fromhex(args["raw"])))
@@ -563,7 +665,7 @@ class OwnerServer:
                 io.require(not args, "bootstrap_rpc_invalid")
                 owner.arm(control)
                 return {"armed": True}
-            io.require(set(args) == {"target"}, "bootstrap_rpc_invalid")
+            io.require(set(args) in ({"target"}, {"path"}), "bootstrap_rpc_invalid")
             return asdict(owner.reconcile(control, **args, recheck=lambda: unchanged(identity)))
         io.require(op == "commit" and set(args) == {"actor", "target", "raw", "prerequisites"}
                    and args["actor"] == actor, "bootstrap_rpc_role_mismatch")
@@ -804,6 +906,21 @@ class AuthorityClient:
         io.require(result == asdict(Confirmation(control, ref, "confirmed", state="committed")),
                    "bootstrap_confirmation_mismatch")
         return Confirmation(control, ref, "confirmed", state="committed")
+
+    def commit_batch(self, control, *, actor, entries, prerequisites, recheck):
+        """One owner round trip admits the whole unit; `recheck` runs locally first."""
+        io.require(control == self.control, "bootstrap_control_mismatch")
+        recheck()
+        result = self.rpc("commit-batch", actor=actor, prerequisites=list(prerequisites),
+                          entries=[{"target": path, "raw": raw.hex()} for path, raw in entries])
+        refs = [dict(path=path, sha256=io.digest(raw)) for path, raw in entries]
+        confirmations = result.get("confirmations") if isinstance(result, dict) else None
+        io.require(isinstance(confirmations, list) and len(confirmations) == len(refs)
+                   and [item.get("target") for item in confirmations] == refs
+                   and all(item.get("status") == "confirmed" and item.get("state") == "committed"
+                           for item in confirmations),
+                   "bootstrap_confirmation_mismatch")
+        return refs
 
     def stop(self, control):
         io.require(control == self.control, "bootstrap_control_mismatch")

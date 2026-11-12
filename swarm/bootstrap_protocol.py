@@ -49,7 +49,8 @@ class ControlBinding:
 # everything the owner cannot classify, including any lost reply. No class other
 # than `not_admitted` grants a replay.
 COMMIT_STATES = ("not_admitted", "committed", "needs_reconcile", "unknown")
-COMMIT_OPS = frozenset({"commit", "settle", "runtime-review-input", "runtime-attest-trigger"})
+COMMIT_OPS = frozenset({"commit", "commit-batch", "settle", "runtime-review-input",
+                        "runtime-attest-trigger"})
 
 
 @dataclass(frozen=True)

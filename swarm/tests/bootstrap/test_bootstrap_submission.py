@@ -108,13 +108,13 @@ class SubmissionTests(unittest.TestCase):
                 publish_new(candidate, action["payload"]["candidate_template"])
                 ref = file_ref(candidate)
                 attempted, confirmations = dict(owner.attempted), set(owner.confirmations)
-                original = client.commit_new
+                original = client.commit_batch
                 def mutate_then_commit(*args, **kwargs):
                     candidate.write_bytes(b"changed")
                     return original(*args, **kwargs)
                 if when == "before_submit":
                     candidate.write_bytes(b"changed")
-                with patch.object(client, "commit_new", side_effect=mutate_then_commit), \
+                with patch.object(client, "commit_batch", side_effect=mutate_then_commit), \
                         self.assertRaisesRegex(ValueError, "file_pin_changed"):
                     tool.submit(action["intent"], ref)
                 self.assert_unchanged(owner, attempted, confirmations)
@@ -208,27 +208,117 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(pinned(action["intent"]), original)
             self.assert_unchanged(owner, attempted, confirmations)
 
-    def test_submit_reply_loss_queries_exact_final_pin_without_republication(self):
+    def test_a_lost_reply_leaves_the_whole_unit_durable_and_unrepeatable(self):
+        """Record and output are one admission, so a lost reply cannot split them."""
         with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
             candidate = Path(action["submission"]["candidate_path"])
             publish_new(candidate, action["payload"]["candidate_template"])
             ref = file_ref(candidate)
             final_ref = dict(ref, path=action["result_path"])
-            original = client.commit_new
+            original = client.commit_batch
             def commit_then_lose_reply(*args, **kwargs):
-                result = original(*args, **kwargs)
-                if kwargs["target"] == action["result_path"]:
-                    raise TimeoutError("test reply lost after owner commit")
-                return result
-            with patch.object(client, "commit_new", side_effect=commit_then_lose_reply) as commit:
+                original(*args, **kwargs)
+                raise TimeoutError("test reply lost after the unit was admitted")
+            with patch.object(client, "commit_batch", side_effect=commit_then_lose_reply) as commit:
                 with self.assertRaises(TimeoutError):
                     tool.submit(action["intent"], ref)
-                self.assertEqual(client.query(f.control, final_ref).status, "confirmed")
-                with self.assertRaisesRegex(ValueError, "result_already_committed"):
-                    tool.submit(action["intent"], ref)
-                self.assertEqual(commit.call_count, 2)
+            # Either both targets are durable or neither: here the owner admitted both.
+            self.assertEqual(client.query(f.control, final_ref).status, "confirmed")
+            self.assertEqual(commit.call_count, 1)
+            with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
+                tool.submit(action["intent"], ref)
             self.assertTrue(owner.armed)
             self.assertEqual(pinned(final_ref), pinned(ref))
+
+    def test_a_busy_on_the_unit_proves_nothing_was_admitted_and_the_retry_works(self):
+        """attempt19/24 died because a busy could arrive between record and output.
+
+        The unit is one admission now, so that window is gone: a busy leaves no
+        record and no output, and the same call succeeds once the owner is free.
+        """
+        from bootstrap_actions import completion_slot
+        from observation_budget import ObservationBusy
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            ref = file_ref(candidate)
+            original = client.commit_batch
+            calls = []
+
+            def busy_once(*args, **kwargs):
+                calls.append(1)
+                if len(calls) == 1:
+                    raise ObservationBusy()
+                return original(*args, **kwargs)
+
+            with patch.object(client, "commit_batch", side_effect=busy_once):
+                with self.assertRaises(ObservationBusy):
+                    tool.submit(action["intent"], ref)
+                self.assertFalse(Path(completion_slot(tool.root, "fields-intent")).exists())
+                self.assertFalse(Path(action["result_path"]).exists())
+                result = tool.submit(action["intent"], ref)
+            self.assertTrue(Path(completion_slot(tool.root, "fields-intent")).exists())
+            self.assertEqual(result["result"]["path"], action["result_path"])
+            self.assertTrue(Path(action["result_path"]).exists())
+
+    def test_a_failed_output_write_never_leaves_a_reconcilable_record(self):
+        """The batch records each target just before writing it, record last.
+
+        So when an output write fails, the record was never recorded and no
+        `reconcile(path=record)` entry can publish it alone — the attempt19/24 fence
+        cannot be rebuilt through the supported recovery path.
+        """
+        import bootstrap_control
+        from bootstrap_actions import completion_slot
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            ref = file_ref(candidate)
+            record = completion_slot(tool.root, "fields-intent")
+            real = bootstrap_control.io.publish_new
+            calls = []
+
+            def fail_on_result(path, raw):
+                calls.append(str(path))
+                if str(path) == action["result_path"]:
+                    raise OSError("test write failure")
+                return real(path, raw)
+
+            with patch("bootstrap_control.io.publish_new", side_effect=fail_on_result):
+                with self.assertRaises(ValueError) as caught:
+                    tool.submit(action["intent"], ref)
+            self.assertEqual(caught.exception.commit_state, "unknown")
+            self.assertFalse(Path(record).exists())
+            self.assertFalse(Path(action["result_path"]).exists())
+            # The one supported recovery entry must refuse to publish it.
+            owner_stub = tool
+            owner_stub.actor = "operator"
+            with self.assertRaises(ValueError) as refused:
+                client.rpc("reconcile", path=record)
+            self.assertIn("bootstrap_original_commit_unknown", str(refused.exception))
+
+    def test_the_record_fence_outranks_a_busy_owner(self):
+        """attempt24: five retries reported a permanent fence as a transient busy.
+
+        `submit()` asked the owner first, so a busy executor hid the record that no
+        retry could ever cross. The fence is now read from disk before that call, and
+        when the final output already exists the answer is "already done".
+        """
+        from bootstrap_actions import completion_slot
+        from observation_budget import ObservationBusy
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            ref = file_ref(candidate)
+            tool.submit(action["intent"], ref)
+            self.assertTrue(Path(completion_slot(f.root, "fields-intent")).exists())
+            with patch.object(client, "commit_new", side_effect=ObservationBusy()), \
+                    patch.object(client, "query", side_effect=ObservationBusy()):
+                with self.assertRaisesRegex(ValueError, "submission_requires_reconciliation"):
+                    tool.submit(action["intent"], ref)
 
     def test_unpinned_or_mismatched_submission_contract_is_rejected(self):
         with submission_fixture() as (f, owner, client, _, tool, action):

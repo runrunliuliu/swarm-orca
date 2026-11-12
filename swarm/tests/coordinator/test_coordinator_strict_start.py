@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import time
 import subprocess
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -21,6 +22,66 @@ import publication_wait
 # Captured before any fixture patches it: the prepare fixture nests this one, so a
 # test that wants the real inotify watcher cannot resolve the name at setUp time.
 REAL_WATCH = publication_wait.watch
+
+
+class GatePublicationBusyTests(unittest.TestCase):
+    """A busy read after an admitted gate must not poison the one-shot gate slot."""
+
+    def test_a_busy_checkpoint_does_not_write_a_failure_bundle(self):
+        """attempt26: the gate verified, then a busy read wrote ok=false into gate-ready.json."""
+        from unittest.mock import patch
+        from observation_budget import ObservationBusy
+
+        calls = []
+
+        def busy_twice(*_args, **_kwargs):
+            calls.append(1)
+            if len(calls) < 3:
+                raise ObservationBusy()
+
+        with patch("coordinator_strict_start.checkpoint", side_effect=busy_twice):
+            from coordinator_strict_start import checkpoint_until
+            checkpoint_until(time.monotonic() + 5)
+        self.assertEqual(len(calls), 3)
+
+    def test_the_publication_path_uses_the_bounded_retry(self):
+        """The gate-publication block must not call the bare checkpoint()."""
+        import inspect
+        import coordinator_strict_start as module
+
+        source = inspect.getsource(module)
+        block = source.split("publish_new(gate_path, receipt)", 1)[1].split("require(timestamp(ready", 1)[0]
+        self.assertIn("checkpoint_until(", block)
+        self.assertNotIn("\n            checkpoint()", block)
+
+
+class WaiterLivenessTests(unittest.TestCase):
+    """The one live waiter must survive a busy owner but never a closed window."""
+
+    def test_a_busy_checkpoint_is_retried_until_the_owner_answers(self):
+        from unittest.mock import patch
+        from observation_budget import ObservationBusy
+        from coordinator_strict_start import checkpoint_until
+
+        calls = []
+
+        def busy_twice():
+            calls.append(1)
+            if len(calls) < 3:
+                raise ObservationBusy()
+
+        with patch("coordinator_strict_start.checkpoint", side_effect=busy_twice):
+            checkpoint_until(time.monotonic() + 5)
+        self.assertEqual(len(calls), 3)
+
+    def test_an_expired_window_still_raises_instead_of_spinning(self):
+        from unittest.mock import patch
+        from observation_budget import ObservationBusy
+        from coordinator_strict_start import checkpoint_until
+
+        with patch("coordinator_strict_start.checkpoint", side_effect=ObservationBusy()):
+            with self.assertRaises(ObservationBusy):
+                checkpoint_until(time.monotonic() - 1)
 
 
 class StrictStartTests(unittest.TestCase):

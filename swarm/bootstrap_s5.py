@@ -114,6 +114,16 @@ def confirmed(*args):
     return verify(*args)
 
 
+def still_intent(expected, recorded):
+    """True when a recorded S5 intent is this same command, ignoring its start time.
+
+    Field-by-field rather than by re-derived bytes: `started_at` is a clock reading,
+    and re-publishing a byte-identical record is exactly what the owner refuses.
+    """
+    return isinstance(recorded, dict) and all(recorded.get(key) == item
+                                              for key, item in expected.items())
+
+
 class S5Guard:
     def __init__(self, owner_ref, request_ref, actor, action):
         from bootstrap_tool import connect
@@ -129,10 +139,32 @@ class S5Guard:
         for ref in (self.association, self.ready, request_ref):
             confirmed(self.authority, self.control, ref)
         self.check()
-        self.intent = self.publish(self.root / "control" / ("s5-" + action + ".json"),
-            dict(kind="strict_bootstrap_s5_intent", action=action, actor=actor,
-                 control_id=self.control.control_id, generation=self.control.generation,
-                 request=request_ref, association=self.association, started_at=now(), execution_authorized=False))
+        self.intent = self.record_intent(dict(
+            kind="strict_bootstrap_s5_intent", action=action, actor=actor,
+            control_id=self.control.control_id, generation=self.control.generation,
+            request=request_ref, association=self.association, started_at=now(),
+            execution_authorized=False))
+
+    def record_intent(self, value):
+        """Adopt this attempt's recorded S5 intent instead of publishing it again.
+
+        Every S5 command enters through this constructor, so re-publishing made the
+        *second* invocation of any S5 command impossible once the first had admitted
+        its intent: the owner refuses a target it already recorded
+        (`bootstrap_commit_requires_reconciliation`). That is what killed attempt20
+        (`s5-deliver.json`) and attempt22 (`s5-review.json`, where the guard refused
+        before the review receipt was ever retried). The record is this attempt's own
+        bookkeeping, so an existing one is adopted when every pinned field but its
+        start time matches, and the owner confirms that exact ref.
+        """
+        target = self.root / "control" / ("s5-" + self.action + ".json")
+        if os.path.lexists(target):
+            existing = file_ref(target)
+            expected = {key: item for key, item in value.items() if key != "started_at"}
+            require(still_intent(expected, parse(pinned(existing))), "bootstrap_s5_intent_mismatch")
+            confirmed(self.authority, self.control, existing)
+            return existing
+        return self.publish(target, value)
 
     def check(self):
         require(self.authority.active(self.control)["actor"] == self.actor, "bootstrap_original_role_required")
@@ -267,6 +299,9 @@ def role_plan(owner_ref):
                "read_only_poll_expired: only the read-only wait expired; no action is granted, no deadline extension or automatic re-arm",
                "reconciliation_required: use inspect_argv (read-only, retry_allowed=false); never repeat production, "
                "replay a partial submission or renew timestamps; absent evidence does not grant retry",
+               "strict_config_publication_requires_reconcile: the owner recorded the publication and did not write it; "
+               "while the same owner is alive run bootstrap_tool.py reconcile --target-path <published path> (it "
+               "completes its own recorded bytes), then re-read strict-config-ready.json; never publish a new document",
                "Keep original model turn alive through bounded tools; idle without a registered tool call is unsupported",
                "Every strict-start execute command must retain --bootstrap-owner and --bootstrap-owner-sha256",
                "No Run/Worker launch authority is granted by this plan"])

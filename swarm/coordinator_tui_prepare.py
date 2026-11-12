@@ -107,9 +107,10 @@ def prepare(inputs_ref, *, call=native):
                          lambda args, runtime: call(contract["cli"]["path"], runtime, args))
         from startup_execution import startup_gate
         gate = startup_gate(config)
+        turn_at = evidence.get("turn_at") or evidence["observed_at"]
         require(isinstance(source.get("observed_at"), str)
                 and timestamp(gate["completed_at"]) <= timestamp(source["observed_at"])
-                and timestamp(evidence["observed_at"]) <= timestamp(source["observed_at"])
+                and timestamp(turn_at) <= timestamp(source["observed_at"])
                 <= timestamp(now()), "tui_checkpoint_not_from_current_turn")
         # Re-pin after native I/O, immediately before local publication.
         pinned(inputs_ref)

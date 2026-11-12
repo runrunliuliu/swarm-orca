@@ -49,10 +49,39 @@ def _snapshot(query, options, *, incarnation, workspace, cwd, caller, terminal):
     return observed, hook
 
 
+def _completed_turn(profile, observed, sid):
+    """Positive turn completion from the pane's own hook row, never from silence.
+
+    The harness posts `agent_end` with `state: done` for the turn it finished, plus
+    the turn's start. Reading that row (the same store `observe` already verified the
+    identity from) is what makes "this turn ended" a recorded fact rather than an
+    inference from an idle PTY.
+    """
+    from swarm_ledger import runtime_binding
+    hooks = runtime_binding.read_state(Path(profile) / "agent-hooks" / "last-status.json")
+    pane = observed["terminal"]["tabId"] + ":" + observed["terminal"]["leafId"]
+    entry = (hooks.get("entries") or {}).get(pane)
+    require(isinstance(entry, dict), "runtime_state_missing_pane")
+    session = entry.get("providerSession") or {}
+    require(session.get("id") == sid, "tui_completed_turn_session_changed")
+    if entry.get("hookEventName") != "agent_end" or (entry.get("payload") or {}).get("state") != "done":
+        # Same contract as the Trae reader: "no completed turn yet" is a wait, not a
+        # negative result. Raising here made the monitor persist a durable stop
+        # (attempt31) instead of waiting for the real turn end.
+        return None
+    started = entry.get("turnStartedAt") or entry.get("stateStartedAt")
+    finished = entry.get("receivedAt")
+    require(type(started) in (int, float) and started > 0 and type(finished) in (int, float),
+            "tui_completed_turn_invalid")
+    def iso(milliseconds):
+        return datetime.fromtimestamp(milliseconds / 1000, timezone.utc).isoformat()
+    return {"context_at": iso(started), "completed_at": iso(finished)}
+
+
 def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, log_root, roots,
              caller_receipt, pi_policy, expected_thread=None,
              context_max_age_seconds=900, startup_anchor=None,
-             caller_receipt_runtime=None):
+             caller_receipt_runtime=None, completed_turn=False):
     require(Path(cli).is_absolute() and Path(cli).is_file(), "verified_absolute_cli_required")
     policy = policy_reader.read_ref(pi_policy)
     initial = caller_result(parse(pinned(caller_receipt)), caller_receipt_runtime or runtime)
@@ -115,12 +144,14 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
     age = (datetime.now(timezone.utc) - timestamp(evidence["observed_at"])).total_seconds()
     if not 0 <= age <= context_max_age_seconds:
         raise ContextFreshnessError(age, context_max_age_seconds)
-    return {"schema_version": 1, "adapter": PI_ADAPTER,
+    result = {"schema_version": 1, "adapter": PI_ADAPTER,
             "kind": "pi_tui_session_observation" if anchor else "pi_tui_startup_anchor",
             "thread_id": sid, "session_id": sid, "runtime_id": query.runtime_id,
             "binding": before, "hook": after_hook, "caller_receipt": caller_receipt,
             "policy": policy_reader.settings(policy), "policy_ref": pi_policy,
             "observed_at": evidence["observed_at"],
+            # The turn a checkpoint belongs to; `observed_at` tracks settings.
+            "turn_at": evidence["turn_started_at"],
             "effective": {**observed, "cwd": evidence["cwd"]},
             "log_path": str(log), "log_device": evidence["file_identity"]["device"],
             "log_inode": evidence["file_identity"]["inode"],
@@ -128,6 +159,15 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
             "prefix_sha256": evidence["prefix"]["sha256"],
             "trust": "runtime-state-and-log-not-live-process-attested",
             "requires_live_caller_check": True, "execution_authorized": False}
+    if completed_turn:
+        # A completed-turn observation is the same identity plus the recorded end of
+        # the turn this checkpoint belongs to; it is not a second kind of identity.
+        proof = _completed_turn(profile, before, sid)
+        if proof is None:
+            return None
+        result["completed_turn"] = proof
+        result["kind"] = "pi_tui_completed_turn_observation"
+    return result
 
 
 def observe(**kwargs):

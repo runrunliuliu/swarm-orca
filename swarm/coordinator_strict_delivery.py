@@ -190,10 +190,32 @@ def prepared(ref, config_ref, preparation_ref):
     return expected, contract, initial, receipt
 
 
+def activation_path(expected):
+    """The lifecycle activation this request's own strict-start directory implies."""
+    return Path(expected["directory"]).parent / "lifecycle" / "activation.json"
+
+
+def require_lifecycle_prepared(activation):
+    """A registered attempt may not publish a start config without its lifecycle.
+
+    Historical (unregistered) attempts keep their exact behaviour: the guard only
+    binds when an S5 guard is active for this call.
+    """
+    from bootstrap_s5 import current
+    require(current.get() is None or activation.exists(), "strict_lifecycle_required")
+
+
 @protect("deliver", "operator")
 def deliver(ref, config_ref, preparation_ref, review_ref=None):
     """Operator explicitly publishes reviewed pins; never executes their content."""
-    _, _, target, _ = request(ref)
+    expected, _, target, _ = request(ref)
+    # Fail before the review work, not after it. With a registered attempt owner the
+    # publication below is impossible until `operator_startup.py prepare` has written
+    # the lifecycle activation bound to this same base config, and attempt18 spent the
+    # tail of its turn completing preparation and review only to be refused here. The
+    # refusal and its authority are unchanged; only its position and cost are.
+    activation = activation_path(expected)
+    require_lifecycle_prepared(activation)
     expected, contract, _, _ = prepared(ref, config_ref, preparation_ref)
     check_actor_context(contract, "operator")
     publication = {"schema_version": 1, "kind": "strict_start_config_publication",
@@ -206,9 +228,6 @@ def deliver(ref, config_ref, preparation_ref, review_ref=None):
         publication.update(schema_version=2, review=review_ref)
     else:
         require(review_ref is None, "strict_config_legacy_review_unsupported")
-    activation = Path(expected["directory"]).parent / "lifecycle" / "activation.json"
-    from bootstrap_s5 import current
-    require(current.get() is None or activation.exists(), "strict_lifecycle_required")
     if activation.exists():
         active_ref = file_ref(activation)
         active, _, _, _ = load(active_ref)
@@ -221,7 +240,16 @@ def deliver(ref, config_ref, preparation_ref, review_ref=None):
     if expected["schema_version"] in (4, 5):
         verify_review(ref, config_ref, preparation_ref, review_ref, contract,
                       published_at=publication["published_at"])
-    publish_new(target, publication)
+    try:
+        publish_new(target, publication)
+    except ValueError as exc:
+        # The owner recorded an intent for this publication and did not write it.
+        # Its own recorded bytes are the only admissible completion, so say which
+        # entry to use instead of reporting a generic delivery failure (attempt20
+        # ended here with `bootstrap_commit_requires_reconciliation`).
+        if str(exc) == "bootstrap_commit_requires_reconciliation":
+            raise ValueError("strict_config_publication_requires_reconcile") from None
+        raise
     return {"ok": True, "publication": file_ref(target), "execution_authorized": False,
             "operator_identity_verified": False}
 
@@ -248,6 +276,13 @@ def wait_for_config(ref):
                 # publication verdict: aborting here reported "delivery failed"
                 # while the Operator was still publishing. The loop deadline below
                 # still bounds the wait, so keep polling.
+                #
+                # Deliberately not `coordinator_strict_start.checkpoint_until`: that helper
+                # retries a busy owner at 0.1 s inside the same window (its failure is
+                # terminal, so it must not leave the one-shot gate slot unwaited), while this
+                # wait may last the whole start window and only needs the file. Backing off to
+                # `idle` here keeps a long busy owner from being polled at 10 Hz. Two shapes,
+                # one rule: a failed owner read is never a publication verdict.
                 pass
             require(time.monotonic() < stop and timestamp(now()) < timestamp(expected["deadline"]),
                     "strict_config_wait_expired")

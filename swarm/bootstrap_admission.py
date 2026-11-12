@@ -104,7 +104,7 @@ def commit_request(input_ref, prepared, admission, authority, recheck):
     raw = canonical(prepared["value"]) + b"\n"
     request_ref = {"path": str(prepared["target"]), "sha256": digest(raw)}
 
-    def check():
+    def check(*, confirmations=True):
         recheck()
         b, state, reader = inspect_chain(control)
         require(state["evidence_chain_complete"]
@@ -118,8 +118,9 @@ def commit_request(input_ref, prepared, admission, authority, recheck):
         require(all(source.get(k) == v for k, v in expected.items()), "bootstrap_request_input_mismatch")
         task = parse(pinned(source["task_source"]))
         require(task["authorization_refs"] == b["authorization_refs"], "bootstrap_authorization_refs_mismatch")
-        chain_confirmations(authority, control, b, reader)
-        confirmed(authority, control, input_ref)
+        if confirmations:
+            chain_confirmations(authority, control, b, reader)
+            confirmed(authority, control, input_ref)
 
     check()
     association = dict(schema_version=1, kind="strict_bootstrap_request_admission",
@@ -131,6 +132,11 @@ def commit_request(input_ref, prepared, admission, authority, recheck):
     authority.commit_new(control, actor="coordinator", target=association_ref["path"],
         raw=canonical(association) + b"\n", prerequisites=[admission.readiness_marker, input_ref], recheck=check)
     confirmed(authority, control, association_ref)
+    # The association is already admitted and is the request's prerequisite, so the
+    # request's pre-dispatch recheck replays pins only: asking the single-executor
+    # owner again here is what left an admitted association with no request
+    # (attempt33 `bootstrap_confirmation_unavailable`), a state no entry can address.
     authority.commit_new(control, actor="coordinator", target=request_ref["path"], raw=raw,
-        prerequisites=[association_ref, admission.readiness_marker, input_ref], recheck=check)
+        prerequisites=[association_ref, admission.readiness_marker, input_ref],
+        recheck=lambda: check(confirmations=False))
     confirmed(authority, control, request_ref)

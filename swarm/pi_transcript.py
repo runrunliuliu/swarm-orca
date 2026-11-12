@@ -61,6 +61,13 @@ def read(path):
     require(len(rows) > 1, "pi_session_settings_missing")
     root = rows[0]
     effective, settings_record = _effective(rows)
+    # A turn starts at the last user message; that is the anchor a checkpoint
+    # belongs to. The newest assistant record moves within a turn (one per model
+    # step), so it cannot answer "is this the current turn?".
+    turn_started_at = next((record["timestamp"] for record in reversed(rows)
+                            if record.get("type") == "message"
+                            and (record.get("message") or {}).get("role") == "user"),
+                           root["timestamp"])
     return {"session_id": root["id"], "cwd": root["cwd"], "version": root["version"],
             "effective": effective,
             # Freshness is anchored to the record whose settings are accepted, not
@@ -68,6 +75,7 @@ def read(path):
             # make stale settings look current.
             "observed_at": settings_record["timestamp"],
             "activity_at": last_stamp, "settings_record_id": settings_record["id"],
+            "turn_started_at": turn_started_at,
             "prefix": {"bytes": info.st_size, "sha256": digest},
             "file_identity": {"device": info.st_dev, "inode": info.st_ino}}
 

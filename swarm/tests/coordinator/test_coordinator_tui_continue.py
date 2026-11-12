@@ -15,8 +15,7 @@ from unittest.mock import patch
 from coordinator_io import (bound_lock, canonical, digest, file_ref, now, publish_new, read_json,
                             replace_json, timestamp)
 from coordinator_startup import KIND, identity
-from coordinator_tui_continue import (check, continuation_adapter_supported, freshness, main, step,
-                                      validate_config)
+from coordinator_tui_continue import check, freshness, main, step, validate_config
 from trae_coordinator import ContextFreshnessError, TUI_ADAPTER
 import trae.test_trae_tui as tui
 import coordinator.test_coordinator_startup as startup
@@ -948,13 +947,80 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class ContinuationAdapterTests(unittest.TestCase):
-    """Only the Trae TUI contract has a migrated continuation, and it says so."""
+class ContinuationFenceRoutingTests(unittest.TestCase):
+    """The fence must route through the contract's own adapter, not a Trae default."""
 
-    def test_only_the_trae_tui_adapter_is_supported(self):
+    def contract(self, adapter):
+        return {"adapter": adapter, "cli": {"path": "/bin/true"}, "runtime": "rt",
+                "coordinator": {"terminal": "term_x", "incarnation": "inc", "session": "sid"},
+                "run": {"id": "run_x", "generation": 1},
+                "workspace": {"id": "wt", "path": "/tmp"},
+                "observation": {"profile": "/tmp", "caller_receipt": {"path": "/tmp/c.json", "sha256": "0" * 64},
+                                "log_root": "/tmp", "roots": ["/tmp"], "startup_anchor": None},
+                "freshness": {"context_max_age_seconds": 900},
+                "runtime_config": {"path": "/tmp/policy.json", "sha256": "1" * 64}}
+
+    def run_fence(self, adapter):
+        import coordinator_tui_continue as module
         import tui_adapter
 
-        self.assertTrue(continuation_adapter_supported(TUI_ADAPTER))
-        self.assertFalse(continuation_adapter_supported(tui_adapter.PI_ADAPTER))
-        self.assertFalse(continuation_adapter_supported(tui_adapter.EXEC_ADAPTER))
-        self.assertFalse(continuation_adapter_supported(None))
+        seen = {}
+
+        def observer(**kwargs):
+            seen.update(kwargs)
+            return {"thread_id": "sid"}
+
+        def call(cli, runtime, args):
+            if args[:2] == ["terminal", "show"]:
+                return {"terminal": {"incarnationId": "inc", "worktreeId": "wt",
+                                     "agentIdentity": tui_adapter.provider(adapter),
+                                     "connected": True, "orphaned": False}}
+            if args[:2] == ["orchestration", "run-show"]:
+                return {"coordinatorPolicy": "strict-v1",
+                        "run": {"id": "run_x", "coordinator_handle": "term_x", "consumer_generation": 1}}
+            return {"caller": {"paneKey": "p", "terminalHandle": "term_x"}}
+
+        with patch.dict(os.environ, {"ORCA_TERMINAL_HANDLE": "term_x"}), \
+                patch.object(module.tui_adapter, "reader",
+                             side_effect=lambda a: (observer, "trae_runtime_config"
+                                                    if a == tui_adapter.TRAE_ADAPTER else "pi_policy")), \
+                patch.object(module.tui_adapter, "input_value", return_value={"path": "/tmp/policy.json"}), \
+                patch.object(module, "live_runtime_epoch", return_value=("rt", {"caller": {"paneKey": "p"}}, None)), \
+                patch.object(module, "caller_result", return_value={"caller": {"paneKey": "p"}}), \
+                patch.object(module, "pinned", return_value=b"{}"):
+            module.fence_with_runtime(self.contract(adapter), call)
+        return seen
+
+    def test_a_pi_contract_gets_the_pi_policy_and_no_trae_arguments(self):
+        import tui_adapter
+
+        seen = self.run_fence(tui_adapter.PI_ADAPTER)
+        self.assertEqual(seen["pi_policy"], {"path": "/tmp/policy.json"})
+        self.assertNotIn("trae_runtime_config", seen)
+        self.assertNotIn("accepted_runtime_rebind", seen)
+        self.assertEqual(seen["caller_receipt_runtime"], "rt")
+        self.assertEqual(seen["expected_thread"], "sid")
+
+    def test_a_trae_contract_keeps_its_rebind_argument(self):
+        import tui_adapter
+
+        seen = self.run_fence(tui_adapter.TRAE_ADAPTER)
+        self.assertIn("trae_runtime_config", seen)
+        self.assertEqual(seen["accepted_runtime_rebind"], None)
+
+
+class ContinuationAdapterTests(unittest.TestCase):
+    """Any reviewed TUI adapter may continue its own Run; anything else is named."""
+
+    def test_the_adapter_seam_covers_both_providers_and_refuses_the_rest(self):
+        import tui_adapter
+
+        for adapter in (TUI_ADAPTER, tui_adapter.PI_ADAPTER):
+            with self.subTest(adapter=adapter):
+                self.assertTrue(tui_adapter.is_tui(adapter))
+                self.assertIsNotNone(tui_adapter.provider(adapter))
+                observer, key = tui_adapter.reader(adapter)
+                self.assertTrue(callable(observer) and isinstance(key, str))
+        for adapter in (tui_adapter.EXEC_ADAPTER, None, "unknown-adapter"):
+            with self.subTest(adapter=adapter):
+                self.assertFalse(tui_adapter.is_tui(adapter))

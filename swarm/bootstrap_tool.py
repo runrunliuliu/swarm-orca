@@ -163,7 +163,14 @@ def _ref_of(value):
     return None
 
 
-NON_EXECUTION_RECORD_SUFFIX = ".not-admitted"
+class SubmissionInFlight(ValueError):
+    """A submission was admitted as one unit but its confirmation could not be read.
+
+    The unit itself is atomic (`emit_batch`), so a proved non-execution admits
+    nothing and stays retryable. The remaining named state is a durable unit whose
+    confirmation query failed: the bytes are on disk and attempted on the owner, so
+    `reconcile` is the supported entry and retrying the submission is not.
+    """
 
 
 def non_execution(exc):
@@ -176,18 +183,7 @@ def non_execution(exc):
     return isinstance(exc, ObservationBusy) or getattr(exc, "commit_state", None) == "not_admitted"
 
 
-def release_not_executed(execution):
-    """Free the production slot after a proved non-execution, keeping the record.
-
-    The execute marker means "a production was started and its outcome is unknown".
-    A refused-before-dispatch commit is not that, and leaving the marker behind
-    wedges the slot forever: every later produce answers
-    `bootstrap_production_outcome_requires_reconciliation`. The attempt is kept as
-    a renamed record, so the evidence still shows what was tried.
-    """
-    record = str(execution) + NON_EXECUTION_RECORD_SUFFIX
-    os.replace(str(execution), record)
-    return record
+NOT_EXECUTED_SUFFIX = ".not-admitted"
 
 
 class RoleTool(BootstrapMachine, ActionReader):
@@ -233,13 +229,27 @@ class RoleTool(BootstrapMachine, ActionReader):
                     inspect_argv=command(self.authority.owner_ref, self.actor, "inspect-action", intent),
                     execution_authorized=False)
 
-    def validate_action(self, intent_ref):
+    def validate_action(self, intent_ref, *, confirmations=True):
         value = self.action_intent(intent_ref)
         spec = ACTIONS[value["action"]]
         require(value["payload"].get("operation") == self.operation(value["action"]),
                 "bootstrap_action_contract_mismatch")
-        require(len(self.local_check()["validated_markers"]) == spec.markers, "bootstrap_action_stage_mismatch")
+        require(len(self.local_check(confirmations=confirmations)["validated_markers"]) == spec.markers,
+                "bootstrap_action_stage_mismatch")
         return value
+
+    def observation_roots(self):
+        """The declared write roots the reviewer pins into the session contract.
+
+        For Pi this must include the workspace: the domain checkpoint source cannot
+        live in the bootstrap directory (the reviewed brief forbids Coordinator
+        writes there), and `software_development.check()` requires the source inside
+        `observation.roots`. Trae keeps its historical single root.
+        """
+        roots = [str(self.root)]
+        if self.coordinator_capability().tui_adapter == tui_adapter.PI_ADAPTER:
+            roots.append(self.b["workspace"]["path"])
+        return roots
 
     def template(self, stage, request_ref):
         request = parse(pinned(request_ref))
@@ -250,11 +260,48 @@ class RoleTool(BootstrapMachine, ActionReader):
                 workspace=self.b["workspace"], operator=self.b["operator"],
                 coordinator=parse(pinned(self.slot(EVENTS[1])))["coordinator"],
                 observation=dict(profile=registration["profile"], log_root=registration["log_root"],
-                    roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
+                    roots=self.observation_roots(), caller_receipt=self.slot("caller_receipt"),
                     startup_anchor=self.slot("session_observation")))
         return dict(schema_version=1, kind="strict_bootstrap_review_result", request=request_ref,
             subject_refs=request["subject_refs"], evidence_refs=request["evidence_refs"], operator=request["operator"],
             decision=None, notes=None, reviewed_at=None, identity_verified=False, execution_authorized=False)
+
+    def not_executed_proof(self, execution):
+        """The local proof that the last result commit was refused before dispatch.
+
+        It pins the admitted marker it belongs to, so a stale or foreign file can
+        never authorize reusing a different marker.
+        """
+        path = str(execution) + NOT_EXECUTED_SUFFIX
+        if not os.path.lexists(path):
+            return None
+        try:
+            return parse(Path(path).read_bytes())
+        except ValueError:
+            return None
+
+    def record_not_executed(self, execution):
+        """Keep the admitted marker and record *why* a retry may reuse it.
+
+        Renaming the marker away (the previous release path) left the owner's
+        attempt record pointing at a file that no longer existed, so the next
+        production could never publish the marker again.
+        """
+        value = dict(schema_version=1, kind="strict_bootstrap_not_executed",
+                     marker=file_ref(execution), at=now(), execution_authorized=False)
+        target = str(execution) + NOT_EXECUTED_SUFFIX
+        temporary = target + ".tmp"
+        with open(temporary, "wb") as handle:
+            handle.write(canonical(value) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+
+    def clear_not_executed(self, execution):
+        try:
+            os.unlink(str(execution) + NOT_EXECUTED_SUFFIX)
+        except FileNotFoundError:
+            pass
 
     def produce(self, intent_ref):
         """Mechanical caller/observation only. Never fields or model approval."""
@@ -271,10 +318,29 @@ class RoleTool(BootstrapMachine, ActionReader):
         target = "caller_receipt" if name == "caller-intent" else "session_observation"
         require(self.slot(target) is None, "bootstrap_result_already_committed")
         execution = str(self.root / "control" / ("caller-execute.json" if name == "caller-intent" else "observe-execute.json"))
-        require(self.slot(execution) is None, "bootstrap_production_outcome_requires_reconciliation")
-        self.emit(execution, dict(kind="strict_bootstrap_production_intent", intent=intent_ref,
-                                 actor=self.actor, started_at=now(), execution_authorized=False),
-                  self.actor, [intent_ref])
+        # The marker says "this production started", which stays true when the
+        # result commit is refused, so a retry reuses the admitted marker instead of
+        # publishing it again (the owner refuses forever) or renaming it away (which
+        # only hid the owner's own record of it — attempt21).
+        marker = self.slot(execution)
+        if marker is None:
+            self.emit(execution, dict(kind="strict_bootstrap_production_intent", intent=intent_ref,
+                                     actor=self.actor, started_at=now(), execution_authorized=False),
+                      self.actor, [intent_ref])
+        else:
+            recorded = parse(pinned(marker))
+            require(recorded.get("kind") == "strict_bootstrap_production_intent"
+                    and recorded.get("intent") == intent_ref and recorded.get("actor") == self.actor,
+                    "bootstrap_production_outcome_requires_reconciliation")
+            # Reuse is allowed only for a *proved* non-execution of the previous
+            # attempt. An unknown outcome (native timeout, lost reply) must still
+            # refuse: nothing here may replay a production that may have happened.
+            proof = self.not_executed_proof(execution)
+            require(proof is not None and proof.get("kind") == "strict_bootstrap_not_executed"
+                    and proof.get("schema_version") == 1
+                    and proof.get("execution_authorized") is False
+                    and proof.get("marker") == marker,
+                    "bootstrap_production_outcome_requires_reconciliation")
         if name == "caller-intent":
             require(os.environ.get("ORCA_TERMINAL_HANDLE") == self.b["coordinator"]["terminal"],
                     "bootstrap_original_coordinator_context_required")
@@ -292,7 +358,7 @@ class RoleTool(BootstrapMachine, ActionReader):
                 terminal=coordinator["terminal"], incarnation=coordinator["incarnation"],
                 workspace=self.b["workspace"]["id"], cwd=self.b["workspace"]["path"],
                 profile=registration["profile"], log_root=registration["log_root"],
-                roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
+                roots=self.observation_roots(), caller_receipt=self.slot("caller_receipt"),
                 expected_thread=registration["roles"]["coordinator"]["session"],
                 context_max_age_seconds=1800)
             options[policy_key] = tui_adapter.input_value(
@@ -300,14 +366,17 @@ class RoleTool(BootstrapMachine, ActionReader):
             try:
                 value = observer(**options)
             except ObservationBusy:
-                release_not_executed(execution)
+                self.record_not_executed(execution)
                 raise
         try:
-            return self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
-        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            result = self.emit(target, value, self.actor, [intent_ref, self.slot(execution)])
+        except Exception as exc:  # noqa: BLE001 - classified, recorded, then re-raised
             if non_execution(exc):
-                release_not_executed(execution)
+                self.record_not_executed(execution)
             raise
+        # The production is complete; a later stage must not inherit the proof.
+        self.clear_not_executed(execution)
+        return result
 
     def step(self):
         state = self.local_check()
@@ -460,6 +529,35 @@ class RoleTool(BootstrapMachine, ActionReader):
             raise
         require(existing is None, "bootstrap_result_already_committed")
 
+    def submission_output_absent(self, target):
+        """Local form of the same guard, for a phase whose owner is already committed.
+
+        `publish_new` refuses an existing target anyway (`O_EXCL`), so this only
+        moves the answer from "unknown" (a failed write) to the same clean refusal.
+        """
+        require(not os.path.lexists(self.paths.get(target, target)), "bootstrap_result_already_committed")
+
+    def submitted_action_name(self, intent_ref):
+        """The action this intent names, read from disk without asking the owner."""
+        value = parse(pinned(intent_ref))
+        name = value.get("action") if isinstance(value, dict) else None
+        require(name in ACTIONS, "bootstrap_action_binding_mismatch")
+        return name
+
+    def forbid_submitted_action(self, name):
+        """Decide the record fence before any owner round trip, and say which one.
+
+        attempt24 retried five times on `bootstrap_owner_busy_not_executed` because
+        `local_check()` hit the busy owner before this fence was read: a permanent
+        refusal was reported as a transient one. When the action's own final output
+        is already on disk the truthful answer is "already done", not "reconcile".
+        """
+        if not os.path.lexists(completion_slot(self.root, name)):
+            return
+        # A visible output is not a confirmed one, so this never claims "done":
+        # `inspect_action` reads the owner's own status for that distinction.
+        raise ValueError("bootstrap_submission_requires_reconciliation")
+
     def materialize_template(self, intent_ref, intent, submission):
         """Write the fields candidate from the template the intent already pins.
 
@@ -485,9 +583,13 @@ class RoleTool(BootstrapMachine, ActionReader):
         return file_ref(candidate)
 
     def submit(self, intent_ref, source_ref=None, from_template=False):
-        self.local_check()
+        # The fence is read from disk before any owner round trip, including the
+        # one inside `action_intent()`: a busy executor must never be able to
+        # present a permanent refusal as a transient one (attempt24).
+        self.forbid_submitted_action(self.submitted_action_name(intent_ref))
         intent = self.action_intent(intent_ref)
         name = intent["action"]
+        self.local_check()
         require(self.slot(name) == intent_ref and intent["actor"] == self.actor,
                 "bootstrap_action_binding_mismatch")
         require(name in SUBMIT_TARGETS, "bootstrap_action_requires_specialized_tool")
@@ -518,37 +620,50 @@ class RoleTool(BootstrapMachine, ActionReader):
         raw = self.candidate_bytes(source_ref, submission)
         self.submission_output_empty(target)
         record = completion_slot(self.root, name)
-        require(not os.path.lexists(record), "bootstrap_submission_requires_reconciliation")
 
-        def validate():
-            self.validate_candidate(intent_ref, raw)
+        def validate(*, confirmations=True):
+            self.validate_candidate(intent_ref, raw, confirmations=confirmations)
             self.candidate_bytes(source_ref, submission)
-            self.submission_output_empty(target)
+            if confirmations:
+                self.submission_output_empty(target)
+            else:
+                self.submission_output_absent(target)
 
         validate()
         expected = dict(path=self.paths[target], sha256=digest(raw))
-        admitted = self.emit(record, dict(schema_version=1, kind="strict_bootstrap_submission",
-            intent=intent_ref, inputs=[source_ref], outputs=[expected], created_at=now(),
-            execution_authorized=False), self.actor, [intent_ref], check=lambda _: validate())
-
-        def recheck(_):
-            validate()
-
-        self.emit(target, raw, self.actor, [intent_ref, admitted], check=recheck)
-        self.local_check()
-        return {"result": self.slot(target), "execution_authorized": False,
+        # One owner call admits the record and writes its output, so the durable
+        # record can never exist without the output it announces (attempts 19/24).
+        # The recheck only replays pins the record admission already covers.
+        try:
+            refs = self.emit_batch(
+                [(target, raw),
+                 (record, dict(schema_version=1, kind="strict_bootstrap_submission",
+                               intent=intent_ref, inputs=[source_ref], outputs=[expected],
+                               created_at=now(), execution_authorized=False))],
+                self.actor, [intent_ref], check=lambda _: validate(confirmations=False),
+                confirmations=False)
+        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            # One admission means a proved non-execution admitted nothing at all, so
+            # it stays the retryable class `pull()` already treats as pending. Only a
+            # durable-but-unconfirmed unit needs a named recovery.
+            if str(exc) == "bootstrap_confirmation_unavailable":
+                raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
+            raise
+        self.local_check(confirmations=False)
+        return {"result": refs[0], "execution_authorized": False,
                 "materialized_from_template": bool(from_template),
                 "authored": not from_template}
 
-    def validate_candidate(self, intent_ref, raw):
-        intent = self.validate_action(intent_ref)
+    def validate_candidate(self, intent_ref, raw, *, confirmations=True):
+        slot = self.slot if confirmations else self.pinned_slot
+        intent = self.validate_action(intent_ref, confirmations=confirmations)
         name = intent["action"]
         stage = name.removesuffix("-intent")
         request_key = "fields_production_request" if stage == "fields" else stage + "_review_request"
-        request_ref = self.slot(request_key)
+        request_ref = slot(request_key)
         require(request_ref is not None and intent["payload"].get("request") == request_ref
                 and intent["prerequisites"] == [request_ref], "bootstrap_action_request_mismatch")
-        upstream = self.slot(EVENTS[2] if stage == "readiness" else EVENTS[1])
+        upstream = slot(EVENTS[2] if stage == "readiness" else EVENTS[1])
         request = parse(pinned(request_ref))
         if stage == "fields":
             version(request, "strict_bootstrap_fields_production_request", {
@@ -557,29 +672,31 @@ class RoleTool(BootstrapMachine, ActionReader):
             require(request["request_id"] == self.b["attempt_id"] + ":fields"
                 and request["attempt_binding"] == self.control.attempt_binding and request["upstream"] == upstream
                 and request["operator"] == self.b["operator"] and request["fixed_inputs"] == self.b["fixed_inputs"]
-                and request["evidence_refs"] == [self.slot("caller_receipt"), self.slot("session_observation")]
+                and request["evidence_refs"] == [slot("caller_receipt"), slot("session_observation")]
                 and request["result_path"] == self.paths["contract_fields"] and request["deadline"] == self.b["deadline"]
                 and request["execution_authorized"] is False, "bootstrap_action_request_mismatch")
             require(timestamp(parse(pinned(upstream))["created_at"]) <= timestamp(request["created_at"])
                     <= timestamp(now()), "bootstrap_action_request_time_mismatch")
             source = dict(runtime=self.b["runtime"], workspace=self.b["workspace"], cli=self.b["fixed_inputs"]["cli"],
-                coordinator=parse(pinned(upstream))["coordinator"], caller_receipt=self.slot("caller_receipt"),
-                session_observation=self.slot("session_observation"))
+                coordinator=parse(pinned(upstream))["coordinator"], caller_receipt=slot("caller_receipt"),
+                session_observation=slot("session_observation"))
             contract_fields(self.b, source, parse(raw))
         else:
-            subject = self.slot("contract_fields" if stage == "contract" else "final_readiness")
-            evidence = ([self.slot("caller_receipt"), self.slot("session_observation"), self.b["fixed_inputs"]["skill_read_evidence"]]
+            subject = slot("contract_fields" if stage == "contract" else "final_readiness")
+            evidence = ([slot("caller_receipt"), slot("session_observation"), self.b["fixed_inputs"]["skill_read_evidence"]]
                 if stage == "contract" else [self.b["fixed_inputs"]["skill_read_evidence"],
-                                            *[self.slot(p) for p in self.b["file_tool_evidence_paths"]]])
+                                            *[slot(p) for p in self.b["file_tool_evidence_paths"]]])
             earliest = parse(pinned(upstream if stage == "contract" else subject))["created_at"]
             reader = CandidateReader(self.paths[ACTIONS[name].target], raw)
             review(reader, self.b, self.control.attempt_binding, stage, upstream, [subject], evidence,
                    timestamp(earliest), timestamp(now()), require_approval=False)
             reader.recheck()
-            chain_confirmations(self.authority, self.control, self.b, reader)
+            if confirmations:
+                chain_confirmations(self.authority, self.control, self.b, reader)
 
     def submit_readiness(self, intent_ref, probe_refs):
         require(self.actor == "coordinator", "bootstrap_original_role_required")
+        self.forbid_submitted_action(self.submitted_action_name(intent_ref))
         intent = self.action_intent(intent_ref)
         require(intent["action"] == "final-evidence-intent", "bootstrap_action_binding_mismatch")
         contract = self.submission(intent["action"])
@@ -590,17 +707,21 @@ class RoleTool(BootstrapMachine, ActionReader):
         outputs = [dict(path=output["final_path"], sha256=digest(raw)) for output, raw in zip(contract["outputs"], values)]
         record = completion_slot(self.root, intent["action"])
         self.submission_output_empty("final_readiness")
-        require(not os.path.lexists(record), "bootstrap_submission_requires_reconciliation")
 
-        def validate():
-            self.validate_action(intent_ref)
-            require(intent["prerequisites"] == [self.slot(EVENTS[2])]
-                    and intent["payload"].get("fields") == self.slot("contract_fields")
+        def validate(*, confirmations=True):
+            slot = self.slot if confirmations else self.pinned_slot
+            self.validate_action(intent_ref, confirmations=confirmations)
+            require(intent["prerequisites"] == [slot(EVENTS[2])]
+                    and intent["payload"].get("fields") == slot("contract_fields")
                     and intent["payload"].get("probes") == self.b["file_tool_evidence_paths"],
                     "bootstrap_action_request_mismatch")
             for ref, output in zip(probe_refs, contract["outputs"]):
                 self.candidate_bytes(ref, output)
-            self.submission_output_empty("final_readiness")
+            # Identical guard, two attestations: before the record the owner must
+            # prove it never wrote these slots; afterwards the record itself is
+            # that proof and a local existence check keeps the write honest.
+            (self.submission_output_empty if confirmations
+             else self.submission_output_absent)("final_readiness")
 
         validate()
         for output in outputs:
@@ -614,12 +735,29 @@ class RoleTool(BootstrapMachine, ActionReader):
             validate()
             for output in outputs:
                 self.submission_output_empty(output["path"])
-        admitted = self.emit(record, dict(schema_version=1, kind="strict_bootstrap_submission",
-            intent=intent_ref, inputs=probe_refs, outputs=[*outputs, manifest_ref], created_at=now(),
-            execution_authorized=False), self.actor, [intent_ref], check=before_admission)
-        for output, raw in zip(outputs, values):
-            self.emit(output["path"], raw, self.actor, [intent_ref, admitted], check=lambda _: validate())
-        return self.emit("final_readiness", manifest, self.actor, [intent_ref, admitted, *outputs], check=lambda _: validate())
+        # The record, every probe output and the readiness manifest are one unit:
+        # a durable record announcing probes that do not exist is unrecoverable.
+        unit = list(zip([output["path"] for output in outputs], values))
+        unit += [(self.paths["final_readiness"], manifest)]
+        unit += [(record, dict(schema_version=1, kind="strict_bootstrap_submission",
+                               intent=intent_ref, inputs=probe_refs, outputs=[*outputs, manifest_ref],
+                               created_at=now(), execution_authorized=False))]
+        def check_unit(_entries):
+            # The owner runs this before admitting anything, so every probe output
+            # must still be absent then — not only when the caller looked.
+            before_admission(None)
+        try:
+            refs = self.emit_batch(unit, self.actor, [intent_ref], check=check_unit,
+                                   confirmations=False)
+        except Exception as exc:  # noqa: BLE001 - classified, then always re-raised
+            # One admission means a proved non-execution admitted nothing at all, so
+            # it stays the retryable class `pull()` already treats as pending. Only a
+            # durable-but-unconfirmed unit needs a named recovery.
+            if str(exc) == "bootstrap_confirmation_unavailable":
+                raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
+            raise
+        # The unit is ordered outputs, manifest, record; the manifest is the result.
+        return refs[len(outputs)]
 
     def advance(self, *, until_stage=None, timeout=120, poll=30):
         """Run this role's own mechanical stages in one bounded call.
@@ -666,14 +804,13 @@ class RoleTool(BootstrapMachine, ActionReader):
 
     def complete(self, intent_ref):
         """Dispatch a pinned action, deriving file pins locally; never generate evidence."""
+        self.forbid_submitted_action(self.submitted_action_name(intent_ref))
         intent = self.action_intent(intent_ref)
         spec = ACTIONS[intent["action"]]
         if spec.mode == "produce":
             return self.produce(intent_ref)
         contract = self.submission(intent["action"])
         require(intent["payload"].get("submission") == contract, "bootstrap_submission_contract_mismatch")
-        require(not os.path.lexists(completion_slot(self.root, intent["action"])),
-                "bootstrap_submission_requires_reconciliation")
         refs = [file_ref(output["candidate_path"]) for output in contract["outputs"]]
         return self.submit(intent_ref, refs[0]) if spec.mode == "submit" else self.submit_readiness(intent_ref, refs)
 
@@ -690,7 +827,9 @@ def candidate_ref(args):
     unconditionally, which turned `--from-template` (no `--input`) into `{path: None}` and made
     the documented command unusable while the direct tool call still passed its test.
     """
-    if args.from_template:
+    # `not args.input` is the branch's reconcile case: `reconcile` carries its target in
+    # --target-path, so a missing --input must stay None instead of {path: None}.
+    if args.from_template or not args.input:
         return None
     return dict(path=args.input, sha256=args.input_sha256)
 
@@ -710,6 +849,9 @@ def cli_main(argv=None):
     parser.add_argument("--input-sha256")
     parser.add_argument("--intent")
     parser.add_argument("--intent-sha256")
+    parser.add_argument("--target-path",
+                        help="For reconcile: the owner-recorded commit to complete or re-barrier, "
+                             "when the caller cannot name its exact ref")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--poll", type=float, default=30)
     parser.add_argument("--until-stage", type=int)
@@ -764,8 +906,12 @@ def cli_main(argv=None):
             require(args.actor in {"operator", "coordinator"}, "bootstrap_role_invalid")
             authority.heartbeat(control, args.actor)
             result = authority.last_heartbeat
-        elif args.mode in {"arm", "stop", "reconcile"}:
-            result = authority.rpc(args.mode, **({"target": ref} if args.mode == "reconcile" else {}))
+        elif args.mode == "reconcile":
+            require((ref is None) != (args.target_path is None), "bootstrap_reconcile_target_required")
+            result = authority.rpc("reconcile", **({"target": ref} if ref is not None
+                                                   else {"path": args.target_path}))
+        elif args.mode in {"arm", "stop"}:
+            result = authority.rpc(args.mode)
         elif args.mode == "plan":
             from bootstrap_s5 import role_plan
             result = role_plan(owner_ref)

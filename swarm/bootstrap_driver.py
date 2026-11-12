@@ -94,14 +94,23 @@ class BootstrapMachine:
             self.condition.notify_all()
         self.authority.stop(self.control)
 
-    def local_check(self):
+    def local_check(self, *, confirmations=True):
+        """Re-read the pinned chain; `confirmations` adds "this owner wrote it".
+
+        The owner-confirmation half needs the single-executor owner, so it is the
+        half that races the other role's poll. Callers that only need the pinned
+        chain replayed — the second phase of an already-admitted submission — pass
+        `confirmations=False`; nothing about the evidence changes, only who is
+        asked to attest what the files already say.
+        """
         require(not self.closed and self.owner is not None and not self.stopping, "bootstrap_driver_stopped")
         self.check_owner()
         # Adapter only checks an already acquired local identity/authorization
         # snapshot here; no native or model work is permitted inside admission.
         self.adapters.recheck(self.control)
         b, state, reader = inspect_chain(self.control)
-        chain_confirmations(self.authority, self.control, b, reader)
+        if confirmations:
+            chain_confirmations(self.authority, self.control, b, reader)
         return state
 
     def slot(self, name):
@@ -110,12 +119,22 @@ class BootstrapMachine:
             return None
         return confirmed(self.authority, self.control, file_ref(target))
 
-    def emit(self, name, value, actor, prerequisites=(), check=None):
+    def pinned_slot(self, name):
+        """Same ref as `slot`, read from disk instead of asked of the owner.
+
+        Used only where the owner's own attestation is already guaranteed by an
+        admission that happened moments earlier in the same action, so a second
+        round trip would add a race without adding evidence.
+        """
+        target = self.paths.get(name, name)
+        return file_ref(target) if os.path.lexists(target) else None
+
+    def emit(self, name, value, actor, prerequisites=(), check=None, confirmations=True):
         target = self.paths.get(name, name)
         raw = value if isinstance(value, bytes) else canonical(value) + b"\n"
 
         def recheck():
-            self.local_check()
+            self.local_check(confirmations=confirmations)
             if check is not None:
                 check(raw)
 
@@ -127,6 +146,26 @@ class BootstrapMachine:
         confirmed(self.authority, self.control, expected)
         self.notify()  # Notifications never substitute for the confirmation query.
         return reply.target
+
+    def emit_batch(self, values, actor, prerequisites=(), check=None, *, confirmations):
+        """Publish several targets as one admitted unit and return their refs.
+
+        Used where a durable bookkeeping record must never exist without its
+        outputs (a submission record plus its outputs, or the readiness manifest
+        plus its probes). One owner call admits and writes all of them, so the
+        other role's poll cannot split the unit between two round trips.
+        """
+        entries = [(self.paths.get(name, name),
+                    value if isinstance(value, bytes) else canonical(value) + b"\n")
+                   for name, value in values]
+        def recheck():
+            self.local_check(confirmations=confirmations)
+            if check is not None:
+                check(entries)
+        refs = self.authority.commit_batch(self.control, actor=actor, entries=entries,
+                                           prerequisites=list(prerequisites), recheck=recheck)
+        self.notify()  # Notifications never substitute for a confirmation query.
+        return refs
 
     def intent(self, name, actor, prerequisites, **payload):
         existing = self.slot(name)
