@@ -17,6 +17,7 @@ import { registerJiraHandlers } from '../jira'
 import { registerBitbucketHandlers } from '../bitbucket'
 import { registerFeedbackHandlers } from '../feedback'
 import { registerCrashReportingHandlers } from '../crash-reporting'
+import { registerIncidentHandlers } from '../incidents'
 import { registerExportHandlers } from '../export'
 import { registerStatsHandlers } from '../stats'
 import { registerMemoryHandlers } from '../memory'
@@ -164,6 +165,9 @@ export function registerCoreHandlers(
   if (crashReports) {
     registerCrashReportingHandlers(crashReports)
   }
+  // Why unconditional: the incident read model resolves its own per-host store lazily and answers a
+  // closed `unavailable` result when it is not there yet, so it has no startup dependency to gate on.
+  registerIncidentHandlers()
   registerExportHandlers()
   registerStatsHandlers(stats)
   registerMemoryHandlers(store)

@@ -23,6 +23,7 @@ import { workspacePortsApi } from './api/workspace-ports-bridge'
 import { ptyApi } from './api/pty-bridge'
 import { feedbackApi } from './api/feedback-bridge'
 import { crashReportsApi } from './api/crash-reports-bridge'
+import { incidentApi } from './api/incident-bridge'
 import { exportApi } from './api/export-bridge'
 import { ghApi } from './api/gh-bridge'
 import { hostedReviewApi } from './api/hosted-review-bridge'
@@ -118,6 +119,7 @@ const api = {
   pty: ptyApi,
   feedback: feedbackApi,
   crashReports: crashReportsApi,
+  incidents: incidentApi,
   export: exportApi,
   gh: ghApi,
   hostedReview: hostedReviewApi,
