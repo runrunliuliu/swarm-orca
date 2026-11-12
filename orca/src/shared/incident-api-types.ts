@@ -42,12 +42,16 @@ export type IncidentShadowReplayDto = {
 export type IncidentStallSampleDto = {
   sampledAt: number | null
   panes: number
-  wouldStall: number
-  stalled: number
+  /** Would write if the switch were on; never "confirmed stuck". */
+  wouldWrite: number
+  noEvent: number
   declaredWaits: number
   writeEnabled: boolean
   writes: number
   lastWriteAt: number | null
+  errors: number
+  lastError: string | null
+  keyRejected: number
 }
 
 /** §11.5: never collapse these two into one boolean again. */

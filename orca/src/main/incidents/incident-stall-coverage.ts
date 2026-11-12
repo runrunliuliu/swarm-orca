@@ -19,6 +19,9 @@ export const STALL_WRITES_META = 'stall_writes'
 export const STALL_LAST_WRITE_AT_META = 'stall_last_write_at'
 export const STALL_SAMPLER_ERRORS_META = 'stall_sampler_errors'
 export const STALL_LAST_SAMPLER_ERROR_META = 'stall_last_sampler_error'
+/** Stall writes refused because `buildIncidentKey` rejected the pane/epoch (M3-C2). */
+export const STALL_KEY_REJECTED_META = 'stall_key_rejected'
+export const STALL_LAST_KEY_REJECTED_META = 'stall_last_key_rejected'
 
 function numberFrom(db: Database.Database, key: string): number {
   const value = Number(readMeta(db, key) ?? 0)
@@ -31,12 +34,15 @@ export function readStallSampleCoverage(db: Database.Database): IncidentStallSam
   return {
     sampledAt: sampledAtRaw === null ? null : Number(sampledAtRaw),
     panes: numberFrom(db, STALL_SAMPLE_PANES_META),
-    wouldStall: numberFrom(db, STALL_SAMPLE_WOULD_META),
-    stalled: numberFrom(db, STALL_SAMPLE_STALLED_META),
+    wouldWrite: numberFrom(db, STALL_SAMPLE_WOULD_META),
+    noEvent: numberFrom(db, STALL_SAMPLE_STALLED_META),
     declaredWaits: readDeclaredWaitCount(db),
     writeEnabled: readMeta(db, STALL_WRITE_ENABLED_META) === '1',
     writes: numberFrom(db, STALL_WRITES_META),
-    lastWriteAt: lastWriteRaw === null ? null : Number(lastWriteRaw)
+    lastWriteAt: lastWriteRaw === null ? null : Number(lastWriteRaw),
+    errors: numberFrom(db, STALL_SAMPLER_ERRORS_META),
+    lastError: readMeta(db, STALL_LAST_SAMPLER_ERROR_META),
+    keyRejected: numberFrom(db, STALL_KEY_REJECTED_META)
   }
 }
 
@@ -46,10 +52,14 @@ export function formatStallSampleNote(coverage: IncidentStallSampleCoverage): st
     coverage.sampledAt === null
       ? 'never'
       : new Date(coverage.sampledAt).toISOString()
+  const errors =
+    coverage.errors > 0 ? `  errors=${coverage.errors}  last_error=${coverage.lastError ?? 'unknown'}` : ''
+  const rejected = coverage.keyRejected > 0 ? `  key_rejected=${coverage.keyRejected}` : ''
   return (
     `Stall sampler: last_sample=${sampled}  panes=${coverage.panes}  ` +
-    `would_stall=${coverage.wouldStall}  stalled=${coverage.stalled}  ` +
+    `would_write=${coverage.wouldWrite}  no_event=${coverage.noEvent}  ` +
     `declared_waits=${coverage.declaredWaits}  ` +
-    `write=${coverage.writeEnabled ? 'on' : 'off'}  writes=${coverage.writes}`
+    `write=${coverage.writeEnabled ? 'on' : 'off'}  writes=${coverage.writes}` +
+    `${errors}${rejected}`
   )
 }

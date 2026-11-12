@@ -271,7 +271,7 @@ describe('incident stalls (M3-3)', () => {
             state: 'working',
             stateStartedAt: 1_700_000_000_000 - 46 * 60_000,
             turnStartedAt: null,
-            observedAt: 1_700_000_000_000 - 1_000
+            lastSemanticEventAt: 1_700_000_000_000 - 46 * 60_000
           }
         ],
         writeEnabled: false,
@@ -287,6 +287,8 @@ describe('incident stalls (M3-3)', () => {
     expect(text).toContain('tab-1:leaf-1')
     expect(text).toContain('working')
     expect(text).toContain('insufficient_cycles')
+    expect(text).toContain('event')
+    expect(text).toContain('wouldWriteIfEnabled=yes means')
     expect(text).toContain('Writing incidents: off')
     expect(store().countIncidents()).toBe(0)
   })
@@ -313,7 +315,7 @@ describe('incident wait (M3-1)', () => {
             state: 'working',
             stateStartedAt: 1_699_999_000_000,
             turnStartedAt: null,
-            observedAt: 1_699_999_999_000
+            lastSemanticEventAt: 1_699_999_999_000
           }
         ],
         writeEnabled: false,

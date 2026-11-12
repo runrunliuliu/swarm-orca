@@ -59,12 +59,15 @@ function unavailableStore(): IncidentStore {
     stallSample: {
       sampledAt: null,
       panes: 0,
-      wouldStall: 0,
-      stalled: 0,
+      wouldWrite: 0,
+      noEvent: 0,
       declaredWaits: 0,
       writeEnabled: false,
       writes: 0,
-      lastWriteAt: null
+      lastWriteAt: null,
+      errors: 0,
+      lastError: null,
+      keyRejected: 0
     }
   }
   return {

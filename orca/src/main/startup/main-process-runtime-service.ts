@@ -9,10 +9,8 @@ import { app } from 'electron'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
 import { getLocalPtyProvider, getSshPtyProvider, clearProviderPtyState } from '../ipc/pty'
 import { agentHookServer } from '../agent-hooks/server'
-import {
-  configureStallSamplerSource,
-  stallRowsFromStatusSnapshot
-} from '../incidents/incidents-stall-sampler'
+import { stallRowsFromStatusSnapshot } from '../incidents/incidents-stall-sampler'
+import { configureStallSamplerSource } from '../incidents/incidents-stall-sampler-timer'
 import { browserManager } from '../browser/browser-manager'
 import { loadAgentSessionClaimSigner } from '../runtime/agent-session-claim-identity'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'

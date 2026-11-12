@@ -13,10 +13,14 @@ export type StallSampleRow = {
   state: string
   stateStartedAt: number
   turnStartedAt: number | null
-  observedAt: number
+  /** `evidenceObservedAt` for this pane, or null when the host never reported one. */
+  lastSemanticEventAt: number | null
   ageMs: number
+  /** `event` when the age came from the semantic clock, `state_fallback` when it did not. */
+  ageBasis: 'event' | 'state_fallback'
   thresholdMs: number
-  wouldStall: boolean
+  /** Would a write-enabled sampler record this? Never means "confirmed stuck". */
+  wouldWriteIfEnabled: boolean
   reason: string
   declaredWait: string | null
 }
@@ -24,8 +28,9 @@ export type StallSampleRow = {
 export function readStallSamples(db: Database.Database): StallSampleRow[] {
   const rows = db
     .prepare(
-      `SELECT pane_key, terminal_handle, state, state_started_at, turn_started_at, observed_at,
-              age_ms, threshold_ms, would_stall, reason, declared_wait
+      `SELECT pane_key, terminal_handle, state, state_started_at, turn_started_at,
+              last_semantic_event_at, age_ms, age_basis, threshold_ms, would_write_if_enabled,
+              reason, declared_wait
        FROM incident_stall_samples ORDER BY pane_key ASC`
     )
     .all()
@@ -35,10 +40,12 @@ export function readStallSamples(db: Database.Database): StallSampleRow[] {
     state: String(row.state),
     stateStartedAt: Number(row.state_started_at),
     turnStartedAt: row.turn_started_at === null ? null : Number(row.turn_started_at),
-    observedAt: Number(row.observed_at),
+    lastSemanticEventAt:
+      row.last_semantic_event_at === null ? null : Number(row.last_semantic_event_at),
     ageMs: Number(row.age_ms),
+    ageBasis: row.age_basis === 'event' ? 'event' : 'state_fallback',
     thresholdMs: Number(row.threshold_ms),
-    wouldStall: Number(row.would_stall) === 1,
+    wouldWriteIfEnabled: Number(row.would_write_if_enabled) === 1,
     reason: String(row.reason),
     declaredWait: row.declared_wait === null ? null : String(row.declared_wait)
   }))
@@ -57,20 +64,27 @@ export function writeStallSamples(db: Database.Database, samples: readonly Stall
     db.prepare('DELETE FROM incident_stall_samples').run()
     const insert = db.prepare(
       `INSERT INTO incident_stall_samples (pane_key, terminal_handle, state, state_started_at,
-         turn_started_at, observed_at, age_ms, threshold_ms, would_stall, reason, declared_wait)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         turn_started_at, last_semantic_event_at, age_ms, age_basis, threshold_ms,
+         would_write_if_enabled, reason, declared_wait)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     for (const sample of samples) {
+      // A non-finite epoch is not an observation: the decision still counted its rejected key, but a
+      // row with no epoch would break the read model's arithmetic.
+      if (!Number.isFinite(sample.stateStartedAt)) {
+        continue
+      }
       insert.run(
         sample.paneKey,
         sample.terminalHandle,
         sample.state,
         sample.stateStartedAt,
         sample.turnStartedAt,
-        sample.observedAt,
+        sample.lastSemanticEventAt,
         sample.ageMs,
+        sample.ageBasis,
         sample.thresholdMs,
-        sample.wouldStall ? 1 : 0,
+        sample.wouldWriteIfEnabled ? 1 : 0,
         sample.reason,
         sample.declaredWait
       )

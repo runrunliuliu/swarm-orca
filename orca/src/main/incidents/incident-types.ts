@@ -200,12 +200,19 @@ export type IncidentCoverage = {
 export type IncidentStallSampleCoverage = {
   sampledAt: number | null
   panes: number
-  wouldStall: number
-  stalled: number
+  /** Panes the predicate would write for if the switch were on. Never "confirmed stuck". */
+  wouldWrite: number
+  /** Panes whose age crossed the threshold with no semantic event. */
+  noEvent: number
   declaredWaits: number
   writeEnabled: boolean
   writes: number
   lastWriteAt: number | null
+  /** Sampler passes that threw; `lastError` is the most recent one (M3-C3). */
+  errors: number
+  lastError: string | null
+  /** Stall writes refused because the idempotency key could not be built (M3-C2). */
+  keyRejected: number
 }
 
 export function isIncidentClass(value: unknown): value is IncidentClass {

@@ -5,6 +5,21 @@
 // and the hook server so the thresholds can be tested at the exact minute boundary instead of by
 // waiting 45 of them.
 //
+// AGE BASIS (M3-C1). The age is `now - lastSemanticEventAt`, and `lastSemanticEventAt` is the status
+// row's `evidenceObservedAt`: "when the reported evidence was first observed, as distinct from
+// receivedAt (delivery order)". That is the only clock on the row that measures staleness — the
+// payload's own comment says so, because a relay reconnect replays cached rows and restamps
+// `receivedAt` to stay monotonic, which would make a dead pane look fresh forever.
+//
+// Deliberately NOT the basis:
+//   * PTY byte/output timestamps — a TUI spinner repaints forever and would suppress every stall;
+//   * `receivedAt` — delivery, restamped on relay replay (see above);
+//   * `stateStartedAt` — that is the epoch (idempotency), and a long healthy turn keeps it old.
+//
+// When a row has no `evidenceObservedAt` (old hosts), the age falls back to `stateStartedAt` and the
+// decision says so with `ageBasis: 'state_fallback'` — in the row, the JSON, the text and coverage.
+// A fallback age is a weaker signal and must never be presented as the semantic one.
+//
 // The order of the checks is the policy:
 //   1. an unreadable state is never a stall (`unknown_state`), because nothing can be concluded;
 //   2. only `working` can stall — `blocked`/`waiting`/`done` are the agent's own reported states and
@@ -42,8 +57,15 @@ export type StallDecisionReason =
   | 'not_working'
   | 'below_threshold'
   | 'insufficient_cycles'
-  | 'stalled'
+  /** No semantic event for the threshold. Not "the agent is stuck" — see the module note. */
+  | 'no_event_for_threshold'
   | 'unknown_state'
+
+/**
+ * Which clock the age came from. `state_fallback` is a degraded signal (the row never reported a
+ * semantic event clock) and every surface must show it as such.
+ */
+export type StallAgeBasis = 'event' | 'state_fallback'
 
 export type StallPaneFacts = {
   paneKey: string
@@ -51,10 +73,14 @@ export type StallPaneFacts = {
   state: string
   /** Epoch of the current state; the stall key's epoch (§6.2.1). */
   stateStartedAt: number
-  /** When the current main-agent turn began, if the host reported it. */
+  /** When the current main-agent turn began, if the host reported it. Context for a reader; NOT the age basis. */
   turnStartedAt?: number | null
-  /** When the row was actually observed (evidence time where available, else received time). */
-  observedAt: number
+  /**
+   * `evidenceObservedAt` from the status row, or null when the host never reported one.
+   * This is the semantic-event clock: the age is measured from it, and its absence switches the
+   * decision to the stated `state_fallback` basis.
+   */
+  lastSemanticEventAt: number | null
 }
 
 export type StallWaitDeclarationFacts = {
@@ -78,8 +104,10 @@ export type StallDecisionInput = {
 }
 
 export type StallDecision = {
-  wouldStall: boolean
+  /** True when a *write-enabled* sampler may record this. Never means "confirmed stuck". */
+  wouldWriteIfEnabled: boolean
   ageMs: number
+  ageBasis: StallAgeBasis
   reason: StallDecisionReason
   /** Epoch this decision is about, so a caller cannot mix two epochs up. */
   epoch: number
@@ -105,26 +133,36 @@ export function normalizeThresholds(overrides?: Partial<StallThresholds>): Stall
   }
 }
 
-/**
- * Age is measured from the latest progress signal the agent gave: a turn that started after the
- * state did means the state timestamp is already stale (e.g. `working` re-emitted by a title update).
- */
+/** The later of the two clocks a pane might have, and which one it was (see the module note). */
+export function stallAgeClock(
+  facts: StallPaneFacts,
+  now: number
+): { since: number; ageMs: number; ageBasis: StallAgeBasis } {
+  const hasEvent = typeof facts.lastSemanticEventAt === 'number' && Number.isFinite(facts.lastSemanticEventAt)
+  const since = hasEvent ? (facts.lastSemanticEventAt as number) : facts.stateStartedAt
+  return {
+    since,
+    ageMs: Math.max(0, now - since),
+    ageBasis: hasEvent ? 'event' : 'state_fallback'
+  }
+}
+
 export function stallAgeMs(facts: StallPaneFacts, now: number): number {
-  const since = Math.max(facts.stateStartedAt, facts.turnStartedAt ?? Number.NEGATIVE_INFINITY)
-  return Math.max(0, now - since)
+  return stallAgeClock(facts, now).ageMs
 }
 
 export function decideStall(input: StallDecisionInput): StallDecision {
   const thresholds = normalizeThresholds(input.thresholds)
-  const ageMs = stallAgeMs(input.facts, input.now)
+  const clock = stallAgeClock(input.facts, input.now)
+  const ageMs = clock.ageMs
   const epoch = input.facts.stateStartedAt
-  const base = { ageMs, epoch, thresholds }
+  const base = { ageMs, ageBasis: clock.ageBasis, epoch, thresholds }
 
   if (!isKnownState(input.facts.state)) {
-    return { ...base, wouldStall: false, reason: 'unknown_state' }
+    return { ...base, wouldWriteIfEnabled: false, reason: 'unknown_state' }
   }
   if (!isWorkingState(input.facts.state)) {
-    return { ...base, wouldStall: false, reason: 'not_working' }
+    return { ...base, wouldWriteIfEnabled: false, reason: 'not_working' }
   }
   const liveDeclaration =
     input.declaration !== null &&
@@ -132,20 +170,20 @@ export function decideStall(input: StallDecisionInput): StallDecision {
     input.declaration.epoch === String(epoch) &&
     (input.declaration.expiresAt === null || input.declaration.expiresAt > input.now)
   if (liveDeclaration) {
-    return { ...base, wouldStall: false, reason: 'waiting_declared' }
+    return { ...base, wouldWriteIfEnabled: false, reason: 'waiting_declared' }
   }
   if (ageMs < thresholds.stallMs) {
-    return { ...base, wouldStall: false, reason: 'below_threshold' }
+    return { ...base, wouldWriteIfEnabled: false, reason: 'below_threshold' }
   }
   const cycles =
     input.cyclesObserved ?? Math.floor(ageMs / Math.max(1, thresholds.sampleIntervalMs))
   if (cycles < thresholds.requiredCycles) {
-    return { ...base, wouldStall: false, reason: 'insufficient_cycles' }
+    return { ...base, wouldWriteIfEnabled: false, reason: 'insufficient_cycles' }
   }
-  return { ...base, wouldStall: true, reason: 'stalled' }
+  return { ...base, wouldWriteIfEnabled: true, reason: 'no_event_for_threshold' }
 }
 
 /** True when a decision is allowed to become an incident (M3-4). */
 export function stallDecisionWrites(decision: StallDecision): boolean {
-  return decision.wouldStall && decision.reason === 'stalled'
+  return decision.wouldWriteIfEnabled && decision.reason === 'no_event_for_threshold'
 }

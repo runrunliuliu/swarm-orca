@@ -33,12 +33,15 @@ const coverage = {
   stallSample: {
     sampledAt: 1_700_000_000_000,
     panes: 1,
-    wouldStall: 0,
-    stalled: 0,
+    wouldWrite: 0,
+    noEvent: 0,
     declaredWaits: 0,
     writeEnabled: false,
     writes: 0,
-    lastWriteAt: null
+    lastWriteAt: null,
+    errors: 0,
+    lastError: null,
+    keyRejected: 0
   }
 }
 
@@ -245,9 +248,10 @@ describe('formatIncidentStalls (M3-3)', () => {
           terminalHandle: 'term-1',
           state: 'working',
           ageMs: 46 * 60_000,
+          ageBasis: 'event' as const,
           thresholdMs: 45 * 60_000,
-          wouldStall: true,
-          reason: 'stalled',
+          wouldWriteIfEnabled: true,
+          reason: 'no_event_for_threshold',
           declaredWait: 'long build'
         }
       ],
@@ -256,7 +260,9 @@ describe('formatIncidentStalls (M3-3)', () => {
     expect(text).toContain('tab-1:leaf-1')
     expect(text).toContain('46m')
     expect(text).toContain('45m')
-    expect(text).toContain('stalled')
+    expect(text).toContain('no_event_for_threshold')
+    expect(text).toContain('event')
+    expect(text).toContain('wouldWriteIfEnabled=yes means')
     expect(text).toContain('long build')
     expect(text).toContain('Stall sampler:')
     expect(text).toContain('Writing incidents: off')

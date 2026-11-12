@@ -13,15 +13,19 @@ import { createIncidentStore, type IncidentStore } from './incident-store'
 import { STALL_THRESHOLD_MS } from './incident-stall-decision'
 import { declareWait, listActiveWaits } from './incident-wait'
 import {
-  __resetStallSamplerForTests,
   readStallSampleCoverage,
   stallRowsFromStatusSnapshot,
   sampleStallState,
-  startStallSampler,
-  stopStallSampler,
-  stallSamplerRunning,
   type StallSampleSourceRow
 } from './incidents-stall-sampler'
+import {
+  __resetStallSamplerForTests,
+  recordStallSamplerError,
+  runStallSamplerTick,
+  startStallSampler,
+  stopStallSampler,
+  stallSamplerRunning
+} from './incidents-stall-sampler-timer'
 import { readStallSamples } from './incident-stall-samples'
 
 const NOW = 1_700_000_000_000
@@ -53,7 +57,8 @@ function row(overrides: Partial<StallSampleSourceRow> = {}): StallSampleSourceRo
     state: 'working',
     stateStartedAt: EPOCH,
     turnStartedAt: null,
-    observedAt: NOW - 30_000,
+    // Default: no semantic event since the state began, i.e. the pane is genuinely silent.
+    lastSemanticEventAt: EPOCH,
     ...overrides
   }
 }
@@ -83,9 +88,12 @@ describe('grayscale: default off', () => {
       writeEnabled: false,
       userDataPath
     })
-    expect(first).toMatchObject({ panes: 1, wouldStall: 0, stalled: 0 })
+    expect(first).toMatchObject({ panes: 1, wouldWrite: 0, noEvent: 0 })
     // Cycle 1 is never enough, even at 45 minutes.
-    expect(first.rows[0]).toMatchObject({ wouldStall: false, reason: 'insufficient_cycles' })
+    expect(first.rows[0]).toMatchObject({
+      wouldWriteIfEnabled: false,
+      reason: 'insufficient_cycles'
+    })
     const second = sampleStallState({
       db,
       store,
@@ -94,12 +102,16 @@ describe('grayscale: default off', () => {
       writeEnabled: false,
       userDataPath
     })
-    expect(second.rows[0]).toMatchObject({ wouldStall: true, reason: 'stalled' })
+    expect(second.rows[0]).toMatchObject({
+      wouldWriteIfEnabled: true,
+      reason: 'no_event_for_threshold',
+      ageBasis: 'event'
+    })
     expect(store.countIncidents()).toBe(0)
     expect(readStallSampleCoverage(db)).toMatchObject({
       panes: 1,
-      wouldStall: 1,
-      stalled: 1,
+      wouldWrite: 1,
+      noEvent: 1,
       writeEnabled: false,
       writes: 0
     })
@@ -117,7 +129,7 @@ describe('grayscale: default off', () => {
       state: 'working',
       reason: 'waiting_declared',
       declaredWait: 'long build',
-      wouldStall: false
+      wouldWriteIfEnabled: false
     })
     expect(readStallSampleCoverage(db).declaredWaits).toBe(1)
   })
@@ -164,7 +176,7 @@ describe('write path: switch on', () => {
       facet: 'stall',
       status: 'untriaged'
     })
-    expect(view.summary).toContain('No progress')
+    expect(view.summary).toContain('No semantic event')
 
     // The same epoch on the next tick is a duplicate, not a second row.
     sampleStallState({ db, store, now: NOW + 60_000, rows: [row()], writeEnabled: true, userDataPath })
@@ -222,8 +234,120 @@ describe('write path: switch on', () => {
   })
 })
 
+describe('semantic-event age (M3-C1)', () => {
+  it('does not flag a long turn whose semantic events stay fresh', () => {
+    const { db, store, userDataPath } = fixture()
+    const longAgo = NOW - 3 * 60 * 60 * 1000
+    const fresh = row({ stateStartedAt: longAgo, turnStartedAt: longAgo, lastSemanticEventAt: NOW - 60_000 })
+    sampleStallState({ db, store, now: NOW, rows: [fresh], writeEnabled: true, userDataPath })
+    const second = sampleStallState({
+      db,
+      store,
+      now: NOW,
+      rows: [fresh],
+      writeEnabled: true,
+      userDataPath
+    })
+    expect(second.rows[0]).toMatchObject({
+      wouldWriteIfEnabled: false,
+      reason: 'below_threshold',
+      ageBasis: 'event',
+      ageMs: 60_000
+    })
+    expect(store.countIncidents()).toBe(0)
+  })
+
+  it('marks state_started rows as a fallback basis, on the row and in coverage', () => {
+    const { db, store, userDataPath } = fixture()
+    sampleStallState({
+      db,
+      store,
+      now: NOW,
+      rows: [row({ lastSemanticEventAt: null })],
+      writeEnabled: false,
+      userDataPath
+    })
+    expect(readStallSamples(db)[0]).toMatchObject({
+      ageBasis: 'state_fallback',
+      reason: 'insufficient_cycles'
+    })
+  })
+})
+
+describe('switch default (M3-C6)', () => {
+  it('writes nothing end to end when INCIDENT_STALL_WRITE is not `on`', () => {
+    const previous = process.env.INCIDENT_STALL_WRITE
+    delete process.env.INCIDENT_STALL_WRITE
+    try {
+      const { db, store, userDataPath } = fixture()
+      // No `writeEnabled` argument: the real environment path decides, not a test constant.
+      sampleStallState({ db, store, now: NOW, rows: [row()], userDataPath })
+      const second = sampleStallState({ db, store, now: NOW, rows: [row()], userDataPath })
+      expect(second.rows[0].wouldWriteIfEnabled).toBe(true)
+      expect(second.writeEnabled).toBe(false)
+      expect(second.writes).toBe(0)
+      expect(store.countIncidents()).toBe(0)
+      expect(readStallSampleCoverage(db)).toMatchObject({ writeEnabled: false, writes: 0 })
+    } finally {
+      if (previous !== undefined) {
+        process.env.INCIDENT_STALL_WRITE = previous
+      }
+    }
+  })
+
+  it('writes when the environment says on (and only then)', () => {
+    const previous = process.env.INCIDENT_STALL_WRITE
+    process.env.INCIDENT_STALL_WRITE = 'on'
+    try {
+      const { db, store, userDataPath } = fixture()
+      sampleStallState({ db, store, now: NOW, rows: [row()], userDataPath })
+      sampleStallState({ db, store, now: NOW, rows: [row()], userDataPath })
+      expect(store.countIncidents()).toBe(1)
+    } finally {
+      if (previous === undefined) {
+        delete process.env.INCIDENT_STALL_WRITE
+      } else {
+        process.env.INCIDENT_STALL_WRITE = previous
+      }
+    }
+  })
+})
+
+describe('rejected keys and sampler failures are visible (M3-C2/C3)', () => {
+  it('refuses a pane key or epoch that cannot form an idempotency key, and counts it', () => {
+    const { db, store, userDataPath } = fixture()
+    const malformed = [
+      // A pane key is `tab:leaf`; an extra separator is not a pane key.
+      row({ paneKey: 'a:b:c' }),
+      // A non-finite epoch cannot be an epoch.
+      row({ paneKey: 'tab-1:leaf-2', stateStartedAt: Number.NaN }),
+      // Whitespace is rejected by the shared key builder, not silently normalised.
+      row({ paneKey: 'tab 1:leaf-3' })
+    ]
+    // Two cycles each so the decision gets to the write step.
+    sampleStallState({ db, store, now: NOW, rows: malformed, writeEnabled: true, userDataPath })
+    sampleStallState({ db, store, now: NOW, rows: malformed, writeEnabled: true, userDataPath })
+
+    expect(store.countIncidents()).toBe(0)
+    expect(readStallSampleCoverage(db)).toMatchObject({ keyRejected: 3 })
+  })
+
+  it('records a failed sampling pass so `stalls` can show the last error', () => {
+    const { db, store } = fixture()
+    // A real failure: the sample table is gone, so the pass cannot persist its result.
+    db.exec('DROP TABLE incident_stall_samples')
+    expect(runStallSamplerTick({ db, store, now: NOW })).toBeNull()
+    expect(readStallSampleCoverage(db)).toMatchObject({ errors: 1 })
+    expect(readStallSampleCoverage(db).lastError).toContain('incident_stall_samples')
+
+    recordStallSamplerError(db, new Error('second failure'))
+    expect(readStallSampleCoverage(db)).toMatchObject({ errors: 2 })
+    expect(readStallSampleCoverage(db).lastError).toContain('second failure')
+  })
+})
+
 describe('source adapter', () => {
-  it('drops resume-identity-only rows and prefers the evidence clock', () => {
+  it('drops resume-identity-only rows and maps only the evidence clock (never receivedAt)', () => {
     const rows = stallRowsFromStatusSnapshot([
       {
         paneKey: 'pane-a',
@@ -249,7 +373,7 @@ describe('source adapter', () => {
         state: 'working',
         stateStartedAt: 10,
         turnStartedAt: 20,
-        observedAt: 100
+        lastSemanticEventAt: 100
       }
     ])
   })

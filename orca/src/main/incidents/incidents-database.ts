@@ -20,11 +20,13 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
 /**
  * Bump only for additive changes; a newer version opens read-only here.
  *
- * v2 (M3) adds the stall surface: wait declarations and the last sample. Both are additive tables,
- * so a v1 database migrates by creating them and bumping the version — the incident rows, triggers
- * and decisions are untouched.
+ * v2 (M3) adds the stall surface: wait declarations and the last sample.
+ * v3 (M3 review) changes the *sample* shape: the age basis is now a semantic event clock with an
+ * explicit fallback marker, and the verdict is named `would_write_if_enabled`. The sample table is a
+ * derived cache refreshed every tick, so its migration is "drop and recreate" — declarations, incident
+ * rows, triggers and decisions are untouched.
  */
-export const INCIDENTS_DB_SCHEMA_VERSION = 2
+export const INCIDENTS_DB_SCHEMA_VERSION = 3
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -146,19 +148,21 @@ CREATE INDEX IF NOT EXISTS idx_incident_wait_expiry ON incident_wait_declaration
 -- The last stall sample (M3-3). One row per pane, replaced wholesale on each tick: this is the
 -- read model behind the stalls command, and the epoch source a wait declaration binds to.
 CREATE TABLE IF NOT EXISTS incident_stall_samples (
-  pane_key         TEXT PRIMARY KEY,
-  terminal_handle  TEXT,
-  state            TEXT NOT NULL,
-  state_started_at INTEGER NOT NULL,
-  turn_started_at  INTEGER,
-  observed_at      INTEGER NOT NULL,
-  age_ms           INTEGER NOT NULL,
-  threshold_ms     INTEGER NOT NULL,
-  would_stall      INTEGER NOT NULL,
-  reason           TEXT NOT NULL,
-  declared_wait    TEXT
+  pane_key             TEXT PRIMARY KEY,
+  terminal_handle      TEXT,
+  state                TEXT NOT NULL,
+  state_started_at     INTEGER NOT NULL,
+  turn_started_at      INTEGER,
+  last_semantic_event_at INTEGER,
+  age_ms               INTEGER NOT NULL,
+  age_basis            TEXT NOT NULL,
+  threshold_ms         INTEGER NOT NULL,
+  would_write_if_enabled INTEGER NOT NULL,
+  reason               TEXT NOT NULL,
+  declared_wait        TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_incident_stall_would ON incident_stall_samples(would_stall);
+CREATE INDEX IF NOT EXISTS idx_incident_stall_would
+  ON incident_stall_samples(would_write_if_enabled);
 `
 }
 
@@ -292,6 +296,11 @@ function createIncidentSchema(db: Database.Database, stored: number): void {
     return
   }
   runIncidentsTransaction(db, () => {
+    if (stored > 0) {
+      // The sample table is a derived per-tick cache; recreating it is cheaper and safer than a
+      // column-by-column rewrite, and it cannot lose anything an operator would miss.
+      db.exec('DROP TABLE IF EXISTS incident_stall_samples')
+    }
     db.exec(createIncidentTablesSql())
     db.pragma(`user_version = ${INCIDENTS_DB_SCHEMA_VERSION}`)
   })

@@ -10,7 +10,7 @@
 // `untriaged` entry status. A stall is a fact, not a verdict.
 
 import type { IncidentRecord } from './incident-types'
-import { incidentFingerprint } from './incident-key'
+import { buildIncidentKey, incidentFingerprint } from './incident-key'
 import { mintIncidentId, persistIncidentRecord } from './incident-writer'
 import { resolveLocalHostId } from './incidents-paths'
 import type { IncidentStore } from './incident-store'
@@ -36,53 +36,68 @@ function minutes(ms: number): number {
 }
 
 /**
- * Build the row.
+ * Build the row, or refuse it.
  *
- * `source_id` is `<paneKey>:<stateStartedAt>`: the state's epoch is the idempotency key (§6.2.1), so
- * one stuck stretch is one row even if the sampler sees it every minute, and a pane that recovers and
- * stalls again gets a fresh epoch and therefore a fresh row.
+ * The key comes from `buildIncidentKey({kind:'status_stall', paneKey, stateStartedAt})`, not from
+ * string concatenation (M3-C2): the shared builder is what validates the pane key and the epoch and
+ * what produces `source_id = <paneKey>:<stateStartedAt>`. A malformed pane key or a non-finite epoch
+ * must be *refused*, because a hand-built id would happily store `"a:b:c:NaN"` and then never dedupe.
  */
-export function buildStallIncidentRecord(context: StallWriteContext): IncidentRecord {
+export function buildStallIncidentRecord(
+  context: StallWriteContext
+): { ok: true; record: IncidentRecord } | { ok: false; reason: string } {
   const { facts, decision } = context
-  const stateStartedAt = facts.stateStartedAt
+  const key = buildIncidentKey({
+    kind: 'status_stall',
+    paneKey: facts.paneKey,
+    stateStartedAt: facts.stateStartedAt
+  })
+  if (!key.ok) {
+    return { ok: false, reason: `status_stall_key_${key.reason}` }
+  }
   return {
-    id: context.id ?? mintIncidentId(),
-    sourceKind: 'status_stall',
-    sourceId: `${facts.paneKey}:${stateStartedAt}`,
-    facet: 'stall',
-    hostId: context.hostId ?? resolveLocalHostId(),
-    worktreeId: null,
-    runId: null,
-    taskId: null,
-    dispatchId: null,
-    agentSessionId: null,
-    ptyIncarnationId: null,
-    class: 'no_progress',
-    status: 'untriaged',
-    exitCause: null,
-    fingerprint: incidentFingerprint({
+    ok: true,
+    record: {
+      id: context.id ?? mintIncidentId(),
+      sourceKind: key.sourceKind,
+      sourceId: key.sourceId,
+      facet: key.facet,
+      hostId: context.hostId ?? resolveLocalHostId(),
+      worktreeId: null,
+      runId: null,
+      taskId: null,
+      dispatchId: null,
+      agentSessionId: null,
+      ptyIncarnationId: null,
       class: 'no_progress',
-      sourceKind: 'status_stall',
-      facet: 'stall',
-      signature: [`state:${facts.state}`, `threshold:${decision.thresholds.stallMs}`]
-    }),
-    evidence: {
-      pointers: [],
-      unknownBoundaries: [
-        '无进展判定来自状态时间戳（stateStartedAt / turnStartedAt），不是语义验收；agent 可能在等待而不报状态。',
-        '同一 pane 恢复后以新的 stateStartedAt 重新计数，旧记录不会被续写。'
-      ],
-      code: `stall:${facts.state}`
-    },
-    summary:
-      `No progress for ${minutes(decision.ageMs)}m in state "${facts.state}" on ${facts.paneKey} ` +
-      `(threshold ${minutes(decision.thresholds.stallMs)}m)`,
-    createdAt: context.now ?? Date.now()
+      status: 'untriaged',
+      exitCause: null,
+      fingerprint: incidentFingerprint({
+        class: 'no_progress',
+        sourceKind: key.sourceKind,
+        facet: key.facet,
+        signature: [`state:${facts.state}`, `threshold:${decision.thresholds.stallMs}`]
+      }),
+      evidence: {
+        pointers: [],
+        unknownBoundaries: [
+          '判定依据是状态行的语义事件时钟（evidenceObservedAt）或它在缺失时的 stateStartedAt 回退，' +
+            `本次 ageBasis=${decision.ageBasis}；这不是语义验收，agent 可能在等待而不报状态。`,
+          '同一 pane 恢复后以新的 stateStartedAt 重新计数，旧记录不会被续写。'
+        ],
+        code: `stall:${facts.state}`
+      },
+      summary:
+        `No semantic event for ${minutes(decision.ageMs)}m in state "${facts.state}" on ` +
+        `${facts.paneKey} (threshold ${minutes(decision.thresholds.stallMs)}m, ` +
+        `ageBasis=${decision.ageBasis})`,
+      createdAt: context.now ?? Date.now()
+    }
   }
 }
 
 export type StallWriteResult = {
-  outcome: 'inserted' | 'duplicate' | 'capacity_limited' | 'read_only' | 'skipped'
+  outcome: 'inserted' | 'duplicate' | 'capacity_limited' | 'read_only' | 'key_rejected' | 'skipped'
   id: string | null
   reason?: string
 }
@@ -105,12 +120,17 @@ export function writeStallIncident(options: {
     return { outcome: 'skipped', id: null, reason: 'store_unavailable' }
   }
   try {
-    const record = buildStallIncidentRecord({
+    const built = buildStallIncidentRecord({
       facts: options.facts,
       decision: options.decision,
       ...(options.hostId === undefined ? {} : { hostId: options.hostId }),
       ...(options.now === undefined ? {} : { now: options.now })
     })
+    if (!built.ok) {
+      // A rejected key is not a silent skip: the caller counts it so coverage can show it (M3-C2).
+      return { outcome: 'key_rejected', id: null, reason: built.reason }
+    }
+    const record = built.record
     const { result } = persistIncidentRecord(options.store, record, {
       userDataPath: options.userDataPath
     })
