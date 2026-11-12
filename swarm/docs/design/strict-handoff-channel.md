@@ -462,8 +462,19 @@ live 对照当场暴露了两个离线套件看不到的缺陷，已修（提交
   工具按设计答 3 `handoff_absent_no_effect`。多个 attempt 共用同一个 pane 时，消费（或换 pane）是前一个 attempt
   的收尾义务。CLI 也自述「terminal-only mailbox, delivery is not durable after that terminal closes」。
 
-未完成：S1 之后的阶段、以及「marker 在等待期间发布 → 返回 0」的 live 复现（attempt2 的两个角色 pane 同时被
-上游 429 TPM 限流打断，未重试）。因此这条修复的证据是 live 反例 + 离线用例，而不是 live 正例。
+同一晚又跑了一次（attempt2）：`wait-stage` 阻塞期间 Coordinator 真的发布了 S1，第一次校验仍返 5
+`marker_time_mismatch`，但这次不是同一原因——**读侧时钟早于 marker 自己的 `created_at` 约 80 ms**
+（reader `now()` 16:21:04.826 < marker `created_at` 16:21:04.906，file mtime 16:21:04.942）。同一 marker
+稍后重探返回 **0**，evidence Ref `9281ad1d…` 与磁盘一致。
+
+也就是唤醒瞬间存在一个**亚秒竞态**：`previous_time <= marker_time <= clock` 里的 `clock` 是读侧此刻的时钟，
+而 marker 的 `created_at` 由发布方在自己那次 `now()` 里写好，两者之间可以差出几十毫秒。这一条**没有**在本次改动里
+动，因为它是 gate 判据（「不接受未来时间的证据」），放宽需要 owner 决定。两个候选：
+
+1. 有界容差（例如 ≤1 s，并在文档里写明「时钟读取粒度竞态」而不是「未来证据」）；
+2. 把读侧时钟换成 `max(now(), marker 的 mtime)`，用文件系统时间作第二个见证。
+
+本次交付仍然是「live 反例 + 离线用例」，没有据此外推「E1 不再复现」。
 
 ## 6. 不变量与红线
 
