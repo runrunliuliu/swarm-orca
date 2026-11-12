@@ -252,12 +252,10 @@ class PiTuiTests(PiTuiFixture):
 
     def test_a_completed_turn_requires_the_harness_end_record(self):
         """`completed_turn` is a recorded agent_end/done, never an idle pane."""
-        from coordinator_tui_errors import TuiError
-
         self.write_log()
         entry = self.write_hook_row("tool_execution_end", "working")
-        with self.assertRaisesRegex(TuiError, "tui_turn_not_completed"):
-            self.observe(completed_turn=True)
+        # "Not completed yet" is a wait, exactly like the Trae reader (None), not a stop.
+        self.assertIsNone(self.observe(completed_turn=True))
         entry = self.write_hook_row("agent_end", "done")
         observation = self.observe(completed_turn=True)
         self.assertEqual(observation["kind"], "pi_tui_completed_turn_observation")

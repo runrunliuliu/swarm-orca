@@ -64,8 +64,11 @@ def _completed_turn(profile, observed, sid):
     require(isinstance(entry, dict), "runtime_state_missing_pane")
     session = entry.get("providerSession") or {}
     require(session.get("id") == sid, "tui_completed_turn_session_changed")
-    require(entry.get("hookEventName") == "agent_end"
-            and (entry.get("payload") or {}).get("state") == "done", "tui_turn_not_completed")
+    if entry.get("hookEventName") != "agent_end" or (entry.get("payload") or {}).get("state") != "done":
+        # Same contract as the Trae reader: "no completed turn yet" is a wait, not a
+        # negative result. Raising here made the monitor persist a durable stop
+        # (attempt31) instead of waiting for the real turn end.
+        return None
     started = entry.get("turnStartedAt") or entry.get("stateStartedAt")
     finished = entry.get("receivedAt")
     require(type(started) in (int, float) and started > 0 and type(finished) in (int, float),
@@ -159,7 +162,10 @@ def _observe(*, cli, runtime, terminal, incarnation, workspace, cwd, profile, lo
     if completed_turn:
         # A completed-turn observation is the same identity plus the recorded end of
         # the turn this checkpoint belongs to; it is not a second kind of identity.
-        result["completed_turn"] = _completed_turn(profile, before, sid)
+        proof = _completed_turn(profile, before, sid)
+        if proof is None:
+            return None
+        result["completed_turn"] = proof
         result["kind"] = "pi_tui_completed_turn_observation"
     return result
 
