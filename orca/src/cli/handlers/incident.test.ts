@@ -351,6 +351,26 @@ describe('incident wait (M3-1)', () => {
     expect(cleared.output.join('\n')).toContain('Cleared 1 wait declaration')
   })
 
+  it('refuses to mix --clear with declaration fields (M3-C4)', async () => {
+    seedSample()
+    const mixed = context('incident wait', {
+      terminal: 'term-1',
+      clear: true,
+      reason: 'still waiting'
+    })
+    await expect(INCIDENT_HANDLERS['incident wait'](mixed.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const withUntil = context('incident wait', {
+      terminal: 'term-1',
+      clear: true,
+      until: '2030-01-01T00:00:00Z'
+    })
+    await expect(INCIDENT_HANDLERS['incident wait'](withUntil.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+  })
+
   it('refuses an unknown terminal, a missing reason, and a past deadline', async () => {
     seedSample()
     const unknown = context('incident wait', { terminal: 'nope', reason: 'r' })

@@ -88,7 +88,8 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ],
     notes: [
       'The declaration binds to the pane epoch observed in the last sample, so a respawned pane never inherits it.',
-      '--until must be a future RFC3339 timestamp; without it the declaration lives until --clear.',
+      '--until must be a future RFC3339 timestamp. Give long waits a deadline; a declaration without one lives until --clear and is only for cases a human has explicitly confirmed.',
+      '--clear removes EVERY declaration of that pane (all epochs), and cannot be combined with --reason/--until/--actor.',
       '--actor is self-reported and unverified (§19.1); it defaults to "unspecified".'
     ]
   },
@@ -99,7 +100,8 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS],
     examples: ['orca incident stalls', 'orca incident stalls --json'],
     notes: [
-      'A pane is listed with its state, age, threshold, wait declaration and would-stall verdict.',
+      'A pane is listed with its state, age, age basis (event or state_fallback), threshold, wait declaration and wouldWriteIfEnabled verdict.',
+      'This is a grayscale judgement, not a recorded accident: the default mode writes no incident, and wouldWriteIfEnabled=yes does not mean one exists.',
       'Writing no_progress incidents is off by default and controlled by INCIDENT_STALL_WRITE=on in the host process; this command never writes.'
     ]
   },

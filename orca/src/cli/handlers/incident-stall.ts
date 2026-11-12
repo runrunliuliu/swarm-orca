@@ -79,6 +79,18 @@ export const waitIncident: CommandHandler = async (ctx) => {
   refuseNonLocalIncidentSelector(ctx, 'orca incident wait')
   const terminal = requireTerminal(ctx)
   const clear = ctx.flags.get('clear') === true
+  if (clear) {
+    // `--clear` removes every epoch of the pane; mixing it with declaration fields is always a
+    // mistake, and silently ignoring them would leave the caller believing a wait was declared.
+    const conflicting = ['reason', 'until', 'actor'].filter((name) => ctx.flags.has(name))
+    if (conflicting.length > 0) {
+      throw new RuntimeClientError(
+        'invalid_argument',
+        `--clear cannot be combined with ${conflicting.map((name) => `--${name}`).join(', ')}. ` +
+          'Run it alone to remove the whole pane\'s declarations.'
+      )
+    }
+  }
   const opened = openIncidentStore({ requireExisting: true, readOnly: false })
   try {
     const db = opened.db
