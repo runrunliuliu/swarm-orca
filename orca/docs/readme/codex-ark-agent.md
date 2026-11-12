@@ -28,6 +28,11 @@ the `agentWorkspaceTrustEnabled` setting turns the grant off.
 Orca never creates that config: an unreadable wrapper home leaves the CLI to ask, since a
 config without the wrapper's provider/model/catalog keys makes `codex-ark` refuse to start.
 
+Trusting a hand-opened pane is a deliberate product decision, accepted by the repository owner
+when the orchestration-only gate was removed: what the menu writes and what this code writes are
+the same record, so the only thing the gate changed was who answered. There is no per-surface or
+per-launch switch — the single control is the global `agentWorkspaceTrustEnabled` setting.
+
 The wrapper may exec a process named `codex`. Explicit Ark launch ownership is retained
 when compatible process evidence arrives; an ordinary Codex process without that owner
 remains Codex. Native terminal titles are left unchanged.
