@@ -60,6 +60,17 @@ class HandoffAcceptTests(unittest.TestCase):
     def record(self, handoff_id="handoff-0001"):
         return Path(self.root) / "control" / "handoff" / (handoff_id + ".json")
 
+    def test_may_replay_comes_from_one_table_and_unknown_is_false(self):
+        # One truth, keyed by reason: the bit is a property of the finding, not of the exit code
+        # it happens to share. A raise site cannot pass it at all.
+        self.assertIs(bootstrap_handoff.may_replay("handoff_duplicate_no_effect"), False)
+        self.assertIs(bootstrap_handoff.may_replay("handoff_absent_no_effect"), True)
+        self.assertIs(bootstrap_handoff.may_replay("handoff_delivery_unreadable"), True)
+        self.assertIs(bootstrap_handoff.may_replay("never_defined_anywhere"), False)
+        self.assertIs(bootstrap_handoff.Refusal("handoff_duplicate_no_effect", 3).may_replay, False)
+        with self.assertRaises(TypeError):
+            bootstrap_handoff.Refusal("handoff_absent_no_effect", 3, may_replay=True)
+
     def test_acceptance_records_both_assertions_and_never_authorizes(self):
         result = self.accept(receipt=self.receipt([self.row()]))
         self.assertEqual(result["exit"], 0, result)
@@ -126,6 +137,9 @@ class HandoffAcceptTests(unittest.TestCase):
         again = self.accept(receipt=self.receipt([self.row(msg_id="msg-2")], name="again.json"))
         self.assertEqual(again["exit"], 3)
         self.assertEqual(again["reason"], "handoff_duplicate_no_effect")
+        # A duplicate is a no-op, not a wait: replaying the same unread row is not progress, so
+        # `may_replay` must be false even though it shares an exit code with "nothing arrived".
+        self.assertIs(again["may_replay"], False)
         self.assertEqual(self.record().read_bytes(), before)
 
     def test_the_same_id_with_different_bytes_is_a_conflict(self):
@@ -383,6 +397,53 @@ class HandoffAcceptTests(unittest.TestCase):
                          {"directory": "control/handoff", "problem": "mode", "mode": "0o755"})
         self.assertEqual(os.stat(handoff).st_mode & 0o777, 0o755)  # untouched
         self.assertFalse(self.record().exists())
+
+    def test_directory_preparation_failures_are_typed_not_escaping(self):
+        # mkdir/chmod/fsync raising must come back as a refusal the caller can route, not as a
+        # traceback: creating the level may already have happened, so it is needs_reconcile.
+        cases = {
+            "mkdir": mock.patch.object(Path, "mkdir", side_effect=OSError("no space")),
+            "chmod": mock.patch.object(bootstrap_handoff.os, "chmod", side_effect=OSError("denied")),
+            "fsync": mock.patch.object(bootstrap_handoff, "fsync_dir",
+                                       side_effect=OSError("fsync failed")),
+        }
+        for index, (step, patch) in enumerate(cases.items()):
+            with self.subTest(step=step):
+                with patch:
+                    result = self.accept(receipt=self.receipt(
+                        [self.row(handoff_id="handoff-dir%d" % index)],
+                        name="dir-%s.json" % step))
+                self.assertEqual(result["exit"], 5, result)
+                self.assertEqual(result["reason"], "handoff_record_dir_unproven")
+                self.assertEqual(result["state"], "needs_reconcile")
+                self.assertIs(result["may_replay"], False)
+                self.assertFalse(self.record("handoff-dir%d" % index).exists())
+
+    def test_a_retry_re_fsyncs_both_levels_before_writing(self):
+        # The first attempt creates the directories and fails on the fsync. The directory now
+        # exists, so a retry that skipped existing levels would inherit an unproven entry — it has
+        # to fsync both parents again and only then write.
+        calls = []
+        failures = {"remaining": 1}
+
+        def fsync(target):
+            calls.append(Path(target).name)
+            if failures["remaining"]:
+                failures["remaining"] -= 1
+                raise OSError("fsync failed")
+
+        with mock.patch.object(bootstrap_handoff, "fsync_dir", fsync):
+            first = self.accept(receipt=self.receipt([self.row()], name="r1.json"))
+            self.assertEqual(first["exit"], 5, first)
+            self.assertEqual(first["reason"], "handoff_record_dir_unproven")
+            self.assertFalse(self.record().exists())
+            # The level exists now, but its durability was never proven.
+            self.assertTrue((self.root / "control").is_dir())
+            calls.clear()
+            second = self.accept(receipt=self.receipt([self.row()], name="r2.json"))
+        self.assertEqual(second["exit"], 0, second)
+        self.assertEqual(calls, [self.root.name, "control"])
+        self.assertEqual(parse(self.record().read_bytes())["handoff_id"], "handoff-0001")
 
     def test_creation_fsyncs_each_parent_in_order(self):
         order = []

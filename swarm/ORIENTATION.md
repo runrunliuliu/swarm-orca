@@ -20,7 +20,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（123 个：协议文档点名的顶层定义与方法）
+## 符号索引（124 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `dispatch` | `bootstrap_control.py:586-673` | `def dispatch` / `class dispatch` |
 | `dispatch` | `coordinator_first_dispatch.py:351-359` | `def dispatch` / `class dispatch` |
 | `drain` | `bootstrap_driver.py:336-369` | `def drain` / `class drain` |
-| `envelope` | `bootstrap_handoff.py:170-202` | `def envelope` / `class envelope` |
+| `envelope` | `bootstrap_handoff.py:224-256` | `def envelope` / `class envelope` |
 | `events` | `coordinator_background.py:157-158` | `def events` / `class events` |
 | `exact` | `coordinator_worker_plan.py:27-31` | `def exact` / `class exact` |
 | `exclusive` | `trae_exec_capture.py:27-28` | `def exclusive` / `class exclusive` |
@@ -105,6 +105,8 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `log` | `publication_wait.py:139-149` | `def log` / `class log` |
 | `marker` | `bootstrap_driver.py:186-201` | `def marker` / `class marker` |
 | `materialize_template` | `bootstrap_tool.py:561-583` | `def materialize_template` / `class materialize_template` |
+| `may_replay` | `bootstrap_handoff.py:109-111` | `def may_replay` / `class may_replay` |
+| `may_replay` | `bootstrap_handoff.py:131-133` | `def may_replay` / `class may_replay` |
 | `mutation` | `coordinator_tui_workflow.py:44-64` | `def mutation` / `class mutation` |
 | `native` | `operator_monitor.py:107-128` | `def native` / `class native` |
 | `native` | `trae_coordinator.py:349-361` | `def native` / `class native` |

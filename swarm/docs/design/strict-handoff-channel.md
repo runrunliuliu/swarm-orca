@@ -379,7 +379,7 @@ coordinator_launch.py strict-bootstrap-wait-stage \
 | `handoff_pin_mismatch` | 5 | 载荷 Ref 与读到的字节不符 | 是 | false |
 | `handoff_payload_invalid` | 5 | 载荷 schema/未知字段/`attempt_id` 不符 | 是 | false |
 | `handoff_absent_no_effect` | 3 | 批次里没有本 attempt 的 handoff 行 | 否（没东西可做） | true（可再等） |
-| `handoff_duplicate_no_effect` | 3 | 同 `handoff_id` 的接受记录已存在，且 `payload_sha256`/`refs`/`from_handle`/`subject`/`sender_anchor` **逐项全同** | 否 | false（**不产生新回合、不消费**） |
+| `handoff_duplicate_no_effect` | 3 | 同 `handoff_id` 的接受记录已存在，且 `payload_sha256`/`refs`/`from_handle`/`subject`/`sender_anchor` **逐项全同** | 否 | **false**（no-op：不产生新回合、不消费，重放同一条未消费消息不是进展） |
 | `handoff_duplicate_conflict` | 5 | 同 `handoff_id` 但上述五项**任一项不同**（ID 复用或同一份被重写） | 是 | false（不覆盖既有记录、不消费、**不得“取新的那份”**） |
 | `handoff_delivery_unreadable` | 2 | CLI 回执半包/被杀/非 0 退出（`state=not_admitted`：未消费任何投递） | 是 | true（未消费，可再等） |
 | `handoff_record_conflict` | 5 | ① `publish_new` 之后读回字节不同；② link 已落地但父目录 fsync 未证实（字节可见、durability 未知）——两种都是 `state=needs_reconcile` | 是 | false（绝不写第二份） |
@@ -391,6 +391,7 @@ coordinator_launch.py strict-bootstrap-wait-stage \
 | `handoff_wait_timeout` | 124 | `check --peek --wait` 的窗口用完（形状+自测耗时判为超时，见 §3.3.5/B11） | 是 | true（未消费，可再等） |
 | `handoff_record_unwritable` | 2 | 回执根本没落盘（`publish_new` 失败且读回不存在，`state=not_admitted`） | 是 | true（未消费、未写，可重试） |
 | `handoff_record_dir_unsafe` | 5 | `control/` 或 `control/handoff/` 是符号链接、不是目录，或已存在但 mode ≠ `0700`（不改权限、不跟随链接） | 是 | false |
+| `handoff_record_dir_unproven` | 5 | 目录准备中 `mkdir`/`chmod`/`fsync_dir` 失败（目录可能已建、durability 未证实，`state=needs_reconcile`） | 是 | false（重试必须重新 fsync 两层 parent） |
 | `handoff_attempt_unreachable` | 4 | attempt 目录或 binding 不可达 | 是 | false |
 
 写记录后的失败分类（沿用 P0 纪律）：`link` 成功后任何错误都先**读回**——字节相同 → `admitted`；
@@ -565,3 +566,17 @@ owner-blocking）。
 
 另补两句与实现逐字对齐的文档（不改变断言）：任何一条 handoff 行的信封不可解析都阻断整批（含标了
 另一个 attempt 的行）；`from_handle` 为缺失/空串/纯空白/`unknown` 一律 `handoff_sender_unanchored`。
+
+### v3.2（2026-11-12，复审 blocking 回填）
+
+复审仍 reject 的两条都只有一个原因：**同一个属性被两处各自推导**。本次只收敛这两处，不新增机制：
+
+1. **`may_replay` 改由拒绝码决定**（实现里是一张模块级表，未知名默认 false），不再由“退出码 3”推导——
+   `ABSENT` 同时代表“什么都没来”与“重复件”，于是 `handoff_duplicate_no_effect` 曾错误地拿到 `may_replay:true`。
+   本表已同步：`handoff_duplicate_no_effect` 为 **false**；只有未写/未消费的四个码为 true。
+2. **目录准备的失败成为结构化拒绝，且每次调用都 fsync 两层 parent**：`handoff_record_dir_unproven`（5 /
+   `needs_reconcile` / 不可重放）取代原先会逃逸的 `OSError`；`if level.exists(): continue` 被删除——
+   否则“上次创建成功、父目录 fsync 失败”的重试会跳过那次 fsync，把未证实 durable 的目录项当基础。`_verify()`
+   的“mode 漂移只拒绝不修复”不变，协议里也写明了这句。
+
+状态仍是**离线实现完成、live 未验收**。

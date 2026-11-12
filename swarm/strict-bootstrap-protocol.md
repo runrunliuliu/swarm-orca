@@ -164,12 +164,16 @@ S0 handoff 是**一条投递**，不是一段要贴回屏幕的文本：发送�
 
 接收成功后写一条本地回执 `control/handoff/<handoff_id>.json`（`execution_authorized:false`）：
 目录要求是同 UID 拥有的**非 symlink `0700` 目录**；`control/` 与 `control/handoff/` 不存在时由接收方
-创建（每建一层都 fsync 上一层），已存在但 mode 不符或是 symlink 则失败关闭
-（`handoff_record_dir_unsafe`），不改权限也不跟随链接。记录由 `publish_new` 独占写入并**读回比较**；
+创建（每建一层都 fsync 上一层，**且每次调用都 fsync 两层 parent，不只限新建时**），已存在但 mode 不符或是
+symlink 则失败关闭（`handoff_record_dir_unsafe`）——**mode 漂移不修复，只拒绝**（不要期待自动 chmod）；
+目录准备中任何 `mkdir`/`chmod`/`fsync` 失败都是 `handoff_record_dir_unproven`（`needs_reconcile`，不可重放），
+不逃逸为异常。记录由 `publish_new` 独占写入并**读回比较**；
 link 已落地但父目录 fsync 未证实时不等于成功，而是 `needs_reconcile`（`handoff_record_conflict`，
 **不可重放**）。它**不是**任何 gate 的输入，也不代表 handoff 已被采纳。同一 `handoff_id` 再次到达时逐项
 比较 `payload_sha256`/`refs`/`from_handle`/`subject`/`sender_anchor`：全同 → 无副作用（可再等）；
-任一项不同 → `handoff_duplicate_conflict`，**不得覆盖、不得代选**。
+任一项不同 → `handoff_duplicate_conflict`，**不得覆盖、不得代选**。`may_replay` 由**拒绝码**决定
+（与实现内的同一张表一一致）：只有“未写、未消费”的那几个码为 true，`handoff_duplicate_no_effect` 是
+**false**（重复件是 no-op，重放同一条未消费消息不是进展）。
 
 拒绝码与退出状态（同为 `strict-bootstrap-handoff-accept` 的契约，完整表见
 [handoff 通道设计](docs/design/strict-handoff-channel.md) §4.2）：0 接受；3 无事可做
