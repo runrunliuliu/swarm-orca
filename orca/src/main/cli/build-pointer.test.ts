@@ -220,6 +220,32 @@ describe.skipIf(process.platform === 'win32')('pointer-following bare orca dispa
     })
   })
 
+  it('exports the pointer path so the CLI it execs reports the same pointer', async () => {
+    const root = makeRoot()
+    const homePath = join(root, 'home')
+    const pointerPath = join(root, 'opt', 'current')
+    const artifact = makeArtifact(root, 'orcad-apex-0.1.0-4046bdb7dbaa')
+    // A launcher that echoes the environment the dispatcher handed it.
+    const launcher = join(artifact.installDir, 'env-probe')
+    writeFileSync(launcher, '#!/usr/bin/env bash\necho "$ORCA_BUILD_POINTER_PATH"\n', {
+      mode: 0o755
+    })
+    publishOrcaBuildPointer({
+      pointerPath,
+      identity: identityFor(artifact.installDir, { executable: launcher, args: [] })
+    })
+    await installBareOrcaBuildPointerDispatcher({
+      homePath,
+      buildPointerPath: pointerPath,
+      localCli: { executable: launcher, args: [] }
+    })
+
+    await expect(runScript(join(homePath, '.local', 'bin', 'orca'))).resolves.toMatchObject({
+      code: 0,
+      stdout: `${pointerPath}\n`
+    })
+  })
+
   it('fails closed on a dangling pointer instead of falling back to the launcher that wrote it', async () => {
     const root = makeRoot()
     const homePath = join(root, 'home')

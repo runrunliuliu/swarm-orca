@@ -25,6 +25,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import {
   ORCA_BUILD_CLI_ARGV_FILENAME,
   ORCA_BUILD_IDENTITY_FILENAME,
+  ORCA_BUILD_POINTER_ENV,
   ORCA_BUILD_POINTER_REQUIRED_ENV,
   formatOrcaBuildCliArgv,
   formatOrcaBuildIdentity,
@@ -76,7 +77,12 @@ export function buildOrcaBuildPointerScript(
   const fallback = localCli
     ? `exec ${[localCli.executable, ...localCli.args].map(quoteShell).join(' ')} "$@"`
     : `fail "no build pointer at $pointer and no local Orca CLI to run"`
-  return `${scriptPrelude()}pointer=${quoteShell(pointerPath)}
+  // Why export the path: the script resolves the pointer, but the CLI it execs reports the
+  // pointer too (`--version --json`). Without this, a deployment that moved the pointer with
+  // ORCA_BUILD_POINTER_PATH would be followed by the script and *missed* by the report — the one
+  // diagnostic whose job is to agree with what actually ran.
+  return `${scriptPrelude()}export ${ORCA_BUILD_POINTER_ENV}=${quoteShell(pointerPath)}
+pointer=${quoteShell(pointerPath)}
 if [[ ! -e "$pointer" && ! -L "$pointer" ]]; then
   case "\${${ORCA_BUILD_POINTER_REQUIRED_ENV}:-0}" in
     1 | true) fail "no build pointer at $pointer; refusing to guess which Orca build to run" ;;
