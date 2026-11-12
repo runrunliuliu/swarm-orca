@@ -111,16 +111,33 @@ beforeEach(() => {
 })
 
 describe.each(['renderer', 'runtime'] as const)('%s spawn builder agent trust', (route) => {
-  it('pre-trusts Trae only for a fresh orchestration Worker at the resolved cwd', async () => {
+  it('pre-trusts Trae for a fresh launch at the resolved cwd on every launch surface', async () => {
     const input = { launchAgent: 'trae', command: 'traecli', cwd: '/repo/wt/worker.dir' } as const
-    await build(route, input)
-    await build(route, { ...input, launchSource: 'orchestration', restored: true })
+    await build(route, { ...input, launchSource: 'sidebar', restored: true })
     expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
-    await build(route, { ...input, launchSource: 'orchestration' })
-    expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith('trae', input.cwd, expect.anything())
+    // Why the sources: a pane the desktop, the CLI or an orchestration dispatch starts all park on
+    // the same trust menu, so the grant cannot depend on the label.
+    for (const launchSource of [undefined, 'sidebar', 'task_page', 'cli', 'orchestration']) {
+      applyAgentWorkspaceTrust.mockClear()
+      await build(route, { ...input, launchSource })
+      expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith('trae', input.cwd, expect.anything())
+    }
   })
 
-  it('forwards Trae Worker trust to the SSH execution host', async () => {
+  it('pre-trusts Codex Ark for a fresh desktop launch at the resolved cwd', async () => {
+    await build(route, {
+      launchAgent: 'codex-ark',
+      command: 'codex-ark',
+      launchSource: 'task_page'
+    })
+    expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith(
+      'codex-ark',
+      '/repo/wt',
+      expect.anything()
+    )
+  })
+
+  it('forwards Trae trust to the SSH execution host', async () => {
     applyAgentWorkspaceTrust.mockResolvedValueOnce({
       agentWorkspaceTrust: { workspacePath: '/repo/wt' }
     })

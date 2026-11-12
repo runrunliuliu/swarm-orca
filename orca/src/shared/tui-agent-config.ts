@@ -76,8 +76,8 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
   'codex-ark': {
     ...CODEX_TUI_INTERACTION,
     detectCmd: 'codex-ark',
-    // Why: the wrapper owns its home, so trust lands in its CODEX_HOME (not the inherited one) and
-    // only for dispatched Workers — see main/codex-ark/workspace-trust.ts.
+    // Why: the wrapper owns its home, so trust lands in its CODEX_HOME (not the inherited one) —
+    // every fresh launch gets it, the same as Codex; see main/codex-ark/workspace-trust.ts.
     preflightTrust: 'codex-ark',
     expectedProcess: 'codex'
   },
@@ -94,7 +94,7 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
     // Why: the unrelated open-source another open-source trae-agent package also installs a `trae-cli`
     // binary, so detect TRAE CN's CLI on `traecli`, an alias only TRAE CN ships.
     detectCmd: 'traecli',
-    // Why: only fresh orchestration launches opt into Trae pre-trust at the spawn boundary.
+    // Why: only fresh launches opt into Trae pre-trust at the spawn boundary; reattaches and restores ask.
     preflightTrust: 'trae',
     // Why: `traecli [prompt]` takes the task as a positional argv, same as Claude/Codex.
     promptInjectionMode: 'argv',

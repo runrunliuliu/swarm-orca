@@ -44,8 +44,10 @@ replacement 和非 strict TUI 启动。权限保持 workspace-write/on-request/a
 
 TUI 计划另含一条进程级目录信任覆盖：`-c 'projects={"<已解析 cwd>"={trust_level="trusted"}}'`。
 Trae 对没见过的目录会先问 "Do you trust the contents of this directory?"，非 yolo 启动会停在
-人工按键上；Orca 只在 `launch_source=orchestration` 时预写 `~/.trae/traecli.toml` 的
-`[projects."<path>"]`，而 strict 走 CLI `terminal create`（无该 source），所以这一侧必须自带覆盖。
+人工按键上。Orca 现已在**任何 fresh 启动**（含 CLI `terminal create`）前预写
+`~/.trae/traecli.toml` 的 `[projects."<path>"]`，不再限于 `launch_source=orchestration`
+（自包含该修复的 Orca 构建起）；本侧仍自带覆盖，因为 strict 路径不能依赖目标构建是否已含
+该修复，也不能假设预写一定成功。
 覆盖只作用于本进程：不写用户级配置、不改变 sandbox/approval/权限，只允许本次启动加载项目本地
 配置/hook；`json.dumps` 保证含点号的绝对路径仍是单个带引号 TOML key（点分写法会被按 `.` 拆开并报错）。
 未启用该覆盖的 `exec` 计划保持原 argv 不变。实测（0.214.1）：同一 cwd 无覆盖→弹 trust；有覆盖→
