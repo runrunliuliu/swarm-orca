@@ -1,7 +1,9 @@
 """Shared contract only: no provider, native runtime, domain checker or process."""
 import copy
+from pathlib import Path
 import unittest
 
+import coordinator_loop
 from coordinator_loop import checkpoint_route, phase_contract, transition
 
 
@@ -228,6 +230,29 @@ class LoopTests(unittest.TestCase):
                 self.assertIn("first-dispatch helper argv, never a raw worker-start", text)
                 self.assertIn("later waves omit first_dispatch", text)
         self.assertNotIn("worker-plan", phase_contract("bootstrap"))
+
+
+class ProbeBatchingTests(unittest.TestCase):
+    """Orientation is paid in model round trips; a doc rewrite must not quietly drop the rule."""
+
+    RULES = ("merge same-kind probes into one call", "Two independent probes per turn is the floor",
+             "round trips, not tool wall-clock", "need just to fill a batch")
+    PHASES = ("bootstrap", "recovery", "run", "closeout", "strict-bootstrap", "strict-tui-bootstrap")
+
+    def test_every_phase_keeps_the_probe_batching_rule(self):
+        for phase in self.PHASES:
+            text = phase_contract(phase)
+            for rule in self.RULES:
+                with self.subTest(phase=phase, rule=rule):
+                    self.assertIn(rule, text)
+
+    def test_the_skill_and_the_repository_rules_document_the_same_floor(self):
+        # Resolved from the module, not the cwd: the suite also runs from the repository root.
+        root = Path(coordinator_loop.__file__).resolve().parent
+        for path in (root / "skills/swarm-orchestration/SKILL.md", root.parent / "AGENTS.md"):
+            with self.subTest(path=str(path)):
+                flat = " ".join(path.read_text().split()).lower()
+                self.assertIn("two independent probes per turn is the floor", flat)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,25 @@ OWNERSHIP = (
     "A user's one-shot request stays within its original acceptance; do not expand its goal. "
 )
 
+# Orientation cost is paid in model round trips, not tool wall-clock: a measured startup pane made
+# 70 tool calls across 40 turns (1.75 per turn, never 3) while model turns were 219.7 s of its
+# 222.9 s wall time and the tools were 3.2 s. Merging probes therefore saves round trips; it does
+# not make the tools faster, and a runtime may still run a batch one call at a time.
+PROBE_BATCHING = (
+    "Orient by turn, not by step: in one model turn issue every independent read, search or "
+    "command you already know that turn needs, and merge same-kind probes into one call (one "
+    "symbol search that also prints the body, or one small script that prints several ranges or "
+    "fields) instead of a search turn followed by a read turn. Two independent probes per turn "
+    "is the floor and merging is the duty; more are welcome only when already needed. The "
+    "saving is model round trips, not tool wall-clock: tool time is a small fraction of a turn, "
+    "so never spend a turn to save a tool call, and never read a file, path or range you do not "
+    "need just to fill a batch. Keep each result readable: do not mix unrelated targets into one "
+    "output you cannot attribute. Do not re-read what you already read; to confirm a line, read "
+    "the needed range once, with its context. This is a probing rule, not a gate change: it "
+    "never merges an action with its verification, never lets one receipt stand for two checks, "
+    "does not promise parallel tool execution, and grants no permission, scope or exemption. "
+)
+
 PHASES = {
     "strict-tui-bootstrap": (
         "Phase: strict-tui-bootstrap. Keep this native Trae TUI process alive across model turns. "
@@ -269,7 +288,7 @@ def phase_contract(phase, root=None):
             "are a local workflow fence, not a server-side exactly-once guarantee; schema: "
             + str(root / "coordinator-startup.md") + ". "
         )
-    return OWNERSHIP + PHASES[phase] + worker_contract
+    return OWNERSHIP + PROBE_BATCHING + PHASES[phase] + worker_contract
 
 
 def require(condition, message):

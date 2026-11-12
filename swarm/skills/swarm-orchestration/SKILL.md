@@ -56,6 +56,30 @@ Use [the execution-path guide](../../README.md) to distinguish strict TUI + moni
 non-strict exec driver, and fixed-DAG Supervisor. Do not substitute one for another to bypass a gate.
 Unsupported provider/version/identity or recovery capabilities are explicit blockers.
 
+### Probing: one turn, every independent probe
+
+Before a Run exists, orientation is a **turn** problem, not a token problem. A measured startup
+pane spent 70 tool calls over 40 turns — 1.75 calls per turn, never 3 or more — and its model
+round trips were 219.7 s of 222.9 s wall time; the tools themselves took 3.2 s. Batching probes
+therefore saves model round trips, not tool wall-clock, and before any helper is called that is
+the only lever of that shape available.
+
+In a turn that is still orienting:
+
+- issue every independent read/search the turn already needs together, not one probe per turn;
+- merge same-kind probes into one call: `rg -n -A25 -B5 <pattern> <file>` prints the anchor and the
+  body, and one `python3 - <<'EOF'` prints several ranges or fields instead of costing a second turn;
+- two independent probes per turn is the floor, not a quota. Never read a file, path or range you
+  do not need in order to reach it, and never mix unrelated targets into one output you cannot
+  attribute;
+- do not re-read what you already read; to confirm a line, read the needed range once.
+
+This is a probing rule only: it never merges an action with its verification, never lets one receipt
+stand for two checks, and grants no permission, scope or gate exemption. It also does not promise
+parallel tool execution — a runtime may run a batch one call at a time, and the probe still belongs
+to one turn. Verification and write-back turns keep their own shape; the rule constrains
+orientation, not correctness.
+
 ## 2. Fix inputs before launch
 
 Read [configuration](../../configuration.md) and obtain task-approved, explicit inputs:

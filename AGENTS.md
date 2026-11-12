@@ -208,6 +208,18 @@ identity and workspace isolation, then covers when not to convene several agents
 mutually exclusive execution paths a task belongs to, and how a domain adapter attaches. It is a
 routing index, not a mode enumeration and not a grant of authority.
 
+## Batching probes
+
+Orientation is paid in model round trips, not tool time: a measured startup pane made 1.75 tool
+calls per turn (never 3 or more) and spent 219.7 s of its 222.9 s in the model, with 3.2 s in the
+tools. An orienting turn therefore issues every independent probe it already knows it needs, and
+merges same-kind probes into one call (`rg -n -A25 -B5` for the anchor plus the body; one small
+script for several ranges or fields) instead of a search turn followed by a read turn. Two
+independent probes per turn is the floor, never a quota: do not read what the task does not need,
+and do not merge unrelated targets into one output you cannot attribute. The rule covers
+orientation only — it merges no action with its verification, exempts no gate, and claims neither
+that tools run faster nor that they run in parallel.
+
 ## Skills
 
 Discover skills through the table below and read the applicable `SKILL.md` completely before acting.
