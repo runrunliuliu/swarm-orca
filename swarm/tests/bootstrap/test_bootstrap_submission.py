@@ -187,6 +187,43 @@ class SubmissionTests(unittest.TestCase):
             self.assertEqual(result["result"]["path"], action["result_path"])
             self.assertTrue(Path(action["result_path"]).exists())
 
+    def test_a_failed_output_write_never_leaves_a_reconcilable_record(self):
+        """The batch records each target just before writing it, record last.
+
+        So when an output write fails, the record was never recorded and no
+        `reconcile(path=record)` entry can publish it alone — the attempt19/24 fence
+        cannot be rebuilt through the supported recovery path.
+        """
+        import bootstrap_control
+        from bootstrap_actions import completion_slot
+
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            publish_new(candidate, action["payload"]["candidate_template"])
+            ref = file_ref(candidate)
+            record = completion_slot(tool.root, "fields-intent")
+            real = bootstrap_control.io.publish_new
+            calls = []
+
+            def fail_on_result(path, raw):
+                calls.append(str(path))
+                if str(path) == action["result_path"]:
+                    raise OSError("test write failure")
+                return real(path, raw)
+
+            with patch("bootstrap_control.io.publish_new", side_effect=fail_on_result):
+                with self.assertRaises(ValueError) as caught:
+                    tool.submit(action["intent"], ref)
+            self.assertEqual(caught.exception.commit_state, "unknown")
+            self.assertFalse(Path(record).exists())
+            self.assertFalse(Path(action["result_path"]).exists())
+            # The one supported recovery entry must refuse to publish it.
+            owner_stub = tool
+            owner_stub.actor = "operator"
+            with self.assertRaises(ValueError) as refused:
+                client.rpc("reconcile", path=record)
+            self.assertIn("bootstrap_original_commit_unknown", str(refused.exception))
+
     def test_the_record_fence_outranks_a_busy_owner(self):
         """attempt24: five retries reported a permanent fence as a transient busy.
 

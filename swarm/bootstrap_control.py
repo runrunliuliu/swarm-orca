@@ -343,13 +343,15 @@ class CommitOwner:
             recheck()
             # Adapter and identity are re-read once for the whole unit.
             self.active(control)
+            # Order is the caller's, and each target is recorded immediately before
+            # its own write: the bookkeeping record is last, so when its write is
+            # reached every output it announces is already durable. This is what
+            # keeps `reconcile(path=record)` from ever publishing a record alone —
+            # pre-recording the whole unit would leave the record's bytes in
+            # `attempted_raw` while its outputs failed, and reconcile would then
+            # publish exactly the fence this commit removes.
             for (path, raw), ref in zip(entries, refs):
                 self.record_attempt(path, raw)
-            # Durability order is the caller's: the unit's bookkeeping record is
-            # written last, so a crash can only leave outputs without their record
-            # (recoverable by inspection), never a record announcing outputs that do
-            # not exist (the attempt19/24 fence).
-            for (path, raw), ref in zip(entries, refs):
                 try:
                     io.publish_new(Path(path), raw)
                 except BaseException as exc:
