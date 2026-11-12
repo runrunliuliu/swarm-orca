@@ -20,7 +20,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（111 个：协议文档点名的顶层定义与方法）
+## 符号索引（113 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -90,6 +90,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `execute` | `coordinator_driver.py:777-791` | `def execute` / `class execute` |
 | `freshness` | `coordinator_tui_continue.py:40-59` | `def freshness` / `class freshness` |
 | `identity` | `coordinator_startup.py:55-70` | `def identity` / `class identity` |
+| `idle` | `publication_wait.py:103-108` | `def idle` / `class idle` |
 | `intent` | `bootstrap_driver.py:131-145` | `def intent` / `class intent` |
 | `invocation` | `coordinator_prepare.py:26-48` | `def invocation` / `class invocation` |
 | `layout` | `bootstrap_protocol.py:32-33` | `def layout` / `class layout` |
@@ -225,6 +226,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `verify_prepared` | `coordinator_request_prepare.py:192-217` | `def verify_prepared` / `class verify_prepared` |
 | `verify_prepared` | `operator_prepare.py:247-291` | `def verify_prepared` / `class verify_prepared` |
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
+| `wait` | `publication_wait.py:51-84` | `def wait` / `class wait` |
 
 ## 不要这样做
 
