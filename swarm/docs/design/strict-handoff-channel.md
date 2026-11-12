@@ -496,7 +496,20 @@ registration 的会话/id，也没有放宽这道门——那是既有身份判�
 （`bootstrap_registration.py`，从 hook 行 + `/proc` 取四元组，交叉校验 launch token 摘要与
 transcript 首行 session，一次创建 + 读回），并让身份拒绝码带 `role`/`incarnation`/`session`/`pane`
 的前后缀差异（`NativeIdentityChanged.diagnostics`）。协议、入口文档与 `operator-prepare.md §3.1`
-同步写明入口与时效限制。这三项都不改变任何 gate，仍需 live 正例证明端到端可用（attempt4）。
+同步写明入口与时效限制。这三项都不改变任何 gate。
+
+**正例（attempt4，同一 worktree，max_workers=2）**：两个角色 pane 的 registration 由新入口采集
+（`process` 取 agent leaf、`session` 取 hook 行、launch token 摘要交叉校验），`serve` 首次通过身份门；
+随后：
+
+| 观测 | 读数 |
+| --- | --- |
+| S0 handoff 走 mailbox：Operator pane 发送 → 已阻塞 10 s 的 Coordinator 在 `--wait` 中返回 | **34 ms**，`from_handle` = 登记的 operator pane，owner ref `43a92129…` 校验通过，写出 `handoff-s0-live4.json` |
+| `wait-stage --stage 1` 阻塞期间，真 owner 发布 `events/0001-caller-ready.json` | 返回 **0**，`already_satisfied: false`，`validated_count: 1`，evidence Ref `8ebd2f57…` 与磁盘逐字节一致，总耗时 41.3 s（= owner 实际工作时长） |
+| 两个角色会话转录 | 分别 27 / 18 次工具调用，`sleep` **0**、`terminal read` **0** |
+
+这条正例同时说明 5.2.2 里那句「live 正例仍缺」已经不成立：缺的那条在 attempt4 拿到了。仍未做：
+S1 之后的阶段、以及「同一 marker 事后重探」以外的重复投递矩阵。
 ## 6. 不变量与红线
 
 沿用 [liveness §5](strict-bootstrap-liveness.md) 的红线，另加通道相关条目：
