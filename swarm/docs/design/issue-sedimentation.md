@@ -1,8 +1,8 @@
 # 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.2，已按两轮评审修正 + 三条决策拍板）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订：v2 初稿 → v2.1（吸收两轮评审）→ v2.2（§19.1 三条决策：阈值、不加身份校验、只做本机）。
+- 状态：**设计（v2.4，M1+M2 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 评审 BLOCK → 修复 → §19.4）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 评审输入（同目录）：`issue-sedimentation.review-codex-ark.md`、`issue-sedimentation.review-trae.md`
   （v1 评审，针对"Python 适配层 + 文件轮询"版本）；v2 评审另见
@@ -265,6 +265,11 @@ transcript 可能 GB 级。record 存 `{path, inode/sha256, startOffset, endOffs
 - **入口**：`orca incident report --class --code --evidence --repro`。
 - **写点**：CLI handler → incident store（同库，`source_kind = 'self_report'`，`source_id` = 请求 id）。
 - **强制**：必须 `class` + `code`；无 `code` 记 `untriaged` + `invalid_class` 提示，不拒收。
+- **幂等语义**：`--source-id` 相同即去重，且**不覆盖**旧记录的内容——CLI 必须明确提示“同键内容不会
+  覆盖旧记录”，否则操作者会以为改过的 evidence 已写入。
+- **evidence 边界**（M2-C2/C5）：单文件上限 64 MiB（超限 typed 错误，不静默跳过），一次最多 8 条；
+  repro / 字符串数组 / 路径字段统一过同一 sanitize+redact 层；路径本身可能含敏感项目名，属于已知边界。
+- **统一 sanitize**：normal write、DB insert、shadow replay 三处共用同一层，避免 replay 成为脱敏旁路。
 
 ## 8. acceptance：Orca 缺失的一等概念
 
@@ -335,9 +340,18 @@ pane（`surface=ssh`）；它**从不**记录远端宿主内部发生的事实�
 影子 NDJSON 是 **best-effort replay hints，不是 WAL**。事实：`push` 先落内存缓冲（默认 32 条 /
 200ms）、无 `fsync`、轮转可能部分完成。因此：
 
-- 每条关键记录 `push` 后**立即 `flush()`**（否则一次 crash 很可能丢掉最后几条）；
-- 记录带单调序号 + 幂等键，启动时扫轮转文件、可容忍尾行截断；
-- reconcile 顺序固定：先重放影子（幂等写）再标已完成，DB 与影子只成功一边时以 DB 为准；
+- 每条关键记录 `push` 后**立即 `flush()`**（`flushBufferThreshold: 1`），写入顺序 **shadow 先、DB 后**；
+- **水位用单调 `seq`，不用文件名/偏移**（M2 评审 C1）：轮转把 base 改名成 `.1` 并新建 base，
+  basename + offset 会把旧偏移套到新内容上并跳过 `.1` 里未回放的行。行携带 `seq`（shadow 体
+  `v: 2`），水位记 `lastSeq`，replay 扫全部现存文件、只处理 `seq > lastSeq`，重复由 DB UNIQUE 吸收；
+- 旧版本行（`v: 1`）按 unsupported 停止并可见，不猜测、不修复；
+- **容量拒收不得挡住后续行**（C3）：被容量闸拒收的低优先级行写 durable dropped 计数后推进
+  `lastSeq`，crash 类照常插入，不得让一行噪声永久阻塞后续 crash；
+- **有界且可续跑**（C6）：每进程有字节/行数预算，超出即停并保持水位可续，记录本次 `lastRun`
+  （lines/bytes/ms）；
+- **失败与不完整必须可见**（C4）：`shadowReplay` 暴露 `lastSeq / incomplete / lastStopReason /
+  failures / lastError / dropped / lastDroppedReason / lastRun`，`incident list|show` 与 IPC 都输出，
+  空列表不得读成“没有事故”；
 - 仍然存在的窗口：缓冲未 flush、`writeSync` 被吞、掉电无 fsync、轮转中崩、磁盘满、序列化/脱敏
   失败。这些只能缩小，不能承诺“零丢失”。
 
@@ -371,7 +385,7 @@ structured wire、liveness verdict、pty exit）→ 规定**只有 pty exit / di
 | CLI | `incident decide --to <status> --reason`（`confirmed` 只允许显式 R1 actor） | **M1（必须）** | 同上 |
 | CLI | `incident report --class --code ...`（自报） | M2 | 同上 |
 | CLI | `incident prune --dry-run`（`--json` 带候选/已删 id） | **M1（必须）** | 同上 |
-| 覆盖缺口 | `list/show` 输出 `remote_incident_capture`、`capacity_latch_set`、`currently_limited` | **M1（必须）** | 读模型 |
+| 覆盖缺口 | `list/show` 输出 `remote_incident_capture`、`capacity_latch_set`、`currently_limited`、`shadow_replay`（`lastSeq/incomplete/lastStopReason/failures/lastError/dropped/lastRun`） | **M1 + M2（必须）** | 读模型 |
 | 读模型 | shared 类型 + IPC | M2 | `src/shared/incident-*.ts`、`src/preload/api/incident-api.ts` |
 | 每日摘要 | scheduled automation 只出数字摘要 | M4 | automations |
 | UI | 列表 + 详情 + triage | 最后 | `src/renderer/src/...` |
@@ -462,14 +476,15 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 14 | 通用无进展判定器 + 等待声明 | **缺口** | 无 |
 | 15 | incident store / 幂等键（含 epoch）/ 不可变触发器 / 容量上限 | **已实现（M1）** | §6、§11.5；提交 `916290df`+`4b92269c` |
 | 16 | `onPtyExit` crash 写入（含 fallback epoch、owner-claim binding） | **已实现（M1）** | §7.1；提交 `640d285f`+`50124307` |
-| 17 | shadow + 启动 reconcile | 设计中（M2） | §11.2 |
+| 17 | shadow + 启动 reconcile（seq 水位、durable drop、有界可续、状态可见） | **已实现（M2）** | §11.2；提交 `d0004a4c`+`2e36f4a6`+`e1780f8f` |
 | 18 | 停滞判定 | 设计中（M3） | §7.2 |
 | 19 | tool_error 聚簇 | 设计中（M4） | §7.3 |
-| 20 | 自报入口 `incident report` | 设计中（M2） | §7.5、§12 |
+| 20 | 自报入口 `incident report`（含 evidence 上限、统一 sanitize、同键语义） | **已实现（M2）** | §7.5；提交 `65910ea8`+`7b96419c` |
 | 21 | 最小 CLI（list/show/decide/prune，含容量双字段与 prune 可追溯 id） | **已实现（M1）** | §12；提交 `5a04946a`+`4b92269c` |
-| 22 | 定期只读挖掘 + triage 候选 | 设计中（M6） | §10 |
-| 23 | 远端 mirror / 多机聚合 | 缺口（M7） | §11.1 |
-| 24 | 端到端 live 验收（真实崩溃 → incident → 关闭） | **缺口** | 无 |
+| 22 | 读模型/IPC/preload | **已实现（M2）** | §12；提交 `8a85931a` |
+| 23 | 定期只读挖掘 + triage 候选 | 设计中（M6） | §10 |
+| 24 | 远端 mirror / 多机聚合 | 缺口（M7） | §11.1 |
+| 25 | 端到端 live 验收（真实崩溃 → incident → 关闭） | **缺口** | 无 |
 
 `已实现` 只描述该能力在源码中存在，不表示已被本设计接通或经过 live 验收；v2 评审已纠正 3/4/5/6/10/11 的过高估计。
 
@@ -547,6 +562,18 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 测试（外层复跑） | `src/main/incidents`：7 files / **80 tests**；CLI + runtime：4 files / **42 tests** |
 | 评审发现的真实缺陷 | 普通只读打开 WAL 库会**创建** 0 字节 `-wal` 与 32KB `-shm`（`list` 在悄悄长文件）；已改为无 `-wal` 时用 `immutable=1` |
 | 仍未验证 | 无 live 桌面/真实 killed PTY 验证；`skill-guide-cli-parity` 因 `orca/skill-guides` 不在 cone 未跑；cone 外 `tsc` 既有 error 未清 |
+
+## 19.4 M2 实施与评审记录（2026-11-13）
+
+| 项 | 内容 |
+| --- | --- |
+| 提交（首版） | `d0004a4c` shadow+replay、`65910ea8` report、`8a85931a` 读模型/IPC、`d77891b6` 指针结论 |
+| 提交（评审修复） | `2e36f4a6` seq 水位 + durable drop + 有界 replay（C1/C3/C6）、`e1780f8f` replay 状态进覆盖缺口（C4）、`7b96419c` evidence 边界与同键语义（C2/C5） |
+| 首轮评审结论 | **两份均 `BLOCK`**（理由一致：轮转水位漏放、replay 绕过 evidence 脱敏、容量拒收挡住后续 crash、replay 状态对运维不可见） |
+| 共识轮 | codex-ark `AGREE-WITH-EDITS`、trae `AGREE`；C1 一致选“单调 seq 水位”而非文件身份指纹 |
+| 修复要点 | shadow 体 `v: 2` 带 `seq`；水位 `lastSeq` 扫全族；容量拒收写 durable dropped 后继续；`shadowReplay` 进 CLI/IPC；evidence 统一 sanitize（含 `repro`）、单文件 64 MiB 上限；replay 有界可续 |
+| 测试（外层复跑） | `src/main/incidents` + `src/main/startup`：85 files（83 passed / 2 skipped）/ **753 passed / 10 skipped**；CLI+IPC+preload：4 files / **43 passed** |
+| 仍未验证 | 无 live 强杀→重启演练；shadow 轮转本身只做单测未做 10MB 实测；多进程写影子交错未压测；IPC 仅 mock `ipcMain`；renderer 白名单留到有 UI 时 |
 
 ## 20. 本轮验收口径（设计阶段）
 
