@@ -343,11 +343,13 @@ class BlastRunnerTests(unittest.TestCase):
         self.assertIn("unknown option", completed.stderr)
 
     def test_dry_run_prints_the_selection_and_runs_nothing(self):
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True,
-                              text=True).stdout.strip()
-        completed = subprocess.run(["sh", str(self.script), "--range", f"{head}~1..{head}",
-                                    "--dry-run"], cwd=self.root, capture_output=True, text=True,
-                                   timeout=180)
+        # Why a fixed revision: `HEAD~1..HEAD` made this test depend on whatever the last commit
+        # touched. A docs-only commit selects nothing, which is exit 2 by design (an empty
+        # selection must not read as a pass), so the test would flip on merge order rather than on
+        # behaviour. 9c13f66a touches a source module and always will.
+        completed = subprocess.run(["sh", str(self.script), "--range",
+                                    "9c13f66a~1..9c13f66a", "--dry-run"], cwd=self.root,
+                                   capture_output=True, text=True, timeout=180)
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("selection:", completed.stderr + completed.stdout)
         self.assertIn("dry run", completed.stdout)
