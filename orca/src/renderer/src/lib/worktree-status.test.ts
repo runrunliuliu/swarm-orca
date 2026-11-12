@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
+import { makePaneKey } from '../../../shared/stable-pane-id'
+import type { TitleDerivedPaneForeground } from '@/components/sidebar/title-derived-pane-agent-identity'
 import { getWorktreeStatus, getWorktreeStatusLabel, resolveWorktreeStatus } from './worktree-status'
 
 const LEAF_ID_1 = '11111111-1111-4111-8111-111111111111'
@@ -11,6 +13,14 @@ const LEAF_ID_2 = '22222222-2222-4222-8222-222222222222'
 // liveness signal — slept-tab tests below pin the gap.
 function livePtyMap(...tabIds: string[]): Record<string, string[]> {
   return Object.fromEntries(tabIds.map((id, i) => [id, [`pty-${i}`]]))
+}
+
+function singleLeafLayout(): TerminalLayoutSnapshot {
+  return {
+    root: { type: 'leaf', leafId: LEAF_ID_1 },
+    activeLeafId: LEAF_ID_1,
+    expandedLeafId: null
+  }
 }
 
 function splitLayout(): TerminalLayoutSnapshot {
@@ -452,5 +462,189 @@ describe('resolveWorktreeStatus', () => {
     })
 
     expect(status).toBe('active')
+  })
+})
+
+/**
+ * A live pane Orca can name as an agent, holding a PTY, with no status claim from either
+ * layer is not "Active": that reading is shared with a plain shell, which is the silence
+ * this suite exists to remove. It is not `done` either — nothing here says the agent
+ * finished. The negative controls matter as much: hook rows, title claims, stale reports,
+ * launch records without a process read and plain shells must all keep the answer they had.
+ */
+describe('resolveWorktreeStatus with no status evidence', () => {
+  const PANE_KEY = makePaneKey('tab-1', LEAF_ID_1)
+  const agentTab = { id: 'tab-1', title: 'demo-repo', launchAgent: 'codex' as const }
+  const agentPane: {
+    runtimePaneTitlesByTabId: Record<string, Record<number, string>>
+    terminalLayoutsByTabId: Record<string, TerminalLayoutSnapshot | undefined>
+    paneForegroundAgentByPaneKey: Record<string, TitleDerivedPaneForeground>
+  } = {
+    runtimePaneTitlesByTabId: { 'tab-1': { 1: 'demo-repo' } },
+    terminalLayoutsByTabId: { 'tab-1': singleLeafLayout() },
+    paneForegroundAgentByPaneKey: {
+      [PANE_KEY]: { agent: 'codex', agentEvidence: 'process-read', shellForeground: false }
+    }
+  }
+  const livePty = livePtyMap('tab-1')
+  const noPanes = {
+    runtimePaneTitlesByTabId: {},
+    terminalLayoutsByTabId: {},
+    paneForegroundAgentByPaneKey: {}
+  }
+  const shellPane = {
+    runtimePaneTitlesByTabId: { 'tab-1': { 1: 'bash' } },
+    terminalLayoutsByTabId: { 'tab-1': singleLeafLayout() },
+    paneForegroundAgentByPaneKey: {}
+  }
+
+  function resolve(overrides: {
+    tabs?: { id: string; title: string; launchAgent?: 'codex' }[]
+    ptyIdsByTabId?: Record<string, string[]>
+    pane?: Partial<typeof agentPane>
+    agentStatusPaneIdsByTabId?: Record<string, ReadonlySet<string>>
+    stalePaneIdsByTabId?: Record<string, ReadonlySet<string>>
+    hasPermission?: boolean
+    hasLiveWorking?: boolean
+    hasLiveDone?: boolean
+    hasRetainedDone?: boolean
+  }) {
+    const pane = { ...agentPane, ...overrides.pane }
+    return resolveWorktreeStatus({
+      tabs: overrides.tabs ?? [agentTab],
+      browserTabs: [],
+      ptyIdsByTabId: overrides.ptyIdsByTabId ?? livePty,
+      runtimePaneTitlesByTabId: pane.runtimePaneTitlesByTabId,
+      terminalLayoutsByTabId: pane.terminalLayoutsByTabId,
+      paneForegroundAgentByPaneKey: pane.paneForegroundAgentByPaneKey,
+      agentStatusPaneIdsByTabId: overrides.agentStatusPaneIdsByTabId,
+      stalePaneIdsByTabId: overrides.stalePaneIdsByTabId,
+      hasPermission: overrides.hasPermission ?? false,
+      hasLiveWorking: overrides.hasLiveWorking ?? false,
+      hasLiveDone: overrides.hasLiveDone ?? false,
+      hasRetainedDone: overrides.hasRetainedDone ?? false
+    })
+  }
+
+  it('reports no evidence for an agent pane that has never reported a status', () => {
+    const status = resolve({})
+
+    expect(status).toBe('no-evidence')
+    expect(getWorktreeStatusLabel(status)).toBe('No status reported')
+  })
+
+  it('reads the process read from layout roots, which is all the sidebar selects', () => {
+    // Why: `selectWorktreeActivityStatuses` passes `terminalLayoutRootsByTabId` and no full
+    // layout, so the single-pane leaf has to come from the root itself.
+    const onlyRoots = {
+      terminalLayoutRootsByTabId: { 'tab-1': { type: 'leaf' as const, leafId: LEAF_ID_1 } },
+      paneForegroundAgentByPaneKey: agentPane.paneForegroundAgentByPaneKey
+    }
+    expect(
+      getWorktreeStatus([agentTab], [], livePty, { 'tab-1': { 1: 'demo-repo' } }, onlyRoots)
+    ).toBe('no-evidence')
+    const status = resolveWorktreeStatus({
+      tabs: [agentTab],
+      browserTabs: [],
+      ptyIdsByTabId: livePty,
+      terminalLayoutRootsByTabId: onlyRoots.terminalLayoutRootsByTabId,
+      paneForegroundAgentByPaneKey: onlyRoots.paneForegroundAgentByPaneKey,
+      hasPermission: false,
+      hasLiveWorking: false,
+      hasLiveDone: false,
+      hasRetainedDone: false
+    })
+    expect(status).toBe('no-evidence')
+  })
+
+  it('names the absence at the heuristic level too, without any hook summary input', () => {
+    expect(
+      getWorktreeStatus(
+        [agentTab],
+        [],
+        livePty,
+        { 'tab-1': { 1: 'demo-repo' } },
+        {
+          terminalLayoutsByTabId: agentPane.terminalLayoutsByTabId,
+          paneForegroundAgentByPaneKey: agentPane.paneForegroundAgentByPaneKey
+        }
+      )
+    ).toBe('no-evidence')
+  })
+
+  it('keeps a fresh hook row authoritative, including done', () => {
+    expect(resolve({ hasLiveDone: true })).toBe('done')
+    expect(resolve({ hasLiveWorking: true })).toBe('working')
+    expect(
+      resolve({ agentStatusPaneIdsByTabId: { 'tab-1': new Set(['1']) }, hasLiveDone: true })
+    ).toBe('done')
+    // A fresh row owns the pane's title, so the dot stays with the hook's answer.
+    expect(resolve({ agentStatusPaneIdsByTabId: { 'tab-1': new Set(['1']) } })).toBe('active')
+  })
+
+  it('does not claim absence for a pane whose row went stale after reporting', () => {
+    expect(resolve({ stalePaneIdsByTabId: { 'tab-1': new Set(['1']) } })).toBe('active')
+  })
+
+  it('does not treat a launch record alone as identity', () => {
+    // Why: the row builder refuses a plain-title row on the launch record alone, so the card
+    // must not claim an agent the sidebar does not show.
+    expect(resolve({ pane: { paneForegroundAgentByPaneKey: {} } })).toBe('active')
+    expect(
+      resolve({
+        pane: {
+          paneForegroundAgentByPaneKey: {
+            [PANE_KEY]: {
+              agent: 'codex',
+              agentEvidence: 'launch-record',
+              shellForeground: false
+            }
+          }
+        }
+      })
+    ).toBe('active')
+    expect(
+      resolve({
+        pane: {
+          paneForegroundAgentByPaneKey: { [PANE_KEY]: { agent: null, shellForeground: true } }
+        }
+      })
+    ).toBe('active')
+  })
+
+  it('keeps a plain shell pane active', () => {
+    expect(resolve({ tabs: [{ id: 'tab-1', title: 'bash' }], pane: shellPane })).toBe('active')
+    expect(resolve({ tabs: [{ id: 'tab-1', title: 'zsh' }], pane: shellPane })).toBe('active')
+    // No pane titles at all: the tab title is the only reading, and it is a shell.
+    expect(resolve({ tabs: [{ id: 'tab-1', title: 'bash' }], pane: noPanes })).toBe('active')
+  })
+
+  it('keeps titles that do claim a status', () => {
+    expect(resolve({ tabs: [{ id: 'tab-1', title: '⠋ Codex' }], pane: noPanes })).toBe('working')
+    expect(
+      resolve({ tabs: [{ id: 'tab-1', title: 'Claude - action required' }], pane: noPanes })
+    ).toBe('permission')
+  })
+
+  it('never reports no evidence for a sleeping pane', () => {
+    expect(resolve({ ptyIdsByTabId: {} })).toBe('inactive')
+  })
+
+  it('ranks below every reporting state', () => {
+    const bothPanes = [agentTab, { id: 'tab-2', title: 'demo-repo', launchAgent: 'codex' as const }]
+    expect(
+      resolve({
+        tabs: bothPanes,
+        ptyIdsByTabId: livePtyMap('tab-1', 'tab-2'),
+        hasRetainedDone: true
+      })
+    ).toBe('done')
+    expect(
+      resolve({
+        tabs: bothPanes,
+        ptyIdsByTabId: livePtyMap('tab-1', 'tab-2'),
+        hasPermission: true
+      })
+    ).toBe('permission')
   })
 })

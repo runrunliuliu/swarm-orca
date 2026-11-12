@@ -5,6 +5,7 @@ import { resolveWorktreeStatus, type WorktreeStatus } from '@/lib/worktree-statu
 import { EMPTY_BROWSER_TABS, EMPTY_TABS } from './WorktreeCardHelpers'
 import {
   selectLivePtyIdsForWorktree,
+  selectPaneForegroundAgentsForWorktree,
   selectTerminalLayoutRootsForWorktree,
   selectRuntimePaneTitlesForWorktree
 } from './worktree-card-status-inputs'
@@ -21,6 +22,13 @@ export function useWorktreeActivityStatus(worktreeId: string): WorktreeStatus {
   )
   const terminalLayoutRootsByTabId = useAppStore(
     useShallow((s) => selectTerminalLayoutRootsForWorktree(s, worktreeId))
+  )
+  // Why: a hook-less agent pane is named by its title or its process read; without the read the
+  // card could only ever say "a terminal is open" for the panes this change is about. Narrowed to
+  // this worktree's panes, like the other status inputs, so an unrelated pane's read cannot
+  // re-render every card.
+  const paneForegroundAgentByPaneKey = useAppStore(
+    useShallow((s) => selectPaneForegroundAgentsForWorktree(s, worktreeId))
   )
   const {
     hasPermission,
@@ -48,6 +56,7 @@ export function useWorktreeActivityStatus(worktreeId: string): WorktreeStatus {
         agentStatusPaneIdsByTabId,
         stalePaneIdsByTabId,
         terminalLayoutRootsByTabId,
+        paneForegroundAgentByPaneKey,
         hasPermission,
         hasLiveWorking,
         hasLiveMonitoring,
@@ -65,6 +74,7 @@ export function useWorktreeActivityStatus(worktreeId: string): WorktreeStatus {
       agentStatusPaneIdsByTabId,
       stalePaneIdsByTabId,
       terminalLayoutRootsByTabId,
+      paneForegroundAgentByPaneKey,
       hasPermission,
       hasLiveWorking,
       hasLiveMonitoring,

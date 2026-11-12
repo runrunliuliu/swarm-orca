@@ -453,11 +453,13 @@ describe('hook-less agent rows identified by the foreground process', () => {
 
   it('keeps a launched Codex row when Codex retitles the pane to the project name', () => {
     const foreground = processRead('codex')
+    // Why: a title that names the agent still lets Agora's detector claim the surface, so the
+    // row keeps reading idle; a title that says nothing about the state names the gap instead.
     expect(summarize(rowsFor({ title: 'Codex', launchAgent: 'codex', foreground }))).toEqual([
       ['codex', 'idle', 'Codex', 'Idle']
     ])
     expect(summarize(rowsFor({ title: 'demo-repo', launchAgent: 'codex', foreground }))).toEqual([
-      ['codex', 'idle', 'Codex', 'Idle']
+      ['codex', 'no-evidence', 'Codex', 'No status reported']
     ])
   })
 
@@ -489,19 +491,22 @@ describe('hook-less agent rows identified by the foreground process', () => {
     expect(
       rowsFor({ title: 'demo-repo', foreground: { ...launchSeed, agentEvidence: undefined } })
     ).toEqual([])
-    // Once a real read confirms the same agent, the row comes back.
+    // Once a real read confirms the same agent, the row comes back — still with no status to
+    // report, because a project-name title carries none and Codex has no hook row here.
     expect(
       summarize(
         rowsFor({ title: 'demo-repo', launchAgent: 'codex', foreground: processRead('codex') })
       )
-    ).toEqual([['codex', 'idle', 'Codex', 'Idle']])
+    ).toEqual([['codex', 'no-evidence', 'Codex', 'No status reported']])
   })
 
   it('rows a hand-typed agent from its foreground process, whatever its title says', () => {
     for (const agent of ['codex', 'claude', 'gemini', 'opencode', 'grok'] as const) {
       const rows = rowsFor({ title: 'demo-repo', foreground: processRead(agent) })
+      // Why `no-evidence` and not `idle`: the process read proves identity, the title claims no
+      // state, and this pane has no hook row — so nothing here may read as "nothing happening".
       expect(rows.map((row) => [row.paneKey, row.agentType, row.state])).toEqual([
-        [PANE_KEY, agent, 'idle']
+        [PANE_KEY, agent, 'no-evidence']
       ])
     }
   })
@@ -531,7 +536,7 @@ describe('hook-less agent rows identified by the foreground process', () => {
       ['codex', 'working', 'Codex', 'Running']
     ])
     expect(summarize(rowsFor({ title: 'demo-repo', foreground }))).toEqual([
-      ['codex', 'idle', 'Codex', 'Idle']
+      ['codex', 'no-evidence', 'Codex', 'No status reported']
     ])
     // A title naming another agent does not outrank the process that is actually running.
     expect(summarize(rowsFor({ title: '⠋ Gemini CLI', foreground }))).toEqual([

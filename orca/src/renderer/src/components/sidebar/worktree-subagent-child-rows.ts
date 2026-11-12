@@ -40,7 +40,9 @@ function childDashboardRow(
   const detail = row.detail
   // The same fields a CLI agent row carries, so every reader of a CLI row reads a child the same way.
   const entry: AgentStatusEntry = {
-    state: state === 'idle' || state === 'unverifiable' ? 'done' : state,
+    // Why: `no-evidence` is a pane-level reading (a live PTY that never reported); a child row
+    // only exists because its parent reported one, so it collapses to the parent's `done` too.
+    state: state === 'idle' || state === 'unverifiable' || state === 'no-evidence' ? 'done' : state,
     ...(row.displayState === 'monitoring' ? { workingMode: 'monitoring' as const } : {}),
     prompt: row.name,
     // The parent's delivery clock; the child's own evidence clock rides `evidenceObservedAt`.

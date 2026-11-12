@@ -8,7 +8,15 @@ export type SummaryAgentGroup = {
   agents: DashboardAgentRowData[]
 }
 
-const SUMMARY_STATE_ORDER: AgentDotState[] = [
+/**
+ * Summary vocabulary: the dot states plus `no-evidence`, which shares the dashed-amber dot
+ * with `unverifiable` but must not share its wording — one pane never reported, the other
+ * reported and went quiet. Counts and labels use this key; groups stay on the dot state so
+ * the pill renders one glyph per visual state.
+ */
+export type SummaryAgentState = AgentDotState | 'no-evidence'
+
+const SUMMARY_STATE_ORDER: SummaryAgentState[] = [
   'waiting',
   'blocked',
   // Why: a failed main agent outranks live work; a pending question still comes first.
@@ -19,6 +27,7 @@ const SUMMARY_STATE_ORDER: AgentDotState[] = [
   'done',
   // Why: below every reporting state, above true idle — the pane is still held.
   'unverifiable',
+  'no-evidence',
   'idle'
 ]
 
@@ -26,7 +35,12 @@ export function getAgentDotState(agent: DashboardAgentRowData): AgentDotState {
   return agentRowDisplayDotState(agent)
 }
 
-export function formatSummaryStateLabel(state: AgentDotState): string {
+/** The summary key for one row: `no-evidence` keeps its own wording off the dot vocabulary. */
+function summaryStateFor(agent: DashboardAgentRowData): SummaryAgentState {
+  return agent.state === 'no-evidence' ? 'no-evidence' : getAgentDotState(agent)
+}
+
+export function formatSummaryStateLabel(state: SummaryAgentState): string {
   switch (state) {
     case 'waiting':
       return 'waiting'
@@ -46,6 +60,10 @@ export function formatSummaryStateLabel(state: AgentDotState): string {
       return 'idle'
     case 'unverifiable':
       return 'not reporting'
+    // Why: says what Orca lacks (a status) instead of borrowing the stale-report wording;
+    // for a launched agent this is the hooks-not-installed case.
+    case 'no-evidence':
+      return 'no status reported'
     case 'permission':
       return 'needs attention'
   }
@@ -63,16 +81,21 @@ export function buildSummaryAgentGroups(agents: DashboardAgentRowData[]): Summar
     }
   }
   return SUMMARY_STATE_ORDER.flatMap((state) => {
+    // Why: pills group by the glyph that is actually rendered, so `no-evidence` rows sit in
+    // the shared dashed-amber group; only the count/label text splits them apart.
+    if (state === 'no-evidence') {
+      return []
+    }
     const groupAgents = groups.get(state)
     return groupAgents ? [{ state, agents: groupAgents }] : []
   })
 }
 
 export function summarizeAgents(agents: DashboardAgentRowData[], subjectLabel: string): string {
-  const counts = new Map<AgentDotState, number>()
+  const counts = new Map<SummaryAgentState, number>()
   for (const agent of agents) {
-    const dotState = getAgentDotState(agent)
-    counts.set(dotState, (counts.get(dotState) ?? 0) + 1)
+    const state = summaryStateFor(agent)
+    counts.set(state, (counts.get(state) ?? 0) + 1)
   }
   const parts = SUMMARY_STATE_ORDER.flatMap((state) => {
     const count = counts.get(state) ?? 0
@@ -95,7 +118,7 @@ export function summarizeAgentIdentities(agents: DashboardAgentRowData[]): strin
   return agents
     .map((agent) => {
       const agentLabel = formatAgentTypeLabel(agent.agentType)
-      const stateLabel = formatSummaryStateLabel(getAgentDotState(agent))
+      const stateLabel = formatSummaryStateLabel(summaryStateFor(agent))
       return `${agentLabel} ${stateLabel}`
     })
     .join('; ')
