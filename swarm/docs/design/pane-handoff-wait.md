@@ -94,19 +94,22 @@
 
 ### 3.1 封装把上限钉死在 1 s
 
-`swarm/terminal_idle_wait.py:13`（不是 11）`NATIVE_WAIT_MS = 1000`；`idle_wait_args()` 在 25–27 行只接受
-**一个精确 argv**（8 个元素、`--timeout-ms 1000`、无额外 flag），`idle_wait_target()` 在 30–36 行做同一比较。
-调用点：
+`swarm/terminal_idle_wait.py` 的 `NATIVE_WAIT_MS = 1000`（当前 21 行）；`idle_wait_args()`（当前 43–47 行）
+只接受**一个精确 argv**（8 个元素、`--timeout-ms 1000`、无额外 flag），`idle_wait_target()`（当前 82–85 行）
+做同一比较（以上三处行号为 P2 改动前的形态，P2 之后为 `idle_wait_args(terminal, wait_ms=…)` 与
+`_idle_wait()`/`idle_wait_target()` 的结构化识别）。调用点：
 
 - `coordinator_tui_scheduler.py:55`：调度器每 tick 一次 1 s 探测；它本身就是轮询者，不在本文范围；
 - `startup_handoff.py:256`：`call(idle_wait_args(...), runtime, 20)` —— native 等待 1 s、RPC 预算 20 s；
-- `operator_monitor.py:118`：用 `idle_wait_target(args)` **反向识别** CLI 的命令行，命中才走
+- `operator_monitor.py` 的 `native()` 内 `idle_wait_target(args)`（当前 116 行）：**反向识别** CLI 的命令行，命中才走
   `decode_idle_wait()`；不命中退到通用 `decode_response()`（**不是静默**：两个要求
   `IdleWaitResult` 的调用方会以 `tui_idle_state_unavailable` fail-closed，见 R5）；
-- `supervisor/watchdog.py:47`：写死同样的 1 s argv，但用的是**自己的** native reader
-  （`supervisor/orca.py:57`，带独立 runtime pin），**不受 P2 影响**；而且它已经在执行本文要求的 I2：
-  第 66–70 行先 `terminal send --wait-submit 10`，要求 `turn_started` 出现在 `stages` 里，否则
-  `prompt_submission_unproven` 并停。**这是仓内已有的正确先例，P3 应直接对齐它。**
+- `supervisor/watchdog.py` 的 `tick()` 内写死 1 s argv 的 `terminal wait`（当前 47 行）：它不是 `idle_wait_args()`
+  的调用方，用的是**自己的** native reader（`supervisor/orca.py` 的 `read()`，当前 57 行，带独立 runtime pin），
+  **不受 P2 影响**；而且它已经在执行本文要求的 I2：当前 66–70 行的 `sent = self.op("wake:…", ["terminal", "send", …, "--wait-submit", "10"])`
+  与紧随的判定要求 `turn_started` 出现在 `stages` 里，否则 `prompt_submission_unproven` 并停。
+  **这是仓内已有的正确先例，P3 应直接对齐它。**
+
 
 所以“仓库自己的封装”在设计上**永远不可能**等超过 1 s，agent 想长等只能绕开封装自己写 `sleep`。
 修改必须同时改 `idle_wait_args()` 与 `idle_wait_target()`（§5 P2）。
@@ -130,8 +133,8 @@ T1/T2 只能覆盖 marker、mailbox 一类等待，覆盖不了"让对端执行�
 
 ### 3.4 既有缺陷：`wait_for_events.py` 在本机 runtime 上分不清超时与空批
 
-`classify()` 在 `wait_for_events.py:106`（`timed_out()` 在 101–103）依赖 `returncode == 124` 或回包里的
-`timedOut`/`timeout`。
+`classify()` 在 `wait_for_events.py`（当前 154 行；`timed_out()` 当前 127–129 行，P1 新增的
+`timed_out_by_elapsed()` 在 132 行）依赖 `returncode == 124` 或回包里的 `timedOut`/`timeout`。
 本机实测 `check --wait --timeout-ms 3000` 超时返回 **`ok:true` + `count:0` + 无 `timedOut` 键 + exit 0**，
 于是被分类为 `EMPTY(3)` 而不是 `TIMEOUT(124)`。这与该脚本自己的契约
 （"`TIMEOUT` 是它自己的状态，不是'没有消息'"）矛盾：调用方无法区分"等了 300 s 什么都没来"和
@@ -174,7 +177,7 @@ T1/T2 只能覆盖 marker、mailbox 一类等待，覆盖不了"让对端执行�
 | I2 | `tui-idle` 必须**绑定到同一次输入的 `turn_started`**（或等价的、能绑定到目标 terminal+incarnation 的 turn-boundary 证据）才允许作为完成判据；拿不到就只输出 `unverifiable`（含“从未观察到本次回合开始”这一子情形） | 对端尚未开始工作时它本来就是 idle；旁观的 `terminal show` 轮询也不是 turn 证据（两评审独立同结论，见 §11） |
 | I3 | 每个等待自带 deadline，且 deadline 由**调用方**给出并赢过任何内部兜底 | 沿用发布等待的铁律：事件只能缩短等待，不能定义等待 |
 | I4 | 单次阻塞 ≤300 s（仓库策略），被唤醒/超时后重新进片，不得单次要求 900 s | 与 `check --wait` 的既有口径一致，保证"被打断"与"挂住"可区分 |
-| I5 | 诊断只输出 `kind`/`events`/`timeouts`/`fallback_seconds`/`elapsed_ms`，不放路径、载荷、消息内容 | 与 `observation_budget`、`publication_wait.log` 同一原则 |
+| I5 | 诊断只输出 `kind`/`events`/`timeouts`/`fallback_seconds`/`elapsed_ms`，不放路径、载荷、消息内容；**例外**：允许输出调用方自己提交的 `request_id`（用于说明等的是哪一次提交），它不是对端载荷 | 与 `observation_budget`、`publication_wait.log` 同一原则 |
 | I6 | 老 host 能力缺失时 **fail closed**，不回退 `sleep`、不回退屏幕抓取 | "优雅降级到 sleep"会把今天的病灶固化进契约 |
 | I7 | 本组工具只读：不 `--ack`、不 `reply`、不 `worker-*`、不改变任何运行中 attempt | 等待不是授权 |
 
@@ -209,10 +212,11 @@ T1/T2 只能覆盖 marker、mailbox 一类等待，覆盖不了"让对端执行�
   不变）；新增上限常量 `MAX_NATIVE_WAIT_MS`（建议 300000，与 I4 同值）与
   `MIN_RPC_TIMEOUT_SECONDS` 的公式化（`ceil(wait_ms/1000) + 11`，沿用现有注释里的
   "+5000 原生、+6000 CLI" 预算）。
-- 联动：`operator_monitor.py:118` `idle_wait_target(args)` 改为按 argv 结构识别并**读出** `--timeout-ms`，
+- 联动：`operator_monitor.py` 的 `native()` 内 `idle_wait_target(args)`（当前 116 行）改为按 argv 结构识别并**读出** `--timeout-ms`，
   不再要求等于 1000；识别不出即 `None`（维持“不是等待命令”的现有分支），不得放宽成“像就认”。
-- 边界（评审补充）：`supervisor/watchdog.py:47` 写死同样的 argv 但走自己的 reader
-  （`supervisor/orca.py:57`），**不得**被本包改到；它已有的 `turn_started` 纪律（66–70 行）是 P3 的参照。
+- 边界（评审补充）：`supervisor/watchdog.py` 的 `tick()` 内写死 1 s argv 的 `terminal wait`（当前 47 行）
+  走自己的 reader（`supervisor/orca.py` 的 `read()`，当前 57 行），**不得**被本包改到；它已有的 `turn_started`
+  纪律（当前 66–70 行）是 P3 的参照。
 - 测试：`tests/operators/test_operator_monitor*.py`（1000/30000/300000、非法值、参数顺序、额外 flag）、
   `tests/coordinator/test_coordinator_tui*.py`（调度器仍用 1 s 默认值，行为不变）。
 - 回退：`startup_handoff.py:256`、`coordinator_tui_scheduler.py:55` 均不传参 → 行为与今天逐字节一致。
@@ -228,7 +232,8 @@ wait_pane.py --terminal H [--turn-evidence F] [--idle-timeout 300] [--json]
 - 阶段 A（turn 证据，**必须是强证据**）：接受 `terminal send --wait-submit` 的 receipt（`--turn-evidence`），
   要求 `stages` 含 `turn_started`、`requestId`/`processIncarnation` 与目标 terminal 一致；
   没有这个文件 → 退出码 4 `unverifiable`。**不把“轮询 `terminal show` 看到工作中”当成 turn 证据**
-  （那是旁观者的猜测；两评审均指出这一点）。对齐仓内先例 `supervisor/watchdog.py:66-70`。
+  （那是旁观者的猜测；两评审均指出这一点）。对齐仓内先例 `supervisor/watchdog.py` 的 `tick()` 内
+  `--wait-submit` + `turn_started` 判定（当前 66–70 行）。
 - 阶段 B（回合结束）：一次 `terminal wait --for tui-idle --timeout-ms <idle>`；超时 → 124；
   出现 `blockedReason`（现成的 `BLOCKED_REASONS`）→ 5 并**只**输出 reason 枚举，不输出屏幕内容。
 - 不变量：无论返回什么，调用方仍须复核产物（I1）。工具不发送输入、不 `ack`、不写文件。

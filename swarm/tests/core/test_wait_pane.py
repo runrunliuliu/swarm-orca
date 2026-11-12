@@ -255,6 +255,53 @@ class WaitPaneTests(unittest.TestCase):
                                      "--turn-evidence", str(self.evidence()))
         self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
 
+    def test_a_satisfied_wait_on_a_dead_or_disagreeing_receipt_is_not_a_turn_end(self):
+        # Why: the success shape is the one `terminal_idle_wait.decode_idle_wait` already requires.
+        # `satisfied: true` alone means "the TUI was idle"; on an exited process it means the peer
+        # is gone, and with a non-zero exit the receipt contradicts itself. Both exit 2 (transport
+        # / undecodable), never 0: this tool makes exactly one positive claim, and "turn ended" is
+        # the claim that authorizes the caller to act.
+        cases = {
+            "exited": ({"status": "exited", "exitCode": 0}, 0),
+            "exit code 0": ({"exitCode": 0}, 0),
+            "exit cause": ({"exitCause": "crashed"}, 0),
+            "unknown status": ({"status": "unknown"}, 0),
+            "non-zero returncode": ({}, 1),
+            "blocked reason next to satisfied": ({"blockedReason": "agent-trust-workspace"}, 0),
+        }
+        for name, (changes, code) in cases.items():
+            with self.subTest(case=name):
+                body = {"handle": TERMINAL, "condition": "tui-idle", "satisfied": True,
+                        "status": "running", "exitCode": None, **changes}
+                self.cli.wait(pretty({"ok": True, "result": {"wait": body}}), code)
+                completed = self.run_wrapper("--terminal", TERMINAL,
+                                             "--turn-evidence", str(self.evidence()))
+                self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+                self.assertEqual(completed.stdout, "")
+
+    def test_an_unsatisfied_wait_must_agree_with_its_exit_code(self):
+        # `satisfied: false` with exit 0 disagrees with itself: no prompt blocked the wait, and the
+        # process did not report a timeout either. Guessing 5 here would send a human to a pane
+        # that never asked for one.
+        self.cli.wait(pretty({"ok": True, "result": {"wait": {
+            "handle": TERMINAL, "condition": "tui-idle", "satisfied": False,
+            "status": "running", "exitCode": None,
+            "blockedReason": "agent-trust-workspace"}}}), 0)
+        completed = self.run_wrapper("--terminal", TERMINAL,
+                                     "--turn-evidence", str(self.evidence()))
+        self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+
+    def test_the_receipt_carries_the_request_id_and_no_native_detail(self):
+        # I5: the receipt is a claim plus the caller's own submission id. The native window size
+        # is a diagnostic, not part of the contract.
+        completed = self.run_wrapper("--terminal", TERMINAL,
+                                     "--turn-evidence", str(self.evidence()), "--json")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        row = json.loads(completed.stdout)
+        self.assertEqual(row["outcome"], "turn_ended")
+        self.assertEqual(row["request_id"], "req_1")
+        self.assertNotIn("idle_ms", row)
+
     def test_the_idle_window_is_capped_at_the_per_call_policy(self):
         for value in ("0", "-1", "301"):
             with self.subTest(value=value):

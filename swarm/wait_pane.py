@@ -148,33 +148,54 @@ def wait_outcome(returncode: int, stdout: str, terminal: str):
     A timeout is not a failed RPC: the CLI answers it with its own error envelope, and the caller
     may re-enter another bounded window. Anything that cannot be decoded is a transport result -
     it is not a claim about the peer.
+
+    The success shape is copied from `terminal_idle_wait.decode_idle_wait`, because a decoded
+    `satisfied: true` on its own says only "the TUI was idle". The turn boundary this tool reports
+    is meaningful only for the *same live process*, so the exit code must agree (0), the terminal
+    must still be `running`, `exitCode` must be absent and `exitCause` unset. An exited pane that
+    the runtime also calls idle is a dead peer, not a finished turn - reporting it as one would
+    turn "the process is gone" into "your turn ended", which is exactly the fail-open case I6
+    forbids.
     """
     if returncode == TIMEOUT:
         return TIMEOUT, None
-    if returncode is not None and returncode < 0:
+    if type(returncode) is not int or returncode < 0:
         return USAGE_OR_TRANSPORT, None
     payload = parse(stdout)
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or type(payload.get("ok")) is not bool:
         return USAGE_OR_TRANSPORT, None
-    if payload.get("ok") is False:
+    if payload["ok"] is False:
         error = payload.get("error")
         code = error.get("code") if isinstance(error, dict) else None
-        if code == "timeout" and returncode == 1:
+        # The CLI's native timeout: exit 1, `error.code == "timeout"`, no result body.
+        if returncode == 1 and code == "timeout" and "result" not in payload:
             return TIMEOUT, None
         return USAGE_OR_TRANSPORT, None
-    body = unwrapped(payload)
-    wait = body.get("wait") if isinstance(body, dict) else None
+    if "error" in payload:
+        return USAGE_OR_TRANSPORT, None
+    body = payload.get("result")
+    if not isinstance(body, dict):
+        return USAGE_OR_TRANSPORT, None
+    wait = body.get("wait")
     if not isinstance(wait, dict):
         return USAGE_OR_TRANSPORT, None
     if wait.get("handle") != terminal or wait.get("condition") != "tui-idle":
         return USAGE_OR_TRANSPORT, None
     satisfied = wait.get("satisfied")
-    if satisfied is True:
-        return TURN_ENDED, None
-    if satisfied is not False:
+    status = wait.get("status")
+    if type(satisfied) is not bool or status not in ("running", "exited", "unknown"):
         return USAGE_OR_TRANSPORT, None
+    if "exitCode" not in wait or not (wait["exitCode"] is None or type(wait["exitCode"]) is int):
+        return USAGE_OR_TRANSPORT, None
+    # Same live process, or nothing here is reportable as a turn boundary.
+    if status != "running" or wait["exitCode"] is not None or wait.get("exitCause") is not None:
+        return USAGE_OR_TRANSPORT, None
+    if satisfied is True:
+        if returncode != 0 or "blockedReason" in wait:
+            return USAGE_OR_TRANSPORT, None
+        return TURN_ENDED, None
     reason = wait.get("blockedReason")
-    if isinstance(reason, str) and reason in BLOCKED_REASONS:
+    if returncode == 1 and isinstance(reason, str) and reason in BLOCKED_REASONS:
         return INTERACTION_REQUIRED, reason
     return USAGE_OR_TRANSPORT, None
 
@@ -259,8 +280,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wait failed with exit {completed.returncode}; receipt not understood",
               file=sys.stderr)
         return USAGE_OR_TRANSPORT
-    outcome = {"event": "wait_pane", "outcome": "turn_ended", "request_id": request_id,
-               "idle_ms": wait_ms}
+    outcome = {"event": "wait_pane", "outcome": "turn_ended", "request_id": request_id}
     if args.json:
         print(json.dumps(outcome, ensure_ascii=False))
     else:
