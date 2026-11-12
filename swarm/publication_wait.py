@@ -49,29 +49,39 @@ class Watcher:
         self._poller.register(self._fd, select.POLLIN)
 
     def wait(self, seconds: float) -> bool:
-        """Block at most `seconds`. True when an event for the target name arrived."""
+        """Block up to `seconds` in total. True only when the target name appeared.
+
+        Why the loop: the directory usually holds other traffic (receipts, intents, temp files).
+        Returning as soon as *any* event arrives made the caller re-enter its loop immediately and
+        spin until its deadline - eight modules failed with `strict_start_wait_expired` before this
+        was a loop. Unrelated events are consumed and the wait continues until the target appears
+        or the budget is spent.
+        """
+        import struct
+
         if seconds <= 0:
             return False
-        ready = self._poller.poll(int(seconds * 1000))
-        if not ready:
-            self.timeouts += 1
-            return False
-        try:
-            data = os.read(self._fd, 65536)
-        except BlockingIOError:
-            self.timeouts += 1
-            return False
-        hit = False
-        offset = 0
-        while offset + 16 <= len(data):
-            import struct
-            _wd, _mask, _cookie, length = struct.unpack_from("iIII", data, offset)
-            name = data[offset + 16:offset + 16 + length].split(b"\0")[0].decode(errors="replace")
-            offset += 16 + length
-            self.events += 1
-            if name == self.name:
-                hit = True
-        return hit
+        deadline = time.monotonic() + seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.timeouts += 1
+                return False
+            if not self._poller.poll(max(1, int(remaining * 1000))):
+                self.timeouts += 1
+                return False
+            try:
+                data = os.read(self._fd, 65536)
+            except BlockingIOError:
+                continue
+            offset = 0
+            while offset + 16 <= len(data):
+                _wd, _mask, _cookie, length = struct.unpack_from("iIII", data, offset)
+                name = data[offset + 16:offset + 16 + length].split(b"\0")[0].decode(errors="replace")
+                offset += 16 + length
+                self.events += 1
+                if name == self.name:
+                    return True
 
     def close(self) -> None:
         if self._fd >= 0:
