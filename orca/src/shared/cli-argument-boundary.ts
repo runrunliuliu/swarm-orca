@@ -4,6 +4,7 @@ export const CLI_GLOBAL_FLAGS: readonly string[] = ['help', 'json', ...CLI_GLOBA
 export const CLI_BOOLEAN_FLAGS = new Set([
   'all',
   'allow-failed-archive-hook',
+  'apply',
   'attachments',
   'children',
   'comments',
@@ -29,6 +30,7 @@ export const CLI_BOOLEAN_FLAGS = new Set([
   'local',
   'messages',
   'me',
+  'md',
   'mobile',
   'mobile-pairing',
   'no-pairing',

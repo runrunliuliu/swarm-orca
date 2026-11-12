@@ -1,0 +1,193 @@
+// Human-readable rendering for `orca incident …` (issue-sedimentation.md v2.2 §12).
+//
+// Formatting lives apart from the handler for the same reason every other group does it: the
+// handler owns store access and error typing, the formatter is a pure function the tests can pin.
+//
+// The coverage footer is not decoration. §11.1 makes "no incident" and "no capture" different
+// answers, and an operator who reads an empty list must see which one they got.
+
+import type {
+  IncidentCoverage,
+  IncidentDecision,
+  IncidentStatus,
+  IncidentView
+} from '../main/incidents/incident-types'
+import type {
+  IncidentListResult,
+  PruneResult
+} from '../main/incidents/incident-store'
+
+function iso(ms: number | null): string {
+  return ms === null ? '—' : new Date(ms).toISOString()
+}
+
+function bytes(value: number): string {
+  if (value < 1024) {
+    return `${value}B`
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)}KB`
+  }
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)}MB`
+  }
+  return `${(value / (1024 * 1024 * 1024)).toFixed(2)}GB`
+}
+
+function exitCauseLabel(cause: unknown): string {
+  if (typeof cause !== 'object' || cause === null || !('kind' in cause)) {
+    return '—'
+  }
+  const typed = cause as { kind: string; signal?: number; exitCode?: number; reason?: string }
+  switch (typed.kind) {
+    case 'operator_close':
+      return 'operator_close'
+    case 'signaled':
+      return `signaled(${typed.signal ?? '?'})`
+    case 'exited':
+      return `exited(${typed.exitCode ?? '?'})`
+    case 'unknown':
+      return `unknown(${typed.reason ?? '?'})`
+    default:
+      return typed.kind
+  }
+}
+
+function pad(value: string, width: number): string {
+  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
+}
+
+/** The coverage line every list/show prints (§11.1, §12). */
+export function formatIncidentCoverage(coverage: IncidentCoverage): string {
+  return (
+    `Coverage: remote_incident_capture=${coverage.remoteIncidentCapture}  ` +
+    `store_capacity_limited=${String(coverage.storeCapacityLimited)}  ` +
+    `rows=${coverage.capacity.rows}/${coverage.capacity.maxRows}  ` +
+    `bytes=${bytes(coverage.capacity.bytes)}/${bytes(coverage.capacity.maxBytes)}`
+  )
+}
+
+export function formatIncidentList(result: IncidentListResult): string {
+  const lines: string[] = []
+  if (result.incidents.length === 0) {
+    lines.push('No incidents recorded on this host.')
+  } else {
+    lines.push(
+      `Incidents (${result.incidents.length} shown / ${result.total} total, this host only):`
+    )
+    lines.push(
+      `${pad('ID', 30)} ${pad('CLASS', 15)} ${pad('STATUS', 12)} ${pad('CREATED', 21)} ${pad('CAUSE', 26)} WORKTREE`
+    )
+    for (const incident of result.incidents) {
+      lines.push(
+        `${pad(incident.id, 30)} ${pad(incident.class, 15)} ${pad(incident.effectiveStatus, 12)} ` +
+          `${pad(iso(incident.createdAt), 21)} ${pad(exitCauseLabel(incident.exitCause), 26)} ` +
+          `${incident.worktreeId ?? '—'}`
+      )
+      if (incident.summary.length > 0) {
+        lines.push(`  ${incident.summary}`)
+      }
+    }
+  }
+  lines.push('')
+  lines.push(formatIncidentCoverage(result.coverage))
+  if (result.coverage.storeCapacityLimited) {
+    lines.push(
+      'Capacity limit reached: new non-crash incidents are being refused (crash rows are still written). Run `orca incident prune --apply` after triage.'
+    )
+  }
+  return lines.join('\n')
+}
+
+function decisionLine(decision: IncidentDecision): string {
+  return (
+    `- ${iso(decision.createdAt)}  ${decision.fromStatus} → ${decision.toStatus}  ` +
+    `actor=${decision.actor}  reason=${decision.reason}`
+  )
+}
+
+export function formatIncidentShow(
+  view: IncidentView,
+  options: { storeCapacityLimited?: boolean; coverage?: IncidentCoverage } = {}
+): string {
+  const lines: string[] = []
+  lines.push(`${view.id}  ${view.class}  ${view.effectiveStatus}`)
+  if (view.decisionCount > 0) {
+    lines.push(`  entry status: ${view.status} (${view.decisionCount} decision(s))`)
+  }
+  lines.push(`  created: ${iso(view.createdAt)}`)
+  lines.push(`  host: ${view.hostId}`)
+  lines.push(`  source: ${view.sourceKind}/${view.sourceId} facet=${view.facet}`)
+  lines.push(`  fingerprint: ${view.fingerprint}`)
+  lines.push(`  worktree: ${view.worktreeId ?? '—'}`)
+  lines.push(
+    `  run/task/dispatch: ${view.runId ?? '—'} / ${view.taskId ?? '—'} / ${view.dispatchId ?? '—'}`
+  )
+  lines.push(`  pty incarnation: ${view.ptyIncarnationId ?? '—'}`)
+  lines.push(`  exit cause: ${exitCauseLabel(view.exitCause)}`)
+  lines.push('')
+  lines.push('Summary:')
+  lines.push(`  ${view.summary.length > 0 ? view.summary : '—'}`)
+  lines.push('')
+  lines.push('Unknown boundaries:')
+  if (view.evidence.unknownBoundaries.length === 0) {
+    lines.push('  (none recorded — itself a gap)')
+  } else {
+    for (const boundary of view.evidence.unknownBoundaries) {
+      lines.push(`  - ${boundary}`)
+    }
+  }
+  lines.push('')
+  lines.push('Evidence (pointers, durable=false):')
+  if (view.evidence.pointers.length === 0) {
+    lines.push('  (none collected)')
+  } else {
+    for (const pointer of view.evidence.pointers) {
+      const offsets =
+        pointer.startOffset === undefined
+          ? ''
+          : ` [${pointer.startOffset}..${pointer.endOffset ?? '?'}]`
+      lines.push(`  - ${pointer.kind}: ${pointer.path}${offsets}${pointer.sha256 ? ` sha256=${pointer.sha256}` : ''}`)
+    }
+  }
+  lines.push('')
+  lines.push('Decisions:')
+  if (view.decisions.length === 0) {
+    lines.push('  (none — status is the entry status)')
+  } else {
+    for (const decision of view.decisions) {
+      lines.push(`  ${decisionLine(decision)}`)
+    }
+  }
+  if (options.coverage) {
+    lines.push('')
+    lines.push(formatIncidentCoverage(options.coverage))
+  }
+  return lines.join('\n')
+}
+
+export function formatIncidentDecision(input: {
+  incidentId: string
+  decisionId: string
+  fromStatus: IncidentStatus
+  toStatus: IncidentStatus
+  actor: string
+}): string {
+  return `${input.incidentId}: ${input.fromStatus} → ${input.toStatus} (actor=${input.actor}, decision=${input.decisionId})`
+}
+
+export function formatIncidentPrune(result: PruneResult): string {
+  const counts = Object.entries(result.byStatus)
+    .map(([status, count]) => `${status}=${count}`)
+    .join(' ')
+  if (result.dryRun) {
+    return (
+      `Prune (dry run): ${result.candidates} candidate(s) older than ${result.olderThanDays} days` +
+      `${counts ? ` (${counts})` : ''}. Nothing was deleted. Re-run with --apply to delete.`
+    )
+  }
+  return (
+    `Prune: deleted ${result.deleted} of ${result.candidates} candidate(s) older than ` +
+    `${result.olderThanDays} days${counts ? ` (${counts})` : ''}. Decision rows were retained.`
+  )
+}
