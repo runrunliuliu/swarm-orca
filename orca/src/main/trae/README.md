@@ -5,7 +5,9 @@ PTY, whatever surface asked for it: a dispatched Worker, a workspace Orca just
 created, or a pane opened by hand all park on the same `Do you trust the
 contents of this directory?` menu, and answering it writes the same record. This
 uses the existing `agentWorkspaceTrustEnabled` setting: absent means enabled,
-`false` disables it. Reattaches and restores do not get this grant.
+`false` disables it. Reattaches and restores do not get this grant. A start
+directory that is a home or a disk root is still refused (see below), so a floating
+pane opens at `~` by default and asks there.
 
 Trae's [documented project trust configuration](https://docs.trae.cn/cli_config-file)
 is a `[projects."/exact/path"]` table with `trust_level = "trusted"` in

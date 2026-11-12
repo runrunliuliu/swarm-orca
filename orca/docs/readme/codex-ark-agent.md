@@ -23,7 +23,8 @@ writes for Codex under `~/.codex` is not the one Ark reads. A fresh launch of
 startup — before the PTY spawns, whichever surface started it (a dispatched Worker, a
 workspace Orca just created, or a pane opened by hand). Answering Ark's own trust menu
 writes that same record, so pre-writing it only removes the question. Reattaches and
-restores still ask, and the `agentWorkspaceTrustEnabled` setting turns the grant off.
+restores still ask, a start folder that is a home or a disk root is never written, and
+the `agentWorkspaceTrustEnabled` setting turns the grant off.
 Orca never creates that config: an unreadable wrapper home leaves the CLI to ask, since a
 config without the wrapper's provider/model/catalog keys makes `codex-ark` refuse to start.
 

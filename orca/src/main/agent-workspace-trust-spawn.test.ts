@@ -171,7 +171,7 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     )
   })
 
-  it('trusts Trae in a floating terminal at the folder it starts in', async () => {
+  it('trusts Trae in a floating terminal at a non-home start folder', async () => {
     await applyAgentWorkspaceTrustToSpawn(
       spawnArgs({
         launchAgent: 'trae',
@@ -193,7 +193,7 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     )
   })
 
-  it('trusts Codex Ark in a floating terminal at the folder it starts in', async () => {
+  it('trusts Codex Ark in a floating terminal at a non-home start folder', async () => {
     await applyAgentWorkspaceTrustToSpawn(
       spawnArgs({
         launchAgent: 'codex-ark',
@@ -211,7 +211,10 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
   it.each([
     ['an agent with no trust preset', { launchAgent: 'gemini' }],
     ['a plain terminal with no declared agent', { launchAgent: undefined }],
-    ['a floating terminal', { worktreeId: 'global-floating-terminal', cwd: '/Users/me' }],
+    [
+      'a floating terminal for an agent keyed on the workspace root',
+      { worktreeId: 'global-floating-terminal', cwd: '/Users/me' }
+    ],
     [
       'Codex with no start folder and no workspace',
       { launchAgent: 'codex', worktreeId: 'global-floating-terminal' }
