@@ -139,6 +139,10 @@ $ orca --version --json
 
 ## 排障
 
+服务侧的重启与"服务定义是否与 git 一致"由 [`swarm/deploy/orca-server/`](../../deploy/orca-server/README.md) 负责：
+`sudo swarm/deploy/orca-server/restart --check`（只读）会同时打印服务状态、安装的 run 与仓库版本是否逐字节相同、
+指针身份、以及 `--version --json` 是否与指针一致。
+
 ```bash
 readlink -f /opt/orca/current                  # 指针最终指向哪
 cat /opt/orca/current/.orca-build.json         # 那份构建自称是谁
