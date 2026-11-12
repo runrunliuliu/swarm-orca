@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { resolveOrcaBuildPointerPath } from '../../shared/build-pointer'
 
 const shim = vi.hoisted(() => ({ ensureLinuxTerminalOrcaCliShimDir: vi.fn() }))
 vi.mock('./linux-terminal-orca-cli-shim', () => shim)
@@ -28,7 +29,10 @@ describe('prependOrcaCliDirToChildPath', () => {
     })
     expect(env.PATH).toBe(`${SHIM_DIR}:/usr/local/bin:/usr/bin`)
     expect(shim.ensureLinuxTerminalOrcaCliShimDir).toHaveBeenCalledWith({
-      userDataPath: USER_DATA
+      userDataPath: USER_DATA,
+      // Why the pointer: bare `orca` in a managed terminal must follow the promoted build, not
+      // whichever bundle this process happens to be.
+      buildPointerPath: resolveOrcaBuildPointerPath()
     })
   })
 

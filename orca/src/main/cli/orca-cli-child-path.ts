@@ -16,13 +16,13 @@
 import { delimiter, join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { getAppEnvironment, hasAppEnvironment } from '../../shared/app-environment'
+import { resolveOrcaBuildPointerPath } from '../../shared/build-pointer'
 import { readInheritedPath } from '../ipc/pty/host-env/path'
 import { resolvePathEnvKey } from '../pty/windows-environment-path'
 import {
   ensureLinuxTerminalOrcaCliShimDir,
-  ensureShimForScript
+  ensureShimForLaunch
 } from './linux-terminal-orca-cli-shim'
-import { quoteShell } from './cli-install-path-format'
 import { getBundledLauncherPath } from './bundled-cli-launcher-path'
 import { DEV_COMMAND_NAME } from './cli-install-constants'
 
@@ -56,10 +56,12 @@ export function prependOrcaCliDirToChildPath(
     if (!existsSync(cliEntry)) {
       throw new Error('orcad_cli_missing — rebuild the standalone Server package')
     }
-    const shimDir = ensureShimForScript(
-      opts.userDataPath,
-      `#!/usr/bin/env bash\nexec ${quoteShell(process.execPath)} ${quoteShell(cliEntry)} "$@"\n`
-    )
+    const shimDir = ensureShimForLaunch(opts.userDataPath, {
+      localCli: { executable: process.execPath, args: [cliEntry] },
+      // Why: a headless host is exactly the deployment that promotes builds, so its terminals
+      // must follow the promoted one rather than the bundle this process happens to be.
+      buildPointerPath: resolveOrcaBuildPointerPath()
+    })
     if (!shimDir) {
       throw new Error('orcad_cli_shim_unavailable')
     }
@@ -80,7 +82,10 @@ export function prependOrcaCliDirToChildPath(
     return join(devCliBin, platform === 'win32' ? `${DEV_COMMAND_NAME}.cmd` : DEV_COMMAND_NAME)
   } else if (platform === 'linux') {
     // Why: bare-`orca` shim scoped to Orca PTYs — Linux CLI installs as `orca-ide` to avoid shadowing GNOME's /usr/bin/orca screen reader (stablyai/orca#7904).
-    const shimDir = ensureLinuxTerminalOrcaCliShimDir({ userDataPath: opts.userDataPath })
+    const shimDir = ensureLinuxTerminalOrcaCliShimDir({
+      userDataPath: opts.userDataPath,
+      buildPointerPath: resolveOrcaBuildPointerPath()
+    })
     if (shimDir) {
       const inheritedEntries = readInheritedPath(env, platform)
         .split(pathDelimiter)

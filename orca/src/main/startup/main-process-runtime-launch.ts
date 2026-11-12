@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import { app, powerMonitor, type BrowserWindow } from 'electron'
 import { is } from '@electron-toolkit/utils'
 import { getOrcaCloudAuthConfig } from '../orca-profiles/profile-cloud-auth-config'
@@ -33,7 +34,10 @@ import {
   showRuntimeRpcStartupFailureDialog
 } from '../runtime/runtime-rpc-startup-failure'
 import { CliInstaller } from '../cli/cli-installer'
-import { installLinuxBareOrcaDispatcher } from '../cli/linux-bare-orca-dispatcher'
+import {
+  describeServeBuildPointerPublication,
+  publishServeBuildPointer
+} from './serve-build-pointer'
 import { scheduleAllPendingHistoryTreeRemovals } from '../terminal-history-deletion'
 import { triggerStartupNotificationRegistration } from '../ipc/startup-notification-registration'
 import { startDesktopPushService } from './main-process-push-startup'
@@ -188,15 +192,16 @@ async function launchServeMode(
     }
   }
   // Why: Linux CLI installs as `orca-ide`, but the Claude Team launcher invokes bare `orca`; drop a ~/.local/bin dispatcher (ahead of /usr/bin) so it resolves. Best-effort.
+  // Why the pointer: this block used to name *this* bundle, so a headless `orcad` update could never
+  // become bare `orca`. See `serve-build-pointer.ts` for the order and the failure semantics.
   if (process.platform === 'linux' && app.isPackaged && process.resourcesPath) {
     try {
-      const dispatcher = await installLinuxBareOrcaDispatcher({
-        resourcesPath: process.resourcesPath
+      const publication = await publishServeBuildPointer({
+        resourcesPath: process.resourcesPath,
+        appVersion: app.getVersion(),
+        homePath: homedir()
       })
-      console.log(
-        `[serve] bare orca dispatcher ${dispatcher.state}: ${dispatcher.dispatcherPath}` +
-          `${dispatcher.target ? ` -> ${dispatcher.target}` : ''}`
-      )
+      console.log(`[serve] ${describeServeBuildPointerPublication(publication)}`)
     } catch (error) {
       console.warn(
         '[serve] bare orca dispatcher install skipped:',

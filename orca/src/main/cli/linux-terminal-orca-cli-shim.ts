@@ -21,8 +21,9 @@ import {
   removeAppImageLegacyLiveEndpoint
 } from './appimage-stable-launcher'
 import { getBundledLauncherPath } from './bundled-cli-launcher-path'
-import { buildBareOrcaCliScript } from './linux-bare-orca-dispatcher'
+import { planOrcaCliScript } from './build-pointer'
 import { quoteShell } from './cli-install-path-format'
+import type { OrcaBuildCli } from '../../shared/build-pointer'
 
 const SHIM_DIR_NAME = 'linux-orca-cli-shim'
 
@@ -34,6 +35,11 @@ export type LinuxTerminalOrcaCliShimOptions = {
   appImagePath?: string | null
   /** Test seam — defaults to $XDG_CACHE_HOME/orca/appimage. */
   appImageCacheRootPath?: string
+  /**
+   * Version pointer this shim should follow (see `src/shared/build-pointer.ts`). Unset keeps the
+   * fixed-launcher shim: a self-contained install has nothing outside its own bundle to follow.
+   */
+  buildPointerPath?: string | null
 }
 
 // Why: on Linux the CLI installs as `orca-ide` so it never shadows the GNOME
@@ -64,9 +70,20 @@ export function ensureLinuxTerminalOrcaCliShimDir(
     return null
   }
   const launcherPath = getBundledLauncherPath('linux', resourcesPath)
-  return launcherPath && existsSync(launcherPath)
-    ? ensureShimForLauncher(options.userDataPath, launcherPath)
-    : null
+  const localLauncher = launcherPath && existsSync(launcherPath) ? launcherPath : null
+  if (options.buildPointerPath) {
+    // Why the pointer is consulted before the launcher check: with a usable pointer the local
+    // launcher is only a fallback for a host that later loses its pointer, so a missing one must
+    // not suppress a shim that does work.
+    const plan = planOrcaCliScript({
+      pointerPath: options.buildPointerPath,
+      localCli: localLauncher ? { executable: localLauncher, args: [] } : null
+    })
+    if (plan.mode !== 'local') {
+      return ensureShimForScript(options.userDataPath, plan.script)
+    }
+  }
+  return localLauncher ? ensureShimForLauncher(options.userDataPath, localLauncher) : null
 }
 
 function ensureAppImageShim(
@@ -208,9 +225,27 @@ exec "$launcher" "$@"
 }
 
 function ensureShimForLauncher(userDataPath: string, launcherPath: string): string | null {
-  const script = buildBareOrcaCliScript(launcherPath)
+  return ensureShimForLaunch(userDataPath, {
+    localCli: { executable: launcherPath, args: [] },
+    buildPointerPath: null
+  })
+}
 
-  return ensureShimForScript(userDataPath, script)
+/**
+ * The one place a shim decides what bare `orca` means: follow a usable version pointer, keep this
+ * install's launcher when no pointer exists, and refuse to run anything when the pointer is
+ * broken. See `planOrcaCliScript` — the bare-`orca` dispatcher makes the same three-way choice,
+ * so a terminal and a login shell cannot disagree about which build they are running.
+ */
+export function ensureShimForLaunch(
+  userDataPath: string,
+  options: { localCli: OrcaBuildCli | null; buildPointerPath?: string | null }
+): string | null {
+  const plan = planOrcaCliScript({
+    pointerPath: options.buildPointerPath ?? null,
+    localCli: options.localCli
+  })
+  return ensureShimForScript(userDataPath, plan.script)
 }
 
 export function ensureShimForScript(userDataPath: string, script: string): string | null {

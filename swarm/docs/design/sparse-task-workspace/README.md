@@ -38,4 +38,7 @@
 不受启动门禁保护。SSH 上的任务 sparse 创建被明确拒绝，探针未接入前保持 fail-closed。
 cone 是检出范围，不是写权限、沙箱或授权边界。
 
+这里的 `orca` 指**版本指针 `/opt/orca/current` 解析出的那份构建**，不是“最先出现在 PATH 里的 orca”；
+指针形状、发布者、悬空时 fail-closed 的行为与排障命令见[版本指针](../cli-version-pointer.md)。
+
 具体入口、参数与判定条件以各契约和[任务工作区设计](../task-workspaces.md) 为准，本目录不复制。

@@ -37,6 +37,16 @@ M3 启动门禁与只读就绪状态。
 桌面 UI、移动端与 `orchestration worker-start` 仍然只传 cone（legacy sparse），因此它们建出的
 工作区没有 pin、回执与绑定，**不受启动门禁保护**。
 
+命令里的 `orca` 不是“任意一个叫 orca 的文件”，而是**版本指针 `/opt/orca/current` 解析出的那份构建**
+（契约、发布者与悬空行为见[版本指针](cli-version-pointer.md)）。只有新构建带任务 sparse 能力，
+所以“能用 `--sparse-task-dir`”本身就是你没有落到旧构建的证据。判定：
+
+```bash
+orca --version --json | jq '{source, artifact, buildId, pointer}'
+readlink -f /opt/orca/current          # 指针指向哪份产物
+cat /opt/orca/current/.orca-build.json # 那份产物自称的构建身份
+```
+
 用任务模式，当且仅当以下同时成立：
 
 - [ ] **独立修改任务**：有自己的交付物与验收，不是顺手改一行
