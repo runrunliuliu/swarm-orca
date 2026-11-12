@@ -72,6 +72,24 @@ def _pids_for_handle(handle, root="/proc"):
     return found
 
 
+def _parent_of(pid):
+    fields = (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+    return int(fields[1])
+
+
+def agent_processes(pids, parent_of=None):
+    """The agent process among the candidates: the one no other candidate is parent of.
+
+    A pane's handle is inherited by its shell, so "exactly one process claims this handle" is
+    wrong in practice (measured: a zsh and its pi child both carry it). The agent is the leaf;
+    anything else - two leaves, or none - is refused rather than picked.
+    """
+    parent_of = _parent_of if parent_of is None else parent_of
+    known = set(pids)
+    parents = {parent_of(pid) for pid in pids} & known
+    return [pid for pid in pids if pid not in parents]
+
+
 def _hook_entry(hooks, pane):
     entries = hooks.get("entries")
     require(hooks.get("version") == 2 and isinstance(entries, dict),
@@ -110,19 +128,22 @@ def refused(role, action, **context):
 
 
 def collect_role(*, role, terminal, provider, hooks, profile, log_root, clock=None,
-                 proc=None, pids_for_handle=None, environ=None, max_age=MAX_HOOK_AGE_SECONDS):
+                 proc=None, pids_for_handle=None, environ=None, parent_of=None,
+                 max_age=MAX_HOOK_AGE_SECONDS):
     """One role's pinned identity, from the same rows the gate reads."""
     proc = proc_entry if proc is None else proc
     pids_for_handle = _pids_for_handle if pids_for_handle is None else pids_for_handle
     environ = _environ if environ is None else environ
     clock = timestamp(now()) if clock is None else clock
 
-    pids = refused(role, lambda: pids_for_handle(terminal))
+    candidates = refused(role, lambda: pids_for_handle(terminal))
+    pids = refused(role, lambda: agent_processes(list(candidates), parent_of))
     if len(pids) != 1:
-        # Zero means the pane is gone (or this is a resumed/remote pane); more than one means the
-        # handle is shared. Neither is something to guess around.
+        # Zero means the pane is gone (or this is a resumed/remote pane); more than one leaf means
+        # the handle is shared by two agents. Neither is something to guess around.
         raise CollectionRefused("bootstrap_registration_pane_not_unique", role=role,
-                                terminal=_prefix(terminal), pids=len(pids))
+                                terminal=_prefix(terminal), pids=len(pids),
+                                processes=len(candidates))
     pid = pids[0]
     env = environ(pid)
     token = env.get(b"ORCA_AGENT_LAUNCH_TOKEN")
@@ -171,7 +192,7 @@ def collect_role(*, role, terminal, provider, hooks, profile, log_root, clock=No
 
 
 def build(*, bootstrap, expect_attempt, binding_sha256, roles, profile, log_root,
-          clock=None, proc=None, pids_for_handle=None, environ=None):
+          clock=None, proc=None, pids_for_handle=None, environ=None, parent_of=None):
     """Collect both roles and return (registration, receipt). Refuses on any single mismatch."""
     from bootstrap_events import binding as read_binding, EvidenceReader
 
@@ -191,7 +212,7 @@ def build(*, bootstrap, expect_attempt, binding_sha256, roles, profile, log_root
         collected[role], observed = collect_role(
             role=role, terminal=declared["terminal"], provider=declared["provider"],
             hooks=hooks, profile=profile, log_root=log_root, clock=clock, proc=proc,
-            pids_for_handle=pids_for_handle, environ=environ)
+            pids_for_handle=pids_for_handle, environ=environ, parent_of=parent_of)
         receipt["roles"][role] = dict(observed, provider=declared["provider"],
                                       terminal=_prefix(declared["terminal"]))
     registration = {

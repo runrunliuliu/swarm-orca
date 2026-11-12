@@ -70,6 +70,7 @@ class RegistrationCollectionTests(unittest.TestCase):
             proc=lambda pid: {"pid": pid, "start": "12345", "boot": "boot-id", "uid": os.getuid()},
             pids_for_handle=lambda handle: [pane["pid"] for pane in self.panes.values()
                                             if pane["handle"] == handle],
+            parent_of=lambda pid: 0,
             environ=lambda pid: {
                 b"ORCA_TERMINAL_HANDLE": next(p["handle"] for p in self.panes.values()
                                               if p["pid"] == pid).encode(),
@@ -105,12 +106,30 @@ class RegistrationCollectionTests(unittest.TestCase):
                           "sha256": self.binding["sha256"]})
         self.assertFalse(receipt["execution_authorized"])
 
-    def test_a_pane_that_is_not_exactly_one_process_is_refused(self):
+    def test_a_pane_that_is_not_exactly_one_agent_is_refused(self):
         exc = self.refusal(pids_for_handle=lambda handle: [])
         self.assertEqual(str(exc), "bootstrap_registration_pane_not_unique")
         self.assertEqual(exc.diagnostics["pids"], 0)
-        exc = self.refusal(pids_for_handle=lambda handle: [1, 2])
+        exc = self.refusal(pids_for_handle=lambda handle: [1, 2], parent_of=lambda pid: 0)
         self.assertEqual(exc.diagnostics["pids"], 2)
+        self.assertEqual(exc.diagnostics["processes"], 2)
+
+    def test_the_shell_that_inherits_the_handle_is_not_the_agent(self):
+        # A pane's handle is inherited by its shell; the agent is the leaf, so the collection
+        # must pick the pi child (4101) rather than refuse the shared handle.
+        parents = {4101: 4100, 4100: 1, 4102: 4100}
+        registration, _ = self.collect(
+            pids_for_handle=lambda handle: ([4100, 4101] if handle == "term_coordinator"
+                                            else [4102]),
+            parent_of=lambda pid: parents[pid],
+            environ=lambda pid: {
+                b"ORCA_TERMINAL_HANDLE": next(p["handle"] for p in self.panes.values()
+                                              if p["pid"] == pid or pid == 4100).encode(),
+                b"ORCA_PANE_KEY": next(p["pane"] for p in self.panes.values()
+                                       if p["pid"] == pid or pid == 4100).encode(),
+                b"ORCA_AGENT_LAUNCH_TOKEN": self.token})
+        self.assertEqual(registration["roles"]["coordinator"]["process"]["pid"], 4101)
+        self.assertEqual(registration["roles"]["operator"]["process"]["pid"], 4102)
 
     def test_a_missing_hook_row_names_the_pane_prefix(self):
         self.write_hooks()

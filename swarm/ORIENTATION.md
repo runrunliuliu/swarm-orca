@@ -245,7 +245,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
 | `wait` | `publication_wait.py:66-99` | `def wait` / `class wait` |
 | `wait` | `wait_for_file.py:83-109` | `def wait` / `class wait` |
-| `write` | `bootstrap_registration.py:209-226` | `def write` / `class write` |
+| `write` | `bootstrap_registration.py:230-247` | `def write` / `class write` |
 
 ## 不要这样做
 
