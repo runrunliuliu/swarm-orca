@@ -102,7 +102,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `mutation` | `coordinator_tui_workflow.py:44-64` | `def mutation` / `class mutation` |
 | `native` | `operator_monitor.py:106-121` | `def native` / `class native` |
 | `native` | `trae_coordinator.py:349-361` | `def native` / `class native` |
-| `native_plan` | `coordinator_strict.py:352-418` | `def native_plan` / `class native_plan` |
+| `native_plan` | `coordinator_strict.py:354-420` | `def native_plan` / `class native_plan` |
 | `observe` | `bootstrap_control.py:816-822` | `def observe` / `class observe` |
 | `observe` | `coordinator_background.py:42-95` | `def observe` / `class observe` |
 | `observe` | `coordinator_handoff.py:117-150` | `def observe` / `class observe` |
@@ -204,7 +204,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `stop` | `bootstrap_driver.py:91-95` | `def stop` / `class stop` |
 | `stop` | `bootstrap_protocol.py:114-114` | `def stop` / `class stop` |
 | `stop` | `coordinator_state.py:100-104` | `def stop` / `class stop` |
-| `strict_plan` | `coordinator_strict.py:220-325` | `def strict_plan` / `class strict_plan` |
+| `strict_plan` | `coordinator_strict.py:222-327` | `def strict_plan` / `class strict_plan` |
 | `submission` | `bootstrap_actions.py:39-54` | `def submission` / `class submission` |
 | `submission` | `bootstrap_tool.py:199-200` | `def submission` / `class submission` |
 | `submit` | `bootstrap_protocol.py:93-93` | `def submit` / `class submit` |

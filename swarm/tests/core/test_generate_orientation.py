@@ -81,6 +81,16 @@ class OrientationTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 2)
             self.assertIn("stale", completed.stderr)
 
+    def test_the_lookup_rule_survives_in_every_place_the_reader_meets_it(self):
+        """A generated index nobody is told to consult earns nothing; measure it, then pin it."""
+        for path, phrase in ((ROOT.parent / "AGENTS.md", "look a name up there first"),
+                             (ROOT / "strict-bootstrap-protocol.md", "只有表里没有条目时才用 grep"),
+                             (ROOT / "coordinator_strict.py", "look a name up here before searching")):
+            with self.subTest(path=path.name):
+                # Whitespace is flattened: these are wrapped paragraphs, not single lines.
+                flat = " ".join(path.read_text(encoding="utf-8").split()).lower()
+                self.assertIn(phrase, flat)
+
     def test_the_index_does_not_copy_code_bodies(self):
         # Why: a body copy is a second source of truth. The file may name symbols and ranges only.
         text = TARGET.read_text()

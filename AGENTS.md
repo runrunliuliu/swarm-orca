@@ -208,6 +208,21 @@ identity and workspace isolation, then covers when not to convene several agents
 mutually exclusive execution paths a task belongs to, and how a domain adapter attaches. It is a
 routing index, not a mode enumeration and not a grant of authority.
 
+## Symbol lookup: the index answers "where", searching is the fallback
+
+`swarm/ORIENTATION.md` is generated (`generate_orientation.py`; `--check` fails when it disagrees
+with the code) and holds one row per protocol-named symbol: path plus line range. Look a name up
+there first, read the range it gives, and search only when the table has no entry. Still open the
+source before relying on the answer: the index says where to read, not what is true, and a stale
+row is worse than a search.
+
+Measured, because "read it if useful" does not change behaviour: on the same read-only task and
+model, panes given this rule as a pointer ran 23–29 symbol searches where panes told nothing ran
+33–43, and 26.5 model turns against 35.5. Searches were 52–70% of every measured pane's tool calls,
+so this is the largest single lever on orientation time — fewer probes, not more per turn. The
+numbers are from a controlled A/B outside this repository; they are stated for the reason the rule
+exists, not as a promise about another task.
+
 ## Skills
 
 Discover skills through the table below and read the applicable `SKILL.md` completely before acting.
