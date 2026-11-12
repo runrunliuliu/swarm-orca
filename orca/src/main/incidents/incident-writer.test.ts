@@ -102,7 +102,7 @@ describe('recordPtyExitIncidentTo', () => {
     // failure visible when the store is full of noise.
     expect(next.outcome).toBe('inserted')
     expect(store.countIncidents()).toBe(2)
-    expect(store.coverage().storeCapacityLimited).toBe(true)
+    expect(store.coverage().currentlyLimited).toBe(true)
   })
 })
 

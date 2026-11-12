@@ -160,10 +160,18 @@ export type IncidentView = IncidentRecord & {
 /**
  * Coverage gaps the CLI must print (§11.1, §12). `unsupported` is a fixed answer for M1: nothing on
  * this host records an SSH/remote host's incidents, and silence there must not read as "no trouble".
+ *
+ * Capacity is reported as TWO facts, because they answer different questions and one used to be
+ * printed as the other:
+ *   * `capacityLatchSet` — this store refused a write at some point. Persists after a prune brings
+ *     the store back under its limits; it is history, not a fault.
+ *   * `currentlyLimited` — a write *right now* would be refused. This is what "writes are being
+ *     refused" may be said about.
  */
 export type IncidentCoverage = {
   remoteIncidentCapture: 'unsupported'
-  storeCapacityLimited: boolean
+  capacityLatchSet: boolean
+  currentlyLimited: boolean
   capacity: {
     rows: number
     bytes: number

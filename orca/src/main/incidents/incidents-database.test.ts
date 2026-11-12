@@ -2,11 +2,12 @@
  * The store's own database: shape versioning, immutability as an engine constraint, and the
  * read-only path a newer build must take. §6.1/§6.2.
  */
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import type Database from '../sqlite/sync-database'
+import Database from '../sqlite/sync-database'
 import {
   INCIDENTS_DB_SCHEMA_VERSION,
   openIncidentsDatabase,
@@ -113,6 +114,69 @@ describe('openIncidentsDatabase', () => {
     openDatabases.push(readOnly)
     expect(readOnly.readOnly).toBe(true)
     expect(readOnly.db.prepare('SELECT COUNT(*) AS n FROM incidents').get()?.n).toBe(1)
+  })
+
+  it('opens a cleanly closed database read-only without creating WAL sidecars (C4)', () => {
+    const path = databasePath()
+    const writable = open(path)
+    insertSample(writable.db)
+    writable.db.close()
+    openDatabases.length = 0
+    // A clean close checkpoints and removes the sidecars; that is the state `list` must not disturb.
+    expect(existsSync(`${path}-wal`)).toBe(false)
+    expect(existsSync(`${path}-shm`)).toBe(false)
+    const dbBytes = statSync(path).size
+    const digest = createHash('sha256').update(readFileSync(path)).digest('hex')
+
+    const readOnly = openIncidentsDatabase(path, { readOnly: true })
+    openDatabases.push(readOnly)
+    expect(readOnly.db.prepare('SELECT COUNT(*) AS n FROM incidents').get()?.n).toBe(1)
+    expect(Number(readOnly.db.pragma('user_version', { simple: true }))).toBe(INCIDENTS_DB_SCHEMA_VERSION)
+
+    expect(existsSync(`${path}-wal`)).toBe(false)
+    expect(existsSync(`${path}-shm`)).toBe(false)
+    expect(statSync(path).size).toBe(dbBytes)
+    expect(createHash('sha256').update(readFileSync(path)).digest('hex')).toBe(digest)
+  })
+
+  it('does not migrate a database whose schema version predates this build (C4)', () => {
+    const path = databasePath()
+    // A plain database this build never touched: version 0 and no incidents tables.
+    const raw = new Database(path)
+    raw.exec('CREATE TABLE unrelated (a TEXT)')
+    raw.close()
+    expect(existsSync(`${path}-wal`)).toBe(false)
+
+    const readOnly = openIncidentsDatabase(path, { readOnly: true })
+    openDatabases.push(readOnly)
+    expect(Number(readOnly.db.pragma('user_version', { simple: true }))).toBe(0)
+    const tables = readOnly.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => String(row.name))
+    expect(tables).toEqual(['unrelated'])
+    expect(existsSync(`${path}-wal`)).toBe(false)
+  })
+
+  it('leaves a live writer\'s WAL untouched when reading (C4)', () => {
+    const path = databasePath()
+    const writer = open(path)
+    insertSample(writer.db)
+    expect(existsSync(`${path}-wal`)).toBe(true)
+    const walBefore = readFileSync(`${path}-wal`)
+    const shmSizeBefore = statSync(`${path}-shm`).size
+
+    const readOnly = openIncidentsDatabase(path, { readOnly: true })
+    openDatabases.push(readOnly)
+    expect(readOnly.db.prepare('SELECT COUNT(*) AS n FROM incidents').get()?.n).toBe(1)
+
+    // The WAL is data: a reader must not append to it or checkpoint it away.
+    expect(readFileSync(`${path}-wal`).equals(walBefore)).toBe(true)
+    // The shm carries SQLite's reader marks, so a reader is expected to write its own slot there.
+    // What it must not do is grow it, drop it, or create a second one.
+    expect(statSync(`${path}-shm`).size).toBe(shmSizeBefore)
+    expect(existsSync(`${path}-wal`)).toBe(true)
+    expect(existsSync(`${path}-shm`)).toBe(true)
   })
 
   it.skipIf(process.platform === 'win32')('restricts the database files to the owning user', () => {

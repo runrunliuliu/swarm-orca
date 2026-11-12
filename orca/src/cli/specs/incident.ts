@@ -20,7 +20,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ],
     notes: [
       'Crashes are recorded by this host only. Remote (SSH) hosts are not captured: the output always reports remote_incident_capture=unsupported.',
-      'store_capacity_limited=true means the store refused new non-crash rows; crash rows are still written.'
+      'currently_limited=true means the store is refusing new non-crash rows right now; capacity_latch_set=true means it has refused before (a prune can clear the limit, not the history).'
     ]
   },
   {
@@ -59,6 +59,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     notes: [
       'Without --apply this only reports candidates; nothing is deleted.',
       'Only closed, invalid and duplicate incidents older than --keep-days (default 90) are eligible; untriaged/confirmed/needs_archive never are.',
+      '--json reports the candidate ids and the ids actually deleted (capped, with a truncation flag) so the retained decision rows stay locatable.',
       'Decision rows are retained after prune: they are the audit trail of why a row was removed.'
     ]
   }

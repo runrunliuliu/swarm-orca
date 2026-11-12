@@ -94,6 +94,13 @@ export type IncidentListOptions = {
   class?: IncidentClass
 }
 
+/**
+ * How many ids prune reports. Decisions outlive the row they describe (§11.5), so after a delete the
+ * only way to find "why was this removed" is the id itself — but a 50k-row prune must not print 50k
+ * ids, so the list is capped and its truncation is stated explicitly.
+ */
+export const PRUNE_ID_REPORT_LIMIT = 200
+
 export type PruneResult = {
   dryRun: boolean
   olderThanDays: number
@@ -102,12 +109,20 @@ export type PruneResult = {
   candidates: number
   deleted: number
   byStatus: Partial<Record<IncidentStatus, number>>
+  /** Up to `PRUNE_ID_REPORT_LIMIT` eligible ids, so kept decisions stay locatable. */
+  candidateIds: string[]
+  candidateIdsTruncated: boolean
+  /** Ids this run deleted (empty on a dry run). */
+  deletedIds: string[]
+  deletedIdsTruncated: boolean
 }
 
 export type PruneOptions = {
   dryRun?: boolean
   olderThanDays?: number
   now?: number
+  /** Test seam; production callers keep the default. */
+  idReportLimit?: number
 }
 
 export type IncidentStore = {

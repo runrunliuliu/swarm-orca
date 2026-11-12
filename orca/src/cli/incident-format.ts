@@ -61,10 +61,35 @@ function pad(value: string, width: number): string {
 export function formatIncidentCoverage(coverage: IncidentCoverage): string {
   return (
     `Coverage: remote_incident_capture=${coverage.remoteIncidentCapture}  ` +
-    `store_capacity_limited=${String(coverage.storeCapacityLimited)}  ` +
+    `capacity_latch_set=${String(coverage.capacityLatchSet)}  ` +
+    `currently_limited=${String(coverage.currentlyLimited)}  ` +
     `rows=${coverage.capacity.rows}/${coverage.capacity.maxRows}  ` +
     `bytes=${bytes(coverage.capacity.bytes)}/${bytes(coverage.capacity.maxBytes)}`
   )
+}
+
+/**
+ * The capacity warning, split by tense.
+ *
+ * `capacityLatchSet` means this store refused a write at some point — which stays true after a prune
+ * brings the row count back down. Printing that as "writes are being refused" made an already
+ * recovered store look broken, so only `currentlyLimited` may use the present tense; the latch is
+ * reported as history plus how to clear it.
+ */
+export function formatIncidentCapacityWarning(coverage: IncidentCoverage): string | null {
+  if (coverage.currentlyLimited) {
+    return (
+      'Capacity limit reached: new non-crash incidents are being refused right now (crash rows are ' +
+      'still written). Triage and `orca incident prune --apply` to free space.'
+    )
+  }
+  if (coverage.capacityLatchSet) {
+    return (
+      'This store has refused writes before (capacity latch set); it is accepting them again now ' +
+      `(${coverage.capacity.rows}/${coverage.capacity.maxRows} rows).`
+    )
+  }
+  return null
 }
 
 export function formatIncidentList(result: IncidentListResult): string {
@@ -91,10 +116,9 @@ export function formatIncidentList(result: IncidentListResult): string {
   }
   lines.push('')
   lines.push(formatIncidentCoverage(result.coverage))
-  if (result.coverage.storeCapacityLimited) {
-    lines.push(
-      'Capacity limit reached: new non-crash incidents are being refused (crash rows are still written). Run `orca incident prune --apply` after triage.'
-    )
+  const warning = formatIncidentCapacityWarning(result.coverage)
+  if (warning !== null) {
+    lines.push(warning)
   }
   return lines.join('\n')
 }
@@ -108,7 +132,7 @@ function decisionLine(decision: IncidentDecision): string {
 
 export function formatIncidentShow(
   view: IncidentView,
-  options: { storeCapacityLimited?: boolean; coverage?: IncidentCoverage } = {}
+  options: { coverage?: IncidentCoverage } = {}
 ): string {
   const lines: string[] = []
   lines.push(`${view.id}  ${view.class}  ${view.effectiveStatus}`)
@@ -180,14 +204,17 @@ export function formatIncidentPrune(result: PruneResult): string {
   const counts = Object.entries(result.byStatus)
     .map(([status, count]) => `${status}=${count}`)
     .join(' ')
+  const ids = `${result.candidateIds.length} id(s)${
+    result.candidateIdsTruncated ? ' (truncated)' : ''
+  } in --json`
   if (result.dryRun) {
     return (
       `Prune (dry run): ${result.candidates} candidate(s) older than ${result.olderThanDays} days` +
-      `${counts ? ` (${counts})` : ''}. Nothing was deleted. Re-run with --apply to delete.`
+      `${counts ? ` (${counts})` : ''}; ${ids}. Nothing was deleted. Re-run with --apply to delete.`
     )
   }
   return (
     `Prune: deleted ${result.deleted} of ${result.candidates} candidate(s) older than ` +
-    `${result.olderThanDays} days${counts ? ` (${counts})` : ''}. Decision rows were retained.`
+    `${result.olderThanDays} days${counts ? ` (${counts})` : ''} (${ids}). Decision rows were retained.`
   )
 }

@@ -35,7 +35,8 @@ export function incidentsDatabaseFile(): string {
 function unavailableStore(): IncidentStore {
   const coverage = {
     remoteIncidentCapture: 'unsupported' as const,
-    storeCapacityLimited: false,
+    capacityLatchSet: false,
+    currentlyLimited: false,
     capacity: {
       rows: 0,
       bytes: 0,
@@ -56,7 +57,11 @@ function unavailableStore(): IncidentStore {
       cutoff: 0,
       candidates: 0,
       deleted: 0,
-      byStatus: {}
+      byStatus: {},
+      candidateIds: [],
+      candidateIdsTruncated: false,
+      deletedIds: [],
+      deletedIdsTruncated: false
     }),
     readOnly: true
   }

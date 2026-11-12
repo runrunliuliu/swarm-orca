@@ -66,7 +66,9 @@ export function createCapacityGate(options: {
     const current = state()
     return {
       remoteIncidentCapture: 'unsupported',
-      storeCapacityLimited: readMeta(db, CAPACITY_LATCH_KEY) === '1' || current.limitedBy !== null,
+      // Past tense: the latch survives a prune, so it must not be printed as a live refusal.
+      capacityLatchSet: readMeta(db, CAPACITY_LATCH_KEY) === '1',
+      currentlyLimited: current.limitedBy !== null,
       capacity: {
         rows: current.rows,
         bytes: current.bytes,

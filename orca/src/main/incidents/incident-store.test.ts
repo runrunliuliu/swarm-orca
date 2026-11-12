@@ -198,7 +198,7 @@ describe('capacity (§11.5)', () => {
       })
     )
     expect(refused).toMatchObject({ outcome: 'capacity_limited', limitedBy: 'rows' })
-    expect(store.coverage().storeCapacityLimited).toBe(true)
+    expect(store.coverage()).toMatchObject({ capacityLatchSet: true, currentlyLimited: true })
     expect(store.countIncidents()).toBe(1)
   })
 
@@ -209,6 +209,31 @@ describe('capacity (§11.5)', () => {
     store.insertIncident(record({ class: 'no_progress' }))
     const crash = store.insertIncident(record({ id: 'inc_2', sourceId: 'inc-2' }))
     expect(crash.outcome).toBe('inserted')
+  })
+
+  it('separates "has refused before" from "is refusing now" across a prune (C3)', () => {
+    const opened = openIncidentsDatabase(databasePath())
+    openDatabases.push(opened)
+    const store = createIncidentStore({ db: opened.db, limits: { maxRows: 1 }, now: () => NOW })
+    const old = NOW - (DEFAULT_INCIDENT_RETENTION_DAYS + 1) * DAY
+
+    // One old, triaged-away row occupies the only slot.
+    store.insertIncident(record({ id: 'inc_old', sourceId: 'old', createdAt: old }))
+    store.appendDecision({ incidentId: 'inc_old', toStatus: 'invalid', actor: 'a', reason: 'r' })
+    expect(store.coverage()).toMatchObject({ capacityLatchSet: false, currentlyLimited: true })
+
+    // A noise row is refused, which sets the latch.
+    expect(store.insertIncident(record({ id: 'inc_noise', sourceId: 'noise', class: 'no_progress' })).outcome).toBe(
+      'capacity_limited'
+    )
+    expect(store.coverage()).toMatchObject({ capacityLatchSet: true, currentlyLimited: true })
+
+    // Pruning the old row drops below the limit: the refusal is history, not the present.
+    expect(store.pruneIncidents({ dryRun: false, now: NOW }).deleted).toBe(1)
+    expect(store.coverage()).toMatchObject({ capacityLatchSet: true, currentlyLimited: false })
+    expect(
+      store.insertIncident(record({ id: 'inc_noise_2', sourceId: 'noise-2', class: 'no_progress' })).outcome
+    ).toBe('inserted')
   })
 
   it('stops on the byte limit too', () => {
@@ -246,7 +271,38 @@ describe('prune (§11.5)', () => {
     const result = store.pruneIncidents({ dryRun: true, now: NOW })
     expect(result.candidates).toBe(1)
     expect(result.deleted).toBe(0)
+    expect(result.candidateIds).toEqual(['inc_old_invalid'])
+    expect(result.candidateIdsTruncated).toBe(false)
+    expect(result.deletedIds).toEqual([])
     expect(store.countIncidents()).toBe(3)
+  })
+
+  it('reports the ids it deleted, so retained decisions stay locatable (C5)', () => {
+    const { store, opened } = openPair()
+    seed(store)
+    const result = store.pruneIncidents({ dryRun: false, now: NOW })
+    expect(result.deletedIds).toEqual(['inc_old_invalid'])
+    expect(result.deletedIdsTruncated).toBe(false)
+    expect(store.getIncident('inc_old_invalid')).toBeNull()
+    // The decision that explains the removal survives with no incident row behind it — which is
+    // exactly why the reported id is the only handle back to it.
+    const kept = opened.db
+      .prepare('SELECT COUNT(*) AS n FROM incident_decisions WHERE incident_id = ?')
+      .get('inc_old_invalid')
+    expect(Number(kept?.n)).toBe(1)
+  })
+
+  it('caps the reported ids and says they were truncated', () => {
+    const { store } = openPair()
+    const old = NOW - (DEFAULT_INCIDENT_RETENTION_DAYS + 1) * DAY
+    for (const id of ['a', 'b']) {
+      store.insertIncident(record({ id: `inc_${id}`, sourceId: id, createdAt: old }))
+      store.appendDecision({ incidentId: `inc_${id}`, toStatus: 'invalid', actor: 'x', reason: 'r' })
+    }
+    const result = store.pruneIncidents({ dryRun: true, now: NOW, idReportLimit: 1 })
+    expect(result.candidates).toBe(2)
+    expect(result.candidateIds).toHaveLength(1)
+    expect(result.candidateIdsTruncated).toBe(true)
   })
 
   it('deletes only old invalid/duplicate/closed rows and retains decisions', () => {

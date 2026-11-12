@@ -7,11 +7,13 @@
 import type { CommandHandler, HandlerContext } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
 import { rejectRemoteSelectionFlags } from '../remote-selection-flag-rejection'
+import { DEFAULT_INCIDENT_RETENTION_DAYS } from '../../main/incidents/incident-store'
 import {
-  DEFAULT_INCIDENT_RETENTION_DAYS,
+  isIncidentClass,
+  isIncidentStatus,
+  type IncidentClass,
   type IncidentStatus
-} from '../../main/incidents/incident-store'
-import { isIncidentClass, isIncidentStatus, type IncidentClass } from '../../main/incidents/incident-types'
+} from '../../main/incidents/incident-types'
 import { renderIncidentMarkdown } from '../../main/incidents/incident-render'
 import {
   formatIncidentDecision,

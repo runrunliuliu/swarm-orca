@@ -12,6 +12,7 @@
 
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import Database from '../sqlite/sync-database'
 import { hardenSqliteDatabaseFiles } from '../sqlite/harden-database-files'
 import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-flag'
@@ -151,6 +152,24 @@ function databaseFileBytes(path: string): number {
 }
 
 /**
+ * A read-only connection that does not create the WAL sidecars.
+ *
+ * Measured on this runtime: a plain read-only open of a cleanly closed WAL database creates a 0-byte
+ * `-wal` and a 32KB `-shm`. `list`/`show` must not do that — they are diagnostics, and a listing that
+ * grows files in user data is a surprise, not a feature.
+ *
+ * `immutable=1` is only safe when there is no `-wal`: a writer attached in WAL mode always has one,
+ * so its absence means there are no uncommitted frames to miss. When `-wal` exists, the normal
+ * read-only open is used *and* leaves it byte-identical (measured: the shm read-mark update does not
+ * change either file), because it joins the existing sidecars instead of creating them.
+ */
+function readOnlyTarget(dbPath: string): { target: string; immutable: boolean } {
+  return existsSync(`${dbPath}-wal`)
+    ? { target: dbPath, immutable: false }
+    : { target: `${pathToFileURL(dbPath).href}?immutable=1`, immutable: true }
+}
+
+/**
  * Open (and if needed create/migrate) the incident database.
  *
  * Never throws into a caller's failure path any harder than the filesystem already did: the caller
@@ -161,10 +180,16 @@ export function openIncidentsDatabase(
   options: { readOnly?: boolean } = {}
 ): OpenIncidentsDatabase {
   if (options.readOnly === true) {
-    // Read paths (list/show) must not take a write lock, create a `-wal`, or trip a migration on a
-    // machine where the runtime is not running; `fileMustExist` keeps a typo'd path an error.
+    // Read paths (list/show) must not take a write lock, create a `-wal`/`-shm`, or migrate:
+    // a v0 file opened read-only keeps its version and its missing tables, which is the evidence
+    // that the read path never ran the schema.
+    const readOnly = readOnlyTarget(dbPath)
     return {
-      db: new Database(dbPath, { readonly: true, fileMustExist: true }),
+      db: new Database(readOnly.target, {
+        readonly: true,
+        // A URI cannot be stat()ed, so existence is the caller's check there.
+        fileMustExist: !readOnly.immutable
+      }),
       path: dbPath,
       readOnly: true,
       fileSizeBytes: () => databaseFileBytes(dbPath)

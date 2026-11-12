@@ -5,7 +5,7 @@
  * The store is a real SQLite file in a temp user-data directory and the handlers are the real ones,
  * so this covers path resolution + store + formatter together rather than mocking the middle.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -99,7 +99,15 @@ describe('incident list', () => {
     const text = output.join('\n')
     expect(text).toContain('No incidents recorded on this host')
     expect(text).toContain('remote_incident_capture=unsupported')
-    expect(text).toContain('store_capacity_limited=false')
+    expect(text).toContain('capacity_latch_set=false')
+    expect(text).toContain('currently_limited=false')
+  })
+
+  it('creates nothing on disk when no store exists yet (C4)', async () => {
+    const { ctx } = context('incident list')
+    await INCIDENT_HANDLERS['incident list'](ctx)
+    expect(existsSync(incidentsDatabaseFileFor(userData))).toBe(false)
+    expect(existsSync(join(userData, 'incidents'))).toBe(false)
   })
 
   it('shows a crash the runtime wrote, with its exit cause', async () => {
@@ -118,11 +126,16 @@ describe('incident list', () => {
     await INCIDENT_HANDLERS['incident list'](ctx)
     const parsed = JSON.parse(output.join('\n')) as {
       total: number
-      coverage: { remoteIncidentCapture: string; storeCapacityLimited: boolean }
+      coverage: {
+        remoteIncidentCapture: string
+        capacityLatchSet: boolean
+        currentlyLimited: boolean
+      }
     }
     expect(parsed.total).toBe(1)
     expect(parsed.coverage.remoteIncidentCapture).toBe('unsupported')
-    expect(parsed.coverage.storeCapacityLimited).toBe(false)
+    expect(parsed.coverage.capacityLatchSet).toBe(false)
+    expect(parsed.coverage.currentlyLimited).toBe(false)
   })
 
   it('refuses a selector that would answer for another host', async () => {
@@ -271,13 +284,40 @@ describe('incident prune', () => {
     expect(oldInvalid.outcome).toBe('inserted')
     writable.appendDecision({ incidentId: 'inc_old_invalid', toStatus: 'invalid', actor: 'a', reason: 'r' })
 
-    const dry = context('incident prune', { 'dry-run': true })
+    const dry = context('incident prune', { 'dry-run': true }, true)
     await INCIDENT_HANDLERS['incident prune'](dry.ctx)
-    expect(dry.output.join('\n')).toContain('Nothing was deleted')
+    const dryResult = JSON.parse(dry.output.join('\n')) as {
+      candidates: number
+      deleted: number
+      candidateIds: string[]
+      deletedIds: string[]
+      candidateIdsTruncated: boolean
+    }
+    expect(dryResult).toMatchObject({
+      candidates: 1,
+      deleted: 0,
+      candidateIds: ['inc_old_invalid'],
+      deletedIds: [],
+      candidateIdsTruncated: false
+    })
     expect(store().countIncidents()).toBe(2)
 
-    const apply = context('incident prune', { apply: true })
+    const text = context('incident prune', { 'dry-run': true })
+    await INCIDENT_HANDLERS['incident prune'](text.ctx)
+    expect(text.output.join('\n')).toContain('Nothing was deleted')
+
+    const apply = context('incident prune', { apply: true }, true)
     await INCIDENT_HANDLERS['incident prune'](apply.ctx)
+    const applyResult = JSON.parse(apply.output.join('\n')) as {
+      deleted: number
+      deletedIds: string[]
+      deletedIdsTruncated: boolean
+    }
+    expect(applyResult).toMatchObject({
+      deleted: 1,
+      deletedIds: ['inc_old_invalid'],
+      deletedIdsTruncated: false
+    })
     const after = store()
     expect(after.countIncidents()).toBe(1)
     expect(after.getIncident(liveId)).not.toBeNull()

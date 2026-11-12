@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import type { IncidentView } from '../main/incidents/incident-types'
 import type { IncidentListResult, PruneResult } from '../main/incidents/incident-store'
 import {
+  formatIncidentCapacityWarning,
   formatIncidentCoverage,
   formatIncidentDecision,
   formatIncidentList,
@@ -15,7 +16,8 @@ import {
 
 const coverage = {
   remoteIncidentCapture: 'unsupported' as const,
-  storeCapacityLimited: false,
+  capacityLatchSet: false,
+  currentlyLimited: false,
   capacity: { rows: 1, bytes: 2048, maxRows: 50_000, maxBytes: 500 * 1024 * 1024 }
 }
 
@@ -58,10 +60,12 @@ function view(overrides: Partial<IncidentView> = {}): IncidentView {
 }
 
 describe('formatIncidentCoverage', () => {
-  it('names the remote gap and the capacity state on one line', () => {
-    expect(formatIncidentCoverage(coverage)).toContain('remote_incident_capture=unsupported')
-    expect(formatIncidentCoverage(coverage)).toContain('store_capacity_limited=false')
-    expect(formatIncidentCoverage(coverage)).toContain('rows=1/50000')
+  it('names the remote gap and both capacity facts on one line', () => {
+    const line = formatIncidentCoverage(coverage)
+    expect(line).toContain('remote_incident_capture=unsupported')
+    expect(line).toContain('capacity_latch_set=false')
+    expect(line).toContain('currently_limited=false')
+    expect(line).toContain('rows=1/50000')
   })
 })
 
@@ -73,15 +77,30 @@ describe('formatIncidentList', () => {
     expect(text).toContain('remote_incident_capture=unsupported')
   })
 
-  it('prints a capacity warning when the store refused writes', () => {
+  it('prints a present-tense warning only while the store is refusing writes', () => {
     const result: IncidentListResult = {
       incidents: [],
       total: 0,
-      coverage: { ...coverage, storeCapacityLimited: true }
+      coverage: { ...coverage, capacityLatchSet: true, currentlyLimited: true }
     }
     const text = formatIncidentList(result)
-    expect(text).toContain('store_capacity_limited=true')
-    expect(text).toContain('Capacity limit reached')
+    expect(text).toContain('currently_limited=true')
+    expect(text).toContain('are being refused right now')
+  })
+
+  it('does not claim writes are being refused once a prune cleared the limit (C3)', () => {
+    const latched = { ...coverage, capacityLatchSet: true, currentlyLimited: false }
+    const text = formatIncidentList({ incidents: [], total: 0, coverage: latched })
+    expect(text).toContain('capacity_latch_set=true')
+    expect(text).toContain('currently_limited=false')
+    expect(text).toContain('has refused writes before')
+    expect(text).not.toContain('are being refused right now')
+    expect(text).not.toContain('Capacity limit reached')
+    expect(formatIncidentCapacityWarning(latched)).not.toMatch(/being refused/)
+  })
+
+  it('prints no capacity warning at all when neither fact holds', () => {
+    expect(formatIncidentCapacityWarning(coverage)).toBeNull()
   })
 
   it('renders class, effective status, cause and worktree per row', () => {
@@ -142,12 +161,17 @@ describe('formatIncidentPrune', () => {
       cutoff: 0,
       candidates: 3,
       deleted: 0,
-      byStatus: { invalid: 2, duplicate: 1 }
+      byStatus: { invalid: 2, duplicate: 1 },
+      candidateIds: ['inc_a', 'inc_b'],
+      candidateIdsTruncated: true,
+      deletedIds: [],
+      deletedIdsTruncated: false
     }
     const text = formatIncidentPrune(result)
     expect(text).toContain('dry run')
     expect(text).toContain('Nothing was deleted')
     expect(text).toContain('invalid=2')
+    expect(text).toContain('2 id(s) (truncated) in --json')
   })
 
   it('reports retained decisions on an apply run', () => {
@@ -157,7 +181,11 @@ describe('formatIncidentPrune', () => {
       cutoff: 0,
       candidates: 2,
       deleted: 2,
-      byStatus: { invalid: 2 }
+      byStatus: { invalid: 2 },
+      candidateIds: ['inc_a', 'inc_b'],
+      candidateIdsTruncated: false,
+      deletedIds: ['inc_a', 'inc_b'],
+      deletedIdsTruncated: false
     }
     const text = formatIncidentPrune(result)
     expect(text).toContain('deleted 2 of 2')
