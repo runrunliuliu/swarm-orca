@@ -11,6 +11,17 @@
   部署输入（objective、授权文件、provider/模型、`max_workers`、deadline、独立 BOOTSTRAP 根）
   缺失时按缺失处理，不得用示例或历史 attempt 顶替。
 
+## 0. 谁填、谁签
+
+执行方可以是人，**也可以是要被验证的那个 agent 自己**——但两类栏目不能混：
+
+| 栏目 | 谁填 | 执行 agent 自填 |
+| --- | --- | --- |
+| 报告头的事实项、每阶段的 Ref 与 SHA256、producer、时间线时刻、原始错误码 | 执行方 | **可以**——这些是可复算的机械事实，应当由命令产出而不是转述；自填时在记录里标注"由执行方填写"，并附可复算命令 |
+| §5 的结论（状态词归类、未覆盖项、下一责任人） | **不参与该次执行的审查者** | **不可以**——被验对象不给自己下判断 |
+
+理由与 §1.2 同源：可复算的事实交给执行方（或脚本）更快，也不会因此变弱；不可复算的判断一旦由
+被验方签署，这份记录就从"取证"退化成"自评"。填机械列不构成验收结论，签署结论也不改写任何口径。
 层级与门禁见 [strategy.md](strategy.md)；缺口的静态覆盖度与缺口性质（A/B/C）见
 [gap-matrix.md](gap-matrix.md)；协议正文见 [strict-bootstrap-protocol.md](../../strict-bootstrap-protocol.md)
 与 [coordinator-strict-start.md](../../coordinator-strict-start.md)；动作与槽位表见
