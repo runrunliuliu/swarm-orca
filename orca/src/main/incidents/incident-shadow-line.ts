@@ -12,6 +12,7 @@ import {
   type IncidentRecord
 } from './incident-types'
 import { INCIDENT_SHADOW_VERSION, type ShadowRecord } from './incident-shadow'
+import { sanitizeIncidentRecord } from './incident-sanitize'
 
 type ShadowLine = { text: string; endOffset: number }
 
@@ -55,7 +56,7 @@ export function readFileSlice(path: string, from: number): Buffer {
 
 export class ShadowRecordError extends Error {
   constructor(
-    readonly reason: 'unsupported_version' | 'invalid_record',
+    readonly reason: 'unparsable_json' | 'unsupported_version' | 'invalid_record',
     message: string
   ) {
     super(message)
@@ -72,6 +73,28 @@ function asString(value: unknown): string | null {
  * Throws rather than filling defaults: a line that cannot be rebuilt means this build and the writer
  * disagree, and a half-invented record would be worse than stopping.
  */
+/** The line's seq, or a typed failure. Replay reads this before it rebuilds the whole record. */
+export function shadowLineSeq(text: string): number {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new ShadowRecordError('unparsable_json', 'shadow line is not JSON')
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new ShadowRecordError('invalid_record', 'shadow line is not an object')
+  }
+  const line = parsed as Partial<ShadowRecord>
+  if (line.v !== INCIDENT_SHADOW_VERSION) {
+    throw new ShadowRecordError('unsupported_version', `shadow version ${String(line.v)}`)
+  }
+  const seq = line.seq
+  if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq <= 0) {
+    throw new ShadowRecordError('invalid_record', 'shadow line has no usable seq')
+  }
+  return seq
+}
+
 export function incidentRecordFromShadowLine(text: string): IncidentRecord {
   const parsed: unknown = JSON.parse(text)
   if (typeof parsed !== 'object' || parsed === null) {
@@ -99,7 +122,7 @@ export function incidentRecordFromShadowLine(text: string): IncidentRecord {
     throw new ShadowRecordError('invalid_record', 'shadow line has no created_at')
   }
   const evidence = line.evidence
-  return {
+  return sanitizeIncidentRecord({
     id,
     sourceKind: line.source_kind,
     sourceId,
@@ -121,6 +144,6 @@ export function incidentRecordFromShadowLine(text: string): IncidentRecord {
         : { pointers: [], unknownBoundaries: [] },
     summary: typeof line.summary === 'string' ? line.summary : '',
     createdAt: line.created_at
-  }
+  })
 }
 

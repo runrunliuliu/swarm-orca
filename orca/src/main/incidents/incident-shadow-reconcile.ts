@@ -1,17 +1,22 @@
-// Startup replay of the incident shadow (issue-sedimentation.md v2.3 §11.2).
+// Startup replay of the incident shadow (issue-sedimentation.md v2.3 §11.2; M2-C1/C3/C4/C6).
 //
-// The shadow is a hint log, so replaying it must be safe to do any number of times: every line goes
-// through `insertIncident`, whose UNIQUE(source_kind, source_id, facet) makes a second write a no-op.
-// That is what lets the watermark be an optimization rather than a correctness requirement — and why
-// losing the watermark is never a reason to guess.
+// The watermark is a single number: the highest `seq` this store has accepted or deliberately
+// dropped. Replay scans the whole family oldest → newest and handles lines with `seq > lastSeq`; the
+// store's UNIQUE(source_kind, source_id, facet) absorbs anything that gets re-offered. That makes the
+// watermark an optimization and a progress marker, never a correctness requirement — losing it costs
+// time, not records.
 //
-// Two failure modes are handled by *stopping*, never by repairing:
-//   * a line that does not parse (a torn tail from a crash mid-write);
-//   * a line this build cannot rebuild (different body version, unknown class/status, missing key).
-// Everything before it is replayed and the watermark points at the last complete line; the file is
-// left exactly as found so the operator (or a later build) can look at it.
+// Failure policy is "stop, never repair": a line that does not parse, a body version this build does
+// not know, or a store that refuses everything all stop the run at the last good seq, with the file
+// left exactly as found. Capacity refusals are the one exception that does not stop: a non-crash line
+// the capacity gate rejects is *dropped durably* (counted in meta) and replay continues, so a noisy
+// backlog can never hide a later crash (M2-C3).
+//
+// Cost is bounded per process (M2-C6): a byte and line budget stops the run with `incomplete: true`
+// and the next start resumes from `lastSeq`. Files whose *last* line is already at or below the
+// watermark are skipped by reading only their tail, so a steady-state start does not touch ~100MB.
 
-import { existsSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import type Database from '../sqlite/sync-database'
 import { DEFAULT_MAX_FILES, listRotatedFiles } from '../observability/local-file-sink'
@@ -21,20 +26,43 @@ import {
   ShadowRecordError,
   completeLines,
   incidentRecordFromShadowLine,
-  readFileSlice
+  readFileSlice,
+  shadowLineSeq
 } from './incident-shadow-line'
+import { lastSeqInTail } from './incident-shadow-tail'
+import {
+  bumpMetaNumber,
+  readMetaNumber,
+  SHADOW_DROPPED_META,
+  SHADOW_LAST_DROPPED_REASON_META,
+  SHADOW_LAST_RUN_BYTES_META,
+  SHADOW_LAST_RUN_LINES_META,
+  SHADOW_LAST_RUN_MS_META,
+  SHADOW_LAST_STOP_REASON_META,
+  SHADOW_RECONCILE_FAILURES_META,
+  SHADOW_RECONCILE_LAST_ERROR_META,
+  SHADOW_REPLAYED_SEQ_META,
+  SHADOW_REPLAY_INCOMPLETE_META,
+  readShadowReplayCoverage,
+  type IncidentShadowReplayCoverage
+} from './incident-shadow-coverage'
 import type { IncidentStore } from './incident-store'
-import { readMeta, writeMeta } from './incident-store-capacity'
+import { writeMeta } from './incident-store-capacity'
 
-/** Watermark keys in `incident_store_meta`. The file is a basename, so rotation keeps it valid. */
-export const SHADOW_WATERMARK_FILE_META = 'shadow_replayed_file'
-export const SHADOW_WATERMARK_OFFSET_META = 'shadow_replayed_offset'
-export const SHADOW_RECONCILE_FAILURES_META = 'shadow_reconcile_failures'
-export const SHADOW_RECONCILE_LAST_ERROR_META = 'shadow_reconcile_last_error'
-
-/** Persist the watermark every N lines so a crash mid-file does not rescan the whole file. */
-const WATERMARK_EVERY_LINES = 500
+/** Persist progress every N handled lines so a crash mid-run resumes close to where it stopped. */
+const PROGRESS_EVERY_LINES = 500
 const MAX_ERROR_CHARS = 300
+
+/** Per-process replay budget: a cold start must not synchronously chew through ~100MB (M2-C6). */
+export const DEFAULT_SHADOW_REPLAY_BUDGET = {
+  maxBytes: 8 * 1024 * 1024,
+  maxLines: 20_000
+} as const
+
+export type ShadowReplayBudget = {
+  maxBytes: number
+  maxLines: number
+}
 
 export type ShadowReconcileStopReason =
   | 'unparsable_json'
@@ -42,102 +70,147 @@ export type ShadowReconcileStopReason =
   | 'invalid_record'
   | 'store_refused'
   | 'read_error'
+  | 'budget'
 
 export type ShadowReconcileStop = {
   file: string
-  /** Last good byte offset: the next run resumes here. */
-  offset: number
+  /** Seq of the last handled line; the next run resumes strictly after it. */
+  lastSeq: number
   reason: ShadowReconcileStopReason
   detail?: string
 }
 
 export type ShadowReconcileSummary = {
-  /** Files present in the family this run looked at. */
   files: number
-  /** Lines that parsed and were handed to the store. */
+  filesRead: number
+  /** Lines this run handled (inserted, duplicate or dropped). */
   replayed: number
   inserted: number
   duplicates: number
+  /** Non-crash lines the capacity gate refused; counted durably, then skipped. */
+  dropped: number
+  /** Bytes read from disk during this run (budget accounting). */
+  bytesRead: number
+  elapsedMs: number
   stopped: ShadowReconcileStop | null
-  watermark: { file: string; offset: number } | null
+  /** True when this run did not reach the end of the family. */
+  incomplete: boolean
+  watermark: number
 }
 
-function watermarkOf(db: Database.Database): { file: string; offset: number } | null {
-  const file = readMeta(db, SHADOW_WATERMARK_FILE_META)
-  const rawOffset = Number(readMeta(db, SHADOW_WATERMARK_OFFSET_META) ?? 0)
-  if (!file || !Number.isFinite(rawOffset) || rawOffset < 0) {
-    return null
-  }
-  return { file, offset: rawOffset }
-}
-
-function writeWatermark(
-  db: Database.Database,
-  watermark: { file: string; offset: number }
-): void {
-  writeMeta(db, SHADOW_WATERMARK_FILE_META, watermark.file)
-  writeMeta(db, SHADOW_WATERMARK_OFFSET_META, String(watermark.offset))
-}
+/** Backwards-compatible aliases for the meta keys other modules import. */
+export { SHADOW_RECONCILE_FAILURES_META, SHADOW_RECONCILE_LAST_ERROR_META }
 
 /**
- * Replay every complete shadow line after the watermark.
+ * Replay every line with `seq > lastSeq`.
  *
- * Order is oldest → newest (`listRotatedFiles` is newest-first because trace bundling wants that).
- * Files older than the watermark's file are skipped without being read — that is the "no full
- * rescan" property. If the watermark's file is gone (rotated away or deleted), replay restarts from
- * the oldest present file; the inserts are idempotent, so the only cost is time.
+ * Order is oldest → newest (`listRotatedFiles` is newest-first for trace bundling). A file is skipped
+ * entirely when its tail seq is at or below the watermark — the whole file is then old by
+ * construction, because seq increases with append order.
  */
 export function reconcileIncidentShadow(options: {
   store: IncidentStore
   db: Database.Database
   userDataPath: string
   maxFiles?: number
+  budget?: Partial<ShadowReplayBudget>
+  /** Injectable clock so the budget/duration assertions are deterministic. */
+  now?: () => number
 }): ShadowReconcileSummary {
   const { store, db, userDataPath } = options
+  const budget: ShadowReplayBudget = { ...DEFAULT_SHADOW_REPLAY_BUDGET, ...options.budget }
+  const now = options.now ?? (() => Date.now())
+  const startedAt = now()
   const path = shadowFilePath(userDataPath)
   const files = listRotatedFiles(path, options.maxFiles ?? DEFAULT_MAX_FILES).toReversed()
-  const watermark = watermarkOf(db)
+  const watermark = readMetaNumber(db, SHADOW_REPLAYED_SEQ_META)
   const summary: ShadowReconcileSummary = {
     files: files.length,
+    filesRead: 0,
     replayed: 0,
     inserted: 0,
     duplicates: 0,
+    dropped: 0,
+    bytesRead: 0,
+    elapsedMs: 0,
     stopped: null,
+    incomplete: false,
     watermark
   }
-  if (files.length === 0) {
+  let lastSeq = watermark
+
+  const finish = (stop: ShadowReconcileStop | null): ShadowReconcileSummary => {
+    summary.stopped = stop
+    summary.incomplete = stop !== null
+    summary.watermark = lastSeq
+    summary.elapsedMs = Math.max(0, now() - startedAt)
+    writeMeta(db, SHADOW_REPLAYED_SEQ_META, String(lastSeq))
+    writeMeta(db, SHADOW_REPLAY_INCOMPLETE_META, summary.incomplete ? '1' : '0')
+    writeMeta(db, SHADOW_LAST_STOP_REASON_META, stop === null ? '' : stop.reason)
+    writeMeta(db, SHADOW_LAST_RUN_LINES_META, String(summary.replayed))
+    writeMeta(db, SHADOW_LAST_RUN_BYTES_META, String(summary.bytesRead))
+    writeMeta(db, SHADOW_LAST_RUN_MS_META, String(summary.elapsedMs))
     return summary
   }
 
-  const startIndex = watermark ? files.findIndex((file) => basename(file) === watermark.file) : -1
-  let linesSinceWatermark = 0
+  if (files.length === 0) {
+    return finish(null)
+  }
 
-  for (let index = Math.max(0, startIndex); index < files.length; index += 1) {
-    const file = files[index]
+  for (const file of files) {
+    if (summary.stopped !== null) {
+      break
+    }
     if (!existsSync(file)) {
       continue
     }
-    const size = statSync(file).size
-    const from =
-      index === startIndex && watermark !== null && size >= watermark.offset ? watermark.offset : 0
+    // Skip a file whose newest line is already covered: seq is append-ordered, so nothing in it is new.
+    const tailSeq = lastSeqInTail(file)
+    if (tailSeq !== null && tailSeq <= lastSeq) {
+      continue
+    }
     let buffer: Buffer
     try {
-      buffer = readFileSlice(file, from)
+      buffer = readFileSlice(file, 0)
     } catch (error) {
       summary.stopped = {
         file: basename(file),
-        offset: from,
+        lastSeq,
         reason: 'read_error',
         detail: error instanceof Error ? error.name : 'read_failed'
       }
       break
     }
+    summary.filesRead += 1
+    summary.bytesRead += buffer.length
 
-    let consumedTo = from
+    let handledSinceProgress = 0
     for (const line of completeLines(buffer)) {
-      const lineEnd = from + line.endOffset
       if (line.text.trim().length === 0) {
-        consumedTo = lineEnd
+        continue
+      }
+      if (summary.replayed >= budget.maxLines || summary.bytesRead >= budget.maxBytes) {
+        summary.stopped = {
+          file: basename(file),
+          lastSeq,
+          reason: 'budget',
+          detail: `lines=${summary.replayed} bytes=${summary.bytesRead}`
+        }
+        break
+      }
+      let seq: number
+      try {
+        seq = shadowLineSeq(line.text)
+      } catch (error) {
+        summary.stopped = {
+          file: basename(file),
+          lastSeq,
+          reason: error instanceof ShadowRecordError ? error.reason : 'unparsable_json',
+          detail: error instanceof Error ? error.message.slice(0, MAX_ERROR_CHARS) : undefined
+        }
+        break
+      }
+      if (seq <= lastSeq) {
         continue
       }
       let record: IncidentRecord
@@ -146,50 +219,53 @@ export function reconcileIncidentShadow(options: {
       } catch (error) {
         summary.stopped = {
           file: basename(file),
-          offset: consumedTo,
-          reason:
-            error instanceof ShadowRecordError ? error.reason : 'unparsable_json',
-          detail:
-            error instanceof Error ? error.message.slice(0, MAX_ERROR_CHARS) : undefined
+          lastSeq,
+          reason: error instanceof ShadowRecordError ? error.reason : 'unparsable_json',
+          detail: error instanceof Error ? error.message.slice(0, MAX_ERROR_CHARS) : undefined
         }
         break
       }
       const result = store.insertIncident(record)
-      if (result.outcome !== 'inserted' && result.outcome !== 'duplicate') {
-        // Capacity/read-only refusals must not advance past the line: stopping makes the next start
-        // retry it, whereas skipping would mark a line replayed that never landed.
+      if (result.outcome === 'capacity_limited' && record.class !== 'crash') {
+        // M2-C3: a refused noise line must not block the rest of the family. It is dropped durably —
+        // the count and the last reason are the only trace it ever existed — and replay moves on.
+        summary.dropped += 1
+        bumpMetaNumber(db, SHADOW_DROPPED_META)
+        writeMeta(db, SHADOW_LAST_DROPPED_REASON_META, `capacity_limited:${result.limitedBy ?? 'unknown'}`)
+      } else if (result.outcome === 'read_only' || result.outcome === 'capacity_limited') {
+        // Crash rows bypass capacity, so a refusal here means the store cannot take writes at all.
         summary.stopped = {
           file: basename(file),
-          offset: consumedTo,
+          lastSeq,
           reason: 'store_refused',
           detail: `insert_${result.outcome}`
         }
         break
-      }
-      summary.replayed += 1
-      if (result.outcome === 'inserted') {
-        summary.inserted += 1
+      } else if (result.outcome === 'invalid_record') {
+        summary.stopped = {
+          file: basename(file),
+          lastSeq,
+          reason: 'invalid_record',
+          detail: result.reason ?? 'invalid_record'
+        }
+        break
       } else {
-        summary.duplicates += 1
+        summary.replayed += 1
+        if (result.outcome === 'inserted') {
+          summary.inserted += 1
+        } else {
+          summary.duplicates += 1
+        }
       }
-      consumedTo = lineEnd
-      summary.watermark = { file: basename(file), offset: consumedTo }
-      linesSinceWatermark += 1
-      if (linesSinceWatermark >= WATERMARK_EVERY_LINES) {
-        writeWatermark(db, { file: basename(file), offset: consumedTo })
-        linesSinceWatermark = 0
+      lastSeq = Math.max(lastSeq, seq)
+      handledSinceProgress += 1
+      if (handledSinceProgress >= PROGRESS_EVERY_LINES) {
+        writeMeta(db, SHADOW_REPLAYED_SEQ_META, String(lastSeq))
+        handledSinceProgress = 0
       }
-    }
-
-    // The last good position is the resume point, whether we stopped or finished the file.
-    writeWatermark(db, { file: basename(file), offset: consumedTo })
-    summary.watermark = { file: basename(file), offset: consumedTo }
-    linesSinceWatermark = 0
-    if (summary.stopped !== null) {
-      break
     }
   }
-  return summary
+  return finish(summary.stopped)
 }
 
 /**
@@ -200,14 +276,14 @@ export function reconcileIncidentShadow(options: {
  */
 export function recordShadowReconcileFailure(db: Database.Database, message: string): void {
   try {
-    const previous = Number(readMeta(db, SHADOW_RECONCILE_FAILURES_META) ?? 0)
-    writeMeta(
-      db,
-      SHADOW_RECONCILE_FAILURES_META,
-      String((Number.isFinite(previous) ? previous : 0) + 1)
-    )
+    bumpMetaNumber(db, SHADOW_RECONCILE_FAILURES_META)
     writeMeta(db, SHADOW_RECONCILE_LAST_ERROR_META, message.slice(0, MAX_ERROR_CHARS))
+    // A thrown run never reached the end, so the read model must not present it as complete.
+    writeMeta(db, SHADOW_REPLAY_INCOMPLETE_META, '1')
   } catch {
     // The caller still logs; nothing else to do from inside the failure path.
   }
 }
+
+export type { IncidentShadowReplayCoverage }
+export { readShadowReplayCoverage }

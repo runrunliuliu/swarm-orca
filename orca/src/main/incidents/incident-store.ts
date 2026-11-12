@@ -12,6 +12,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { redactString } from '../observability/redactor'
+import { sanitizeIncidentRecord } from './incident-sanitize'
 import {
   canTransition,
   isIncidentClass,
@@ -110,6 +111,9 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
     ) {
       return { outcome: 'invalid_record', id: null, reason: 'invalid_incident_record' }
     }
+    // M2-C2: one sanitize pass before anything lands, so repro/boundary/path fields cannot smuggle a
+    // secret just because the writer forgot.
+    const safe = sanitizeIncidentRecord(record)
     const state = capacity.state()
     if (state.limitedBy !== null && record.class !== 'crash') {
       // §11.5: noise stops first; a crash row is still worth its bytes.
@@ -140,11 +144,11 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
           record.ptyIncarnationId,
           record.class,
           record.status,
-          record.exitCause === null ? null : JSON.stringify(record.exitCause),
-          record.fingerprint,
-          JSON.stringify(record.evidence),
-          redactString(record.summary).slice(0, MAX_SUMMARY_CHARS),
-          record.createdAt
+          safe.exitCause === null ? null : JSON.stringify(safe.exitCause),
+          safe.fingerprint,
+          JSON.stringify(safe.evidence),
+          safe.summary,
+          safe.createdAt
         )
       inserted = Number(result.changes) > 0
     } catch (error) {

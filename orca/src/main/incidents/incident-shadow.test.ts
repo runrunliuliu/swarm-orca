@@ -13,6 +13,7 @@ import {
   shadowFilePath,
   shadowRecordFromIncident
 } from './incident-shadow'
+import { createShadowSeqGenerator, shadowSeqSlotForPid } from './incident-shadow-seq'
 import type { IncidentRecord } from './incident-types'
 
 const directories: string[] = []
@@ -59,7 +60,7 @@ describe('shadowRecordFromIncident', () => {
     const first = shadowRecordFromIncident(record(), 1_700_000_000_000)
     const second = shadowRecordFromIncident(record({ id: 'inc_2' }), 1_700_000_000_000)
     expect(first).toMatchObject({
-      v: 1,
+      v: 2,
       id: 'inc_shadow_1',
       source_kind: 'pty_exit',
       source_id: 'ptyinc-shadow-1',
@@ -81,6 +82,34 @@ describe('shadowRecordFromIncident', () => {
     // The whole shape has no field that could hold output: pointers, not bodies.
     expect(Object.keys(line)).not.toContain('tailBuffer')
     expect(Object.keys(line)).not.toContain('output')
+  })
+})
+
+describe('shadow seq (M2-C1)', () => {
+  it('is strictly increasing inside one writer even in the same millisecond', () => {
+    const writer = createShadowSeqGenerator(7)
+    const seqs = Array.from({ length: 5 }, () => writer.next(1_700_000_000_000))
+    expect(seqs).toHaveLength(new Set(seqs).size)
+    expect([...seqs].sort((left, right) => left - right)).toEqual(seqs)
+  })
+
+  it('never collides across writers in the same millisecond, and stays ordered by time', () => {
+    const runtime = createShadowSeqGenerator(7)
+    const cli = createShadowSeqGenerator(9)
+    const runtimeSeqs = Array.from({ length: 50 }, () => runtime.next(1_700_000_000_000))
+    const cliSeqs = Array.from({ length: 50 }, () => cli.next(1_700_000_000_000))
+    const all = [...runtimeSeqs, ...cliSeqs]
+    expect(all).toHaveLength(new Set(all).size)
+    // A later millisecond is always above everything from the earlier one.
+    expect(runtime.next(1_700_000_000_001)).toBeGreaterThan(Math.max(...all))
+  })
+
+  it('is a safe integer and derives a stable slot from the pid', () => {
+    const writer = createShadowSeqGenerator()
+    const seq = writer.next(1_700_000_000_000)
+    expect(Number.isSafeInteger(seq)).toBe(true)
+    expect(shadowSeqSlotForPid(1_234_567)).toBe(shadowSeqSlotForPid(1_234_567))
+    expect(shadowSeqSlotForPid(1_234_567)).toBeLessThan(4096)
   })
 })
 

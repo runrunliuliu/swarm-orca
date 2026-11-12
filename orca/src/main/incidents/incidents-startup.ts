@@ -66,7 +66,7 @@ export function reconcileIncidentShadowAtStartup(options: {
       // A torn tail after a crash is expected, not a defect — but it is the reason the replay
       // stopped, so it is stated once instead of looking like a complete pass.
       console.warn(
-        `[incidents] shadow replay stopped at ${summary.stopped.file}@${summary.stopped.offset} ` +
+        `[incidents] shadow replay stopped at ${summary.stopped.file}@seq${summary.stopped.lastSeq} ` +
           `(${summary.stopped.reason}${summary.stopped.detail ? `: ${summary.stopped.detail}` : ''}); ` +
           `replayed ${summary.replayed} of ${summary.files} file(s)`
       )

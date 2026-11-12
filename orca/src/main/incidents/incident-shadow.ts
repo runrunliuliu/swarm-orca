@@ -11,7 +11,7 @@
 //     matter (the last few);
 //   * a line carries the record's key and already-redacted summary, never prompt/transcript bodies.
 
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   createLocalFileSink,
@@ -19,13 +19,21 @@ import {
   DEFAULT_MAX_FILES,
   type LocalFileSink
 } from '../observability/local-file-sink'
-import { redactString } from '../observability/redactor'
+import { sanitizeEvidence, sanitizeText } from './incident-sanitize'
 import type { IncidentRecord } from './incident-types'
 import { incidentsDirectoryFor } from './incidents-paths'
+import { createShadowSeqGenerator } from './incident-shadow-seq'
 
 export const INCIDENT_SHADOW_FILENAME = 'shadow.ndjson'
-/** Body version of one shadow line; a replay reading a different `v` stops instead of guessing. */
-export const INCIDENT_SHADOW_VERSION = 1
+/**
+ * Body version of one shadow line.
+ *
+ * v2 added `seq` as the watermark's only key (M2-C1): v1's file+offset watermark could skip lines
+ * appended after a rotation. A replay that meets a v1 line stops and says so — the old line cannot be
+ * ordered against the new watermark, and guessing an order is exactly what the watermark exists to
+ * avoid.
+ */
+export const INCIDENT_SHADOW_VERSION = 2
 const MAX_SUMMARY_CHARS = 2000
 
 /**
@@ -60,21 +68,12 @@ export function shadowFilePath(userDataPath: string): string {
   return join(incidentsDirectoryFor(userDataPath), INCIDENT_SHADOW_FILENAME)
 }
 
-let sequence = 0
-
-/**
- * `Date.now() * 1000` keeps the number monotonic across restarts without persisting a counter, and
- * the `+1` tie-break keeps it strictly increasing inside one millisecond.
- */
-function nextSequence(now: number): number {
-  sequence = Math.max(sequence + 1, now * 1000)
-  return sequence
-}
+const sequence = createShadowSeqGenerator()
 
 export function shadowRecordFromIncident(record: IncidentRecord, now = Date.now()): ShadowRecord {
   return {
     v: INCIDENT_SHADOW_VERSION,
-    seq: nextSequence(now),
+    seq: sequence.next(now),
     id: record.id,
     source_kind: record.sourceKind,
     source_id: record.sourceId,
@@ -90,9 +89,10 @@ export function shadowRecordFromIncident(record: IncidentRecord, now = Date.now(
     status: record.status,
     exit_cause: record.exitCause,
     fingerprint: record.fingerprint,
-    evidence: record.evidence,
-    // Redacted here as well as in the store: the shadow must not be the leak path.
-    summary: redactString(record.summary).slice(0, MAX_SUMMARY_CHARS),
+    evidence: sanitizeEvidence(record.evidence),
+    // The same sanitize pass as the store: the shadow is a file other actors can append to, so it
+    // must never be the leak path (M2-C2).
+    summary: sanitizeText(record.summary, MAX_SUMMARY_CHARS),
     created_at: record.createdAt
   }
 }
@@ -101,7 +101,9 @@ let sink: LocalFileSink | null = null
 let sinkPath: string | null = null
 
 function shadowSink(path: string): LocalFileSink {
-  if (sink !== null && sinkPath === path) {
+  // Why the existence check: rotation (ours or an external one) moves the base file to `.1`. The
+  // cached fd keeps writing to the renamed inode, so a fresh base would never receive a line again.
+  if (sink !== null && sinkPath === path && existsSync(path)) {
     return sink
   }
   sink?.close()
@@ -171,5 +173,4 @@ export function closeIncidentShadowSink(): void {
 
 export function __resetIncidentShadowForTests(): void {
   closeIncidentShadowSink()
-  sequence = 0
 }
