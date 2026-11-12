@@ -10,6 +10,7 @@ import { SSH_EXIT_UNCONFIRMED_REASON } from '../../shared/pty-liveness-verdict'
 import type { RetiredTerminalSurface } from './mobile-session-terminal-retirement'
 import { parsePaneKey } from '../../shared/stable-pane-id'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
+import { recordPtyExitIncident } from '../incidents/incident-writer'
 
 export class OrcaRuntimeWithOnPtyExit extends OrcaRuntimeWithOnClientDisconnected {
   onPtyExit(
@@ -48,6 +49,27 @@ export class OrcaRuntimeWithOnPtyExit extends OrcaRuntimeWithOnClientDisconnecte
     // Why: collect before retirePtyAgentLaunchAuthority, which deletes the restored-authority
     // receipt a receipt-only pane's key comes from.
     const exitPaneKeys = this.collectAgentStatusPaneKeysForPty(ptyId)
+    // Why here and not later: every field below is read from state that this function is about to
+    // delete — the PTY record, its lifecycle generation, the launch authority. Recording the
+    // incident is one call, and the writer never looks anything up (issue-sedimentation §7.1/§14).
+    recordPtyExitIncident({
+      ptyId,
+      incarnationId:
+        exitIncarnationId ??
+        pty?.incarnationId ??
+        `runtime:${this.runtimeId}:${this.getPtyLifecycleGeneration(ptyId)}`,
+      paneKey: pty?.paneKey ?? (exitPaneKeys.size === 1 ? [...exitPaneKeys][0] : null),
+      worktreeId: pty?.worktreeId ?? null,
+      // Why null: the PTY record holds no agent session id at exit, only a claim digest.
+      agentSessionId: null,
+      agentIdentityDigest: pty?.agentSessionOwners?.[0]?.claim?.identityDigest ?? null,
+      exitCode,
+      exitCause,
+      hostExitConfirmed: options.hostExitConfirmed === true,
+      providerExitObserved: options.providerExitObserved === true,
+      surface: this.isSshOwnedPtyId(ptyId) ? 'ssh' : 'local',
+      hasAgentBinding: Boolean(pty?.launchAgent || pty?.foregroundAgent || exitPaneKeys.size > 0)
+    })
     if (preservesAbnormalSshSurface) {
       const prior = this.ptyLivenessVerdictByPtyId.get(ptyId)?.verdict
       this.rememberPtyLivenessVerdict(ptyId, {
