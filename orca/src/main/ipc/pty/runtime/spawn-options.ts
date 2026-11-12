@@ -129,7 +129,6 @@ export async function buildRuntimePtySpawnOptions(
   }
   const trustWrite = applyAgentWorkspaceTrustToSpawn({
     launchAgent: args.launchAgent,
-    launchSource: args.telemetry?.launch_source,
     worktreeId: args.worktreeId,
     cwd: ctx.cwd,
     store: ctx.deps.store,

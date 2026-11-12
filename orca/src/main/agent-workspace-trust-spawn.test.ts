@@ -15,7 +15,6 @@ const store = {
 function spawnArgs(overrides: Partial<Parameters<typeof applyAgentWorkspaceTrustToSpawn>[0]>) {
   return {
     launchAgent: 'claude',
-    launchSource: 'orchestration',
     worktreeId: 'repo-1::/repo/wt',
     cwd: undefined,
     store,
@@ -140,7 +139,9 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith('codex', '/notes/sub', expect.anything())
   })
 
-  it.each(PRESET_AGENTS.filter((agent) => agent !== 'codex' && agent !== 'trae' && agent !== 'codex-ark'))(
+  it.each(
+    PRESET_AGENTS.filter((agent) => agent !== 'codex' && agent !== 'trae' && agent !== 'codex-ark')
+  )(
     'trusts the workspace root for %s, whose trust covers its subfolders or matches the root',
     async (agent) => {
       await applyAgentWorkspaceTrustToSpawn(
@@ -159,7 +160,7 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     expect(applyAgentWorkspaceTrust).toHaveBeenCalledTimes(1)
   })
 
-  it('trusts the final Trae Worker start folder by default', async () => {
+  it('trusts the final Trae start folder on a fresh launch', async () => {
     await applyAgentWorkspaceTrustToSpawn(
       spawnArgs({ launchAgent: 'trae', cwd: '/repo/wt/sub.dir', settings: undefined })
     )
@@ -170,30 +171,18 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     )
   })
 
-  it.each([undefined, 'manual', 'restore', 'worktree-create'])(
-    'does not pre-trust Trae for non-orchestration source %s',
-    (launchSource) => {
-      expect(
-        applyAgentWorkspaceTrustToSpawn(spawnArgs({ launchAgent: 'trae', launchSource }))
-      ).toBeNull()
-      expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
-    }
-  )
-
-  it('does not pre-trust Trae in a floating terminal even with orchestration telemetry', () => {
-    expect(
-      applyAgentWorkspaceTrustToSpawn(
-        spawnArgs({
-          launchAgent: 'trae',
-          worktreeId: 'global-floating-terminal',
-          cwd: '/repo/wt'
-        })
-      )
-    ).toBeNull()
-    expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
+  it('trusts Trae in a floating terminal at the folder it starts in', async () => {
+    await applyAgentWorkspaceTrustToSpawn(
+      spawnArgs({
+        launchAgent: 'trae',
+        worktreeId: 'global-floating-terminal',
+        cwd: '/repo/wt'
+      })
+    )
+    expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith('trae', '/repo/wt', expect.anything())
   })
 
-  it('trusts the final Codex Ark Worker start folder by default', async () => {
+  it('trusts the final Codex Ark start folder on a fresh launch', async () => {
     await applyAgentWorkspaceTrustToSpawn(
       spawnArgs({ launchAgent: 'codex-ark', cwd: '/repo/wt/sub.dir', settings: undefined })
     )
@@ -204,27 +193,19 @@ describe('applyAgentWorkspaceTrustToSpawn', () => {
     )
   })
 
-  it.each([undefined, 'manual', 'restore', 'worktree-create'])(
-    'does not pre-trust Codex Ark for non-orchestration source %s',
-    (launchSource) => {
-      expect(
-        applyAgentWorkspaceTrustToSpawn(spawnArgs({ launchAgent: 'codex-ark', launchSource }))
-      ).toBeNull()
-      expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
-    }
-  )
-
-  it('does not pre-trust Codex Ark in a floating terminal even with orchestration telemetry', () => {
-    expect(
-      applyAgentWorkspaceTrustToSpawn(
-        spawnArgs({
-          launchAgent: 'codex-ark',
-          worktreeId: 'global-floating-terminal',
-          cwd: '/repo/wt'
-        })
-      )
-    ).toBeNull()
-    expect(applyAgentWorkspaceTrust).not.toHaveBeenCalled()
+  it('trusts Codex Ark in a floating terminal at the folder it starts in', async () => {
+    await applyAgentWorkspaceTrustToSpawn(
+      spawnArgs({
+        launchAgent: 'codex-ark',
+        worktreeId: 'global-floating-terminal',
+        cwd: '/repo/wt'
+      })
+    )
+    expect(applyAgentWorkspaceTrust).toHaveBeenCalledWith(
+      'codex-ark',
+      '/repo/wt',
+      expect.anything()
+    )
   })
 
   it.each([

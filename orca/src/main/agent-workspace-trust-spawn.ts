@@ -1,5 +1,4 @@
 import { TUI_AGENT_CONFIG, isTuiAgent } from '../shared/tui-agent-config'
-import type { AgentTrustPreset } from './agent-trust-presets'
 import type { GlobalSettings } from '../shared/global-settings-types'
 import { resolveTerminalWorkspacePath } from '../shared/terminal-startup-cwd'
 import {
@@ -19,23 +18,23 @@ function isAgentWorkspaceTrustOn(settings: AgentWorkspaceTrustSetting): boolean 
 }
 
 /**
- * Presets granted only to orchestration-dispatched workers: an unattended launch cannot answer the
- * prompt, while a person's own terminal still can. Manual launches, floating terminals,
- * reattaches and restores never get these grants.
- */
-const ORCHESTRATION_ONLY_TRUST_PRESETS = new Set<AgentTrustPreset>(['trae', 'codex-ark'])
-
-/**
  * The one place Orca pre-trusts a workspace: every Orca-started agent PTY passes
  * through a spawn builder with its declared `launchAgent`, which survives setup-script
  * wrapping. Reattaches and restores are skipped so trust is never re-run for them.
  * Structured Codex chats have no PTY and enter below instead. Returns null when there is nothing to write, so other spawns take no extra tick:
  * the builders arbitrate pane-spawn reservation races that a tick can reorder.
+ *
+ * Why every launch surface and not only dispatched Workers: the launch source says nothing about
+ * whether anyone is watching the pane. A Trae or Codex Ark pane started by hand in a workspace
+ * Orca just created from a new branch parks on `Trust this folder?` exactly like a Worker does,
+ * and answering it writes the same record this function would have written. So the grant follows
+ * the setting (`agentWorkspaceTrustEnabled`) and the freshness of the launch, not the label, and
+ * each writer's own refusals — never a home or a root, never creating Codex Ark's config — still
+ * decide whether anything is written.
  */
 export function applyAgentWorkspaceTrustToSpawn(
   args: {
     launchAgent: unknown
-    launchSource?: unknown
     /** Worktree or folder workspace id; its root is the folder the agent is trusted in. */
     worktreeId: string | undefined
     /** The resolved folder the agent starts in; floating terminals have only this. */
@@ -59,13 +58,6 @@ export function applyAgentWorkspaceTrustToSpawn(
     args.worktreeId,
     (folderWorkspaceId) => args.store?.getFolderWorkspace(folderWorkspaceId)?.folderPath
   )
-  // Why: default Trae and Ark trust is for dispatched workers, not manual or floating terminals.
-  if (
-    ORCHESTRATION_ONLY_TRUST_PRESETS.has(preset) &&
-    (args.launchSource !== 'orchestration' || !workspaceRoot)
-  ) {
-    return null
-  }
   const workspacePath = AGENT_TRUST_KEYED_BY_START_FOLDER[preset]
     ? args.cwd || workspaceRoot
     : workspaceRoot

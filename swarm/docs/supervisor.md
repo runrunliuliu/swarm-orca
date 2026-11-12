@@ -45,6 +45,8 @@ python3 -m supervisor --config config.example.json validate
 
 这是**逐工作区信任**，不是全局自动信任。仅在角色的原生 Agent ID 为 `trae` 且 `trae_workspace_trust.enabled:true` 时启用；示例仍默认关闭，不影响其他 Agent 或已有配置。初始 Coordinator 由操作者启动，不在这个 Worker 启动钩子覆盖范围内。
 
+Orca 自身也会在 fresh 启动前预写同一 `[projects."<path>"]` 条目（自 2026-11-12 起对所有启动来源生效，不再限于 orchestration），所以新 Trae Worker 本已可能跳过信任门。本节的显式登记仍是可审计的授权路径：它按已批准基线逐工作区写入、落盘回读并要求失败即停止，未登记的工作区不因原生预写而被视为已批准。
+
 在远端私有配置中填写该节的 `hostname`（远端 `hostname` 原样输出）、`username`（Worker Unix 账号）、`trae_home`（实际配置目录），并在确认下列条件后设置 `launch_context_confirmed:true` 和 `enabled:true`：
 
 - 实际执行 Coordinator 命令的进程、Orca Server 和 Trae Worker 使用同一远端 Linux 主机/账号。Worker 启动环境的 `HOME`/`TRAE_HOME` 与登记进程一致；没有 launcher 内另设配置目录或配置覆盖。程序校验自身主机、有效 UID、账号 home 和配置目录，不能从本地 Mac 代办，也不能替操作者证明自定义 launcher 的环境。
