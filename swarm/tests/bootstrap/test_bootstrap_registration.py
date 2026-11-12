@@ -1,7 +1,10 @@
 """Registration collection: pin what the identity gate reads, never what a filename suggests."""
 
+import io
 import json
 import os
+from contextlib import redirect_stdout
+from unittest import mock
 from pathlib import Path
 import tempfile
 import unittest
@@ -180,6 +183,28 @@ class RegistrationCollectionTests(unittest.TestCase):
             "transcriptPath": str(outside)}})
         exc = self.refusal()
         self.assertEqual(str(exc), "bootstrap_registration_log_outside_root")
+
+    def test_the_cli_reports_three_when_an_identical_file_is_already_there(self):
+        # The help and operator-prepare promise 3 for "nothing written, already identical"; an
+        # always-0 answer would read as a fresh pin.
+        registration, receipt = self.collect()
+        output = self.work / "cli-registration.json"
+        argv = ["--bootstrap", str(self.root), "--expect-attempt", "attempt-test",
+                "--attempt-binding-sha256", self.binding["sha256"],
+                "--profile", str(self.profile), "--log-root", str(self.log_root),
+                "--coordinator", "term_coordinator", "--coordinator-provider", "pi",
+                "--operator", "term_operator", "--operator-provider", "pi",
+                "--output", str(output), "--json"]
+        with mock.patch.object(bootstrap_registration, "build",
+                               return_value=(registration, receipt)):
+            with redirect_stdout(io.StringIO()) as first_out:
+                first = bootstrap_registration.cli_main(argv)
+            with redirect_stdout(io.StringIO()) as again_out:
+                again = bootstrap_registration.cli_main(argv)
+        self.assertEqual((first, again), (0, 3))
+        self.assertTrue(json.loads(first_out.getvalue())["created"])
+        self.assertFalse(json.loads(again_out.getvalue())["created"])
+        self.assertEqual(json.loads(again_out.getvalue())["exit"], 3)
 
     def test_writing_is_create_once_and_reads_back(self):
         registration, _ = self.collect()

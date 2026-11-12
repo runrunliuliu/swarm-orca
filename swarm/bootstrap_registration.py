@@ -273,10 +273,14 @@ def cli_main(argv=None):
                    "operator": {"terminal": args.operator, "provider": args.operator_provider}},
             profile=args.profile, log_root=args.log_root)
         ref = write(args.output, registration)
-        payload = dict(ok=True, event="bootstrap_registration", exit=0, execution_authorized=False,
-                       registration=ref, receipt=receipt)
+        # Exit 3 is the documented "an identical file is already there": nothing was written, so
+        # it must not look like a fresh pin. (Review finding: the help and operator-prepare said 3
+        # while the code always returned 0.)
+        code = 0 if ref["created"] else 3
+        payload = dict(ok=True, event="bootstrap_registration", exit=code, created=ref["created"],
+                       execution_authorized=False, registration=ref, receipt=receipt)
         print(json.dumps(payload, ensure_ascii=False) if args.json else ref["path"])
-        return 0
+        return code
     except CollectionRefused as exc:
         payload = dict(ok=False, event="bootstrap_registration", exit=2, reason=str(exc),
                        diagnostics=exc.diagnostics, execution_authorized=False)
