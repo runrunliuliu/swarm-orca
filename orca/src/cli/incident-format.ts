@@ -21,6 +21,19 @@ function iso(ms: number | null): string {
   return ms === null ? '—' : new Date(ms).toISOString()
 }
 
+function formatShadowReplay(coverage: IncidentCoverage): string {
+  const replay = coverage.shadowReplay
+  const state = replay.incomplete
+    ? `INCOMPLETE${replay.lastStopReason ? ` (${replay.lastStopReason})` : ''}`
+    : 'complete'
+  const lastRun = replay.lastRun
+  const run = lastRun ? `  last_run=${lastRun.lines}lines/${lastRun.bytes}B/${lastRun.ms}ms` : ''
+  return (
+    `Shadow replay: ${state}  last_seq=${replay.lastSeq}  dropped=${replay.dropped}  ` +
+    `failures=${replay.failures}${run}`
+  )
+}
+
 function bytes(value: number): string {
   if (value < 1024) {
     return `${value}B`
@@ -116,6 +129,22 @@ export function formatIncidentList(result: IncidentListResult): string {
   }
   lines.push('')
   lines.push(formatIncidentCoverage(result.coverage))
+  lines.push(formatShadowReplay(result.coverage))
+  if (result.coverage.shadowReplay.incomplete) {
+    // Why spelled out: an empty list plus an unfinished replay is the one combination an operator
+    // must not read as "no incidents".
+    lines.push(
+      'WARNING: the shadow replay did not finish, so incidents recorded before the crash may be missing from this list.'
+    )
+    if (result.coverage.shadowReplay.lastError) {
+      lines.push(`  last replay error: ${result.coverage.shadowReplay.lastError}`)
+    }
+  }
+  if (result.coverage.shadowReplay.dropped > 0) {
+    lines.push(
+      `WARNING: ${result.coverage.shadowReplay.dropped} replayed line(s) were dropped by the capacity gate and are not in this list.`
+    )
+  }
   const warning = formatIncidentCapacityWarning(result.coverage)
   if (warning !== null) {
     lines.push(warning)
@@ -210,7 +239,8 @@ export function formatIncidentReport(result: {
 }): string {
   const head =
     result.outcome === 'duplicate'
-      ? `Already recorded: ${result.incidentId ?? '(unknown id)'}`
+      ? `Already recorded: ${result.incidentId ?? '(unknown id)'} — same --source-id, existing record ` +
+        'kept and NOT overwritten (incident rows are immutable)'
       : `Reported: ${result.incidentId ?? '(unknown id)'}`
   const shadow =
     result.shadow === 'written'

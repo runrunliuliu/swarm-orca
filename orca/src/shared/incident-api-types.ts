@@ -26,6 +26,18 @@ export type IncidentStatusDto =
   | 'acceptance_pending'
   | 'closed'
 
+/** The replay's own state (M2-C4): an unfinished replay is not "no incidents". */
+export type IncidentShadowReplayDto = {
+  lastSeq: number
+  incomplete: boolean
+  lastStopReason: string | null
+  failures: number
+  lastError: string | null
+  dropped: number
+  lastDroppedReason: string | null
+  lastRun: { lines: number; bytes: number; ms: number } | null
+}
+
 /** §11.5: never collapse these two into one boolean again. */
 export type IncidentCoverageDto = {
   remoteIncidentCapture: 'unsupported'
@@ -39,6 +51,7 @@ export type IncidentCoverageDto = {
     maxRows: number
     maxBytes: number
   }
+  shadowReplay: IncidentShadowReplayDto
 }
 
 export type IncidentEvidencePointerDto = {

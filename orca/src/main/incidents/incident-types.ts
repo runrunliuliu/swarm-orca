@@ -10,6 +10,7 @@
 // therefore the *entry* status, and the effective status is projected from the decision log.
 
 import type { TerminalExitCause } from '../../shared/terminal-exit-cause'
+import type { IncidentShadowReplayCoverage } from './incident-shadow-coverage'
 
 /** §6.2 `class`. Five values, closed set: an unknown failure kind is `unknown_state`, not a new word. */
 export const INCIDENT_CLASSES = [
@@ -184,6 +185,11 @@ export type IncidentCoverage = {
     maxRows: number
     maxBytes: number
   }
+  /**
+   * The shadow replay's own state (M2-C4). An empty list plus `incomplete: true` means "we could not
+   * finish reading the hints", which must never be rendered as "nothing happened".
+   */
+  shadowReplay: IncidentShadowReplayCoverage
 }
 
 export function isIncidentClass(value: unknown): value is IncidentClass {

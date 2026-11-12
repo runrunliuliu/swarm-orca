@@ -42,6 +42,16 @@ function unavailableStore(): IncidentStore {
       bytes: 0,
       maxRows: DEFAULT_INCIDENT_STORE_LIMITS.maxRows,
       maxBytes: DEFAULT_INCIDENT_STORE_LIMITS.maxBytes
+    },
+    shadowReplay: {
+      lastSeq: 0,
+      incomplete: false,
+      lastStopReason: null,
+      failures: 0,
+      lastError: null,
+      dropped: 0,
+      lastDroppedReason: null,
+      lastRun: null
     }
   }
   return {

@@ -18,7 +18,17 @@ const coverage = {
   remoteIncidentCapture: 'unsupported' as const,
   capacityLatchSet: false,
   currentlyLimited: false,
-  capacity: { rows: 1, bytes: 2048, maxRows: 50_000, maxBytes: 500 * 1024 * 1024 }
+  capacity: { rows: 1, bytes: 2048, maxRows: 50_000, maxBytes: 500 * 1024 * 1024 },
+  shadowReplay: {
+    lastSeq: 42,
+    incomplete: false,
+    lastStopReason: null,
+    failures: 0,
+    lastError: null,
+    dropped: 0,
+    lastDroppedReason: null,
+    lastRun: null
+  }
 }
 
 function view(overrides: Partial<IncidentView> = {}): IncidentView {
@@ -101,6 +111,28 @@ describe('formatIncidentList', () => {
 
   it('prints no capacity warning at all when neither fact holds', () => {
     expect(formatIncidentCapacityWarning(coverage)).toBeNull()
+  })
+
+  it('shows an unfinished replay as a warning, never as an empty answer (M2-C4)', () => {
+    const incomplete = {
+      ...coverage,
+      shadowReplay: {
+        ...coverage.shadowReplay,
+        incomplete: true,
+        lastStopReason: 'budget',
+        failures: 2,
+        lastError: 'disk gone',
+        dropped: 3,
+        lastRun: { lines: 120, bytes: 4096, ms: 12 }
+      }
+    }
+    const text = formatIncidentList({ incidents: [], total: 0, coverage: incomplete })
+    expect(text).toContain('No incidents recorded on this host')
+    expect(text).toContain('Shadow replay: INCOMPLETE (budget)')
+    expect(text).toContain('did not finish')
+    expect(text).toContain('last replay error: disk gone')
+    expect(text).toContain('3 replayed line(s) were dropped')
+    expect(text).toContain('last_run=120lines/4096B/12ms')
   })
 
   it('renders class, effective status, cause and worktree per row', () => {
