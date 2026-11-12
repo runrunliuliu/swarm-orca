@@ -237,6 +237,19 @@ class RoleTool(BootstrapMachine, ActionReader):
                 "bootstrap_action_stage_mismatch")
         return value
 
+    def observation_roots(self):
+        """The declared write roots the reviewer pins into the session contract.
+
+        For Pi this must include the workspace: the domain checkpoint source cannot
+        live in the bootstrap directory (the reviewed brief forbids Coordinator
+        writes there), and `software_development.check()` requires the source inside
+        `observation.roots`. Trae keeps its historical single root.
+        """
+        roots = [str(self.root)]
+        if self.coordinator_capability().tui_adapter == tui_adapter.PI_ADAPTER:
+            roots.append(self.b["workspace"]["path"])
+        return roots
+
     def template(self, stage, request_ref):
         request = parse(pinned(request_ref))
         if stage == "fields":
@@ -246,7 +259,7 @@ class RoleTool(BootstrapMachine, ActionReader):
                 workspace=self.b["workspace"], operator=self.b["operator"],
                 coordinator=parse(pinned(self.slot(EVENTS[1])))["coordinator"],
                 observation=dict(profile=registration["profile"], log_root=registration["log_root"],
-                    roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
+                    roots=self.observation_roots(), caller_receipt=self.slot("caller_receipt"),
                     startup_anchor=self.slot("session_observation")))
         return dict(schema_version=1, kind="strict_bootstrap_review_result", request=request_ref,
             subject_refs=request["subject_refs"], evidence_refs=request["evidence_refs"], operator=request["operator"],
@@ -344,7 +357,7 @@ class RoleTool(BootstrapMachine, ActionReader):
                 terminal=coordinator["terminal"], incarnation=coordinator["incarnation"],
                 workspace=self.b["workspace"]["id"], cwd=self.b["workspace"]["path"],
                 profile=registration["profile"], log_root=registration["log_root"],
-                roots=[str(self.root)], caller_receipt=self.slot("caller_receipt"),
+                roots=self.observation_roots(), caller_receipt=self.slot("caller_receipt"),
                 expected_thread=registration["roles"]["coordinator"]["session"],
                 context_max_age_seconds=1800)
             options[policy_key] = tui_adapter.input_value(

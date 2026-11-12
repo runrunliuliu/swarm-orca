@@ -1320,6 +1320,21 @@ class ProvedNonExecutionTests(unittest.TestCase):
             self.assertFalse(non_execution(unknown), state)
         self.assertFalse(non_execution(ValueError("bootstrap_owner_busy_not_executed")))
 
+    def test_a_pi_fields_template_declares_the_workspace_as_a_write_root(self):
+        """The domain checkpoint cannot live in the bootstrap directory (attempt32 F3)."""
+        with production() as (f, owner, identity, client, _):
+            tool = RoleTool(f.control, client, "coordinator")
+            try:
+                capability = tool.coordinator_capability()
+                roots = tool.observation_roots()
+                self.assertEqual(roots[0], str(tool.root))
+                if capability.tui_adapter == "pi-tui-runtime-v1":
+                    self.assertIn(f.b["workspace"]["path"], roots)
+                else:
+                    self.assertEqual(roots, [str(tool.root)])
+            finally:
+                tool.close()
+
     def test_a_proved_non_execution_lets_the_retry_reuse_the_admitted_marker(self):
         """attempt21: the marker was admitted, the result commit was refused, and the
         retry could neither re-publish the marker nor rename it away.
