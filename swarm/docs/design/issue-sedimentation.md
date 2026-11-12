@@ -1,8 +1,8 @@
 # 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.4，M1+M2 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 评审 BLOCK → 修复 → §19.4）。
+- 状态：**设计（v2.5，M1–M3 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 评审分歧 → 共识 → 语义事件时钟 → §19.5）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 评审输入（同目录）：`issue-sedimentation.review-codex-ark.md`、`issue-sedimentation.review-trae.md`
   （v1 评审，针对"Python 适配层 + 文件轮询"版本）；v2 评审另见
@@ -233,21 +233,30 @@ transcript 可能 GB 级。record 存 `{path, inode/sha256, startOffset, endOffs
 - **已知丢失窗口**（不可消除，只能减小）：callback 入口到 shadow flush 之间主进程崩；stale
   incarnation 被丢弃；DB 与 shadow 只成功一边。
 
-### 7.2 no_progress（跑不下去但活着）——设计中
+### 7.2 no_progress（跑不下去但活着）——M3 已实现（默认不写）
 
-**前提修正（评审）**：主进程内**没有**通用无进展判定器，也没有一流字段的 `wait_reason` /
-`expected_wait`。可用的只有 `server-status-application.ts` 的时间戳（`stateStartedAt` /
-`turnStartedAt`）与范围窄的 reaping。本类需要**新建**两样：显式等待声明 + 判定函数。
+**年龄口径（关键）**：年龄 = `now − lastSemanticEventAt`，即状态行上**最近一次语义事件/观测**的
+时间戳。不得用 PTY 字节流（pi/codex/trae 都是 TUI，spinner 每秒重绘，"有输出"与"有进展"脱钩），
+也不得用 `stateStartedAt`/`turnStartedAt` 当进展（单个长回合里它们不推进）。缺该时间戳时回退
+`stateStartedAt`，且必须在行、JSON、文本与 coverage 里标 `ageBasis: 'state_fallback'`，不得静默
+伪装成语义判据。epoch 仍用 `stateStartedAt`，但它**只**作幂等键。
 
-- **等待声明（新建）**：状态行增加 `waitReason?: string` / `expectedDoneAt?: number`；声明有效期间
-  **不计无进展**（长训练/长构建不误报）。声明本身也可能是错的 → 误判只进 `untriaged`。
-- **写点**：状态应用路径的同一 tick（不新增定时器；找不到稳定周期点就挂到现有 reaping tick）。
-- **判据（提议默认，待拍板）**：工作态、无有效等待声明、超过 **45 分钟**无状态进展，且跨过 ≥2 次
-  独立观测周期。
-- **不写**：`idle`、`done`、有有效等待声明、状态为 `unknown` 的 pane。
-- **幂等**：`source_id = <paneKey>:<stateStartedAt>`，`facet = 'stall'`；恢复后新的 `stateStartedAt`
-  才允许开新记录。
-- **灰度前置**：先在**不写 incident** 的情况下只记可观测年龄，确认不满屏报警再开写入。
+- **判据**：工作态、无有效等待声明、`no_event_for_threshold`（45 分钟无语义事件且跨 ≥2 个独立
+  采样周期）。判定结果为 `wouldWriteIfEnabled`，不是"已确认卡死"。
+- **不写**：`idle`、`done`、有有效等待声明、状态 `unknown`、key 校验失败（计 `stall_key_rejected`）。
+- **写点**：一个 60s `unref()` 采样 interval（唯一新增定时器；理由：状态应用是事件驱动、reaping 是
+  一次性扫描、hook server 只有 provider 专用 interval）。store 不可用时零工作，timer 内异常只记
+  `stall_sampler_errors` / `lastError` 并进 coverage，绝不抛。
+- **等待声明**：`orca incident wait --terminal <handle> --reason <text> [--until <rfc3339>]` /
+  `--clear`。按 `(paneKey, epoch)` 取值，pane 复活不继承；过期自动失效并由采样器清理。
+  `--clear` 清**整个 pane**（所有 epoch），与 `--reason/--until/--actor` 互斥；长等待应带 `--until`。
+- **幂等**：`source_id` 由 `buildIncidentKey({kind:'status_stall', paneKey, stateStartedAt})` 生成
+  （**不得手工拼字符串**，否则重演 M1 fallback epoch 的校验旁路），`facet='stall'`。
+- **灰度**：`INCIDENT_STALL_WRITE=on` 才写，默认 off；只读面 `orca incident stalls [--json]` 输出
+  `state / ageMs / ageBasis / threshold / declaration / wouldWriteIfEnabled / reason`，并明示
+  "灰度判定，不写 incident"。
+- **判据边界**："45 分钟内持续有事件但无实质进展"（例如反复重试同一失败）**不**由本判据处理，
+  归 M4 的 `tool_error` 聚簇。
 
 ### 7.3 tool_error（工具/回合错误）——设计中
 
@@ -384,6 +393,8 @@ structured wire、liveness verdict、pty exit）→ 规定**只有 pty exit / di
 | CLI | `incident list` / `show <id> [--md]` | **M1（必须）** | `src/cli/handler-group-manifest.ts` + `src/cli/incident-*.ts` |
 | CLI | `incident decide --to <status> --reason`（`confirmed` 只允许显式 R1 actor） | **M1（必须）** | 同上 |
 | CLI | `incident report --class --code ...`（自报） | M2 | 同上 |
+| CLI | `incident stalls [--json]`（灰度只读：state/ageMs/ageBasis/声明/wouldWriteIfEnabled/reason） | **M3** | `src/main/incidents/incidents-stall-sampler.ts` |
+| CLI | `incident wait --terminal <h> --reason <t> [--until]` / `--clear`（整 pane，互斥） | **M3** | 同上 |
 | CLI | `incident prune --dry-run`（`--json` 带候选/已删 id） | **M1（必须）** | 同上 |
 | 覆盖缺口 | `list/show` 输出 `remote_incident_capture`、`capacity_latch_set`、`currently_limited`、`shadow_replay`（`lastSeq/incomplete/lastStopReason/failures/lastError/dropped/lastRun`） | **M1 + M2（必须）** | 读模型 |
 | 读模型 | shared 类型 + IPC | M2 | `src/shared/incident-*.ts`、`src/preload/api/incident-api.ts` |
@@ -477,7 +488,7 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 15 | incident store / 幂等键（含 epoch）/ 不可变触发器 / 容量上限 | **已实现（M1）** | §6、§11.5；提交 `916290df`+`4b92269c` |
 | 16 | `onPtyExit` crash 写入（含 fallback epoch、owner-claim binding） | **已实现（M1）** | §7.1；提交 `640d285f`+`50124307` |
 | 17 | shadow + 启动 reconcile（seq 水位、durable drop、有界可续、状态可见） | **已实现（M2）** | §11.2；提交 `d0004a4c`+`2e36f4a6`+`e1780f8f` |
-| 18 | 停滞判定 | 设计中（M3） | §7.2 |
+| 18 | 停滞判定（语义事件时钟、等待声明、灰度写入） | **已实现（M3，默认不写）** | §7.2；提交 `ca786b41`+`88a3af71`+`a73dcccd`+`deae60ba` |
 | 19 | tool_error 聚簇 | 设计中（M4） | §7.3 |
 | 20 | 自报入口 `incident report`（含 evidence 上限、统一 sanitize、同键语义） | **已实现（M2）** | §7.5；提交 `65910ea8`+`7b96419c` |
 | 21 | 最小 CLI（list/show/decide/prune，含容量双字段与 prune 可追溯 id） | **已实现（M1）** | §12；提交 `5a04946a`+`4b92269c` |
@@ -574,6 +585,18 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 修复要点 | shadow 体 `v: 2` 带 `seq`；水位 `lastSeq` 扫全族；容量拒收写 durable dropped 后继续；`shadowReplay` 进 CLI/IPC；evidence 统一 sanitize（含 `repro`）、单文件 64 MiB 上限；replay 有界可续 |
 | 测试（外层复跑） | `src/main/incidents` + `src/main/startup`：85 files（83 passed / 2 skipped）/ **753 passed / 10 skipped**；CLI+IPC+preload：4 files / **43 passed** |
 | 仍未验证 | 无 live 强杀→重启演练；shadow 轮转本身只做单测未做 10MB 实测；多进程写影子交错未压测；IPC 仅 mock `ipcMain`；renderer 白名单留到有 UI 时 |
+
+## 19.5 M3 实施与评审记录（2026-11-13）
+
+| 项 | 内容 |
+| --- | --- |
+| 提交（首版） | `ca786b41` 等待声明 + 判定、`88a3af71` 采样器/`stalls`/`wait`/灰度写入 |
+| 提交（评审修复） | `a73dcccd` 语义事件时钟 + `buildIncidentKey` + coverage 错误可见、`deae60ba` `--clear` 互斥与灰度文案 |
+| 首轮评审 | codex-ark **BLOCK**（要求改年龄口径）、trae **APPROVE-WITH-CHANGES**（允许先改文案）；共识轮两份 **AGREE**，一致把 M3-C1 升级为实现修复 |
+| 分歧与收敛 | 分歧只在"改口径还是改标签"；我提出 PTY 字节不可作活动源（TUI spinner），最终三方统一为 `lastSemanticEventAt` |
+| 修复要点 | 年龄改用语义事件时钟 + `state_fallback` 标记；reason 改 `no_event_for_threshold`；字段改 `wouldWriteIfEnabled`；`status_stall` 走 `buildIncidentKey`（非法 key 计 `stall_key_rejected`）；sampler errors 进 coverage；`--clear` 互斥且整 pane |
+| 测试（外层复跑） | incidents + startup + CLI/IPC/preload：92 files（90 passed / 2 skipped）/ **833 passed / 10 skipped** |
+| 仍未验证 | 真实 60s interval tick、DB busy/磁盘满注入未做；默认 off 的灰度在生产环境没有样本基线 |
 
 ## 20. 本轮验收口径（设计阶段）
 
