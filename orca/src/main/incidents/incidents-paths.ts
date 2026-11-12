@@ -19,9 +19,14 @@ import { getCanonicalUserDataPath } from '../persistence/loading-store/user-data
 export const INCIDENTS_DIRECTORY_NAME = 'incidents'
 export const INCIDENTS_DATABASE_FILENAME = 'incidents.db'
 
+/** `<userData>/incidents` — one directory for the database and the shadow family. */
+export function incidentsDirectoryFor(userDataPath: string): string {
+  return join(userDataPath, INCIDENTS_DIRECTORY_NAME)
+}
+
 /** `<userData>/incidents/incidents.db`. */
 export function incidentsDatabaseFileFor(userDataPath: string): string {
-  return join(userDataPath, INCIDENTS_DIRECTORY_NAME, INCIDENTS_DATABASE_FILENAME)
+  return join(incidentsDirectoryFor(userDataPath), INCIDENTS_DATABASE_FILENAME)
 }
 
 /**

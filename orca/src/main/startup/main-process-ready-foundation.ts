@@ -51,6 +51,7 @@ import { reconcileManagedWslCliRegistrations } from '../cli/wsl-cli-registration
 import { createWslCliReconciliationStartupBarrier } from './wsl-cli-reconciliation-startup-barrier'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { reportProfileStateWriteFailure } from './profile-state-write-failure'
+import { scheduleIncidentShadowReconcile } from '../incidents/incidents-startup'
 
 export async function initializeReadyFoundation(): Promise<void> {
   logStartupMilestone('app-ready')
@@ -68,6 +69,10 @@ export async function initializeReadyFoundation(): Promise<void> {
     )
   })
   const canonicalUserDataPath = getCanonicalUserDataPath()
+  // Why one call, here: §11.2's replay is startup-once work that must never gate the window, and
+  // this is the first point that holds the canonical user-data path. It defers one turn and reports
+  // its own failures; nothing below waits on it (§14 allows exactly one M2 mount point).
+  scheduleIncidentShadowReconcile(canonicalUserDataPath)
   installMainThreadHangWatchdog({ userDataPath: canonicalUserDataPath })
   state.hangDetection = consumeHangDetectionMarker(hangDetectionMarkerPath(canonicalUserDataPath))
   if (state.hangDetection) {
