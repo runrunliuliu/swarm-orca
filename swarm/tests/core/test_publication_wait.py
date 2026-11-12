@@ -124,5 +124,15 @@ class PublicationWaitTests(unittest.TestCase):
         self.assertEqual((row["inotify"], row["events"], row["timeouts"]), (False, 0, 0))
         self.assertEqual(row["fallback_seconds"], publication_wait.POLL_SECONDS)
 
+    def test_the_diagnostic_line_never_replaces_the_exception_it_reports(self):
+        # Why: `log` runs in a `finally`, so a broken stderr must not overwrite the wait's own
+        # failure (a closed stream raises ValueError, not OSError). Without this the catch could
+        # narrow back to OSError and only a real deadline failure would surface it.
+        closed = io.StringIO()
+        closed.close()
+        with redirect_stderr(closed):
+            publication_wait.log("gate", None)
+        self.assertTrue(closed.closed)
+
 if __name__ == "__main__":
     unittest.main()
