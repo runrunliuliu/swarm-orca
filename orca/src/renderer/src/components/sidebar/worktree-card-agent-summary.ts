@@ -2,9 +2,11 @@ import type { AgentDotState } from '@/components/AgentStateDot'
 import type { DashboardAgentRow as DashboardAgentRowData } from '@/components/dashboard/useDashboardData'
 import { formatAgentTypeLabel } from '@/lib/agent-status'
 import { agentRowDisplayDotState } from '@/lib/agent-row-dot-state'
+import { agentNoStatusEvidenceLabel } from '@/lib/agent-row-decay-state'
 
 export type SummaryAgentGroup = {
-  state: AgentDotState
+  /** The group's own summary state, so its dot can carry the matching wording. */
+  state: SummaryAgentState
   agents: DashboardAgentRowData[]
 }
 
@@ -40,6 +42,23 @@ function summaryStateFor(agent: DashboardAgentRowData): SummaryAgentState {
   return agent.state === 'no-evidence' ? 'no-evidence' : getAgentDotState(agent)
 }
 
+/**
+ * The glyph a summary state renders as. `no-evidence` shares `unverifiable`'s dashed amber
+ * ring on purpose (both say "don't trust this dot"), so the split lives in the wording.
+ */
+export function summaryStateDotState(state: SummaryAgentState): AgentDotState {
+  return state === 'no-evidence' ? 'unverifiable' : state
+}
+
+/**
+ * The hover/accessible label a group's dot carries. Returned as an override because the
+ * shared dot's default text for `unverifiable` is "No recent update" — true for a report
+ * that went quiet, false for a pane that never reported (#review F1).
+ */
+export function summaryGroupTitle(state: SummaryAgentState): string | undefined {
+  return state === 'no-evidence' ? agentNoStatusEvidenceLabel() : undefined
+}
+
 export function formatSummaryStateLabel(state: SummaryAgentState): string {
   switch (state) {
     case 'waiting':
@@ -70,22 +89,20 @@ export function formatSummaryStateLabel(state: SummaryAgentState): string {
 }
 
 export function buildSummaryAgentGroups(agents: DashboardAgentRowData[]): SummaryAgentGroup[] {
-  const groups = new Map<AgentDotState, DashboardAgentRowData[]>()
+  // Why group by the summary state and not by the glyph: a pill's tooltip is its only text,
+  // so one glyph serving both "reported and went quiet" and "never reported" would have to
+  // lie to one of them. Two dashed pills read as the two different facts they are.
+  const groups = new Map<SummaryAgentState, DashboardAgentRowData[]>()
   for (const agent of agents) {
-    const dotState = getAgentDotState(agent)
-    const group = groups.get(dotState)
+    const state = summaryStateFor(agent)
+    const group = groups.get(state)
     if (group) {
       group.push(agent)
     } else {
-      groups.set(dotState, [agent])
+      groups.set(state, [agent])
     }
   }
   return SUMMARY_STATE_ORDER.flatMap((state) => {
-    // Why: pills group by the glyph that is actually rendered, so `no-evidence` rows sit in
-    // the shared dashed-amber group; only the count/label text splits them apart.
-    if (state === 'no-evidence') {
-      return []
-    }
     const groupAgents = groups.get(state)
     return groupAgents ? [{ state, agents: groupAgents }] : []
   })

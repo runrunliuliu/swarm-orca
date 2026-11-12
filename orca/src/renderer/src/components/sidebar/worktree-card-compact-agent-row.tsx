@@ -248,6 +248,9 @@ export const CompactAgentRow = React.memo(function CompactAgentRow({
                   ? agentNoStatusEvidenceLabel()
                   : undefined
             }
+            // Why also the accessible name: the dashed glyph's state label describes a stale
+            // report, which is the wording this row exists to stop asserting.
+            ariaLabel={agent.state === 'no-evidence' ? agentNoStatusEvidenceLabel() : undefined}
             tooltipSide="right"
           />
           {!hideIcon && (

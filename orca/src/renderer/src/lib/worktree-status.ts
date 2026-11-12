@@ -125,6 +125,14 @@ function tabHasUnreportedAgent(
         leafId: onlyPaneLeafId(tab.id, options),
         options
       }),
+      // Why tab-level liveness: `getWorktreeStatus` already dropped tabs with no live PTY, and
+      // these rows exist for the tab's remaining panes. Per-pane liveness would need
+      // `layout.ptyIdsByLeafId` (the leaf→PTY binding the reveal/activation readers use), which
+      // the sidebar does not select — it carries layout roots only. Known over-claim: in a split
+      // whose pane died while its runtime title and process read survived, that dead pane still
+      // counts as a candidate. Deliberately not narrowed here alone: the row builder makes the
+      // identical tab-level assumption, so a smarter dot would disagree with its own row. Fixing
+      // it means gating both layers on the same binding; pinned by the "known over-claim" test.
       hasLivePty: true,
       hasHookClaim: Boolean(freshPaneIds?.size || stalePaneIds?.size),
       hasTitleClaim: titleClaimsStatus(tab.title)

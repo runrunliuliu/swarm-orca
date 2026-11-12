@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { TerminalLayoutSnapshot } from '../../../shared/terminal-tab-types'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import type { TitleDerivedPaneForeground } from '@/components/sidebar/title-derived-pane-agent-identity'
+import { buildWorktreeAgentRows } from '@/components/sidebar/worktree-agent-rows'
+import { makeTab } from '@/store/slices/store-test-helpers'
 import { getWorktreeStatus, getWorktreeStatusLabel, resolveWorktreeStatus } from './worktree-status'
 
 const LEAF_ID_1 = '11111111-1111-4111-8111-111111111111'
@@ -646,5 +648,90 @@ describe('resolveWorktreeStatus with no status evidence', () => {
         hasPermission: true
       })
     ).toBe('permission')
+  })
+})
+
+/**
+ * Known over-claim, pinned so it stays deliberate (#review F2).
+ *
+ * Liveness in this layer is TAB-level: `getWorktreeStatus` drops tabs with no live PTY, then
+ * treats the tab's remaining panes as candidates. In a split whose pane died while its runtime
+ * title and its process read survived, the dead pane still counts, so the card can say "No
+ * status reported" about a pane that no longer runs anything.
+ *
+ * Why it is not narrowed here alone: `layout.ptyIdsByLeafId` is the binding that could prove per
+ * -pane liveness — but the sidebar selects layout ROOTS only (`selectTerminalLayoutRootsForWorktree`),
+ * so the binding is not an input, and `buildTitleDerivedAgentRows` makes the identical tab-level
+ * assumption. A dot-only fix would contradict the row it is summarizing. Narrowing it means
+ * gating both layers on the same binding, in one change, with a leaf-binding selector that keeps
+ * its identity across buffer-only layout writes. Until then: the over-claim, and the agreement,
+ * are both pinned here.
+ */
+describe('known over-claim: pane liveness is tab-level', () => {
+  const LEFT_LEAF = LEAF_ID_1
+  const RIGHT_LEAF = LEAF_ID_2
+  const splitWithBindings = (): TerminalLayoutSnapshot => ({
+    root: {
+      type: 'split',
+      direction: 'vertical',
+      first: { type: 'leaf', leafId: LEFT_LEAF },
+      second: { type: 'leaf', leafId: RIGHT_LEAF }
+    },
+    activeLeafId: LEFT_LEAF,
+    expandedLeafId: null,
+    ptyIdsByLeafId: { [LEFT_LEAF]: 'pty-left', [RIGHT_LEAF]: 'pty-right' }
+  })
+
+  it('counts a dead split pane as a candidate, exactly as the agent row does', () => {
+    const tabs = [makeTab({ id: 'tab-1', worktreeId: 'wt-1', title: 'demo-repo' })]
+    // One live PTY for the tab; the right leaf's bound PTY is gone.
+    const livePty = { 'tab-1': ['pty-left'] }
+    const runtimePaneTitlesByTabId = { 'tab-1': { 1: 'demo-repo', 2: 'demo-repo' } }
+    const paneForegroundAgentByPaneKey = {
+      [makePaneKey('tab-1', LEFT_LEAF)]: {
+        agent: 'codex' as const,
+        agentEvidence: 'process-read' as const,
+        shellForeground: false
+      },
+      [makePaneKey('tab-1', RIGHT_LEAF)]: {
+        agent: 'codex' as const,
+        agentEvidence: 'process-read' as const,
+        shellForeground: false
+      }
+    }
+
+    const status = resolveWorktreeStatus({
+      tabs,
+      browserTabs: [],
+      ptyIdsByTabId: livePty,
+      runtimePaneTitlesByTabId,
+      terminalLayoutsByTabId: { 'tab-1': splitWithBindings() },
+      paneForegroundAgentByPaneKey,
+      hasPermission: false,
+      hasLiveWorking: false,
+      hasLiveDone: false,
+      hasRetainedDone: false
+    })
+
+    // The over-claim: nothing here proves which pane died, so both count.
+    expect(status).toBe('no-evidence')
+
+    // And the row layer reproduces it for the same panes — the two agree today, which is why a
+    // dot-only narrowing would be a regression in consistency rather than a fix.
+    const rows = buildWorktreeAgentRows({
+      tabs,
+      entries: [],
+      retained: [],
+      runtimePaneTitlesByTabId,
+      ptyIdsByTabId: livePty,
+      terminalLayoutsByTabId: { 'tab-1': splitWithBindings() },
+      paneForegroundAgentByPaneKey,
+      now: 1000
+    })
+    expect(rows.map((row) => row.paneKey)).toEqual([
+      makePaneKey('tab-1', LEFT_LEAF),
+      makePaneKey('tab-1', RIGHT_LEAF)
+    ])
+    expect(rows.map((row) => row.state)).toEqual(['no-evidence', 'no-evidence'])
   })
 })

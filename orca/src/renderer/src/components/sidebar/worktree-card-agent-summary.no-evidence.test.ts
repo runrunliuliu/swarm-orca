@@ -10,14 +10,20 @@
  * control matters as much: a report that went quiet is still called a stale report, not a
  * never-reported one.
  */
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { AgentStateDot } from '@/components/AgentStateDot'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import type { DashboardAgentRow as DashboardAgentRowData } from '@/components/dashboard/useDashboardData'
 import {
   buildSummaryAgentGroups,
   formatSummaryStateLabel,
   getAgentDotState,
   summarizeAgentIdentities,
-  summarizeAgents
+  summarizeAgents,
+  summaryGroupTitle,
+  summaryStateDotState
 } from './worktree-card-agent-summary'
 
 function agentRow(overrides: Partial<DashboardAgentRowData> = {}): DashboardAgentRowData {
@@ -63,9 +69,45 @@ describe('no-status-evidence wording', () => {
 
     expect(getAgentDotState(agentRow())).toBe('unverifiable')
     expect(getAgentDotState(stale)).toBe('unverifiable')
+    expect(summaryStateDotState('no-evidence')).toBe('unverifiable')
     expect(summarizeAgents([stale], 'agent')).toBe('agent not reporting')
-    // One visual group, so the card does not grow a second dashed pill for the same glyph.
-    expect(buildSummaryAgentGroups([agentRow(), stale])).toHaveLength(1)
+  })
+
+  // Why this exists (#review F1): the collapsed pill's dot carried `unverifiable`'s default
+  // tooltip, "No recent update" — the stale-report wording this change exists to stop using for
+  // a pane that never reported. The row was fixed; the group has to say it too.
+  it('splits the two dashed ambers into one pill each, so each pill can say its own fact', () => {
+    const stale = agentRow({ state: 'unverifiable', paneKey: 'tab-1:leaf-2' })
+    const groups = buildSummaryAgentGroups([agentRow(), stale])
+
+    expect(groups.map((group) => group.state)).toEqual(['unverifiable', 'no-evidence'])
+    expect(groups.map((group) => group.agents.length)).toEqual([1, 1])
+    expect(groups.map((group) => summaryStateDotState(group.state))).toEqual([
+      'unverifiable',
+      'unverifiable'
+    ])
+    expect(groups.map((group) => summaryGroupTitle(group.state))).toEqual([
+      undefined,
+      'No status reported'
+    ])
+  })
+
+  it('renders the never-reported wording on the pill dot, not the stale-report one', () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(AgentStateDot, {
+          state: summaryStateDotState('no-evidence'),
+          title: summaryGroupTitle('no-evidence'),
+          ariaLabel: summaryGroupTitle('no-evidence')
+        })
+      )
+    )
+
+    // Both surfaces the user can perceive: the hover tooltip and the accessible name.
+    expect(markup).toContain('No status reported')
+    expect(markup).not.toContain('No recent update')
   })
 
   it('keeps a reporting agent ranked above both', () => {
