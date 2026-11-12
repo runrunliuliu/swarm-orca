@@ -218,6 +218,15 @@ def main(argv=None):
     if argv[:1] == ["strict-bootstrap-state"]:
         from bootstrap_events import cli_main
         return cli_main(argv[1:])
+    if argv[:1] == ["strict-bootstrap-wait-stage"]:
+        # A sibling verb, not a `strict-bootstrap` mode: this one answers "wait" and must not
+        # inherit the owner-RPC client's --owner/--execute contract, which would mix waiting with
+        # progress in one argv face.
+        from bootstrap_stage_wait import cli_main
+        return cli_main(argv[1:])
+    if argv[:1] == ["strict-bootstrap-handoff-accept"]:
+        from bootstrap_handoff import cli_main
+        return cli_main(argv[1:])
     if argv[:1] == ["worker-plan"]:
         from coordinator_worker_plan import cli_main
         return cli_main(argv[1:])

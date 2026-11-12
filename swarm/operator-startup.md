@@ -416,6 +416,46 @@ python3 swarm/wait_for_file.py --path <log.jsonl> --mode change --timeout-ms 120
 4 = 父目录不可达（立即返回，不会退化成轮询到超时）；2 = 用法/传输失败。返回 0 后仍须用 `file_ref` 与 schema
 复核字节：非原子写入在写完前就可见，`--mode change` 也看不见「同尺寸同时间戳」的改写。
 
+**阶段文件（`events/000N-*.json`）不走上面这条通用形式**：路径只能用现成入口从 attempt bundle 解析，
+调用方不许自己拼相对路径、不许扫目录、不许 glob：
+
+```bash
+python3 swarm/coordinator_launch.py strict-bootstrap-wait-stage \
+  --bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> \
+  --attempt-binding-sha256 <64 hex> --stage 2 --timeout-ms 300000 --json
+```
+
+退出 0 = 验证通过；124 = 超时；4 = attempt/binding 不可达；5 = 路径在但链校验不过（**不重读**）；
+2 = 参数或 pin 不符（含 `file_pin_changed`、`fixed_layout_mismatch`）。
+
+退出 0 时它输出自己读到的 evidence Ref（`{path, sha256}`）：**原样**带进下一次调用，不要自己再算一个 sha，
+也不要因为 `already_satisfied: true` 就跳过携带。0 不是 owner 确认，也不是推进授权。
+**`sleep` 小步循环（`for/while` + `sleep`，与单次时长无关）同样是禁用的等待形式**：现规则的 `N>=60`
+只管单次时长，逐次 8 秒的循环同样把「慢」读成「死」。
+
 以上两条是唯一新增的形态。本仓**不**采用 `--for output-change`（PTY 输出是 token 级噪声，不是决策点），
 三条通道也**都不**覆盖人工决策、外部长任务、gate 阶段门与本地进程退出。设计、不变量与各通道不证明什么，见
 [对端等待设计](docs/design/pane-handoff-wait.md)。
+
+### handoff 的通道选择：mailbox 是默认，steering 不是快路
+
+上面两条讲「怎么等」，本节讲「**用哪个通道把 handoff 送过去**」——strict attempt 里唯一出过事故的就是
+这一层：pin 与字节全对，文本却是用 `terminal send --enter` 打进去的，而接收方正卡在 `check --wait` 里。
+
+1. **默认且唯一的常规通道是 mailbox**：`orca orchestration send --type handoff …`，接收方用
+   `check --wait` 取。投递是持久的，与接收方此刻在哪无关；正在等就立刻醒，没在等就留在 FIFO 里。
+2. **`terminal send --enter`（steering）只剩两种用途**：原生启动回合那条短 prompt（由 launch 契约固定、
+   参与 plan hash），以及人工交互（`interaction_required` 一类）。它**不是** handoff 的合法前提：
+   steering 只在当前工具调用返回后才被提交，唤不醒正在运行的 `check --wait`。
+3. **不要用 `turn_started` 当 handoff 的回执**。本机实测：pi 与 trae 的 `terminal send --wait-submit`
+   都只到 `input_accepted` 并回 `provider: "unsupported"`，拿不到 `turn_started`。provider 报 unsupported
+   时只有两个选择：mailbox 或人工。
+4. **发错之后的处置不是重发**。只允许 **same-handoff copy**：`handoff_id`、`payload_sha256`、`refs`、
+   `subject` 四项与原投递逐字节相同（通常就是把同一份换到 mailbox 上），再加「等一次回合边界」。
+   **禁止**生成新的 `handoff_id` 或新文本。接收侧按同一份去重；同一 `handoff_id` 换了字节（含换了发送
+   pane）是冲突，不是「取新的那份」。
+5. 接收侧校验见 [协议正文](strict-bootstrap-protocol.md) 的「handoff 邮件的信封与拒绝码」：
+   **pin 字节断言与投递者身份断言是两个独立断言**，缺一不可；身份断言是自洽检查，防误填/防事故，
+   **不防冒充**，不得称作认证或安全边界。
+
+实现与验收状态见 [handoff 通道设计](docs/design/strict-handoff-channel.md)：离线回归通过，**live 未做**。

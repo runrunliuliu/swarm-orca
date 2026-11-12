@@ -33,6 +33,28 @@ def layout(root):
     return {key: str(root / relative) for key, relative in PATHS.items()}
 
 
+def stage_path(binding, stage):
+    """The one fixed marker path for a stage number, from the layout the binding pins.
+
+    Why this exists: the stage numbers and `EVENTS` indices are the same numbering, and a caller
+    that re-derived `events/0002-observation-ready.json` by hand had to keep its own copy of the
+    layout. That copy is where "wait for the wrong file" comes from, and it degrades into a
+    `sleep` loop once somebody distrusts it. The table above is the only source.
+
+    Stage 0 is refused: the binding is this function's *input* (its sha256 is a parameter of every
+    caller), not a stage that can be waited for.
+    """
+    if type(stage) is not int or not 1 <= stage <= len(EVENTS):
+        raise ValueError("bootstrap_stage_invalid")
+    paths = binding.get("paths") if isinstance(binding, dict) else None
+    if not isinstance(paths, dict):
+        raise ValueError("fixed_layout_mismatch")
+    target = paths.get(EVENTS[stage - 1])
+    if not isinstance(target, str) or not target:
+        raise ValueError("fixed_layout_mismatch")
+    return target
+
+
 @dataclass(frozen=True)
 class ControlBinding:
     """Authenticated transport must bind these values, not trust self-report."""

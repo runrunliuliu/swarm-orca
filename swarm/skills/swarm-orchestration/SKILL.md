@@ -180,6 +180,52 @@ immediately and never retried into a timeout; 2 = usage or transport. After 0, r
 with `file_ref` and the schema: a non-atomic writer is visible here before it is complete, and
 `--mode change` cannot see a rewrite that keeps both size and timestamp.
 
+Stage files (`events/000N-*.json`) do **not** use the generic file form: the path comes from the
+attempt bundle through the fixed entry, never from a hand-assembled relative path, a directory scan
+or a glob.
+
+```bash
+python3 swarm/coordinator_launch.py strict-bootstrap-wait-stage \
+  --bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> \
+  --attempt-binding-sha256 <64 hex> --stage 2 --timeout-ms 300000 --json
+```
+
+Exit 0 validated, 124 timeout, 4 attempt/binding unreachable, 5 the path is there but the chain does
+not validate (no re-read), 2 usage or a pin mismatch. At 0 it prints the evidence Ref it read: carry
+that exact `{path, sha256}` forward, do not compute your own, and do not skip it because
+`already_satisfied` is true — 0 is neither confirmation nor permission to advance.
+A `sleep` micro-loop (`for`/`while` plus `sleep`, whatever the single duration) is a forbidden
+waiting form too: the `N >= 60` rule only ever covered one call, and a loop of 8 s sleeps still
+reads "slow" as "dead".
+
+### Handoff delivery: the mailbox by default, steering is not the fast path
+
+This is the one part of a strict attempt that actually failed: pins and bytes were correct, the text
+went in through `terminal send --enter`, and the receiver was sitting inside `check --wait`.
+
+1. **The default and only regular channel is the mailbox**: `orca orchestration send --type handoff`,
+   received with `check --wait`. Delivery is durable and independent of where the receiver is; a live
+   wait wakes immediately, an absent one keeps the message for the next check.
+2. **`terminal send --enter` (steering) has exactly two uses left**: the native launch turn's short
+   prompt (fixed by the launch contract, part of the plan hash) and a human interaction
+   (`interaction_required`). It is **not** a premise for a handoff: steering is only committed after
+   the current tool call returns, so it cannot interrupt a running `check --wait`.
+3. **Do not use `turn_started` as a handoff receipt.** Measured here: both pi and trae answer
+   `terminal send --wait-submit` with only `input_accepted` and `provider: "unsupported"`. When a
+   provider reports unsupported the only options are the mailbox or a human.
+4. **A mis-send is not repaired by re-sending.** Only a **same-handoff copy** is allowed:
+   `handoff_id`, `payload_sha256`, `refs` and `subject` byte-identical to the original (normally the
+   same payload moved onto the mailbox), plus one turn-boundary wait. Never mint a new `handoff_id`
+   or new text. The receiver de-duplicates by that identity; the same id with different bytes (or a
+   different sending pane) is a conflict, not "take the newer one".
+5. The receiver checks what the protocol calls the handoff envelope: **the pin assertion and the
+   sender assertion are two independent assertions**, and the sender one is a consistency check that
+   stops a mis-fill or an accident — it does not stop impersonation and must never be called
+   authentication or a security boundary.
+
+Implementation and acceptance state: [handoff channel design](../../docs/design/strict-handoff-channel.md)
+— offline regression only, **no live acceptance**.
+
 These are the only two additions. `--for output-change` is not an option in this repo (PTY output
 is token-level noise, not a decision point), and none of the three channels covers a human
 decision, an external job, a gate or a local process exit. Design, invariants and what each
