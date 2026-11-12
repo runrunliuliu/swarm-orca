@@ -150,11 +150,15 @@ T1/T2 只能覆盖 marker、mailbox 一类等待，覆盖不了"让对端执行�
 
 ### 4.1 三层通道与唯一形态
 
-| 层 | 用途 | 唯一允许形态 | 覆盖 live attempt 的哪些 sleep |
-| --- | --- | --- | --- |
-| **T1 mailbox** | agent ↔ agent 的消息与结果回传（含未绑 Run 的 `run_unbound`） | `orchestration send` 发出；接收方 `check --wait --timeout-ms ≤300000` 单片阻塞，`--types` 只决定唤醒 | 110 s 那次（marker/结果回传） |
-| **T2 文件发布** | 非 agent 进程（`bootstrap_tool.py serve`、gate 发布者）与命令结果落盘 | `swarm/wait_for_file.py --path <p> --timeout-ms N`：inotify 提前唤醒，deadline 兜底 | 90 / 6 / 8 / 100 / 120 中的文件部分，以及 3.3 改造后的命令结果 |
-| **T3 pane 回合边界** | 必须经 TUI 的交互（人工 prompt、trust/update/approval 提示） | `terminal send --wait-submit N` 取得 `turn_started`，再 `terminal wait --for tui-idle --timeout-ms N` | 12 / 8 / 75 / 120 / 100 的屏幕读 |
+| 层 | 用途 | 唯一允许形态 | 覆盖 live attempt 的哪些 sleep | 用于 handoff 交付？ |
+| --- | --- | --- | --- | --- |
+| **T1 mailbox** | agent ↔ agent 的消息与结果回传（含未绑 Run 的 `run_unbound`） | `orchestration send` 发出；接收方 `check --wait --timeout-ms ≤300000` 单片阻塞，`--types` 只决定唤醒 | 110 s 那次（marker/结果回传） | **是，且是默认**：`--type handoff` + 接收侧 `check --peek --wait`（不消费） |
+| **T2 文件发布** | 非 agent 进程（`bootstrap_tool.py serve`、gate 发布者）与命令结果落盘 | `swarm/wait_for_file.py --path <p> --timeout-ms N`：inotify 提前唤醒，deadline 兜底 | 90 / 6 / 8 / 100 / 120 中的文件部分，以及 3.3 改造后的命令结果 | 否（阶段文件走 `strict-bootstrap-wait-stage`，路径只能来自 layout） |
+| **T3 pane 回合边界** | 必须经 TUI 的交互（人工 prompt、trust/update/approval 提示） | `terminal send --wait-submit N` 取得 `turn_started`，再 `terminal wait --for tui-idle --timeout-ms N` | 12 / 8 / 75 / 120 / 100 的屏幕读 | 否：只剩原生启动 prompt 与人工交互；provider 报 `unsupported` 时拿不到 `turn_started` |
+
+**「投递者身份」不属于三层通道**：三层回答「怎么等」，「这份 handoff 是谁发的」是第四个维度，由接收侧
+把投递行 `from_handle` 与 pin 的 `operator.terminal` 比对（自洽检查，防误填/防事故，不防冒充），见
+[handoff 通道设计](strict-handoff-channel.md)。把身份断言当成「等到了」或「等对了」是另一类假阳性。
 
 三层**只覆盖“对端 handoff”可自动阻塞的通道**，**不**声称覆盖全部等待。以下四类**明确不属于本文范围**，
 遇到时必须走各自的契约（blocked / domain status / 协议验收），**不得**用 T3 冒充完成：

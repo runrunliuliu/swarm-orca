@@ -20,16 +20,16 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（122 个：协议文档点名的顶层定义与方法）
+## 符号索引（127 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
-| `CommitAuthority` | `bootstrap_protocol.py:99-118` | `def CommitAuthority` / `class CommitAuthority` |
-| `Confirmation` | `bootstrap_protocol.py:56-62` | `def Confirmation` / `class Confirmation` |
-| `ControlBinding` | `bootstrap_protocol.py:36-42` | `def ControlBinding` / `class ControlBinding` |
-| `OperatorDelivery` | `bootstrap_protocol.py:77-83` | `def OperatorDelivery` / `class OperatorDelivery` |
-| `OperatorScheduler` | `bootstrap_protocol.py:86-96` | `def OperatorScheduler` / `class OperatorScheduler` |
-| `RequestAdmission` | `bootstrap_protocol.py:65-74` | `def RequestAdmission` / `class RequestAdmission` |
+| `CommitAuthority` | `bootstrap_protocol.py:121-140` | `def CommitAuthority` / `class CommitAuthority` |
+| `Confirmation` | `bootstrap_protocol.py:78-84` | `def Confirmation` / `class Confirmation` |
+| `ControlBinding` | `bootstrap_protocol.py:58-64` | `def ControlBinding` / `class ControlBinding` |
+| `OperatorDelivery` | `bootstrap_protocol.py:99-105` | `def OperatorDelivery` / `class OperatorDelivery` |
+| `OperatorScheduler` | `bootstrap_protocol.py:108-118` | `def OperatorScheduler` / `class OperatorScheduler` |
+| `RequestAdmission` | `bootstrap_protocol.py:87-96` | `def RequestAdmission` / `class RequestAdmission` |
 | `RoleTool` | `bootstrap_tool.py:189-815` | `def RoleTool` / `class RoleTool` |
 | `_baseline_check` | `native_preflight.py:436-482` | `def _baseline_check` / `class _baseline_check` |
 | `acceptance` | `startup_runtime.py:87-101` | `def acceptance` / `class acceptance` |
@@ -50,7 +50,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `canonical` | `coordinator_io.py:28-30` | `def canonical` / `class canonical` |
 | `canonical` | `coordinator_loop.py:280-283` | `def canonical` / `class canonical` |
 | `check` | `blocking_io.py:60-63` | `def check` / `class check` |
-| `check` | `bootstrap_identity.py:229-235` | `def check` / `class check` |
+| `check` | `bootstrap_identity.py:265-271` | `def check` / `class check` |
 | `check` | `bootstrap_s5.py:169-173` | `def check` / `class check` |
 | `check` | `coordinator_tui_continue.py:746-748` | `def check` / `class check` |
 | `check` | `observation_budget.py:60-63` | `def check` / `class check` |
@@ -64,7 +64,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `cli` | `operator_planned_restart.py:77-83` | `def cli` / `class cli` |
 | `commit_new` | `bootstrap_control.py:365-401` | `def commit_new` / `class commit_new` |
 | `commit_new` | `bootstrap_control.py:901-908` | `def commit_new` / `class commit_new` |
-| `commit_new` | `bootstrap_protocol.py:111-113` | `def commit_new` / `class commit_new` |
+| `commit_new` | `bootstrap_protocol.py:133-135` | `def commit_new` / `class commit_new` |
 | `commit_request` | `bootstrap_admission.py:94-142` | `def commit_request` / `class commit_request` |
 | `completed` | `coordinator_tui_scheduler.py:39-65` | `def completed` / `class completed` |
 | `confirmation` | `bootstrap_s5.py:94-109` | `def confirmation` / `class confirmation` |
@@ -84,6 +84,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `dispatch` | `bootstrap_control.py:586-673` | `def dispatch` / `class dispatch` |
 | `dispatch` | `coordinator_first_dispatch.py:351-359` | `def dispatch` / `class dispatch` |
 | `drain` | `bootstrap_driver.py:336-369` | `def drain` / `class drain` |
+| `envelope` | `bootstrap_handoff.py:224-256` | `def envelope` / `class envelope` |
 | `events` | `coordinator_background.py:157-158` | `def events` / `class events` |
 | `exact` | `coordinator_worker_plan.py:27-31` | `def exact` / `class exact` |
 | `exclusive` | `trae_exec_capture.py:27-28` | `def exclusive` / `class exclusive` |
@@ -104,6 +105,8 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `log` | `publication_wait.py:139-149` | `def log` / `class log` |
 | `marker` | `bootstrap_driver.py:186-201` | `def marker` / `class marker` |
 | `materialize_template` | `bootstrap_tool.py:561-583` | `def materialize_template` / `class materialize_template` |
+| `may_replay` | `bootstrap_handoff.py:109-111` | `def may_replay` / `class may_replay` |
+| `may_replay` | `bootstrap_handoff.py:131-133` | `def may_replay` / `class may_replay` |
 | `mutation` | `coordinator_tui_workflow.py:44-64` | `def mutation` / `class mutation` |
 | `native` | `operator_monitor.py:107-128` | `def native` / `class native` |
 | `native` | `trae_coordinator.py:349-361` | `def native` / `class native` |
@@ -117,11 +120,13 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `observe` | `trae_tui.py:184-193` | `def observe` / `class observe` |
 | `observe_identity` | `operator_session.py:66-95` | `def observe_identity` / `class observe_identity` |
 | `observe_write_roots` | `coordinator_write_roots.py:15-28` | `def observe_write_roots` / `class observe_write_roots` |
+| `observed` | `blocking_io.py:94-101` | `def observed` / `class observed` |
+| `observed` | `observation_budget.py:113-120` | `def observed` / `class observed` |
 | `observed_coordinator` | `coordinator_strict_request.py:39-77` | `def observed_coordinator` / `class observed_coordinator` |
 | `original` | `operator_continuity_deployment.py:15-23` | `def original` / `class original` |
 | `original` | `operator_sender_correct.py:21-37` | `def original` / `class original` |
 | `path` | `coordinator_io.py:51-56` | `def path` / `class path` |
-| `peer` | `bootstrap_identity.py:77-82` | `def peer` / `class peer` |
+| `peer` | `bootstrap_identity.py:99-104` | `def peer` / `class peer` |
 | `plan` | `coordinator_strict_start.py:204-272` | `def plan` / `class plan` |
 | `policy` | `startup_execution.py:34-51` | `def policy` / `class policy` |
 | `policy` | `tui_adapter.py:60-76` | `def policy` / `class policy` |
@@ -139,7 +144,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `prepare_request` | `coordinator_request_prepare.py:104-113` | `def prepare_request` / `class prepare_request` |
 | `prepare_request` | `coordinator_strict_request.py:98-143` | `def prepare_request` / `class prepare_request` |
 | `prepared` | `coordinator_strict_delivery.py:139-190` | `def prepared` / `class prepared` |
-| `process` | `bootstrap_identity.py:40-52` | `def process` / `class process` |
+| `process` | `bootstrap_identity.py:62-74` | `def process` / `class process` |
 | `prompt` | `coordinator_driver.py:441-532` | `def prompt` / `class prompt` |
 | `provider` | `tui_adapter.py:35-37` | `def provider` / `class provider` |
 | `publication` | `bootstrap_s5.py:187-205` | `def publication` / `class publication` |
@@ -152,8 +157,8 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `publish_new` | `coordinator_io.py:268-286` | `def publish_new` / `class publish_new` |
 | `query` | `bootstrap_control.py:292-308` | `def query` / `class query` |
 | `query` | `bootstrap_control.py:887-899` | `def query` / `class query` |
-| `query` | `bootstrap_protocol.py:96-96` | `def query` / `class query` |
-| `query` | `bootstrap_protocol.py:109-109` | `def query` / `class query` |
+| `query` | `bootstrap_protocol.py:118-118` | `def query` / `class query` |
+| `query` | `bootstrap_protocol.py:131-131` | `def query` / `class query` |
 | `query` | `progress_watch.py:109-151` | `def query` / `class query` |
 | `read` | `bootstrap_admission.py:63-67` | `def read` / `class read` |
 | `read` | `bootstrap_events.py:62-69` | `def read` / `class read` |
@@ -166,14 +171,14 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `recheck` | `bootstrap_tool.py:91-93` | `def recheck` / `class recheck` |
 | `recheck` | `coordinator_snapshots.py:31-34` | `def recheck` / `class recheck` |
 | `reconcile` | `bootstrap_control.py:434-476` | `def reconcile` / `class reconcile` |
-| `reconcile` | `bootstrap_protocol.py:117-118` | `def reconcile` / `class reconcile` |
+| `reconcile` | `bootstrap_protocol.py:139-140` | `def reconcile` / `class reconcile` |
 | `reconcile` | `operator_authority.py:168-180` | `def reconcile` / `class reconcile` |
 | `request` | `coordinator_strict_delivery.py:48-50` | `def request` / `class request` |
 | `require_operator_context` | `coordinator_startup.py:158-162` | `def require_operator_context` / `class require_operator_context` |
 | `resolve` | `coordinator_worker_profiles.py:77-136` | `def resolve` / `class resolve` |
 | `resolve` | `startup_cli.py:43-57` | `def resolve` / `class resolve` |
 | `review` | `bootstrap_events.py:163-195` | `def review` / `class review` |
-| `review_route` | `bootstrap_protocol.py:121-150` | `def review_route` / `class review_route` |
+| `review_route` | `bootstrap_protocol.py:143-172` | `def review_route` / `class review_route` |
 | `reviewed` | `coordinator_strict_prepare.py:28-40` | `def reviewed` / `class reviewed` |
 | `reviewed` | `coordinator_worker_profiles.py:54-64` | `def reviewed` / `class reviewed` |
 | `reviewed` | `operator_authority.py:35-81` | `def reviewed` / `class reviewed` |
@@ -194,6 +199,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `scope` | `operator_continuity_route.py:57-74` | `def scope` / `class scope` |
 | `scope` | `startup_cli.py:20-31` | `def scope` / `class scope` |
 | `send` | `bootstrap_control.py:543-547` | `def send` / `class send` |
+| `serve` | `bootstrap_control.py:734-752` | `def serve` / `class serve` |
 | `session_id` | `pi_transcript.py:31-34` | `def session_id` / `class session_id` |
 | `settle` | `bootstrap_control.py:478-510` | `def settle` / `class settle` |
 | `sha` | `software_development.py:39-40` | `def sha` / `class sha` |
@@ -212,12 +218,12 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `stop` | `bootstrap_control.py:426-432` | `def stop` / `class stop` |
 | `stop` | `bootstrap_control.py:925-927` | `def stop` / `class stop` |
 | `stop` | `bootstrap_driver.py:91-95` | `def stop` / `class stop` |
-| `stop` | `bootstrap_protocol.py:115-115` | `def stop` / `class stop` |
+| `stop` | `bootstrap_protocol.py:137-137` | `def stop` / `class stop` |
 | `stop` | `coordinator_state.py:100-104` | `def stop` / `class stop` |
 | `strict_plan` | `coordinator_strict.py:222-327` | `def strict_plan` / `class strict_plan` |
 | `submission` | `bootstrap_actions.py:39-54` | `def submission` / `class submission` |
 | `submission` | `bootstrap_tool.py:195-196` | `def submission` / `class submission` |
-| `submit` | `bootstrap_protocol.py:94-94` | `def submit` / `class submit` |
+| `submit` | `bootstrap_protocol.py:116-116` | `def submit` / `class submit` |
 | `submit` | `bootstrap_tool.py:585-616` | `def submit` / `class submit` |
 | `submit` | `coordinator_tui_workflow.py:369-374` | `def submit` / `class submit` |
 | `submitted` | `coordinator_background.py:35-39` | `def submitted` / `class submitted` |
@@ -239,6 +245,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
 | `wait` | `publication_wait.py:66-99` | `def wait` / `class wait` |
 | `wait` | `wait_for_file.py:83-109` | `def wait` / `class wait` |
+| `write` | `bootstrap_registration.py:230-247` | `def write` / `class write` |
 
 ## 不要这样做
 

@@ -127,6 +127,59 @@ contract_fields, evidence, created_at, execution_authorized:false`。
 无文件工具探针的 S0 只说明该清单没有约定探针，不自动免除原任务的真实探针要求。
 文件 hash 正确只证明字节一致；工具结果语义、真实读取与审查质量仍由原角色和既有 gates 验证。
 
+### 3.1 handoff 邮件的信封与拒绝码
+
+S0 handoff 是**一条投递**，不是一段要贴回屏幕的文本：发送方用 `orca orchestration send --type handoff`
+发送，接收方用 `check --peek --wait --types handoff` 取（**不消费**：读掉但没记下就不存在“已读即丢失”）。
+`terminal send --enter` 只能用于原生启动回合的短 prompt 与人工交互，**不能**用它投递 handoff。
+
+`payload` 是 JSON 对象，**恰好**这五个字段（多一个即拒绝，不允许扩展位）：
+
+| 字段 | 固定内容 |
+| --- | --- |
+| `schema_version` | 整数 `1` |
+| `handoff_id` | 8–64 个 `[A-Za-z0-9-]` 字符的标识（会用作接收记录文件名，故不允许路径分隔符或 `.`） |
+| `attempt_id` | 与本 attempt 的 binding `attempt_id` 相等 |
+| `refs` | 非空的严格 `Ref` 清单（owner.json / attempt-binding / 后续 argv 输入的 pin） |
+| `payload_sha256` | **去掉本字段**后信封的 `canonical` 字节的 sha256（自含校验，不循环） |
+
+接收侧做**两个独立断言**，缺一不可，不得互相替代：
+
+1. **字节（A）**：`refs` 每一项都能被 `pinned` 校验（`handoff_pin_mismatch`）。
+2. **身份（B）**：投递行 `from_handle` 与 binding 的 `operator.terminal` 相等（`handoff_sender_mismatch`）；
+   `from_handle` 缺失、为空串/纯空白、或为字面量 `unknown` 一律是 `handoff_sender_unanchored`
+   （runtime 方法层对未携带 `params.from` 的调用记的就是 `unknown`；空值不是一个可以“宽松处理”的输入）。
+
+**B 是自洽检查：防误填/防事故，不防冒充。** CLI 会按 `--from`、注入的会话地址、
+`ORCA_TERMINAL_HANDLE` 依次解析发送者，但普通 PTY pane 可以声明另一个 handle；本文不得被描述为认证
+或安全边界。接收侧输出必带 `sender_anchor: "binding-operator"`，使读者看出锚点来自 binding 自身字段。
+
+**批次里的不可读行不跳过。** 只要一条 `type=handoff` 的行的信封无法解析（形状、字段、摘要任一不符），
+整个批次就拒绝（`handoff_payload_invalid`），**包括**它标的是另一个 `attempt_id` 的情形：一个读不懂的
+邮箱不是可以跨过去的邮箱，本工具不猜“那大概是别人的”。
+
+**同一 `handoff_id` 的同一批多行**先按 id 聚合：`payload_sha256`/`refs`/`from_handle`/`subject`/
+`sender_anchor` 全同 → 视为同一投递（幂等）；任一项不同 → `handoff_duplicate_conflict`
+（不写记录、不消费、不代选）。不同 id 同时指向本 attempt 是同一个冲突。
+
+接收成功后写一条本地回执 `control/handoff/<handoff_id>.json`（`execution_authorized:false`）：
+目录要求是同 UID 拥有的**非 symlink `0700` 目录**；`control/` 与 `control/handoff/` 不存在时由接收方
+创建（每建一层都 fsync 上一层，**且每次调用都 fsync 两层 parent，不只限新建时**），已存在但 mode 不符或是
+symlink 则失败关闭（`handoff_record_dir_unsafe`）——**mode 漂移不修复，只拒绝**（不要期待自动 chmod）；
+目录准备中任何 `mkdir`/`chmod`/`fsync` 失败都是 `handoff_record_dir_unproven`（`needs_reconcile`，不可重放），
+不逃逸为异常。记录由 `publish_new` 独占写入并**读回比较**；
+link 已落地但父目录 fsync 未证实时不等于成功，而是 `needs_reconcile`（`handoff_record_conflict`，
+**不可重放**）。它**不是**任何 gate 的输入，也不代表 handoff 已被采纳。同一 `handoff_id` 再次到达时逐项
+比较 `payload_sha256`/`refs`/`from_handle`/`subject`/`sender_anchor`：全同 → 无副作用（可再等）；
+任一项不同 → `handoff_duplicate_conflict`，**不得覆盖、不得代选**。`may_replay` 由**拒绝码**决定
+（与实现内的同一张表一一致）：只有“未写、未消费”的那几个码为 true，`handoff_duplicate_no_effect` 是
+**false**（重复件是 no-op，重放同一条未消费消息不是进展）。
+
+拒绝码与退出状态（同为 `strict-bootstrap-handoff-accept` 的契约，完整表见
+[handoff 通道设计](docs/design/strict-handoff-channel.md) §4.2）：0 接受；3 无事可做
+（空批 / 无本 attempt 的行 / 完全相同的重复）；5 fail-closed（两个断言、信封形状、重复冲突、回执冲突）；
+2 用法/传输/回执写不下去；4 attempt 不可达；124 窗口用完。
+
 ## 4. 原 Operator 字段生产与审查接口
 
 字段生产请求的固定槽为 `operator/contract-fields-production-request.json`；Phase 2 生成并交付：
@@ -344,6 +397,11 @@ operator materials 的 launch-plan 生成器（`coordinator_launch.py` / `trae_c
 | `bootstrap_identity.py`（两个 gate role） | `bootstrap_registration_provider_required`；未知名 `bootstrap_registration_provider_unsupported` | `bootstrap_operator_provider_evidence_unavailable` / `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
 | `operator_session.py` | `operator_session_provider_required`；未知名 `operator_session_provider_unsupported` | `operator_session_<provider>_operator_unverifiable`（如 `operator_session_pi_operator_unverifiable`），带 `missing_evidence` |
 | `bootstrap_tool.py`（S2 观察 / S5 TUI 契约） | `bootstrap_registration_provider_required`；未知名 `bootstrap_coordinator_provider_unsupported` | `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
+
+registration 由 `coordinator_launch.py strict-bootstrap-registration` 采集：`process` 取该 pane 的
+agent 进程，`session` 取 hook 行的 `session_id`，`provider` 由调用方声明并与 hook 行核对，另交叉校验
+环境里的 launch token 摘要与 transcript 首行 session。手写 pin 不被当作等价做法；采集入口也不改变本节
+任何一个拒绝码——采集成功不是核验通过。
 
 拒绝发生在原生查询之前：不产生观察文件、不占输出目录、不发 gate、不 arm owner。
 `missing_evidence` 是路由诊断，不是权限，也不表示可以改用另一 provider。

@@ -143,6 +143,32 @@ class CoordinatorLaunchTests(unittest.TestCase):
             self.assertEqual(main(["native-preflight", "--contract", "/tmp/contract"]), 7)
         preflight.assert_called_once_with(["--contract", "/tmp/contract"])
 
+    def test_wait_stage_and_handoff_accept_are_sibling_verbs(self):
+        # Both answer "wait" or "accept", so neither may be folded into `strict-bootstrap`
+        # (the owner-RPC client with its --owner/--execute contract).
+        wait_argv = ["--bootstrap", "/tmp/attempt", "--expect-attempt", "attempt-test",
+                     "--attempt-binding-sha256", "0" * 64, "--stage", "2", "--json"]
+        with mock.patch("bootstrap_stage_wait.cli_main", return_value=7) as wait_stage:
+            self.assertEqual(main(["strict-bootstrap-wait-stage", *wait_argv]), 7)
+        wait_stage.assert_called_once_with(wait_argv)
+        accept_argv = ["--bootstrap", "/tmp/attempt", "--expect-attempt", "attempt-test",
+                       "--attempt-binding-sha256", "0" * 64, "--wait", "--json"]
+        with mock.patch("bootstrap_handoff.cli_main", return_value=5) as accept:
+            self.assertEqual(main(["strict-bootstrap-handoff-accept", *accept_argv]), 5)
+        accept.assert_called_once_with(accept_argv)
+
+    def test_existing_strict_bootstrap_verbs_keep_their_argv_face(self):
+        # Byte-identical pass-through: the new verbs must not reshape these two.
+        plan = ["plan", "--owner", "/tmp/owner.json", "--owner-sha256", "0" * 64]
+        with mock.patch("bootstrap_tool.cli_main", return_value=0) as tool:
+            self.assertEqual(main(["strict-bootstrap", *plan]), 0)
+        tool.assert_called_once_with(plan)
+        state = ["--bootstrap", "/tmp/attempt", "--expect-attempt", "attempt-test",
+                 "--attempt-binding-sha256", "0" * 64, "--check"]
+        with mock.patch("bootstrap_events.cli_main", return_value=2) as events:
+            self.assertEqual(main(["strict-bootstrap-state", *state]), 2)
+        events.assert_called_once_with(state)
+
 
 if __name__ == "__main__":
     unittest.main()
