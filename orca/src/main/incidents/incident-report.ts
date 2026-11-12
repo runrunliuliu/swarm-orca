@@ -20,6 +20,7 @@ import {
 } from './incident-types'
 import { buildIncidentKey, incidentFingerprint } from './incident-key'
 import { mintIncidentId, persistIncidentRecord } from './incident-writer'
+import { sanitizeEvidence, sanitizeText } from './incident-sanitize'
 import { resolveLocalHostId } from './incidents-paths'
 import type { IncidentStore } from './incident-store'
 
@@ -40,10 +41,21 @@ export type SelfReportInput = {
   id?: string
 }
 
+/**
+ * Per-file cap (M2-C5). A pointer has to be hashable within the command's lifetime; past this size the
+ * user gets a typed refusal instead of a command that looks hung, and nothing is silently skipped.
+ */
+export const MAX_EVIDENCE_BYTES = 64 * 1024 * 1024
+
 export class EvidenceFileError extends Error {
   constructor(
-    readonly reason: 'evidence_missing' | 'evidence_unreadable' | 'evidence_not_a_file',
-    readonly path: string
+    readonly reason:
+      | 'evidence_missing'
+      | 'evidence_unreadable'
+      | 'evidence_not_a_file'
+      | 'evidence_too_large',
+    readonly path: string,
+    readonly bytes?: number
   ) {
     super(`evidence ${reason}: ${path}`)
   }
@@ -66,6 +78,9 @@ export function evidencePointerForFile(
       throw new EvidenceFileError('evidence_not_a_file', path)
     }
     size = info.size
+    if (size > MAX_EVIDENCE_BYTES) {
+      throw new EvidenceFileError('evidence_too_large', path, size)
+    }
   } catch (error) {
     if (error instanceof EvidenceFileError) {
       throw error
@@ -128,22 +143,22 @@ export function buildSelfReportRecord(input: SelfReportInput): IncidentRecord {
   if (!key.ok) {
     throw new Error(`invalid_incident_key:${key.reason}`)
   }
-  const pointers = input.evidencePointers ?? []
+  const pointers = sanitizeEvidence({ pointers: input.evidencePointers ?? [] }).pointers
   const unknownBoundaries = [
     '自报（T3）：class / code / 复现由报告者提供，未经独立复核，不得作为已确认 bug。'
   ]
   if (pointers.length === 0) {
     unknownBoundaries.push('未附证据指针：报告者未提供 --evidence。')
   }
-  const evidence: IncidentEvidence = {
+  const evidence = sanitizeEvidence({
     pointers,
     unknownBoundaries,
     code,
-    ...(input.repro ? { repro: input.repro.slice(0, 2000) } : {})
-  }
+    ...(input.repro ? { repro: input.repro } : {})
+  }) satisfies IncidentEvidence
   const summaryBase = input.summary?.trim() ?? ''
-  const summary = `${code}${summaryBase.length > 0 ? `: ${summaryBase}` : ''}`.slice(
-    0,
+  const summary = sanitizeText(
+    `${code}${summaryBase.length > 0 ? `: ${summaryBase}` : ''}`,
     MAX_SUMMARY_CHARS
   )
   return {

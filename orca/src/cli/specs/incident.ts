@@ -70,8 +70,9 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ],
     notes: [
       '--class and --code are required. The record starts untriaged: a self-report is T3 and is never independently verified by this command.',
-      '--evidence paths must exist on this host; only the path, size and sha256 are stored (never the contents).',
-      '--source-id makes the report idempotent: repeating it with the same id appends nothing.'
+      '--evidence paths must exist on this host; only the path, size and sha256 are stored (never the contents). Each file is capped at 64 MiB and an oversized file is refused, not skipped.',
+      '--evidence path strings are stored as given (redacted for credentials): a path can itself name a sensitive project, so pass a copy when that matters.',
+      '--source-id makes the report idempotent: repeating it appends nothing, and the existing record is never overwritten.'
     ]
   },
   {

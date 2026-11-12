@@ -3,7 +3,7 @@
  * evidence pointers that are verified rather than trusted.
  */
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -11,6 +11,7 @@ import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-d
 import { createIncidentStore, type IncidentStore } from './incident-store'
 import {
   EvidenceFileError,
+  MAX_EVIDENCE_BYTES,
   buildSelfReportRecord,
   evidencePointerForFile,
   recordSelfReportTo
@@ -107,6 +108,15 @@ describe('evidencePointerForFile', () => {
     const { dir } = fixture()
     expect(() => evidencePointerForFile(join(dir, 'nope.log'))).toThrow(EvidenceFileError)
     expect(() => evidencePointerForFile(dir)).toThrow(/evidence_not_a_file/)
+  })
+
+  it('refuses an oversized file with a typed error instead of skipping it (M2-C5)', () => {
+    const { dir } = fixture()
+    const path = join(dir, 'huge.log')
+    // Sparse: 64 MiB + 1 byte without writing 64 MiB of data.
+    writeFileSync(path, '')
+    truncateSync(path, MAX_EVIDENCE_BYTES + 1)
+    expect(() => evidencePointerForFile(path)).toThrow(/evidence_too_large/)
   })
 })
 

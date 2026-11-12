@@ -8,6 +8,7 @@ import type { CommandHandler, HandlerContext } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
 import {
   EvidenceFileError,
+  MAX_EVIDENCE_BYTES,
   evidencePointerForFile,
   recordSelfReportTo
 } from '../../main/incidents/incident-report'
@@ -44,6 +45,13 @@ function evidencePointersFromFlags(ctx: HandlerContext): IncidentEvidencePointer
       return evidencePointerForFile(path)
     } catch (error) {
       if (error instanceof EvidenceFileError) {
+        if (error.reason === 'evidence_too_large') {
+          throw new RuntimeClientError(
+            'invalid_argument',
+            `--evidence ${path} is ${error.bytes ?? '?'} bytes, over the ${MAX_EVIDENCE_BYTES}-byte ` +
+              'per-file cap. Store the slice that matters as a separate file, or omit --evidence.'
+          )
+        }
         const detail =
           error.reason === 'evidence_not_a_file'
             ? 'is not a regular file'

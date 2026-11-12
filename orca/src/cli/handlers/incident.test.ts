@@ -6,7 +6,7 @@
  * so this covers path resolution + store + formatter together rather than mocking the middle.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -397,6 +397,47 @@ describe('incident report', () => {
       code: 'invalid_argument'
     })
     expect(existsSync(join(userData, 'incidents'))).toBe(false)
+  })
+
+  it('refuses an oversized evidence file with a typed message (M2-C5)', async () => {
+    const evidencePath = join(userData, 'huge.log')
+    writeFileSync(evidencePath, '')
+    truncateSync(evidencePath, 64 * 1024 * 1024 + 1)
+    const reported = context('incident report', {
+      class: 'crash',
+      code: 'worker_died',
+      evidence: evidencePath
+    })
+    await expect(INCIDENT_HANDLERS['incident report'](reported.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    expect(existsSync(incidentsDatabaseFileFor(userData))).toBe(false)
+  })
+
+  it('says a same-key report does not overwrite the existing record (M2-C5)', async () => {
+    const flags = { class: 'crash', code: 'worker_died', 'source-id': 'req-dup' }
+    const first = context('incident report', { ...flags, summary: 'first text' })
+    await INCIDENT_HANDLERS['incident report'](first.ctx)
+    const second = context('incident report', { ...flags, summary: 'second text' })
+    await INCIDENT_HANDLERS['incident report'](second.ctx)
+    const text = second.output.join('\n')
+    expect(text).toContain('Already recorded')
+    expect(text).toContain('NOT overwritten')
+    // The stored summary is still the first one.
+    expect(store().listIncidents().incidents[0].summary).toContain('first text')
+  })
+
+  it('redacts a secret in --repro before it reaches the row (M2-C2)', async () => {
+    const reported = context('incident report', {
+      class: 'tool_error',
+      code: 'leaky',
+      repro: 'run with sk-ant-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH',
+      'source-id': 'req-repro'
+    })
+    await INCIDENT_HANDLERS['incident report'](reported.ctx)
+    const view = store().getIncident(store().listIncidents().incidents[0].id)!
+    expect(JSON.stringify(view)).not.toContain('sk-ant-abcdefghijklmnopqrstuvwxyz')
+    expect(existsSync(join(userData, 'incidents', 'shadow.ndjson'))).toBe(true)
   })
 
   it('stores a verified pointer (digest + size) for a real evidence file', async () => {
