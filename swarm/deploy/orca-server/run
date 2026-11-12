@@ -1,0 +1,76 @@
+#!/bin/sh
+# runit `run` for the headless Orca runtime (orcad).
+#
+# Why this file is this short: it used to be the only copy of the deployment — a service
+# definition on one host that pinned one artifact directory and drifted from git. A promotion
+# then meant editing it in place, and a reinstall from anywhere older silently reverted it. The
+# file is now a loader: every host-specific value lives in $ORCA_SERVER_ENV_FILE (root-only,
+# deliberately not in git), and the artifact is resolved from the version pointer that the
+# serving build publishes.
+set -eu
+umask 077
+
+ENV_FILE="${ORCA_SERVER_ENV_FILE:-/etc/orca-server.env}"
+if [ ! -r "$ENV_FILE" ]; then
+  echo "orca-server: cannot read $ENV_FILE (see swarm/deploy/orca-server/README.md)" >&2
+  exit 78
+fi
+set -a
+. "$ENV_FILE"
+set +a
+
+: "${ORCAD_SERVICE_USER:?ORCAD_SERVICE_USER is required}"
+: "${ORCAD_SERVICE_HOME:?ORCAD_SERVICE_HOME is required}"
+: "${ORCAD_PORT:?ORCAD_PORT is required}"
+: "${ORCA_BUILD_POINTER_PATH:=/opt/orca/current}"
+
+cd "$ORCAD_SERVICE_HOME"
+exec 2>&1
+
+# Why an IPv4 gate: an orcad that binds a global IPv4 address is reachable from the network, which
+# is a different security posture from a loopback/SSH-forward deployment. Exit 78 is the documented
+# "do not retry, configuration is wrong" code (see orcad-operations reference).
+if [ "${ORCAD_REFUSE_IPV4:-1}" = "1" ] && ip -4 -o addr show scope global 2>/dev/null | grep -q .; then
+  echo 'Orca server stopped: IPv4 network exposure requires review.'
+  exit 78
+fi
+
+# Resolve the artifact: the pointer names the build this host serves; ORCAD_ARTIFACT_DIR only
+# bootstraps a host whose pointer does not exist yet (a fresh install has no serving build to
+# publish it). No silent third fallback: an unreadable artifact is a configuration error.
+artifact=""
+if [ -L "$ORCA_BUILD_POINTER_PATH" ] || [ -e "$ORCA_BUILD_POINTER_PATH" ]; then
+  artifact="$(readlink -f -- "$ORCA_BUILD_POINTER_PATH" 2>/dev/null || true)"
+fi
+if [ -z "$artifact" ]; then
+  artifact="${ORCAD_ARTIFACT_DIR:-}"
+fi
+if [ -z "$artifact" ]; then
+  echo "orca-server: no version pointer at $ORCA_BUILD_POINTER_PATH and no ORCAD_ARTIFACT_DIR" >&2
+  exit 78
+fi
+if [ ! -f "$artifact/.version" ] || [ ! -f "$artifact/orcad.js" ]; then
+  echo "orca-server: $artifact is not an orcad artifact (.version or orcad.js missing)" >&2
+  exit 78
+fi
+
+# Why a separate assignment and not an inline expansion: `env` needs each NAME=value as its own
+# argument, and a value with spaces would otherwise split. Unset means "keep gh's own default".
+gh_env=""
+if [ -n "${ORCAD_GH_CONFIG_DIR:-}" ]; then
+  gh_env="GH_CONFIG_DIR=$ORCAD_GH_CONFIG_DIR"
+fi
+
+# shellcheck disable=SC2086  # gh_env is one NAME=value argument or empty; never contains spaces.
+exec sudo -n -H -u "$ORCAD_SERVICE_USER" env \
+  -u DISPLAY -u ORCA_CLI_COMMAND -u ORCA_ENVIRONMENT -u ORCA_PAIRING_CODE \
+  -u ORCA_DEV_REPO_ROOT -u ORCA_USER_DATA -u ORCA_USER_DATA_PATH \
+  PATH="${ORCAD_SERVICE_PATH:-/usr/local/bin:/usr/bin:/bin}" \
+  XDG_CONFIG_HOME="$ORCAD_XDG_CONFIG_HOME" \
+  ORCA_USER_DATA="$ORCA_USER_DATA" \
+  ORCA_VERSION="$ORCA_VERSION" ORCA_APP_VERSION="$ORCA_APP_VERSION" \
+  ORCA_BACKGROUND_LAUNCH=1 \
+  $gh_env \
+  "$artifact/bun-runtime" "$artifact/orcad.js" \
+  --bind "$ORCAD_BIND" --port "$ORCAD_PORT" \
+  --pairing-address "$ORCAD_PAIRING_ADDRESS" --json

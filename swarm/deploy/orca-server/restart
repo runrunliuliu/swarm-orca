@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# Restart orca-server without the two traps that turn "restart" into an outage:
+#
+#   1. `sv` looks in its own SVDIR. Run without it, `sv restart orca-server` answers
+#      "unable to change to service directory" — and it is easy to read that as "nothing happened"
+#      while the service is in fact untouched.
+#   2. `sv restart` sends TERM to the `sudo` wrapper, which does not forward it. The run process can
+#      survive, runsv's `finish` counts the exit against its crash limit (5 in 300 s ⇒ `sv down`),
+#      and the service ends up down for longer than the deploy.
+#
+# So this helper does it in the order that can be observed: status → term → wait for the PID to
+# leave → clear the rate-limit file → up → wait for readiness → verify the pointer and the CLI.
+# `--check` performs every read-only step and changes nothing.
+set -uo pipefail
+
+# Why exported: `sv` reads SVDIR from the environment, and a plain shell variable is invisible to it.
+export SVDIR="${SVDIR:-/etc/runit/runsvdir/default}"
+readonly SERVICE="${ORCA_SERVER_SERVICE:-orca-server}"
+readonly ENV_FILE="${ORCA_SERVER_ENV_FILE:-/etc/orca-server.env}"
+readonly REPO_RUN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run"
+readonly TERM_DEADLINE_S="${TERM_DEADLINE_S:-40}"
+readonly READY_DEADLINE_S="${READY_DEADLINE_S:-180}"
+ORCA_CLI="${ORCA_CLI:-}"
+
+fail() { printf 'orca-server-restart: %s\n' "$*" >&2; exit 1; }
+note() { printf '  %s\n' "$*"; }
+step() { printf '\n== %s\n' "$*"; }
+
+need_root() {
+  [ "$(id -u)" = 0 ] || fail "run as root (it reads $ENV_FILE and drives $SVDIR)"
+}
+
+sv_status() { sv status "$SERVICE" 2>&1; }
+run_pid() {
+  # `sv status` prints "run: <name>: (pid 123) 5s; ...". No pid means the run process is gone.
+  sv_status | sed -n 's/^run: [^:]*: (pid \([0-9][0-9]*\)).*/\1/p'
+}
+cli_snapshot() {
+  local cli="$1"
+  "$cli" status 2>&1 | grep -E '^(runtimeState|runtimeReachable|pid|runtimeId):' || true
+}
+readiness_ok() {
+  local cli="$1"
+  "$cli" status 2>&1 | grep -q '^runtimeReachable: true'
+}
+resolve_cli() {
+  if [ -n "$ORCA_CLI" ]; then
+    printf '%s' "$ORCA_CLI"; return
+  fi
+  command -v orca-server-cli 2>/dev/null || command -v orca 2>/dev/null || {
+    # Why the service home: `sudo` resets PATH, and the host's CLI is installed per account.
+    local home=""
+    if [ -r "$ENV_FILE" ]; then
+      # shellcheck disable=SC1090
+      home="$( ( . "$ENV_FILE" >/dev/null 2>&1; printf '%s' "${ORCAD_SERVICE_HOME:-}" ) )"
+    fi
+    for candidate in "$home/.local/bin/orca-server-cli" "$home/.local/bin/orca"; do
+      [ -x "$candidate" ] && { printf '%s' "$candidate"; return; }
+    done
+  }
+}
+
+verify_pointer() {
+  local cli="$1" pointer="${ORCA_BUILD_POINTER_PATH:-/opt/orca/current}"
+  local target build_id report
+  target="$(readlink -f -- "$pointer" 2>/dev/null || true)"
+  [ -n "$target" ] || { note "pointer: $pointer is missing or unreadable"; return 1; }
+  note "pointer: $pointer -> $target"
+  build_id="$(sed -n 's/.*"buildId": "\([^"]*\)".*/\1/p' "$target/.orca-build.json" 2>/dev/null | head -1)"
+  [ -n "$build_id" ] || { note "identity: $target/.orca-build.json missing or unreadable"; return 1; }
+  note "identity: artifact=$(sed -n 's/.*"artifact": "\([^"]*\)".*/\1/p' "$target/.orca-build.json" | head -1) buildId=$build_id"
+  if [ -n "$cli" ]; then
+    report="$("$cli" --version --json 2>/dev/null)"
+    if printf '%s' "$report" | grep -q '"source": "pointer"' &&
+      printf '%s' "$report" | grep -q "\"buildId\": \"$build_id\""; then
+      note "cli agrees: $cli --version --json => source=pointer buildId=$build_id"
+    else
+      note "cli does NOT agree with the pointer ($cli --version --json):"
+      printf '%s\n' "$report" | sed -n '1,12p' | sed 's/^/    /'
+      return 1
+    fi
+  fi
+  return 0
+}
+
+main() {
+  local mode="${1:---restart}"
+  need_root
+
+  step "status (SVDIR=$SVDIR)"
+  sv_status | sed 's/^/  /'
+  local pid; pid="$(run_pid)"
+
+  step "installed run vs repository run"
+  if cmp -s "$REPO_RUN" /etc/sv/"$SERVICE"/run 2>/dev/null; then
+    note "identical (service definition is the git one)"
+  else
+    note "DIFFERENT — /etc/sv/$SERVICE/run is not this repository's run:"
+    diff -u /etc/sv/"$SERVICE"/run "$REPO_RUN" 2>/dev/null | sed -n '1,20p' | sed 's/^/    /' || true
+    note "install it with: install -m 755 $REPO_RUN /etc/sv/$SERVICE/run"
+  fi
+
+  step "env file"
+  [ -r "$ENV_FILE" ] && note "$ENV_FILE readable" || note "$ENV_FILE MISSING (run would exit 78)"
+  # shellcheck disable=SC1090
+  note "bootstrap artifact: $( ( . "$ENV_FILE" 2>/dev/null; printf '%s' "${ORCAD_ARTIFACT_DIR:-<unset>}" ) )"
+
+  local cli; cli="$(resolve_cli)"
+  [ -n "$cli" ] || note "no orca CLI on PATH; pointer/CLI agreement will be skipped"
+  verify_pointer "$cli" || note "pointer/CLI verification failed"
+  [ -n "$cli" ] && { step "readiness before"; cli_snapshot "$cli" | sed 's/^/  /'; }
+
+  if [ "$mode" = "--check" ]; then
+    step "check only: nothing was changed"
+    return 0
+  fi
+
+  # Why term-then-up and not restart: `sv restart` cannot wait for the pid, and the pid is what
+  # decides whether the port and the instance lock are actually free.
+  if [ -n "$pid" ]; then
+    step "term (pid $pid)"
+    sv term "$SERVICE" || fail "sv term failed"
+    local waited=0
+    while [ -n "$(run_pid)" ] && [ "$waited" -lt "$TERM_DEADLINE_S" ]; do sleep 1; waited=$((waited + 1)); done
+    [ -z "$(run_pid)" ] || fail "run process still alive after ${TERM_DEADLINE_S}s; not starting a second instance"
+    note "run process exited after ${waited}s"
+  else
+    step "term"
+    note "service was not running; nothing to stop"
+  fi
+
+  # Why clear it: the crash limiter exists to stop a loop, not to block a deliberate restart, and a
+  # previous failed attempt can leave it one short of `sv down`.
+  step "clear the crash-rate window"
+  if [ -f /etc/sv/"$SERVICE"/restart-window ]; then
+    rm -f /etc/sv/"$SERVICE"/restart-window && note "removed restart-window"
+  else
+    note "no restart-window to clear"
+  fi
+
+  step "up"
+  sv up "$SERVICE" || fail "sv up failed"
+  # `finish` sleeps 10 s after a non-deliberate exit, so the run process may appear late.
+  local waited=0
+  while [ -z "$(run_pid)" ] && [ "$waited" -lt 60 ]; do sleep 1; waited=$((waited + 1)); done
+  sv_status | sed 's/^/  /'
+  [ -n "$(run_pid)" ] || fail "service did not start; see the log and \`sv status\`"
+
+  step "wait for readiness (<= ${READY_DEADLINE_S}s)"
+  [ -n "$cli" ] || fail "no orca CLI to probe readiness with; set ORCA_CLI"
+  waited=0
+  until readiness_ok "$cli"; do
+    [ "$waited" -ge "$READY_DEADLINE_S" ] && {
+      cli_snapshot "$cli" | sed 's/^/  /'
+      fail "not ready after ${READY_DEADLINE_S}s; rollback: restore the previous pointer target (or ORCAD_ARTIFACT_DIR) and rerun this helper"
+    }
+    sleep 2; waited=$((waited + 2))
+  done
+  note "ready after ~${waited}s"
+  cli_snapshot "$cli" | sed 's/^/  /'
+
+  step "verify pointer and CLI"
+  if verify_pointer "$cli"; then
+    step "OK"
+  else
+    step "STARTED BUT INCONSISTENT"
+    fail "the service is up but the pointer/CLI check failed; fix the pointer before declaring this deployed"
+  fi
+}
+
+main "$@"
