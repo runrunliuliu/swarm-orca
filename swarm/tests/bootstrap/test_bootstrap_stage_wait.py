@@ -5,6 +5,7 @@ import json
 import os
 import socket
 from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
 import subprocess
 import threading
 import unittest
@@ -117,6 +118,15 @@ class StageWaitTests(unittest.TestCase):
         result = self.wait()
         self.assertEqual(result["exit"], 4)
         self.assertEqual(result["diagnostics"], {"attempt_binding": "missing"})
+
+    def test_a_missing_pinned_input_is_not_reported_as_a_missing_binding(self):
+        # Live finding: the attempt's binding was intact, but the workspace/skill it pins had been
+        # removed. Both are unreachable, but blaming the binding sends the operator to the wrong
+        # file. The token must name what is actually gone.
+        Path(self.events.b["fixed_inputs"]["role_skill"]["path"]).unlink()
+        result = self.wait()
+        self.assertEqual(result["exit"], 4)
+        self.assertEqual(result["diagnostics"], {"pinned_input": "missing"})
 
     def test_binding_pin_and_attempt_mismatch_are_usage_errors(self):
         self.events.chain(0)

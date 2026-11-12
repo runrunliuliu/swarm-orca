@@ -314,6 +314,29 @@ class HandoffAcceptTests(unittest.TestCase):
         self.assertIn("--peek", calls[0])
         self.assertFalse(self.record().exists())
 
+    def test_accepted_at_is_taken_after_the_wait_finishes(self):
+        # Live finding: the clock was read when the call started, so a handoff that waited five
+        # seconds recorded an `accepted_at` older than the delivery's own `created_at` — an
+        # inversion a reader would have to explain away. The stamp belongs to the record, i.e.
+        # after the delivery was read.
+        order = []
+        stamp = "2026-11-12T16:00:00+00:00"
+
+        def runner(argv):
+            order.append("read")
+            return 0, json.dumps({"ok": True,
+                                  "result": {"messages": [self.row()], "count": 1}})
+
+        def clock():
+            order.append("clock")
+            return stamp
+
+        with mock.patch.object(bootstrap_handoff, "now", clock):
+            result = self.accept(wait=True, runner=runner)
+        self.assertEqual(result["exit"], 0, result)
+        self.assertEqual(order, ["read", "clock"])
+        self.assertEqual(json.loads(self.record().read_text())["accepted_at"], stamp)
+
     def test_a_record_that_reads_back_differently_needs_reconciliation(self):
         def publish(target, value):
             Path(target).write_bytes(b'{"something": "else"}\n')

@@ -111,8 +111,12 @@ def _binding_or_refusal(root, binding_sha256, expect_attempt):
         _, value = read_binding(EvidenceReader(), root, binding_sha256, expect_attempt)
         return value, None
     except FileNotFoundError:
-        return None, (UNREACHABLE, "bootstrap_wait_stage_unreachable", None,
-                      {"attempt_binding": "missing"})
+        # A missing binding and a missing pinned input are different defects that used to share one
+        # token: the binding was present while the workspace/skill it pins had been removed, and the
+        # receipt blamed the binding (live finding). Say which file is actually gone.
+        gone = ("attempt_binding" if not (root / "attempt-binding.json").exists()
+                else "pinned_input")
+        return None, (UNREACHABLE, "bootstrap_wait_stage_unreachable", None, {gone: "missing"})
     except FilePinChanged:
         return None, (USAGE_OR_REFUSED, "file_pin_changed", "blocked_stale_or_mismatch", None)
     except BootstrapError as exc:

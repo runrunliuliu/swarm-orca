@@ -471,7 +471,9 @@ def accept_handoff(*, bootstrap, expect_attempt, binding_sha256, receipt=None,
     """One acceptance decision. Returns the payload; `payload["exit"]` is the status."""
     runner = _invoke if runner is None else runner
     monotonic = time.monotonic if monotonic is None else monotonic
-    clock = timestamp(now()) if clock is None else clock
+    # `clock` is resolved at the record site, not here: the acceptance time is when the decision
+    # was taken. Resolving it on entry made a handoff that waited five seconds record an
+    # `accepted_at` five seconds older than the delivery's own `created_at` (live finding).
     if receipt is not None and wait:
         return _payload(USAGE, "refused", reason="handoff_input_ambiguous")
     if receipt is None and not wait:
@@ -536,7 +538,7 @@ def accept_handoff(*, bootstrap, expect_attempt, binding_sha256, receipt=None,
                             failures=[code for code in (pin, sender) if code],
                             handoff_id=value["handoff_id"], msg_id=row.get("id"),
                             diagnostics={"pin": pin, "sender": sender})
-        record = _record_value(row, value, clock)
+        record = _record_value(row, value, clock if clock is not None else timestamp(now()))
         _directory(target.parent)
         if _commit_record(target, record) == "duplicate":
             outcome, reason = _existing(target, value, row)
