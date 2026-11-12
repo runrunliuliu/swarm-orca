@@ -1,8 +1,10 @@
 # 版本指针：主机上哪一份构建是 `orca`
 
-状态：**契约 + 已实现的最小闭环（本仓库）**。实现见 `orca/src/shared/build-pointer.ts`（契约与只读解析）、
-`orca/src/main/cli/build-pointer.ts`（发布与脚本生成）、`orca/src/main/orcad/orcad-build-pointer.ts`（orcad 发布）。
-**未验证**：真实 `/opt/orca` 主机的端到端切换（本文"未验证"一节列出，不要当成已上线）。
+状态：**契约 + 已实现并在一台 headless 主机上完成端到端切换**。实现见
+`orca/src/shared/build-pointer.ts`（契约与只读解析）、`orca/src/main/cli/build-pointer.ts`（发布与脚本生成）、
+`orca/src/main/orcad/orcad-build-pointer.ts`（orcad 发布）。端到端验证 = 发布 → 重启 orcad → 裸 `orca`
+与 PTY 内的 `orca` 都解析到新构建（`--version --json` 报 `source=pointer` 与产物的 `buildId`，
+且在 PTY 子进程里实测）。具体主机、命令与输出留在任务归档，不写进本仓库。仍未做的部分见文末。
 
 ## 问题（为什么版本号不够）
 
@@ -104,7 +106,7 @@ Electron 主进程写。
 
 | 消费者 | 行为 |
 | --- | --- |
-| `~/.local/bin/orca`（裸 `orca`） | 指针跟随脚本：`readlink -f` → 读 `.orca-cli-argv` → `exec`；悬空/无身份时退出 1 |
+| `~/.local/bin/orca`（裸 `orca`） | 指针跟随脚本：`readlink -f` → 读 `.orca-cli-argv` → `exec`；悬空/无身份时退出 1；并把 `ORCA_BUILD_POINTER_PATH` 导出给被 exec 的 CLI，使 `--version --json` 报告的是**同一个**指针 |
 | PTY shim（`linux-orca-cli-shim/orca`、orcad 的 `getCliEntryPath` 路径） | 同上，额外注入 `ORCA_USER_DATA_PATH`/`ORCA_CLI_COMMAND` |
 | `orca --version --json` | 读指针，输出身份与指针状态（见下） |
 
@@ -155,8 +157,9 @@ orca --version                                 # 版本字符串（不是构建�
 
 ## 未验证 / 未做
 
-- 真实主机上的端到端切换（写 `/opt/orca/current`、重启 orcad、观察裸 `orca`）**未执行**：本任务的
-  约束是不部署、不重启 orcad/Electron。红线上限是单测 + 真实子进程执行的脚本（见测试证据）。
+- ~~真实主机上的端到端切换~~ **已执行**：发布指针 → 重启 orcad → 裸 `orca --version --json` 报
+  `source=pointer` + 新 `buildId`，PTY 内 `orca` 同样解析到新构建，悬空指针仍 fail-closed。
+  证据（部署前后命令与输出、回滚引用）在任务归档，不在本仓库。
 - Electron 侧发布需要能写产物根目录；`/opt/orca/1.4.219` 属 root，普通用户发布会被拒并打印
   `[serve] build pointer not published: ...`（故意不静默）。Electron 从本 fork 重新打包后才会带
   这套逻辑。
