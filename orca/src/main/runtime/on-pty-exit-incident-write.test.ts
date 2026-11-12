@@ -171,6 +171,55 @@ describe('onPtyExit incident write', () => {
     expect(view.ptyIncarnationId).toBe('ptyinc-agent')
   })
 
+  it('derives a storable fallback epoch when no incarnation id was ever observed', () => {
+    const store = realStore()
+    __configureIncidentStoreForTests(store)
+    // No third argument, no `incarnationId` on the PTY record: the old fallback was
+    // `runtime:<id>:<generation>`, which the key rejected for its separator, so nothing was written
+    // at all. It also moved on every callback, so it could not have deduped even if it parsed.
+    const runtime = runtimeWithPty({ incarnationId: undefined } as never)
+    runtime.onPtyExit(PTY, 137, undefined, {
+      cause: { kind: 'signaled', signal: 9 },
+      hostExitConfirmed: true
+    })
+    const afterFirst = store.listIncidents().incidents
+    expect(afterFirst).toHaveLength(1)
+    const first = store.getIncident(afterFirst[0].id)!
+    expect(first.sourceId).toMatch(/^runtime-[0-9a-f]{32}$/)
+    expect(first.sourceId).not.toContain(':')
+    expect(first.evidence.unknownBoundaries.join(' ')).toMatch(/incarnation id/)
+
+    // A repeat callback for the same PTY must land on the same key: one row, not two.
+    runtime.onPtyExit(PTY, 137, undefined, {
+      cause: { kind: 'signaled', signal: 9 },
+      hostExitConfirmed: true
+    })
+    expect(store.countIncidents()).toBe(1)
+    expect(store.listIncidents().incidents[0].id).toBe(afterFirst[0].id)
+  })
+
+  it('treats an agent-session owner claim alone as an agent binding', () => {
+    const store = realStore()
+    __configureIncidentStoreForTests(store)
+    // The claim is the only binding this pane has: no launchAgent, no foregroundAgent, no paneKey.
+    // Its ambiguous `unknown` exit must still be recorded, otherwise a real agent failure is dropped.
+    runtimeWithPty({
+      launchAgent: null,
+      foregroundAgent: null,
+      paneKey: null,
+      incarnationId: 'ptyinc-claim-only',
+      agentSessionOwners: [{ claim: { identityDigest: 'digest-claim-only' }, phase: 'live' }]
+    }).onPtyExit(PTY, 0, 'ptyinc-claim-only' as never, {
+      cause: { kind: 'unknown', reason: 'cause_unreported' }
+    })
+
+    expect(store.countIncidents()).toBe(1)
+    const view = store.getIncident(store.listIncidents().incidents[0].id)!
+    expect(view.ptyIncarnationId).toBe('ptyinc-claim-only')
+    expect(view.evidence.agentIdentityDigest).toBe('digest-claim-only')
+    expect(view.status).toBe('untriaged')
+  })
+
   it('never throws into the exit path when the store is unavailable', () => {
     __configureIncidentStoreForTests(null)
     const runtime = runtimeWithPty()

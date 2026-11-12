@@ -137,6 +137,19 @@ describe('buildPtyExitIncidentRecord', () => {
     expect(built).toEqual({ ok: false, reason: 'incident_key_missing_epoch' })
   })
 
+  it('records that a synthesized incarnation id cannot distinguish a respawn', () => {
+    const built = buildPtyExitIncidentRecord(
+      facts({ incarnationId: 'runtime-0123456789abcdef0123456789abcdef', incarnationIdIsFallback: true }),
+      context
+    )
+    expect(built.ok).toBe(true)
+    if (!built.ok) {
+      return
+    }
+    expect(built.record.evidence.unknownBoundaries.join(' ')).toMatch(/incarnation id/)
+    expect(built.record.evidence.unknownBoundaries.join(' ')).toMatch(/同一 ptyId/)
+  })
+
   it('never copies transcript bodies — pointers only', () => {
     const built = buildPtyExitIncidentRecord(
       facts(),

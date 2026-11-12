@@ -32,8 +32,11 @@ export type PtyExitIncidentFacts = {
   hostExitConfirmed: boolean
   providerExitObserved: boolean
   surface: PtyExitSurface
-  /** Whether any agent binding survived up to the exit (launch authority, status row, foreground). */
+  /** Whether any agent binding survived up to the exit (launch authority, status row, foreground,
+   *  or an agent-session owner claim). */
   hasAgentBinding: boolean
+  /** The incarnation id was synthesized from runtime+PTY identity because none was ever observed. */
+  incarnationIdIsFallback?: boolean
 }
 
 export type PtyExitAssessment =
@@ -90,6 +93,12 @@ function unknownBoundaries(facts: PtyExitIncidentFacts): string[] {
     'transcript 指针未收集：M1 在退出路径只做一次快照，不读、不复制 transcript 正文。',
     'run/task/dispatch 指针未解析：M1 的退出写点不查询编排表，避免把生命周期查询带进清理路径。'
   ]
+  if (facts.incarnationIdIsFallback === true) {
+    boundaries.push(
+      '没有观测到 PTY incarnation id：幂等键由 runtime+pty 身份派生，因此同一 ptyId 的重生' +
+        '无法与重复回调区分（会被并入同一行）。'
+    )
+  }
   if (facts.paneKey === null) {
     boundaries.push('paneKey 未解析：该 pane 的状态行可能未被清理，事后无法按 pane 关联。')
   }

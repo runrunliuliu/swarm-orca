@@ -3,7 +3,7 @@
  * a bare-entity key silently *loses* a real failure, and nothing later can tell that it happened.
  */
 import { describe, expect, it } from 'vitest'
-import { buildIncidentKey, incidentFingerprint } from './incident-key'
+import { buildIncidentKey, fallbackPtyIncarnationId, incidentFingerprint } from './incident-key'
 
 function key(input: Parameters<typeof buildIncidentKey>[0]) {
   const result = buildIncidentKey(input)
@@ -127,6 +127,35 @@ describe('pty_exit epoch (incarnation id)', () => {
       ok: false,
       reason: 'invalid_epoch'
     })
+  })
+})
+
+describe('fallback incarnation id (no epoch was ever observed)', () => {
+  it('produces a key the store will accept: no field separator, fixed width', () => {
+    const fallback = fallbackPtyIncarnationId('runtime-1', 'wt-1__pty-1')
+    expect(fallback).not.toContain(':')
+    expect(fallback).toMatch(/^runtime-[0-9a-f]{32}$/)
+    expect(buildIncidentKey({ kind: 'pty_exit', ptyIncarnationId: fallback })).toMatchObject({
+      ok: true,
+      sourceId: fallback,
+      facet: 'exit'
+    })
+  })
+
+  it('is stable for the same runtime and pty, and distinct across them', () => {
+    const first = fallbackPtyIncarnationId('runtime-1', 'wt-1__pty-1')
+    expect(fallbackPtyIncarnationId('runtime-1', 'wt-1__pty-1')).toBe(first)
+    expect(fallbackPtyIncarnationId('runtime-1', 'wt-1__pty-2')).not.toBe(first)
+    expect(fallbackPtyIncarnationId('runtime-2', 'wt-1__pty-1')).not.toBe(first)
+  })
+
+  it('does not depend on a moving counter: the previous template was unstorable', () => {
+    // The old fallback was `runtime:<id>:<generation>`, which the separator rule rejects outright.
+    expect(
+      buildIncidentKey({ kind: 'pty_exit', ptyIncarnationId: 'runtime:rt:7' })
+    ).toEqual({ ok: false, reason: 'invalid_epoch' })
+    // The replacement must therefore not be shaped like it.
+    expect(fallbackPtyIncarnationId('rt', 'pty')).not.toMatch(/^runtime:/)
   })
 })
 

@@ -11,6 +11,7 @@ import type { RetiredTerminalSurface } from './mobile-session-terminal-retiremen
 import { parsePaneKey } from '../../shared/stable-pane-id'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
 import { recordPtyExitIncident } from '../incidents/incident-writer'
+import { fallbackPtyIncarnationId } from '../incidents/incident-key'
 
 export class OrcaRuntimeWithOnPtyExit extends OrcaRuntimeWithOnClientDisconnected {
   onPtyExit(
@@ -54,10 +55,12 @@ export class OrcaRuntimeWithOnPtyExit extends OrcaRuntimeWithOnClientDisconnecte
     // incident is one call, and the writer never looks anything up (issue-sedimentation §7.1/§14).
     recordPtyExitIncident({
       ptyId,
+      // Why a hashed stand-in and not `runtime:<id>:<generation>`: the key's field separator is
+      // `:`, so that form could never be stored (a silent drop), and the lifecycle generation moves
+      // on this very call — it would mint a new key for a repeat callback of the same exit.
       incarnationId:
-        exitIncarnationId ??
-        pty?.incarnationId ??
-        `runtime:${this.runtimeId}:${this.getPtyLifecycleGeneration(ptyId)}`,
+        exitIncarnationId ?? pty?.incarnationId ?? fallbackPtyIncarnationId(this.runtimeId, ptyId),
+      incarnationIdIsFallback: exitIncarnationId == null && pty?.incarnationId == null,
       paneKey: pty?.paneKey ?? (exitPaneKeys.size === 1 ? [...exitPaneKeys][0] : null),
       worktreeId: pty?.worktreeId ?? null,
       // Why null: the PTY record holds no agent session id at exit, only a claim digest.
@@ -68,7 +71,14 @@ export class OrcaRuntimeWithOnPtyExit extends OrcaRuntimeWithOnClientDisconnecte
       hostExitConfirmed: options.hostExitConfirmed === true,
       providerExitObserved: options.providerExitObserved === true,
       surface: this.isSshOwnedPtyId(ptyId) ? 'ssh' : 'local',
-      hasAgentBinding: Boolean(pty?.launchAgent || pty?.foregroundAgent || exitPaneKeys.size > 0)
+      // Why the owner claim counts: it is the only binding some panes have. An exit whose semantic
+      // `unknown` is dropped because no launchAgent/paneKey survived is a real failure lost (§11.4).
+      hasAgentBinding: Boolean(
+        pty?.launchAgent ||
+          pty?.foregroundAgent ||
+          exitPaneKeys.size > 0 ||
+          (pty?.agentSessionOwners?.length ?? 0) > 0
+      )
     })
     if (preservesAbnormalSshSurface) {
       const prior = this.ptyLivenessVerdictByPtyId.get(ptyId)?.verdict

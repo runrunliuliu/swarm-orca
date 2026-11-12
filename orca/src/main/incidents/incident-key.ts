@@ -261,3 +261,33 @@ export function incidentFingerprint(parts: {
     .update([parts.class, parts.sourceKind, parts.facet, ...parts.signature].join('|'), 'utf8')
     .digest('hex')
 }
+
+/**
+ * A stable, separator-free stand-in epoch for a PTY whose incarnation id was never observed.
+ *
+ * Two constraints meet here and only one encoding satisfies both:
+ *   * the epoch goes inside `source_id`, where `:` is the field separator — the old
+ *     `runtime:<id>:<generation>` form contained two of them and was therefore rejected by
+ *     `buildIncidentKey`, so that branch silently wrote nothing while claiming to write;
+ *   * the value must be identical for two callbacks describing the *same* exit. The lifecycle
+ *     generation cannot do that: `onPtyExit` advances it and the cleanup deletes it, so a repeat
+ *     callback mints a different generation and the second row would duplicate the first.
+ *
+ * So the epoch is derived from the two things that stay fixed for the life of that PTY record — the
+ * runtime and the PTY id — hashed to a fixed width and joined with a dash. Known trade, recorded
+ * as an unknown boundary on the record: with no incarnation id at all, a respawn under the same
+ * `ptyId` is indistinguishable from a repeat callback and is collapsed onto the first row. The
+ * alternative is a fabricated counter, which §6.2.1 forbids.
+ */
+export function fallbackPtyIncarnationId(
+  runtimeId: string | null | undefined,
+  ptyId: string | null | undefined
+): string {
+  const runtime = typeof runtimeId === 'string' ? runtimeId : ''
+  const pty = typeof ptyId === 'string' ? ptyId : ''
+  const digest = createHash('sha256')
+    .update(`${runtime}\u0000${pty}`, 'utf8')
+    .digest('hex')
+    .slice(0, 32)
+  return `runtime-${digest}`
+}
