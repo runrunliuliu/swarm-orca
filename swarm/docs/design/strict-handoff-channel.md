@@ -473,6 +473,11 @@ live 对照当场暴露了两个离线套件看不到的缺陷，已修（提交
 （`test_a_wake_that_precedes_full_visibility_re_samples_once`），但没有 live 证据；反向用例
 `test_a_clock_behind_the_evidence_stays_refused_without_a_tolerance` 钉住「不是容差」。
 
+补正例的尝试（attempt3）：新起一对角色 pane，`serve` 在身份门被拒 `bootstrap_native_identity_changed`
+（`bootstrap_identity` 要求原生 hook 证据里的 `session_id` 等于 registration 里登记的那个）。我没有为了跑通它去改
+registration 的会话/id，也没有放宽这道门——那是既有身份判决据，不是本次改动的一部分。因此**「marker 在等待期间
+发布 → 返回 0」的 live 正例仍然没有**；已有的 live 正例只是「同一 marker 事后重探返回 0」。
+
 本次交付仍然是「live 反例 + 离线用例」，没有据此外推「E1 不再复现」。
 
 ## 6. 不变量与红线
