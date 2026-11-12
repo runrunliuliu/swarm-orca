@@ -19,7 +19,7 @@ from coordinator_tui_continue import (WORKFLOW_PROTOCOL, cancel_unsent, deliver_
                                       validate_scheduler_progress, validate_transition)
 from coordinator_tui_errors import require
 from coordinator_tui_dependencies import wait_spec
-from trae_tui import observe
+import tui_adapter
 from terminal_idle_wait import IdleWaitResult, idle_wait_args
 
 
@@ -38,14 +38,19 @@ class WaitNotReady(Exception):
 
 def completed(contract, call):
     c, o = contract["coordinator"], contract["observation"]
+    adapter = contract["adapter"]
+    observer, policy_key = tui_adapter.reader(adapter)
 
     def observe_completed_turn():
-        return observe(cli=contract["cli"]["path"], runtime=contract["runtime"], terminal=c["terminal"],
-            incarnation=c["incarnation"], workspace=contract["workspace"]["id"], cwd=contract["workspace"]["path"],
-            profile=o["profile"], caller_receipt=o["caller_receipt"], log_root=o["log_root"], roots=o["roots"],
-            trae_runtime_config=contract["runtime_config"]["path"], expected_thread=c["session"],
+        options = dict(cli=contract["cli"]["path"], runtime=contract["runtime"], terminal=c["terminal"],
+            incarnation=c["incarnation"], workspace=contract["workspace"]["id"],
+            cwd=contract["workspace"]["path"], profile=o["profile"],
+            caller_receipt=o["caller_receipt"], log_root=o["log_root"], roots=o["roots"],
+            expected_thread=c["session"],
             context_max_age_seconds=contract["freshness"]["context_max_age_seconds"],
             startup_anchor=o["startup_anchor"], completed_turn=True)
+        options[policy_key] = tui_adapter.input_value(adapter, contract["runtime_config"])
+        return observer(**options)
 
     idle = call(idle_wait_args(c["terminal"]), contract["runtime"])
     require(isinstance(idle, IdleWaitResult) and idle.state in

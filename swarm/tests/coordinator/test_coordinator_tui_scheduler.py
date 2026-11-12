@@ -341,7 +341,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.m.messages, [])
 
     def test_completed_accepts_provider_turn_after_native_timeout(self):
-        with patch("coordinator_tui_scheduler.observe") as observe:
+        with patch("trae_tui.observe") as observe:
             observe.return_value = self.ended
             self.assertEqual(completed(self.f.c, lambda *_: IdleWaitResult("pending", "tui_idle_timeout")),
                              self.ended)
@@ -353,7 +353,7 @@ class SchedulerTests(unittest.TestCase):
             observe.assert_called_once()
 
     def test_completed_does_not_bypass_interaction_or_malformed_idle(self):
-        with patch("coordinator_tui_scheduler.observe") as observe:
+        with patch("trae_tui.observe") as observe:
             with self.assertRaises(WaitNotReady):
                 completed(self.f.c, lambda *_: IdleWaitResult("interaction_required", "agent-approval-prompt"))
             observe.assert_not_called()

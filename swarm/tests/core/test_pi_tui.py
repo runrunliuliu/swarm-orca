@@ -140,6 +140,18 @@ class PiTuiFixture(unittest.TestCase):
         hooks.write_text(json.dumps({"version": 2, "entries": entries}))
         hooks.chmod(0o600)
 
+    def write_hook_row(self, event, state):
+        """Rewrite this pane's row with a hook event/state; the store stays valid."""
+        hooks = self.profile / "agent-hooks" / "last-status.json"
+        value = json.loads(hooks.read_text())
+        row = dict(value["entries"]["tab:leaf"])
+        row.update(hookEventName=event, payload={"agentType": "pi", "state": state},
+                   turnStartedAt=self.ms - 5000, receivedAt=self.ms,
+                   evidenceObservedAt=self.ms)
+        value["entries"]["tab:leaf"] = row
+        hooks.write_text(json.dumps(value))
+        return row
+
     def query(self, cli, runtime, args):
         self.calls.append(args)
         if args == ["status"]:
@@ -237,6 +249,22 @@ class PiTuiTests(PiTuiFixture):
         # moves even though the accepted settings (and their freshness) do not.
         self.assertEqual(timestamp(transcript["turn_started_at"]),
                          timestamp(transcript["activity_at"]))
+
+    def test_a_completed_turn_requires_the_harness_end_record(self):
+        """`completed_turn` is a recorded agent_end/done, never an idle pane."""
+        from coordinator_tui_errors import TuiError
+
+        self.write_log()
+        entry = self.write_hook_row("tool_execution_end", "working")
+        with self.assertRaisesRegex(TuiError, "tui_turn_not_completed"):
+            self.observe(completed_turn=True)
+        entry = self.write_hook_row("agent_end", "done")
+        observation = self.observe(completed_turn=True)
+        self.assertEqual(observation["kind"], "pi_tui_completed_turn_observation")
+        self.assertLessEqual(timestamp(observation["completed_turn"]["context_at"]),
+                             timestamp(observation["completed_turn"]["completed_at"]))
+        self.assertLessEqual(timestamp(observation["completed_turn"]["context_at"]),
+                             timestamp(observation["observed_at"]))
 
     def test_a_second_chain_start_cannot_carry_the_accepted_settings(self):
         self.write_log()

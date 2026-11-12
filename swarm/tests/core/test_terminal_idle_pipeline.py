@@ -76,7 +76,7 @@ class IdlePipelineTests(unittest.TestCase):
 
         with patch.object(monitor.subprocess, "run", side_effect=process), \
                 patch.object(monitor.watch, "query", side_effect=inventory), \
-                patch("coordinator_tui_scheduler.observe", side_effect=observe), \
+                patch("trae_tui.observe", side_effect=observe), \
                 redirect_stdout(io.StringIO()):
             # No replacement of native, tick, schedule, completed or decoder.
             return monitor.main(["--config", str(self.m.config_file), "--config-sha256",
