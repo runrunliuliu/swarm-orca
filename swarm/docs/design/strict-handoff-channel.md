@@ -443,6 +443,28 @@ live 对照当场暴露了两个离线套件看不到的缺陷，已修（提交
 
 仍未做（不声称）：真 attempt 业务链的 S0→S5 全链；`wait-stage` 返回 0 的 live 路径（需要真 owner 发布合法 marker）；受控错 pane 以外的身份伪造场景。
 
+#### 5.2.2 真 attempt 的 S0→S1（2026-11-12，本 worktree）
+
+台架换成真角色：Agent 从本 worktree 启动（max_workers=2：Coordinator + Operator），真实 owner serve/arm，
+真 binding（fixed_inputs 全为真实文件），阶段只跑到 S1。
+
+| 观测 | 读数 |
+| --- | --- |
+| S0 handoff 走 mailbox：Operator pane 发送 → Coordinator 在 `--wait` 中被唤醒 | 已阻塞约 138 s；发送完成后 **35 ms** 返回，`from_handle` = 登记的 operator pane，refs 对 owner.json（`cbf130ea…`）校验通过，写出 `control/handoff/handoff-s0-live1.json` |
+| 真 owner 发布 S1（`events/0001-caller-ready.json`） | `wait-stage` 在当前代码上返回 **0**，`already_satisfied: true`，evidence Ref = `69bebb76…` 与磁盘逐字节一致，25 ms |
+| 同一次 wait 在修复前 | 返回 **5** `marker_time_mismatch`（唤醒 4.7 s）：入口抓的时钟被拿去校验等待期间发布的 marker —— 工具永远无法对它要等的东西返回 0 |
+
+本节的另一半价值是两个**环境/边界发现**（不是本次代码的缺陷，但写进文档以免下次重踩）：
+
+- Unix socket 路径超过 104 字节时 `OwnerServer` 报 `bootstrap_endpoint_unavailable`，而同一个码也用于「socket
+  已存在」，字面上看不出是长度；长 artifact 根目录下必须把 endpoint 放到短路径（如 `/tmp/<name>/owner.sock`）。
+- 终端 mailbox 在 Run 创建前是**累计**的：上一条未消费的 handoff 会让下一次 `check --peek --wait` 立即返回旧批次，
+  工具按设计答 3 `handoff_absent_no_effect`。多个 attempt 共用同一个 pane 时，消费（或换 pane）是前一个 attempt
+  的收尾义务。CLI 也自述「terminal-only mailbox, delivery is not durable after that terminal closes」。
+
+未完成：S1 之后的阶段、以及「marker 在等待期间发布 → 返回 0」的 live 复现（attempt2 的两个角色 pane 同时被
+上游 429 TPM 限流打断，未重试）。因此这条修复的证据是 live 反例 + 离线用例，而不是 live 正例。
+
 ## 6. 不变量与红线
 
 沿用 [liveness §5](strict-bootstrap-liveness.md) 的红线，另加通道相关条目：
