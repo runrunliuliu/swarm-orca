@@ -394,7 +394,11 @@ operator materials 的 launch-plan 生成器（`coordinator_launch.py` / `trae_c
 
 | 入口 | 缺失/未知声明 | 已知但证据不可读 |
 | --- | --- | --- |
-| `bootstrap_identity.py`（两个 gate role） | `bootstrap_registration_provider_required`；未知名 `bootstrap_registration_provider_unsupported` | `bootstrap_operator_provider_evidence_unavailable` / `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
+
+
+registration 由 `coordinator_launch.py strict-bootstrap-registration` 采集（`process`/`session`/
+`provider`/pane key 都来自运行时证据，并交叉校验 launch token 与 transcript 首行）；手写 pin 不被接受为
+等价做法，采集入口也不改变本节的任何拒绝码。| `bootstrap_identity.py`（两个 gate role） | `bootstrap_registration_provider_required`；未知名 `bootstrap_registration_provider_unsupported` | `bootstrap_operator_provider_evidence_unavailable` / `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
 | `operator_session.py` | `operator_session_provider_required`；未知名 `operator_session_provider_unsupported` | `operator_session_<provider>_operator_unverifiable`（如 `operator_session_pi_operator_unverifiable`），带 `missing_evidence` |
 | `bootstrap_tool.py`（S2 观察 / S5 TUI 契约） | `bootstrap_registration_provider_required`；未知名 `bootstrap_coordinator_provider_unsupported` | `bootstrap_coordinator_provider_evidence_unavailable`，带 `missing_evidence` |
 

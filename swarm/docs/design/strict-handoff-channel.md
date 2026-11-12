@@ -480,6 +480,23 @@ registration 的会话/id，也没有放宽这道门——那是既有身份判�
 
 本次交付仍然是「live 反例 + 离线用例」，没有据此外推「E1 不再复现」。
 
+
+#### 5.2.3 身份链的采集缺口（同一晚，live 暴露）
+
+第三个 attempt 在 `serve` 被 `bootstrap_native_identity_changed` 拒绝。复盘结论是两件事，都不是门禁乱拒：
+
+1. **没有 registration 的生产入口**：`bootstrap_identity` 只校验（`schema_version`/`roles`/
+   `process`/`session`/`provider`），全仓没有代码写这份文件；`operator_prepare.py observe-session`
+   又只支持 trae，而这次两个角色都是 pi。于是驱动只能手写，值只能靠猜（transcript 文件名 /
+   `terminal create` 输出），而读取器明确写着 "never a filename guess"。
+2. **共享有界 hook 表**：`agent-hooks/last-status.json` 是本机所有 pane 共用、只保留最近若干条的映射，
+   条目会被后来的 pane 覆盖；采集与 `serve` 之间隔几分钟就可能失效。文档此前只写了 1800 s 新鲜度。
+
+本次补的是**采集与诊断**，不是放宽判据：新增 `strict-bootstrap-registration`
+（`bootstrap_registration.py`，从 hook 行 + `/proc` 取四元组，交叉校验 launch token 摘要与
+transcript 首行 session，一次创建 + 读回），并让身份拒绝码带 `role`/`incarnation`/`session`/`pane`
+的前后缀差异（`NativeIdentityChanged.diagnostics`）。协议、入口文档与 `operator-prepare.md §3.1`
+同步写明入口与时效限制。这三项都不改变任何 gate，仍需 live 正例证明端到端可用（attempt4）。
 ## 6. 不变量与红线
 
 沿用 [liveness §5](strict-bootstrap-liveness.md) 的红线，另加通道相关条目：

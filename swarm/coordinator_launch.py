@@ -224,6 +224,10 @@ def main(argv=None):
         # progress in one argv face.
         from bootstrap_stage_wait import cli_main
         return cli_main(argv[1:])
+    if argv[:1] == ["strict-bootstrap-registration"]:
+        # Prepare-only: it pins the two gate roles from the same rows `serve` will verify.
+        from bootstrap_registration import cli_main
+        return cli_main(argv[1:])
     if argv[:1] == ["strict-bootstrap-handoff-accept"]:
         from bootstrap_handoff import cli_main
         return cli_main(argv[1:])

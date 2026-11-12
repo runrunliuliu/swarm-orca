@@ -239,6 +239,51 @@ pin、必要会话 ID、有效设置摘要和信任边界，不输出 hook 原�
 `requires_live_caller_check:true`。它不是 Operator 身份证明、实时 caller 校验或执行许可。
 会话准备完成后继续走 [strict-start-prepare](coordinator-strict-start.md)，所有审计门保留。
 
+### 3.1 bootstrap registration：从运行时的那两行采集，不手写（含 Pi）
+
+`bootstrap_identity.py` 校验的是**运行时自己的证据**：`agent-hooks/last-status.json` 里按
+`tabId:leafId` 找 `providerSession{key:'session_id',id,transcriptPath}` 与 `launchTokenHash`，
+再加上 `/proc` 的 `pid`/`start`/`boot`/`uid`。它从来不看 transcript 文件名，也不从 pane 推断
+provider。手写 registration 只能靠猜，猜错的代价是一个裸码 `bootstrap_native_identity_changed`
+（2026-11-12 的 live attempt 就是这样连丢两次）。
+
+采集入口（只准备，不是门）：
+
+```bash
+python3 -B /absolute/swarm/coordinator_launch.py strict-bootstrap-registration \
+  --bootstrap /absolute/private/bootstrap-attempt1 \
+  --expect-attempt ATTEMPT_ID \
+  --attempt-binding-sha256 <64 hex> \
+  --profile /absolute/verified/runtime-profile \
+  --log-root /absolute/verified/pi-sessions \
+  --coordinator <pane handle> --coordinator-provider pi \
+  --operator    <pane handle> --operator-provider    pi \
+  --output /absolute/private/registration.json --json
+```
+
+它固定四个值：`process{pid,start,boot,uid}`（来自该 pane 的真实进程）、`session`（hook 行里的
+`session_id`）、`provider`（**调用方声明**，hook 行必须一致）、以及 pane key；并做两条交叉校验：
+
+- 进程环境里的 `ORCA_AGENT_LAUNCH_TOKEN` 摘要必须等于 hook 行的 `launchTokenHash`——同会话的
+  另一个 pane 过不了这一条；
+- transcript 首行的 `{"type":"session","id":…}` 必须等于 hook 行的 session id——`session_file`
+  与 `session_id` 不自洽就拒绝，不挑一个。
+
+写入用 `publish_new`（一次创建、不覆盖），写完读回比较；已存在且字节相同返回 `created:false`，
+不同返回 `bootstrap_registration_output_conflict`。退出 0 写出、2 拒绝（带 `diagnostics`：
+role / field / expected / observed 前缀 / pane 前缀 / pids 数）、3 已存在且相同。
+
+**时效是这条链唯一的软肋**：`agent-hooks/last-status.json` 是本机**所有 pane 共用**的有界映射，
+条目会被后来的 pane 覆盖或挤掉（实测只剩最近 6 条）。所以：
+
+- 采集与 `serve` 之间不要隔几分钟以上；`receipt.roles[*].observed_at_ms` 是那条 hook 行的观测时间；
+- `serve` 报 `bootstrap_native_identity_changed` 时，先看它现在带的 `observed` 前缀与你 pin 的值，
+  不一致就**重新采集**（新 pane 或新 attempt），不要改 registration 去迁就；
+- 角色 provider 仍然显式声明；这个入口不替任何角色选 provider，也不证明它能被核验。
+
+失败码的定位字段（`role`/`incarnation`/`session`/`pane`/`process_incarnation`/`pane_key`）只给前后缀，
+不给完整标识；它用于路由，不是证据，也不改变任何 gate。
+
 ## 4. 启动前接入任务归档目录
 
 Trae strict TUI 启动后不能靠外层 mkdir 改变其已生效沙箱。新启动前，外层在原授权范围内

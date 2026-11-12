@@ -20,7 +20,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（124 个：协议文档点名的顶层定义与方法）
+## 符号索引（127 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `canonical` | `coordinator_io.py:28-30` | `def canonical` / `class canonical` |
 | `canonical` | `coordinator_loop.py:280-283` | `def canonical` / `class canonical` |
 | `check` | `blocking_io.py:60-63` | `def check` / `class check` |
-| `check` | `bootstrap_identity.py:229-235` | `def check` / `class check` |
+| `check` | `bootstrap_identity.py:265-271` | `def check` / `class check` |
 | `check` | `bootstrap_s5.py:169-173` | `def check` / `class check` |
 | `check` | `coordinator_tui_continue.py:746-748` | `def check` / `class check` |
 | `check` | `observation_budget.py:60-63` | `def check` / `class check` |
@@ -120,11 +120,13 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `observe` | `trae_tui.py:184-193` | `def observe` / `class observe` |
 | `observe_identity` | `operator_session.py:66-95` | `def observe_identity` / `class observe_identity` |
 | `observe_write_roots` | `coordinator_write_roots.py:15-28` | `def observe_write_roots` / `class observe_write_roots` |
+| `observed` | `blocking_io.py:94-101` | `def observed` / `class observed` |
+| `observed` | `observation_budget.py:113-120` | `def observed` / `class observed` |
 | `observed_coordinator` | `coordinator_strict_request.py:39-77` | `def observed_coordinator` / `class observed_coordinator` |
 | `original` | `operator_continuity_deployment.py:15-23` | `def original` / `class original` |
 | `original` | `operator_sender_correct.py:21-37` | `def original` / `class original` |
 | `path` | `coordinator_io.py:51-56` | `def path` / `class path` |
-| `peer` | `bootstrap_identity.py:77-82` | `def peer` / `class peer` |
+| `peer` | `bootstrap_identity.py:99-104` | `def peer` / `class peer` |
 | `plan` | `coordinator_strict_start.py:204-272` | `def plan` / `class plan` |
 | `policy` | `startup_execution.py:34-51` | `def policy` / `class policy` |
 | `policy` | `tui_adapter.py:60-76` | `def policy` / `class policy` |
@@ -142,7 +144,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `prepare_request` | `coordinator_request_prepare.py:104-113` | `def prepare_request` / `class prepare_request` |
 | `prepare_request` | `coordinator_strict_request.py:98-143` | `def prepare_request` / `class prepare_request` |
 | `prepared` | `coordinator_strict_delivery.py:139-190` | `def prepared` / `class prepared` |
-| `process` | `bootstrap_identity.py:40-52` | `def process` / `class process` |
+| `process` | `bootstrap_identity.py:62-74` | `def process` / `class process` |
 | `prompt` | `coordinator_driver.py:441-532` | `def prompt` / `class prompt` |
 | `provider` | `tui_adapter.py:35-37` | `def provider` / `class provider` |
 | `publication` | `bootstrap_s5.py:187-205` | `def publication` / `class publication` |
@@ -197,6 +199,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `scope` | `operator_continuity_route.py:57-74` | `def scope` / `class scope` |
 | `scope` | `startup_cli.py:20-31` | `def scope` / `class scope` |
 | `send` | `bootstrap_control.py:543-547` | `def send` / `class send` |
+| `serve` | `bootstrap_control.py:734-752` | `def serve` / `class serve` |
 | `session_id` | `pi_transcript.py:31-34` | `def session_id` / `class session_id` |
 | `settle` | `bootstrap_control.py:478-510` | `def settle` / `class settle` |
 | `sha` | `software_development.py:39-40` | `def sha` / `class sha` |
@@ -242,6 +245,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
 | `wait` | `publication_wait.py:66-99` | `def wait` / `class wait` |
 | `wait` | `wait_for_file.py:83-109` | `def wait` / `class wait` |
+| `write` | `bootstrap_registration.py:209-226` | `def write` / `class write` |
 
 ## 不要这样做
 

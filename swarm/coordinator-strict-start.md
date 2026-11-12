@@ -33,6 +33,11 @@ caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上�
    terminal/incarnation/worktree、精确日志、实际模型/权限、新鲜度及 anchor 的历史
    日志前缀/文件身份。anchor 不是心跳、caller proof 或完整读规则的证据。
    该 pin 纳入两个阶段的 identity，不能在首派发契约换掉或删除。旧 v1 不支持此字段。
+   新 attempt 的 bootstrap registration 不手写：用
+   [operator-prepare §3.1](operator-prepare.md#31-bootstrap-registration从运行时的那两行采集不手写含-pi)
+   的 `strict-bootstrap-registration` 从同一次观测里 pin `process`/`session`/`provider`/pane key，
+   并与进程环境的 launch token 摘要、transcript 首行 session 交叉校验。采集晚于 serve 时条目可能
+   已被同 profile 的其它 pane 挤掉，报 `bootstrap_native_identity_changed` 就重新采集，不改 pin。
 4. Coordinator 完整读规则、核验任务授权和实际文件工具后，保存工具记录。
    Operator 独立审查其完整性和自身 provider/session 与 terminal 的真实关联。
    普通 shell 占位符不证明外层 Operator 身份，观察器 JSON 不替代 skill-read。
