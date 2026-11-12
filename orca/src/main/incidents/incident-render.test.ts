@@ -132,7 +132,8 @@ describe('renderIncidentMarkdown', () => {
               sha256: 'b'.repeat(64),
               startOffset: 10,
               endOffset: 20,
-              lineWindow: 50
+              lineWindow: 50,
+              bytes: 12
             }
           ],
           unknownBoundaries: ['window beyond 20 lines was not read']
@@ -142,6 +143,8 @@ describe('renderIncidentMarkdown', () => {
     const markdown = renderIncidentMarkdown(store.getIncident('inc_render_1')!)
     expect(markdown).toContain('`/tmp/example/transcript.jsonl`')
     expect(markdown).toContain('10..20')
+    // Digest and size read as one checkable pair (M2 pointers carry `bytes`).
+    expect(markdown).toContain('| 12 |')
     expect(markdown).toContain('no (pointer only)')
   })
 })

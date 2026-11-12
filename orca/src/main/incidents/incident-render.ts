@@ -49,7 +49,8 @@ function evidenceRows(evidence: IncidentEvidence): string[] {
               pointer.truncated === true ? ' (truncated)' : ''
             }`
       lines.push(
-        `| ${pointer.kind} | \`${pointer.path}\` | ${pointer.sha256 ?? '—'} | ${offsets} | no (pointer only) |`
+        `| ${pointer.kind} | \`${pointer.path}\` | ${pointer.bytes ?? '—'} | ` +
+          `${pointer.sha256 ?? '—'} | ${offsets} | no (pointer only) |`
       )
     }
   }

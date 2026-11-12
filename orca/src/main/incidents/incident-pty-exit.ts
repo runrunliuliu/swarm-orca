@@ -90,7 +90,13 @@ function exitSignature(cause: TerminalExitCause): string[] {
 
 function unknownBoundaries(facts: PtyExitIncidentFacts): string[] {
   const boundaries: string[] = [
-    'transcript 指针未收集：M1 在退出路径只做一次快照，不读、不复制 transcript 正文。',
+    // Investigated for M2: the PTY record carries no transcript path (`RuntimePtyWorktreeRecord` has
+    // tail buffers, launch*, agentSessionOwners, titles — not a path), and the owner claim carries
+    // only `identityDigest`. A transcript path lives on the agent-hook status row, reachable only by
+    // querying the hook server this same call is reconciling — i.e. by re-reading state that is
+    // being torn down. So the pointer is not collected rather than guessed.
+    'transcript 指针未收集：退出时 PTY 记录没有 transcript 路径，owner claim 只有 identityDigest；' +
+      '唯一来源是正在被 reconcile 的 agent-hook 状态行。M2 不为此反查将被清理的状态。',
     'run/task/dispatch 指针未解析：M1 的退出写点不查询编排表，避免把生命周期查询带进清理路径。'
   ]
   if (facts.incarnationIdIsFallback === true) {
