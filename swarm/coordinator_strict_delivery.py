@@ -276,6 +276,13 @@ def wait_for_config(ref):
                 # publication verdict: aborting here reported "delivery failed"
                 # while the Operator was still publishing. The loop deadline below
                 # still bounds the wait, so keep polling.
+                #
+                # Deliberately not `coordinator_strict_start.checkpoint_until`: that helper
+                # retries a busy owner at 0.1 s inside the same window (its failure is
+                # terminal, so it must not leave the one-shot gate slot unwaited), while this
+                # wait may last the whole start window and only needs the file. Backing off to
+                # `idle` here keeps a long busy owner from being polled at 10 Hz. Two shapes,
+                # one rule: a failed owner read is never a publication verdict.
                 pass
             require(time.monotonic() < stop and timestamp(now()) < timestamp(expected["deadline"]),
                     "strict_config_wait_expired")
