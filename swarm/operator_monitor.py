@@ -17,7 +17,8 @@ import uuid
 import coordinator_operator as operator
 import progress_watch as watch
 import startup_cli
-from terminal_idle_wait import MIN_RPC_TIMEOUT_SECONDS, decode_idle_wait, idle_wait_target
+from terminal_idle_wait import (MIN_RPC_TIMEOUT_SECONDS, decode_idle_wait, idle_wait_ms,
+                                idle_wait_target, min_rpc_timeout_seconds)
 from operator_sender import preflight as sender_preflight
 from coordinator_io import (bound_lock, correction_fence, canonical, digest, file_ref, now, parse, path, pinned,
                             publish_new, read_json, replace_json, require, timestamp)
@@ -112,10 +113,16 @@ def native(args, runtime, timeout=12):
     if tuple(args[:2]) not in {("orchestration", "send"), ("orchestration", "inbox"),
                               ("orchestration", "request-show"), ("terminal", "show"), ("terminal", "wait")}:
         return watch.query(args, runtime, timeout, start_new_session=True)
+    target = idle_wait_target(args)
+    if target is not None:
+        # The duration varies now, so the budget has to as well: an outer deadline shorter than
+        # the native wait truncates the call and leaves a receipt nobody can decode, which is
+        # exactly the "pending" and "hung" ambiguity the 300 s policy exists to avoid.
+        if timeout < min_rpc_timeout_seconds(idle_wait_ms(args)):
+            raise watch.StopObservation("tui_idle_rpc_timeout_too_short")
     cli = watch.resolve_cli(runtime)
     reply = subprocess.run([cli, *args, "--json"], stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL, timeout=timeout, start_new_session=True)
-    target = idle_wait_target(args)
     if target is not None:
         return decode_idle_wait(reply.stdout, reply.returncode, runtime, target)
     return watch.decode_response(reply.stdout, reply.returncode, runtime)
