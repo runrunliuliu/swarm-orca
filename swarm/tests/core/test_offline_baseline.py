@@ -15,6 +15,7 @@ so a package that glob cannot see — for example a new nesting level, which dis
 still import — fails these assertions instead of passing them.
 """
 
+import io
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from coordinator_io import file_ref
@@ -254,6 +256,203 @@ class ParallelGateTests(unittest.TestCase):
         proc = subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", "2", "--"],
                               cwd=self.root, input="", capture_output=True, text=True, timeout=60)
         self.assertEqual(proc.returncode, 2)
+
+
+class BlastRadiusTests(unittest.TestCase):
+    """The diff-to-modules mapping fails closed, and its policy cannot silently narrow.
+
+    Why these read the mapping instead of running it: `run_blast.sh` shells out to the same
+    module, so a bug here would be reported as a green targeted run. The four assertions below
+    are the reviewed invariant: every test module is reachable from a source, every source has a
+    radius or a recorded reason it has none, every selected name exists, and the SHARED_MAP
+    policy still covers what the tree imports.
+    """
+
+    def setUp(self):
+        import blast_radius
+        self.blast = blast_radius
+        self.radius = blast_radius.Radius()
+
+    def test_every_test_module_is_explained_by_a_source(self):
+        unexplained = []
+        for module in sorted(self.radius.available):
+            if self.blast.Path(self.radius.tests[module]).stem[len("test_"):] in self.radius.sources:
+                continue
+            imported_sources = self.radius.test_imports.get(module, set()) & set(self.radius.sources)
+            if imported_sources:
+                continue
+            unexplained.append(module)
+        self.assertEqual(unexplained, [], "test modules reach no source and import none")
+
+    def test_every_source_module_has_a_radius_or_is_recorded_untested(self):
+        empty = [name for name in sorted(self.radius.sources)
+                 if not self.radius.tests_for_source(name) and name not in self.blast.UNTESTED]
+        self.assertEqual(empty, [], "source modules whose radius is empty must be in UNTESTED")
+
+    def test_every_selected_module_is_a_listed_module(self):
+        for name in sorted(self.radius.sources):
+            reasons = self.radius.tests_for_source(name)
+            self.assertTrue(set(reasons) <= self.radius.available,
+                            f"{name} selects modules outside --list")
+
+    def test_shared_map_covers_what_the_tree_imports(self):
+        # Why both directions: narrowing the policy is the "green while under-testing" hole, and a
+        # tree that grows importers without a policy update is the other half of the same hole.
+        for shared, patterns in self.blast.SHARED_MAP.items():
+            importers = {module for module, imports in self.radius.test_imports.items()
+                         if shared in imports}
+            self.assertTrue(importers, f"no test imports {shared}; the policy key is stale")
+            missing = [module for module in importers
+                       if not self.blast.policy_matches(module, patterns)]
+            self.assertEqual(missing, [], f"{shared} policy does not cover {missing}")
+        self.assertEqual(self.blast.SHARED_MAP["coordinator_io"], ("*",))
+        self.assertEqual(self.blast.SHARED_MAP["blocking_io"],
+                         ("core.*", "bootstrap.*", "operators.*"))
+
+    def test_a_changed_test_helper_selects_the_modules_that_import_it(self):
+        # Why: a shared fixture is neither a source nor a test module, so a change to one used to
+        # select nothing and hard-fail the command - whose only escape was a hand-widened run,
+        # the judgement this tool exists to replace.
+        reasons = self.radius.tests_for_helper(self.root / "tests" / "startup_handoff_fixture.py")
+        self.assertIn("core.test_startup_handoff", reasons)
+        self.assertEqual(set(reasons.values()), {"helper"})
+        self.assertTrue(set(reasons) <= self.radius.available)
+
+    def test_an_empty_diff_is_a_failure_not_a_pass(self):
+        completed = subprocess.run(
+            [sys.executable, "-B", str(self.root / "tests" / "blast_radius.py"),
+             "--range", "HEAD..HEAD"], cwd=self.root, capture_output=True, text=True, timeout=120)
+        self.assertEqual(completed.returncode, 2, completed.stdout + completed.stderr)
+        self.assertIn("nothing changed", completed.stderr)
+
+    def test_a_source_with_no_radius_fails_closed(self):
+        with patch.object(self.blast, "select", return_value=({}, [], ["swarm/invented.py"])), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(self.blast.main(["--range", "HEAD~1", "--json"]), 2)
+
+    root = Path(__file__).resolve().parents[2]
+
+
+class BlastRunnerTests(unittest.TestCase):
+    """`tests/run_blast.sh` end to end: no diff is a refusal, a named diff runs modules."""
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests" / "run_blast.sh"
+
+    def test_requires_a_range(self):
+        completed = subprocess.run(["sh", str(self.script)], cwd=self.root,
+                                   capture_output=True, text=True, timeout=60)
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("--range is required", completed.stderr)
+
+    def test_an_unknown_option_is_refused(self):
+        completed = subprocess.run(["sh", str(self.script), "--nope"], cwd=self.root,
+                                   capture_output=True, text=True, timeout=60)
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("unknown option", completed.stderr)
+
+    def test_dry_run_prints_the_selection_and_runs_nothing(self):
+        # Why a fixed revision: `HEAD~1..HEAD` made this test depend on whatever the last commit
+        # touched. A docs-only commit selects nothing, which is exit 2 by design (an empty
+        # selection must not read as a pass), so the test would flip on merge order rather than on
+        # behaviour. 9c13f66a touches a source module and always will.
+        completed = subprocess.run(["sh", str(self.script), "--range",
+                                    "9c13f66a~1..9c13f66a", "--dry-run"], cwd=self.root,
+                                   capture_output=True, text=True, timeout=180)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("selection:", completed.stderr + completed.stdout)
+        self.assertIn("dry run", completed.stdout)
+        self.assertNotIn("modules:", completed.stdout)
+
+
+class TargetedSelectionTests(unittest.TestCase):
+    """`--modules` runs exactly what it names, and never claims more than that.
+
+    Why the negative cases matter more than the positive one: a bare positional module name
+    used to be forwarded to unittest, which then ran the whole suite *and* loaded the named
+    module inside every worker (`tests` + 101 x 3 assertions, all green). A silent widening
+    that reports `OK` is worse than a refusal, so each refusal is pinned here.
+    """
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tests" / "run_offline.sh"
+    helper = root / "tests" / "run_modules.py"
+
+    def run_runner(self, *args, timeout=300):
+        return subprocess.run(["sh", str(self.script), *args], cwd=self.root,
+                              capture_output=True, text=True, timeout=timeout)
+
+    def test_modules_runs_only_the_named_module(self):
+        proc = self.run_runner("--modules", "core.test_log_io")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("selection: 1/", proc.stdout)
+        self.assertIn("(explicit)", proc.stdout)
+        self.assertIn("modules: 1/1", proc.stdout)
+        self.assertIn("TARGETED OK", proc.stdout)
+
+    def test_a_targeted_run_never_says_pass_or_ok_alone(self):
+        # Why: `offline PASS` and a bare `OK` are the full-suite words. A targeted run has to be
+        # impossible to quote as one, so it may not contain "PASS" at all.
+        proc = self.run_runner("--modules", "core.test_log_io")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        combined = proc.stdout + proc.stderr
+        self.assertNotIn("PASS", combined)
+        self.assertNotRegex(combined, r"(?m)^OK$")
+
+    def test_an_unknown_module_exits_two_and_names_itself(self):
+        proc = self.run_runner("--modules", "core.no_such_module")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("unknown module: core.no_such_module", proc.stderr)
+        self.assertIn("valid names", proc.stderr)
+        self.assertNotIn("modules:", proc.stdout)
+
+    def test_a_bare_dotted_positional_is_refused_before_any_module_starts(self):
+        # Why: this is the shape that silently ran the whole suite and reported OK.
+        proc = self.run_runner("core.test_log_io")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("use --modules", proc.stderr)
+        self.assertNotIn("modules:", proc.stdout)
+        self.assertNotIn("tests:", proc.stdout)
+
+    def test_a_bare_test_file_positional_is_refused_too(self):
+        proc = self.run_runner("test_log_io.py")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("use --modules", proc.stderr)
+
+    def test_an_unknown_runner_option_is_refused_instead_of_forwarded(self):
+        proc = self.run_runner("--nope")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("unknown runner option: --nope", proc.stderr)
+
+    def test_one_named_module_gets_one_worker(self):
+        # Why: the default is 4, but asking for four workers to run one module is the case the
+        # `--jobs exceeds` refusal exists for; the explicit form must take min(4, k) instead.
+        proc = self.run_runner("--modules", "core.test_log_io")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("jobs: 1", proc.stdout)
+
+    def test_an_explicit_job_count_above_the_selection_is_still_refused(self):
+        # Why: min(4, k) is a default, not a licence to flatten what the caller spelled out.
+        proc = self.run_runner("--modules", "core.test_log_io", "--jobs", "4")
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("exceeds", proc.stderr)
+
+    def test_the_helper_accepts_an_option_value_after_the_separator(self):
+        # Why: `-k pattern` is a documented unittest option, and its value is not a module name.
+        # Rejecting it would turn a filtered run into an exit 2 after the shell layer allowed it.
+        completed = subprocess.run(
+            [sys.executable, "-B", str(self.helper), "--jobs", "2", "--", "-k", "test_log"],
+            cwd=self.root, input="core.test_log_io\n", capture_output=True, text=True, timeout=120)
+        self.assertNotIn("belong on stdin", completed.stderr)
+
+    def test_the_helper_refuses_a_module_name_after_the_separator(self):
+        # Why: the second gate. Fixing only the shell runner leaves
+        # `run_modules.py --jobs 4 -- core.test_log_io` fanning the module out to every worker.
+        proc = subprocess.run([sys.executable, "-B", str(self.helper), "--jobs", "2", "--",
+                               "core.test_log_io"], cwd=self.root, input="core.test_log_io\n",
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 2, proc.stdout)
+        self.assertIn("belong on stdin", proc.stderr)
 
 
 if __name__ == "__main__":

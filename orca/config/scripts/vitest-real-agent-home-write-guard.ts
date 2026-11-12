@@ -17,6 +17,10 @@ const AGENT_HOME_ENTRIES = [
   '.codex',
   '.claude',
   '.orca',
+  // Why: `~/.local/bin/orca` is where the bare-`orca` dispatcher lives. A test that forgot to pass
+  // a home override rewrote the developer's real CLI once (it pointed at a deleted temp directory),
+  // which is a broken shell for every later command — the same class of damage as an agent config.
+  '.local/bin',
   '.cursor',
   '.copilot',
   '.gemini',

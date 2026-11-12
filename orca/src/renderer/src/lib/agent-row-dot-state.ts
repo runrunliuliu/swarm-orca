@@ -21,6 +21,13 @@ export function agentRowDotState(
     case 'idle':
     case 'unverifiable':
       return state
+    // Why: `no-evidence` is the same dot as `unverifiable` on purpose — a dashed amber
+    // ring meaning "incomplete information". The dot vocabulary is shared with the
+    // dashboard/card snapshot published to main and to pop-out windows that may predate a
+    // new member (dashboard-payload-validation.ts drops unknown values), so the split
+    // lives in the row state and the text, not in a new glyph.
+    case 'no-evidence':
+      return 'unverifiable'
   }
   return 'idle'
 }

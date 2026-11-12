@@ -68,6 +68,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | --- | --- |
 | 跨 Project 的任务与工作区模型 | [以任务为中心的工作区设计](docs/design/task-workspaces.md)：一个任务按需绑定多个仓库 worktree，跨入口续做复用，逐仓库交付并联合验收；逻辑任务身份、跨入口路由与多仓库绑定仍为设计理念，任务 sparse 契约 M0–M5 最小版已合入（仅本地宿主），写入硬隔离未实现。契约、阶段状态与对账手册见 [sparse 任务工作区目录](docs/design/sparse-task-workspace/README.md) |
 | Tasks 工作台（任务 → 工作区 → Agent → 用量） | [调研与设计](docs/design/task-workbench/README.md) + [开发计划](docs/design/task-workbench/development-plan.md) + [评审记录](docs/design/task-workbench/discussion-record.md)：把 Tasks 从 provider 列表镜像改成任务视图；含数据链就绪度、三版线框图、用量三态与 `taskRecords` 关系存储草案。**设计草案，未实现**；2026-11-09 只读评审结论为"M1 可做、M2 冻结到 H1/H2 有证据"，阶段状态只在开发计划 §9 |
+| 启动等待的唤醒（发布 → 检出） | [发布等待设计](docs/design/publication-wait.md)：两个严格启动等待从 250 ms 轮询改为 inotify 提前唤醒 + 常挂轮询兜底；事件只缩短不定义等待，无 inotify 时等于改动前。**已实现并过离线门禁**；同主机实测 252 ms → 3.6 ms、探测 9 → 2 次，跨客户端丢事件率未实测，靠日志观测 |
 | Coordinator 模型、权限与启动适配 | [部署配置](configuration.md)、[公开 JSON 示例](coordinator-model.json)、[Trae exec](trae-coordinator.md) |
 | Strict bootstrap 事件协议（Phase 1–4 本地开发） | [协议与工具契约](strict-bootstrap-protocol.md)：四 marker / 两阶段 wait / 原 builder 与 S5 同域准入，attempt-local owner 及双方候选交接工具已实现；`--check` 仍为 `ready:false`，不表示已部署常驻服务或通过 live 验收 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
@@ -87,11 +88,15 @@ Python helper 使用标准库；Supervisor / 台账基线为 Python 3.10+，Trae
 从公开仓库的 `swarm/` 目录运行离线回归（不连接 Orca 或启动模型）：
 
 ```bash
-tests/run_offline.sh --fast   # 迭代反馈：除 4 个耗时主因外的全部模块，约 2.5 分钟
-tests/run_offline.sh -v       # 全量门禁：合并/交付前跑一次，约 8 分钟
+tests/run_blast.sh --range HEAD~1   # 默认：把 diff 映射成受影响的模块并只跑它们
+tests/run_offline.sh                # 全量：跨模块改动、发布前，或 blast 选择为空时
+tests/run_offline.sh --fast         # 迭代反馈：跳过文件头 SLOW 列表里的耗时主因
 ```
 
-`--fast` 只是迭代反馈，不能当作离线 PASS；其余模式见 `tests/run_offline.sh` 文件头。
+`run_blast.sh` 的选择规则写在 `tests/blast_radius.py`：同基名测试、直接 import 该模块的测试、
+一跳源码反向依赖，加上显式的 `SHARED_MAP` 策略。定向跑的状态词是 `TARGETED OK`，
+**不是** 离线 PASS —— 只有真的跑完全部模块才能那样报。空选择会 `exit 2`，不会静默通过。
+其余模式见 `tests/run_offline.sh` 文件头。
 该脚本固定清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT` 后执行
 `PYTHONPATH=.:tests python3 -B -m unittest discover -s tests`；执行测试时退出码即 unittest
 退出码，`--list` 与参数错误由脚本自己返回（0 与 2）；不要继承调用方环境里的私有策略路径

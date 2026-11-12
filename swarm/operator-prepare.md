@@ -36,7 +36,7 @@ Agent 不是可自由替换的配置项，也不能用 Worker 侧 profile 表达
 | Worker | 由固定 [Worker 白名单](worker-model-candidates.md) 决定（Trae / Pi / codex-ark） | 与 Coordinator、Operator 配置分离 |
 
 bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` 声明
-（[registration schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），不继承上表也不从 pane
+（[registration schema v2](strict-bootstrap-offline.md#122-显式工具契约)），不继承上表也不从 pane
 推断：`bootstrap_identity.py` 按同一能力表解析它，未知/不可核验就停止。S2 观察与 S5 TUI 契约
 按该 role 的 provider 选择 adapter：`trae-tui-runtime-v1` 或 `pi-tui-runtime-v1`；两个 role 的
 provider 可以不同。Pi Coordinator 的 `runtime_config` 必须是
@@ -503,3 +503,22 @@ PYTHONPATH=.:tests RSI_CHECKER_TEST_ROOT=/absolute/verified/target-checkout pyth
 包含真实临时 Git 仓库与离线 native/hook/log fixture，验证参数完整性、JSON、pin/基线
 漂移、并发发布、防覆盖、权限即停、旧严格握手和观察器兼容。不启动模型，不证明远端
 性能、实际 Agent 文件工具权限或独立外层审计已通过；提速需同类真实任务的授权验收。
+
+## fields/final-evidence 的模板提交（`--from-template`）
+
+`fields-intent` 的候选**完全由合同决定**，所以允许工具按意图里已固定的模板直接materialize：
+
+```bash
+python3 -B bootstrap_tool.py submit --intent <plan> --intent-sha256 <sha> --actor <role> --from-template --execute
+```
+
+规则（与代码同源，见 `bootstrap_tool.py` 的 `materialize_template`）：
+
+1. **只对 `fields-intent` 开放**。review 阶段的候选带 `decision`/`notes`/`reviewed_at`，属复核者判断，
+   工具拒绝填充（`bootstrap_from_template_not_allowed`）。
+2. **重新生成再比对**：不是"信任模板"，而是用同一组权威重新生成，并与意图里记录的
+   `candidate_template` 逐字比对；不一致即 `bootstrap_template_drift`（记录已过期，不静默升级）。
+3. **不跳过校验**：materialize 只换了产生字节的方式，之后走的仍是原 `validate_candidate` 路径
+   （含 `contract_fields()`）。没有任何"跳过校验"的分支。
+4. **回执必须能分辨**：提交结果里 `materialized_from_template: true` / `authored: false`，
+   两者不会同时为真。审计者只看 `execution_authorized: false` 无法区分"工具写的字节"和"人写的字节"。

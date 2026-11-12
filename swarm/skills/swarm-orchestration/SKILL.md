@@ -110,6 +110,38 @@ Use the domain's actual schema/checker; generic text does not substitute for it.
 unfinished work as complete because a model turn or Worker ended. Bootstrap, recovery, business
 execution and closeout are separate phases. Long external jobs have separate capacity/accounting.
 
+### Waiting: one blocking call, never a blind sleep
+
+A session that waits for another agent has exactly one allowed form:
+
+```bash
+orca orchestration check --wait --types "worker_done,escalation,question" \
+  --timeout-ms 300000 --json 2> >(grep -v _keepalive >&2)
+```
+
+`sleep N` with `N >= 60`, repeated polling of `inbox`/`worker-list` to "see if something happened",
+and re-reading a file in a loop are not waiting strategies; they are the absence of one. They
+cannot be interrupted, they wake the model to do nothing, and after a long sleep the model has to
+re-derive what it was waiting for, which is where wrong actions come from.
+
+Two of these are CLI semantics (`--help`, `orca skills get orchestration`, and the check handler
+source); the 300 s window is a **repository policy**, not a CLI limit — the CLI accepts larger
+values, and this repo chooses not to use them so an interrupt stays distinguishable from a hang.
+
+1. **A wake is not a filtered message.** `check --wait` returns the whole FIFO Delivery; `--types`
+   decides what wakes the call, not what comes back. Dispatch by the type in each returned row, and
+   re-check the settled state before acting: a wake, an empty batch or a timeout never authorizes
+   `worker-start`, `worker-release`, `worker-abandon` or a retry.
+2. **stderr carries a `_keepalive` line every 15 s.** It is liveness of the CLI, not a message and
+   not evidence about the Worker. Do not parse it, and do not treat its presence as progress.
+3. **One call is bounded at 300 s (policy).** When it returns, re-enter another bounded call
+   rather than asking for a single 900 s window; a long window makes an interrupt
+   indistinguishable from a hang. `--timeout-ms` itself has no documented maximum, so this is a
+   choice this repository makes and the number lives here on purpose.
+
+`swarm/wait_for_events.py` implements exactly this contract (keepalive filtered, timeout as its own
+exit status, nothing else printed into the message stream) when a shell pipeline is awkward.
+
 For TUI continuation read [the TUI contract](../../coordinator-tui.md),
 [lifecycle](../../operator-startup.md) and [monitor](../../operator-monitor.md).
 A non-Agent sender is not the Operator Agent. Preserve fixed execution mode and native-event

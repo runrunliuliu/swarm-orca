@@ -153,9 +153,11 @@ class StrictCoordinatorTests(unittest.TestCase):
     def test_native_prompt_reads_protocol_before_saving_caller_outside_strict_start(self):
         plan = self.plan()
         prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
+        # Why the runbook is in this sentence: the stage table it carries is generated, so a
+        # launch that skips it falls back to re-deriving stages that the tool already named.
         read_first = (
-            "First, read the prompt file and strict startup protocol in full; "
-            "verify the supplied pins before caller-check or any filesystem writes.")
+            "First, read the prompt file, the strict startup protocol and the operator runbook in "
+            "full; verify the supplied pins before caller-check or any filesystem writes.")
         reserved = (
             "Protocol-owned directory (not an evidence directory): "
             + str(self.trae.bootstrap / "strict-start")

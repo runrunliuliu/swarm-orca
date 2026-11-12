@@ -1,8 +1,15 @@
 import { resolveAgentTypeFromTerminalTitle } from '@/components/sidebar/worktree-title-derived-agent-rows'
-import { classifyTitleActivity } from '@/lib/pane-agent-evidence'
+import type { TitleDerivedPaneForeground } from '@/components/sidebar/title-derived-pane-agent-identity'
+import {
+  classifyTitleActivity,
+  paneHasNoStatusEvidence,
+  titleClaimsStatus
+} from '@/lib/pane-agent-evidence'
 import { tabHasLivePty } from '@/lib/tab-has-live-pty'
 import { resolveRuntimePaneTitleLeafIdFromRoot } from '@/lib/runtime-pane-title-leaf-id'
 import { containsAgentSpinnerGlyph } from '../../../shared/agent-title-core'
+import { makePaneKey } from '../../../shared/stable-pane-id'
+import { titleShowsNoAgent } from '../../../shared/shell-process-detection'
 import { isSyntheticAgentPermissionTitle } from '../../../shared/synthetic-agent-title'
 import type {
   TerminalLayoutSnapshot,
@@ -20,6 +27,11 @@ export type WorktreeStatus =
   | 'failed'
   | 'interrupted'
   | 'done'
+  // Why: a live pane Orca can name as an agent that has reported no status at all —
+  // distinct from 'active' (a quiet shell) and from 'done' (a claim nothing supports).
+  // See paneHasNoStatusEvidence: the card says "no status reported" rather than
+  // letting an unreporting agent look like an idle terminal forever.
+  | 'no-evidence'
   | 'inactive'
 
 type WorktreeStatusHeuristicOptions = {
@@ -29,6 +41,8 @@ type WorktreeStatusHeuristicOptions = {
   stalePaneIdsByTabId?: Record<string, ReadonlySet<string>>
   terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
   terminalLayoutRootsByTabId?: Record<string, TerminalPaneLayoutNode | null | undefined>
+  /** Process-read identity per pane. A launch record alone is not identity — see the row builder. */
+  paneForegroundAgentByPaneKey?: Record<string, TitleDerivedPaneForeground>
 }
 
 const STATUS_LABELS: Record<WorktreeStatus, string> = {
@@ -39,6 +53,7 @@ const STATUS_LABELS: Record<WorktreeStatus, string> = {
   failed: 'Failed',
   interrupted: 'Interrupted',
   done: 'Done',
+  'no-evidence': 'No status reported',
   inactive: 'Inactive'
 }
 
@@ -66,10 +81,122 @@ export function getWorktreeStatus(
     return 'monitoring'
   }
   if (liveTabs.length > 0 || browserTabs.length > 0) {
+    // Why: an agent pane that never reported is the one live fact the user cannot infer
+    // from a green 'active' dot, so it is named instead of borrowed by "terminal open,
+    // quiet". A worktree whose live panes are plain shells keeps reading 'active'.
+    if (liveTabs.some((tab) => tabHasUnreportedAgent(tab, runtimePaneTitlesByTabId, options))) {
+      return 'no-evidence'
+    }
     // Why: browser-only worktrees (no PTY) are still active from the user's point of view.
     return 'active'
   }
   return 'inactive'
+}
+
+/** The tab facts this heuristic reads; full tabs satisfy it, and so do test literals. */
+type UnreportedAgentTab = {
+  id: string
+  title: string
+  launchAgent?: TerminalTab['launchAgent']
+  defaultTitle?: string
+}
+
+/**
+ * Whether this tab holds a pane that names an agent, has a live PTY, and claims no
+ * status: not a fresh row, not a stale one, and no title activity. The pane-level rule
+ * lives in `paneHasNoStatusEvidence`; this only supplies the per-pane facts, using the
+ * same pane-to-leaf resolution as `tabHasStatus` so the two cannot disagree about which
+ * pane an id belongs to.
+ */
+function tabHasUnreportedAgent(
+  tab: UnreportedAgentTab,
+  runtimePaneTitlesByTabId: Record<string, Record<number, string>>,
+  options: WorktreeStatusHeuristicOptions
+): boolean {
+  const freshPaneIds = options.agentStatusPaneIdsByTabId?.[tab.id]
+  const stalePaneIds = options.stalePaneIdsByTabId?.[tab.id]
+  const paneTitles = runtimePaneTitlesByTabId[tab.id]
+  const paneTitleEntries = paneTitles ? Object.entries(paneTitles) : []
+  if (paneTitleEntries.length === 0) {
+    return paneHasNoStatusEvidence({
+      hasAgentIdentity: paneIdentifiesAgent({
+        tab,
+        title: tab.title,
+        leafId: onlyPaneLeafId(tab.id, options),
+        options
+      }),
+      // Why tab-level liveness: `getWorktreeStatus` already dropped tabs with no live PTY, and
+      // these rows exist for the tab's remaining panes. Per-pane liveness would need
+      // `layout.ptyIdsByLeafId` (the leaf→PTY binding the reveal/activation readers use), which
+      // the sidebar does not select — it carries layout roots only. Known over-claim: in a split
+      // whose pane died while its runtime title and process read survived, that dead pane still
+      // counts as a candidate. Deliberately not narrowed here alone: the row builder makes the
+      // identical tab-level assumption, so a smarter dot would disagree with its own row. Fixing
+      // it means gating both layers on the same binding; pinned by the "known over-claim" test.
+      hasLivePty: true,
+      hasHookClaim: Boolean(freshPaneIds?.size || stalePaneIds?.size),
+      hasTitleClaim: titleClaimsStatus(tab.title)
+    })
+  }
+  const tabLayoutRoot =
+    options.terminalLayoutRootsByTabId?.[tab.id] ?? options.terminalLayoutsByTabId?.[tab.id]?.root
+  return paneTitleEntries.some(([runtimePaneId, title]) => {
+    const leafId = resolveRuntimePaneTitleLeafIdFromRoot(tabLayoutRoot, runtimePaneId)
+    return paneHasNoStatusEvidence({
+      hasAgentIdentity: paneIdentifiesAgent({ tab, title, leafId, options }),
+      hasLivePty: true,
+      hasHookClaim: Boolean(
+        freshPaneIds?.has(runtimePaneId) ||
+        (leafId !== null && freshPaneIds?.has(leafId)) ||
+        stalePaneIds?.has(runtimePaneId) ||
+        (leafId !== null && stalePaneIds?.has(leafId))
+      ),
+      hasTitleClaim: titleClaimsStatus(title)
+    })
+  })
+}
+
+/**
+ * The leaf a tab-level title belongs to: the active leaf when the caller carries a full
+ * layout, else the root itself when the tab is a single pane. Callers that only select
+ * `terminalLayoutRootsByTabId` (the sidebar) take the second path.
+ */
+function onlyPaneLeafId(tabId: string, options: WorktreeStatusHeuristicOptions): string | null {
+  const layout = options.terminalLayoutsByTabId?.[tabId]
+  if (layout) {
+    return layout.activeLeafId
+  }
+  const root = options.terminalLayoutRootsByTabId?.[tabId]
+  return root?.type === 'leaf' ? root.leafId : null
+}
+
+/**
+ * Whether this pane's OWN evidence names an agent: a title that presents one, or a live
+ * process read. Deliberately not `launchAgent` — that is a tab-scoped latch with no run id, and
+ * the row builder rejects it for a plain title ("never keeps a plain-title row on the launch
+ * record alone"). Reading it here would let the card claim an agent the sidebar does not show.
+ */
+function paneIdentifiesAgent(args: {
+  tab: UnreportedAgentTab
+  title: string
+  leafId: string | null
+  options: WorktreeStatusHeuristicOptions
+}): boolean {
+  if (resolveAgentTypeFromTerminalTitle(args.title) !== null) {
+    return true
+  }
+  if (args.leafId === null) {
+    return false
+  }
+  const foreground =
+    args.options.paneForegroundAgentByPaneKey?.[makePaneKey(args.tab.id, args.leafId)]
+  // Why: a read that predates the shell's return is not identity (see `titleRetiresProcessRead`
+  // in the row builder), and a reattach's launch-record seed is not a read at all.
+  return (
+    foreground?.agentEvidence === 'process-read' &&
+    foreground.agent !== null &&
+    !titleShowsNoAgent(args.title, args.tab.defaultTitle)
+  )
 }
 
 function tabHasStatus(
@@ -180,6 +307,7 @@ export function resolveWorktreeStatus(args: {
   stalePaneIdsByTabId?: Record<string, ReadonlySet<string>>
   terminalLayoutsByTabId?: Record<string, TerminalLayoutSnapshot | undefined>
   terminalLayoutRootsByTabId?: Record<string, TerminalPaneLayoutNode | null | undefined>
+  paneForegroundAgentByPaneKey?: Record<string, TitleDerivedPaneForeground>
   hasPermission: boolean
   hasLiveWorking: boolean
   hasLiveMonitoring?: boolean
@@ -198,7 +326,8 @@ export function resolveWorktreeStatus(args: {
       agentStatusPaneIdsByTabId: args.agentStatusPaneIdsByTabId,
       stalePaneIdsByTabId: args.stalePaneIdsByTabId,
       terminalLayoutsByTabId: args.terminalLayoutsByTabId,
-      terminalLayoutRootsByTabId: args.terminalLayoutRootsByTabId
+      terminalLayoutRootsByTabId: args.terminalLayoutRootsByTabId,
+      paneForegroundAgentByPaneKey: args.paneForegroundAgentByPaneKey
     }
   )
   if (args.hasPermission) {
@@ -231,5 +360,7 @@ export function resolveWorktreeStatus(args: {
   if (args.hasLiveDone || args.hasRetainedDone) {
     return 'done'
   }
+  // Why: every reported state returned above, so `no-evidence` can only reach here as the
+  // quietest LIVE answer — it never displaces a claim, and never stands in for one.
   return heuristic
 }

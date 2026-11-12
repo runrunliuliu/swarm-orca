@@ -9,6 +9,10 @@ import {
   validateCommandAndFlags
 } from './args'
 import { readOrcaCliVersion } from './cli-version'
+import {
+  describeCliBuildIdentityFailure,
+  readCliBuildIdentity
+} from './cli-build-identity'
 import { dispatch } from './dispatch'
 import {
   assertEnvironmentSelectorResolvable,
@@ -44,6 +48,18 @@ function shouldIgnoreRemoteSelection(commandPath: string[]): boolean {
   )
 }
 
+// Why: `--version` (and `-v`) may be followed by `--json`, but nothing else belongs to it —
+// `orca worktree list --version` must keep meaning whatever the normal parser gives it.
+function isVersionInvocation(argv: string[]): boolean {
+  if (argv.length === 0 || argv.length > 2) {
+    return false
+  }
+  if (argv[0] !== '--version' && argv[0] !== '-v') {
+    return false
+  }
+  return argv.slice(1).every((arg) => arg === '--json' || arg === '-v' || arg === '--version')
+}
+
 // Why: the RuntimeClient graph is 153 of the CLI's 199 eager modules (zod via
 // shared/pairing, ws + tweetnacl via websocket-transport). Loading it here
 // rather than at module scope means --help, `help <cmd>`, and command/flag
@@ -67,7 +83,20 @@ export async function main(
   cwd = resolveInvocationCwd()
 ): Promise<void> {
   // Why: version audits use the bundled launcher; Electron intercepts direct binary version flags.
-  if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-v')) {
+  if (isVersionInvocation(argv)) {
+    if (argv.includes('--json')) {
+      // Why an exit code: a manifest that pipes this into a build record must be able to tell
+      // "this host has no pointer" from "this host's pointer is broken", and must not record a
+      // healthy-looking answer when the pointer exists but cannot be followed.
+      const { report, exitCode } = readCliBuildIdentity()
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+      process.exitCode = exitCode
+      const failure = exitCode === 0 ? null : describeCliBuildIdentityFailure(report)
+      if (failure) {
+        process.stderr.write(`orca: ${failure}\n`)
+      }
+      return
+    }
     const version = readOrcaCliVersion()
     if (!version) {
       process.stderr.write('Could not determine the Orca version for this build.\n')

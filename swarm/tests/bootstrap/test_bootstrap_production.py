@@ -27,6 +27,7 @@ from bootstrap_protocol import EVENTS
 from bootstrap_tool import RoleTool, cli_main
 from coordinator_io import canonical, digest, file_ref, now, parse, pinned, publish_new, read_json, timestamp
 import bootstrap.test_bootstrap_flow as flow_tests
+from publication_wait_fixture import polling_watch
 
 
 class TestIdentity:
@@ -886,7 +887,8 @@ class ProductionTests(unittest.TestCase):
                     patch("coordinator_strict_start.check_session", return_value={"ok": True}), \
                     patch("coordinator_strict_start.native", side_effect=native), \
                     patch("coordinator_strict_start.now", side_effect=lambda: f.base.clock.isoformat()), \
-                    patch("coordinator_strict_start.time", wraps=time) as start_time:
+                    patch("coordinator_strict_start.time", wraps=time) as start_time, \
+                    patch("publication_wait.watch", polling_watch(sleep)):
                 # Do not replace process-global time.sleep: subprocess uses it
                 # while waiting for the real owner-signature verifier.
                 start_time.sleep.side_effect = sleep

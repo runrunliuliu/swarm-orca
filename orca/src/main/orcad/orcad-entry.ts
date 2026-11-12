@@ -362,6 +362,33 @@ async function startOrcadRuntime(
   getAppEnvironment().onWillQuit(() => pushService?.stop())
   console.error(`[orcad] ${describeOrcadBindExposure(bindHost)}`)
 
+  // Why here and not at the top of startup: the pointer promises that bare `orca` runs the CLI of
+  // the build serving this host, so a daemon that failed to bind its transport must not claim it.
+  // Why orcad publishes at all: it used to be written only by the Electron main process, which is
+  // why a headless update left bare `orca` pointing at a months-old desktop build.
+  if (!successor && process.platform === 'linux') {
+    try {
+      const { publishOrcadServingBuildPointer } = await import('./orcad-build-pointer')
+      const outcome = await publishOrcadServingBuildPointer({
+        installRoot: resolveOrcadInstallRoot()
+      })
+      if (outcome.state !== 'skipped') {
+        console.error(
+          `[orcad] build pointer ${outcome.state}: ${outcome.pointer.pointerPath} -> ${outcome.pointer.installDir}` +
+            ` (${outcome.dispatcher.state}${outcome.dispatcher.failure ? `, ${outcome.dispatcher.failure}` : ''})`
+        )
+      }
+    } catch (error) {
+      // Why not fatal: serving without a pointer is degraded (bare `orca` keeps its previous
+      // target), while refusing to serve because a machine-wide name could not be updated is not
+      // proportionate. The message has to name the problem, though — silence is the old bug.
+      console.warn(
+        '[orcad] build pointer not published:',
+        error instanceof Error ? error.message : String(error)
+      )
+    }
+  }
+
   const readiness = buildOrcadReadiness(runtime.getRuntimeId(), rpc, options)
   if (!successor) {
     readiness.health = await collectOrcadHealth(

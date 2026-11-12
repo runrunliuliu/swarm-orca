@@ -17,11 +17,14 @@ afterEach(() => {
 })
 
 describe('vitest real-agent-home write guard', () => {
-  it.each(['.codex', '.trae'])('refuses a named-import sync write under the real ~/%s', (entry) => {
-    const target = join(missingRealFolder(entry), 'config.toml')
-    expect(() => writeFileSync(target, '[projects."/tmp/x"]\n')).toThrow(/real-agent-home guard/)
-    expect(existsSync(target)).toBe(false)
-  })
+  it.each(['.codex', '.trae', '.local/bin'])(
+    'refuses a named-import sync write under the real ~/%s',
+    (entry) => {
+      const target = join(missingRealFolder(entry), 'config.toml')
+      expect(() => writeFileSync(target, '[projects."/tmp/x"]\n')).toThrow(/real-agent-home guard/)
+      expect(existsSync(target)).toBe(false)
+    }
+  )
 
   it('refuses a promise write under a ~/.claude.json sibling', async () => {
     const target = join(missingRealFolder('.claude.json'), 'x.tmp')

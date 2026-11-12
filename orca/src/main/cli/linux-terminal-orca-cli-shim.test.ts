@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +18,15 @@ vi.mock('electron', () => ({
 }))
 
 import { resolveAppImageLauncherEndpointPath } from './appimage-stable-launcher'
+import { publishOrcaBuildPointer } from './build-pointer'
 import { ensureLinuxTerminalOrcaCliShimDir } from './linux-terminal-orca-cli-shim'
+import {
+  ORCA_BUILD_CLI_ARGV_FILENAME,
+  ORCA_BUILD_IDENTITY_FILENAME,
+  formatOrcaBuildCliArgv,
+  formatOrcaBuildIdentity,
+  type OrcaBuildIdentity
+} from '../../shared/build-pointer'
 
 const created: string[] = []
 const canFenceAppImageRuntime = process.platform === 'linux' && existsSync('/proc/self/stat')
@@ -303,4 +319,102 @@ printf '%s\\n' "$ORCA_USER_DATA_PATH" "$ORCA_CLI_COMMAND" "\${ORCA_ENVIRONMENT-u
     })
     expect(recovered).toBe(join(userDataPath, 'linux-orca-cli-shim'))
   })
+
+  it.skipIf(process.platform === 'win32')(
+    'follows the version pointer inside terminals and picks up a promotion without a rewrite',
+    async () => {
+      const { userDataPath, resourcesPath } = await makeFixture()
+      const root = await mkdtemp(join(tmpdir(), 'orca-terminal-cli-shim-pointer-'))
+      created.push(root)
+      const pointerPath = join(root, 'opt', 'current')
+      const first = makePointerArtifact(root, 'orcad-apex-0.1.0-4046bdb7dbaa')
+      const second = makePointerArtifact(root, 'orcad-apex-0.1.0-c3db8076b401')
+      publishOrcaBuildPointer({ pointerPath, identity: first.identity })
+      const shimDir = ensureLinuxTerminalOrcaCliShimDir({
+        userDataPath,
+        resourcesPath,
+        appImagePath: null,
+        buildPointerPath: pointerPath
+      })
+      const shimPath = join(shimDir!, 'orca')
+      const written = readFileSync(shimPath, 'utf8')
+      expect(written).toContain(`pointer='${pointerPath}'`)
+
+      const run = () =>
+        runProcess({
+          program: shimPath,
+          args: [],
+          env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+          timeoutMs: 3_000
+        })
+      await expect(run()).resolves.toMatchObject({
+        code: 0,
+        stdout: 'orcad-apex-0.1.0-4046bdb7dbaa\n'
+      })
+
+      // Only the pointer moves: the terminal shim was written once.
+      publishOrcaBuildPointer({ pointerPath, identity: second.identity })
+      expect(readFileSync(shimPath, 'utf8')).toBe(written)
+      await expect(run()).resolves.toMatchObject({
+        code: 0,
+        stdout: 'orcad-apex-0.1.0-c3db8076b401\n'
+      })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'fails closed inside terminals when the version pointer dangles',
+    async () => {
+      const { userDataPath, resourcesPath } = await makeFixture()
+      const root = await mkdtemp(join(tmpdir(), 'orca-terminal-cli-shim-pointer-broken-'))
+      created.push(root)
+      const pointerPath = join(root, 'opt', 'current')
+      const artifact = makePointerArtifact(root, 'orcad-apex-0.1.0-4046bdb7dbaa')
+      publishOrcaBuildPointer({ pointerPath, identity: artifact.identity })
+      ensureLinuxTerminalOrcaCliShimDir({
+        userDataPath,
+        resourcesPath,
+        appImagePath: null,
+        buildPointerPath: pointerPath
+      })
+      rmSync(artifact.identity.installDir, { recursive: true, force: true })
+
+      const result = await runProcess({
+        program: join(userDataPath, 'linux-orca-cli-shim', 'orca'),
+        args: [],
+        env: { PATH: process.env.PATH ?? '/usr/bin:/bin' },
+        timeoutMs: 3_000
+      })
+      // Why no fallback to the bundled launcher: a half-promoted host must say so, not serve an
+      // older build that happens to still be on disk.
+      expect(result.code).toBe(1)
+      expect(result.stdout).toBe('')
+      expect(result.stderr).toContain('dangling')
+    }
+  )
 })
+
+/** A published artifact whose launcher prints its own directory name. */
+function makePointerArtifact(
+  root: string,
+  name: string
+): { identity: OrcaBuildIdentity } {
+  const installDir = join(root, name)
+  mkdirSync(installDir, { recursive: true })
+  const launcher = join(installDir, 'bun-runtime')
+  writeFileSync(launcher, `#!/usr/bin/env bash\nprintf '%s\\n' '${name}'\n`, { mode: 0o755 })
+  const identity: OrcaBuildIdentity = {
+    schemaVersion: 1,
+    artifact: 'orcad',
+    version: '0.1.0',
+    buildId: name.slice(-12),
+    buildTarget: 'linux-x64-glibc',
+    installDir,
+    cli: { executable: launcher, args: [] },
+    publishedAt: '2026-11-11T08:50:00.000Z',
+    publisher: { kind: 'orcad', pid: 1, version: '0.1.0' }
+  }
+  writeFileSync(join(installDir, ORCA_BUILD_IDENTITY_FILENAME), formatOrcaBuildIdentity(identity))
+  writeFileSync(join(installDir, ORCA_BUILD_CLI_ARGV_FILENAME), formatOrcaBuildCliArgv(identity.cli))
+  return { identity }
+}

@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from bootstrap_tool import RoleTool, SUBMIT_TARGETS, cli_main
-from coordinator_io import digest, file_ref, parse, pinned, publish_new
+from coordinator_io import canonical, digest, file_ref, parse, pinned, publish_new
 import bootstrap.test_bootstrap_production as production_tests
 
 
@@ -119,6 +119,81 @@ class SubmissionTests(unittest.TestCase):
                     tool.submit(action["intent"], ref)
                 self.assert_unchanged(owner, attempted, confirmations)
                 self.assertFalse(Path(action["result_path"]).exists())
+
+    def test_from_template_materializes_the_fields_candidate_and_says_so(self):
+        # Why: the fields candidate is fully determined by the contract, so writing it by hand is
+        # a turn spent copying a template. The tool may materialize it, but the reply has to say
+        # that the bytes were materialized rather than authored - an auditor reading only
+        # "execution_authorized: false" cannot tell the difference.
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            self.assertEqual(action["action"], "fields-intent")
+            result = tool.submit(action["intent"], from_template=True)
+            self.assertTrue(result["materialized_from_template"])
+            self.assertFalse(result["authored"])
+            self.assertEqual(Path(result["result"]["path"]), Path(action["result_path"]))
+            self.assertEqual(parse(pinned(result["result"])),
+                             action["payload"]["candidate_template"])
+
+    def test_candidate_ref_is_none_when_the_tool_materializes_the_bytes(self):
+        # Why this exists: the direct tool call passes source_ref=None, so a CLI that fabricated
+        # {path: None, sha256: None} kept the unit test green while the documented command could
+        # never work. The argv contract is pinned here instead of through a live runtime.
+        from argparse import Namespace
+        from bootstrap_tool import candidate_ref
+        self.assertIsNone(candidate_ref(Namespace(from_template=True, input=None, input_sha256=None)))
+        self.assertEqual(candidate_ref(Namespace(from_template=False, input="/c.json", input_sha256="ab")),
+                         {"path": "/c.json", "sha256": "ab"})
+
+    def test_from_template_is_refused_outside_submit_before_any_connection(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = cli_main(["readiness", "--owner", "/nonexistent", "--owner-sha256", "00" * 32,
+                             "--actor", "operator", "--intent", "/nonexistent",
+                             "--intent-sha256", "00" * 32, "--from-template", "--execute"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("bootstrap_from_template_requires_submit", output.getvalue())
+
+    def test_a_rejected_from_template_submit_leaves_no_candidate_behind(self):
+        # Why: the bytes are the tool's. If validation refuses them, keeping the file would make
+        # the next attempt fail on a candidate the caller never wrote - and the failure would look
+        # like the caller's mistake.
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            candidate = Path(action["submission"]["candidate_path"])
+            with patch.object(type(tool), "validate_candidate",
+                       side_effect=ValueError("bootstrap_fields_invalid")), \
+                    self.assertRaisesRegex(ValueError, "bootstrap_fields_invalid"):
+                tool.submit(action["intent"], from_template=True)
+            self.assertFalse(candidate.exists(), "materialized candidate survived a rejection")
+            self.assertFalse(Path(action["result_path"]).exists())
+
+    def test_from_template_refuses_a_review_stage(self):
+        # Why: a review candidate carries decision/notes/reviewed_at. Materializing it would put
+        # the tool's bytes where a reviewer's judgement belongs.
+        with submission_fixture("contract-intent", real_stage=True) as (f, owner, client, _, tool, action):
+            with self.assertRaisesRegex(ValueError, "bootstrap_from_template_not_allowed"):
+                tool.submit(action["intent"], from_template=True)
+            self.assertFalse(Path(action["result_path"]).exists())
+
+    def test_from_template_refuses_when_the_pinned_template_drifted(self):
+        # Why: the intent records the template it handed out. If the authorities now produce a
+        # different one, the recorded intent is stale and must not be silently upgraded.
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            with patch.object(tool, "template", return_value={"drifted": True}), \
+                    self.assertRaisesRegex(ValueError, "bootstrap_template_drift"):
+                tool.submit(action["intent"], from_template=True)
+            self.assertFalse(Path(action["result_path"]).exists())
+
+    def test_from_template_still_runs_the_candidate_validator(self):
+        # Why: the second write path must not become a second validation path. Breaking the
+        # validator has to break --from-template exactly as it breaks a hand-authored submit.
+        with submission_fixture(real_stage=True) as (f, owner, client, _, tool, action):
+            attempted, confirmations = dict(owner.attempted), set(owner.confirmations)
+            with patch("bootstrap_tool.contract_fields",
+                       side_effect=ValueError("bootstrap_fields_invalid")), \
+                    self.assertRaisesRegex(ValueError, "bootstrap_fields_invalid"):
+                tool.submit(action["intent"], from_template=True)
+            self.assert_unchanged(owner, attempted, confirmations)
+            self.assertFalse(Path(action["result_path"]).exists())
 
     def test_old_intent_is_not_rewritten_or_silently_upgraded(self):
         with submission_fixture(legacy=True) as (f, owner, client, _, tool, action):

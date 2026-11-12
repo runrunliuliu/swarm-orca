@@ -84,7 +84,7 @@ Pi 没有 approval/sandbox 面，Operator 的 `expected_effective` 只能要求
 不当成已核实。Run 之后的 continuation/scheduler 仍是 Trae 路径（已知边界）。
 用 pi 会话当 Operator 时，错误在 gate 前出现，不产生观察文件、不占目录、不发 gate。
 挂 bootstrap registration 的两个 gate role 同样各自声明 `provider`
-（[schema v2](strict-bootstrap-protocol.md#122-显式工具契约)），非法/不可核验声明在启动 owner
+（[schema v2](strict-bootstrap-offline.md#122-显式工具契约)），非法/不可核验声明在启动 owner
 前停止（`bootstrap_<role>_provider_evidence_unavailable` 等）。两个 role 的 provider 可以不同
 （例如 Pi Operator + Trae Coordinator），各自按自己的证据核验。
 
@@ -306,7 +306,13 @@ python3 -B /absolute/swarm/coordinator_launch.py strict-config-plan --request /a
 
 `strict-config-wait` 不需要 `--execute`：只等待准确 `strict-config-ready.json`，不写
 ready/gate、不创建 Run、不执行发布文件中的文本。等待受原绝对 deadline 与 monotonic
-上界约束，入口剩余窗口为 `(0,900]` 秒，每 250ms 轮询；deadline 不因准备或交付刷新。
+上界约束，入口剩余窗口为 `(0,900]` 秒；deadline 不因准备或交付刷新。
+等待由目标文件的 inotify 事件**提前唤醒**，但事件只允许缩短等待、不允许定义等待：轮询兜底
+始终挂着。inotify 打不开（`watch()` 返回 None）时保持原来的 250 ms 轮询节奏，与改动前完全
+一致；inotify 可用但事件丢失时按 1.5 秒兜底，这 1.5 秒就是该情形下的最坏交付延迟。
+每次等待在 stderr 打印一行 `publication_wait` 诊断（`kind`、`inotify`、`events`、`timeouts`、
+`fallback_seconds`）；`events` 近 0 而 `timeouts` 增长即说明该挂载上事件没到，
+`fallback_seconds` 是真实延迟。
 它在等待前及返回前核对 live caller。请求文件改变、准确发布路径出现不完整 JSON、
 悬空链接、拒绝访问、错误 pin/绑定或过期都停止，不换路径继续扫描。
 
@@ -374,7 +380,9 @@ prepare/plan/publish/wait 入口要求剩余时间 **大于 0 且不超过 900 �
 `strict_start_wait_must_be_bounded_to_900_seconds`。prepare 初检失败不写文件，提交前复查发现
 到期则保留中间证据、不发布提交标记；即使已有 start 文件也不可消费。
 plan/wait 仍独立检查，不把准备成功当作时效保证。
-wall-clock 与 monotonic 同时限制等待，轮询间隔 250ms。
+wall-clock 与 monotonic 同时限制等待；`gate-ready.json` 的等待同样由 inotify 事件提前唤醒，
+轮询兜底常挂：inotify 不可用时保持 250 ms 节奏（与改动前一致），事件丢失时按 1.5 秒兜底；
+两种周期都由 stderr 的 `publication_wait` 诊断行给出。
 每次 attempt 的 request_id 必须唯一 UUID，不能复用；不得改写旧 deadline/pin 使失败重试。
 
 ```text
@@ -504,3 +512,13 @@ Operator 必须按**当前环境实测**判断可用余量，不得假设某个�
 只有后续调用更新后的脚本、生成并审查的新契约/计划采用新默认及阶段提示；旧契约和运行中
 进程不热更新。阶段提示参与启动计划 hash，旧计划不可用新提示重签后冒充原计划；
 本修复不会同步远端副本、恢复既有 Run 或自动开启新 attempt。
+
+## 等待的唯一形式
+
+等待另一个 Agent 只允许一种形式：`orca orchestration check --wait --types … --timeout-ms 300000 --json`
+（或用 `swarm/wait_for_events.py` 同一契约的封装）。`sleep N`（N≥60）、反复轮询 inbox、循环重读同一个文件都
+不是等待策略。三条硬约束：返回的是整批 FIFO Delivery（`--types` 只是唤醒条件，不过滤返回行，唤醒后按类型分发
+并复核 settle）；stderr 每 15 s 一条 `_keepalive` 是 CLI 存活提示，不是消息也不是进度；单片 ≤300 s，被唤醒后
+重新进片。空返回或超时只允许「枚举 + 再等」，不授权 start/release/abandon/retry。
+完整规则与退出码语义见 [swarm-orchestration skill](skills/swarm-orchestration/SKILL.md) 的
+“Waiting: one blocking call, never a blind sleep”。

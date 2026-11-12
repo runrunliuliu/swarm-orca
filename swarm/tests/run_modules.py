@@ -13,12 +13,20 @@ captured output of each failing module so the log still carries the failing asse
 
 import argparse
 import concurrent.futures
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# unittest options whose value is a separate token. Anything here may appear after `--` without
+# being mistaken for a module name by the stray-argument gate below.
+VALUE_OPTIONS = {
+    "-k", "-p", "-s", "-t", "--pattern", "--start-directory", "--top-level-directory",
+    "--durations",
+}
 
 
 def count_tests(output):
@@ -48,6 +56,26 @@ def main():
                         help="options forwarded to each module's unittest run")
     args = parser.parse_args()
     extra = args.extra[1:] if args.extra[:1] == ["--"] else args.extra
+    # Why refuse here as well as in the shell runner: a caller that skips the runner and passes a
+    # module name after `--` made every worker run that module too (unittest takes the extra argv
+    # as more modules to load), which inflates the test count while every module still reports ok.
+    # A token that is the *value* of an option (`-k pattern`) is not a module name, so the scan
+    # walks the argv instead of testing each token on its own.
+    stray = []
+    pending_value = False
+    for token in extra:
+        if pending_value:
+            pending_value = False
+            continue
+        if token in VALUE_OPTIONS:
+            pending_value = True
+            continue
+        if not token.startswith("-"):
+            stray.append(token)
+    if stray:
+        parser.error(
+            "module names belong on stdin, not after --: " + " ".join(stray)
+            + "; use tests/run_offline.sh --modules a.b c.d instead")
     modules = [line.strip() for line in sys.stdin if line.strip()]
     if args.jobs < 1:
         parser.error("--jobs must be a positive integer")
@@ -81,6 +109,14 @@ def main():
     # Why compare counts: the helper's contract is "everything you were given ran", so a
     # silently dropped module has to fail the run instead of shrinking it.
     missing = len(modules) - ran
+    # Why these two words: an explicit `--modules` run must never be reportable as an offline PASS,
+    # so it says how much of the suite it covered and uses a status word that cannot be mistaken
+    # for one (`TARGETED OK`). The denominator comes from the runner, not from the list here.
+    explicit = os.environ.get("RUN_OFFLINE_SELECTION") == "explicit"
+    suite_total = os.environ.get("RUN_OFFLINE_TOTAL")
+    if explicit:
+        denominator = suite_total if suite_total and suite_total.isdigit() else "?"
+        print(f"selection: {len(modules)}/{denominator} modules (explicit)", flush=True)
     print(f"modules: {ran}/{len(modules)}   jobs: {args.jobs}   elapsed: "
           f"{time.monotonic() - started:.1f}s", flush=True)
     print(f"tests: {total if known else 'unknown (a module reported no count)'}", flush=True)
@@ -90,7 +126,7 @@ def main():
     if missing:
         print(f"FAILED ({missing} module(s) never ran)", flush=True)
         return 1
-    print("OK", flush=True)
+    print("TARGETED OK" if explicit else "OK", flush=True)
     return 0
 
 

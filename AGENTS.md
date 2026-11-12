@@ -49,6 +49,9 @@ Private policy, live configuration, and historical results stay in the private w
 Python (from `swarm-orca/swarm`):
 
 ```bash
+tests/run_blast.sh --range HEAD~1             # default: the modules this diff can affect
+tests/run_blast.sh --range main --dry-run     # the selection only, nothing starts
+tests/run_offline.sh --modules a.b c.d         # named modules, exactly those
 tests/run_offline.sh                          # full suite (optional whole-suite signal)
 tests/run_offline.sh --fast                   # full suite minus the seven wall-time dominators
 tests/run_offline.sh -p "test_coordinator_*"  # one area (runs sequentially)
@@ -70,19 +73,23 @@ failed two modules on their own deadlines (`operators.test_operator_monitor_depl
 without it is not a valid change. `SWARM_PIN_CACHE=0` disables the reuse.
 
 Run the narrowest command that covers the change. **A full-suite run is not required** — not
-while iterating and not before delivery. Select tests from the change's blast radius yourself;
-that is authorization, not a request. Map `swarm/<module>.py` to `tests/<area>/test_<module>.py`
-plus the modules that call it; widen to the whole area when you touch a shared module
-(`coordinator_io.py`, `blocking_io.py`), because the source pins make the impact reach far past
-the direct importers. Run `tests/core/test_offline_baseline.py` whenever you edit the runner,
+while iterating and not before delivery. The blast radius is now a command, not a judgement call:
+`tests/run_blast.sh --range <rev>` maps a diff to modules and runs them. Its rules are fixed in
+`tests/blast_radius.py` (same basename, tests that import the module, one hop of source
+importers, a changed helper under `tests/` mapped to the test modules importing it, plus the
+explicit `SHARED_MAP` policy) so two people cannot get two answers; it is not the transitive
+closure and not "grep for the name". An empty selection exits 2 — "nothing was
+selected" is never reported as a pass. What it cannot see (dynamic imports, subprocess argv,
+fixture-only coupling) is stated in `run_blast.sh --help`; widen by hand or run the full suite
+when that is the honest option. Run `tests/core/test_offline_baseline.py` whenever you edit the runner,
 the `SLOW` list, the suite layout or a documented gate claim: it pins `--list` against
 discovery, the fast/full difference and the `--jobs` contract. When the blast radius is unclear,
 pick the wider set — the rule is "add evidence", never "skip it".
 
 Report what actually ran: name the modules (or the `-p` pattern), the mode and the job count,
 and say plainly what you did not run. `--fast` output is iteration feedback, not a gate claim;
-a targeted run is a targeted result, and "offline PASS" only ever describes a run that actually
-executed the whole suite. This matches `docs/testing/reliability.md:57` (日常回归按变更影响选择；
+a targeted run is a targeted result (`selection: k/N modules (explicit)`, `TARGETED OK`), and
+"offline PASS" only ever describes a run that actually executed the whole suite. This matches `docs/testing/reliability.md:57` (日常回归按变更影响选择；
 变更影响不明时补验).
 
 The full suite still exists as an optional whole-suite signal — about eight minutes of real
@@ -201,6 +208,21 @@ Pick the execution entry before the skill: [entry paths](swarm/docs/entry-paths.
 identity and workspace isolation, then covers when not to convene several agents, which of the three
 mutually exclusive execution paths a task belongs to, and how a domain adapter attaches. It is a
 routing index, not a mode enumeration and not a grant of authority.
+
+## Symbol lookup: the index answers "where", searching is the fallback
+
+`swarm/ORIENTATION.md` is generated (`generate_orientation.py`; `--check` fails when it disagrees
+with the code) and holds one row per protocol-named symbol: path plus line range. Look a name up
+there first, read the range it gives, and search only when the table has no entry. Still open the
+source before relying on the answer: the index says where to read, not what is true, and a stale
+row is worse than a search.
+
+Measured, because "read it if useful" does not change behaviour: on the same read-only task and
+model, panes given this rule as a pointer ran 23–29 symbol searches where panes told nothing ran
+33–43, and 26.5 model turns against 35.5. Searches were 52–70% of every measured pane's tool calls,
+so this is the largest single lever on orientation time — fewer probes, not more per turn. The
+numbers are from a controlled A/B outside this repository; they are stated for the reason the rule
+exists, not as a promise about another task.
 
 ## Skills
 

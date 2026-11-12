@@ -1,5 +1,5 @@
 import React from 'react'
-import { Activity } from 'lucide-react'
+import { Activity, CircleDashed } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AgentQuestionIcon } from '@/components/AgentQuestionIcon'
 import { AgentWorkingSpinner } from '@/components/AgentWorkingSpinner'
@@ -27,7 +27,10 @@ const AGENT_STATUS_TOOLTIP_STATUSES = new Set<Status>([
   'permission',
   'failed',
   'interrupted',
-  'done'
+  'done',
+  // Why: the tooltip is the only place this status can explain itself — the glyph is
+  // deliberately quiet because Orca knows nothing about the agent's activity.
+  'no-evidence'
 ])
 
 const StatusIndicator = React.memo(function StatusIndicator({
@@ -57,6 +60,17 @@ const StatusIndicator = React.memo(function StatusIndicator({
         {...rest}
       >
         <Activity className="size-3 text-yellow-500" aria-hidden="true" />
+      </span>
+    )
+  } else if (status === 'no-evidence') {
+    // Why: same dashed-amber vocabulary the agent row uses for "incomplete information"
+    // (see AgentStateDot's `unverifiable`), so a card and its row cannot look contradictory.
+    indicator = (
+      <span
+        className={cn('inline-flex h-3 w-3 shrink-0 items-center justify-center', className)}
+        {...rest}
+      >
+        <CircleDashed className="size-3 text-amber-500" aria-hidden="true" />
       </span>
     )
   } else if (status === 'failed' || status === 'interrupted') {

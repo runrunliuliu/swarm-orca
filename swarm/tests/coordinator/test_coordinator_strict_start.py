@@ -8,13 +8,20 @@ from pathlib import Path
 import time
 import subprocess
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from coordinator_io import file_ref, parse, pinned, publish_new, timestamp
 from coordinator_launch import main
 from coordinator_strict_start import plan, publish, wait_and_create
 import coordinator.test_coordinator_strict as strict_tests
+from publication_wait_fixture import PollingWatcher
+import coordinator_strict_start
+import publication_wait
+
+# Captured before any fixture patches it: the prepare fixture nests this one, so a
+# test that wants the real inotify watcher cannot resolve the name at setUp time.
+REAL_WATCH = publication_wait.watch
 
 
 class GatePublicationBusyTests(unittest.TestCase):
@@ -112,6 +119,23 @@ class StrictStartTests(unittest.TestCase):
         sleeper = patch("coordinator_strict_start.time.sleep", side_effect=self.sleep)
         sleeper.start()
         self.addCleanup(sleeper.stop)
+        # The waits are real inotify polls now, so a publication cannot be triggered by `sleep`.
+        # These tests keep their old semantics by substituting the waiter itself: one passive
+        # watcher per wait, spending exactly one tick through the (still patched) sleep. The two
+        # event tests below put the real watcher back.
+        self.real_watcher = False
+        self.watch_targets, self.watchers = [], []
+
+        def fake_watch(target):
+            self.watch_targets.append(str(target))
+            watcher = (REAL_WATCH(target) if self.real_watcher
+                       else PollingWatcher(lambda seconds: coordinator_strict_start.time.sleep(seconds)))
+            self.watchers.append(watcher)
+            return watcher
+
+        watcher = patch("publication_wait.watch", side_effect=fake_watch)
+        watcher.start()
+        self.addCleanup(watcher.stop)
         os.environ["ORCA_TERMINAL_HANDLE"] = "term_test"
 
     def sleep(self, seconds):
@@ -635,6 +659,65 @@ class StrictStartTests(unittest.TestCase):
         ref = self.gate.ref("bad-start.json", self.config)
         with self.assertRaisesRegex(ValueError, "skill_evidence_is_observation"):
             plan(ref)
+
+    def records(self, kind, stderr):
+        rows = [json.loads(line) for line in stderr.getvalue().splitlines() if line.startswith("{")]
+        return [row for row in rows if row.get("event") == "publication_wait" and row.get("kind") == kind]
+
+    def test_publication_event_wakes_the_wait_without_paying_the_fallback(self):
+        # The real watcher is in play. The producer writes gate-ready.json while the waiter sits
+        # between its probe and its poll - an ordinary race in production. A wait that watched the
+        # wrong directory or name would spend the fallback period and probe again, so the probe
+        # count plus `timeouts == 0` is what separates an event wake from a fallback wake.
+        self.real_watcher = True
+        self.on_wait = lambda: None
+        bundle = self.directory / "gate-ready.json"
+        probes, state = [], {"publishing": False}
+        original = coordinator_strict_start.file_ref
+
+        def counted(target):
+            if Path(target) != bundle or state["publishing"]:
+                return original(target)
+            probes.append(str(target))
+            try:
+                return original(target)
+            except FileNotFoundError:
+                if len(probes) == 1:
+                    # Publish *after* the miss is established and before the poll starts: the
+                    # event is then already queued, which is the race this must survive.
+                    state["publishing"] = True
+                    try:
+                        self.operator_publish()
+                    finally:
+                        state["publishing"] = False
+                raise
+
+        stderr = io.StringIO()
+        with patch("coordinator_strict_start.file_ref", side_effect=counted), redirect_stderr(stderr):
+            result = wait_and_create(self.ref)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.watch_targets, [str(bundle)])
+        self.assertEqual(len(probes), 2, "one miss + one hit; a fallback tick would probe again")
+        # `close()` is in a finally: a real watcher reports it by having no fd left.
+        self.assertEqual([watcher._fd for watcher in self.watchers], [-1])
+        rows = self.records("start_gate", stderr)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["inotify"], rows[0]["timeouts"]), (True, 0))
+        self.assertGreaterEqual(rows[0]["events"], 1)
+        self.assertEqual(rows[0]["fallback_seconds"], publication_wait.FALLBACK_SECONDS)
+
+    def test_missing_inotify_degrades_to_the_loop_it_replaces(self):
+        # `watch()` returns None when inotify cannot be opened. The wait must then be exactly the
+        # polling loop this change replaces: the fixture's (patched) sleep still publishes, and the
+        # log says the event path is unavailable on this host instead of claiming it worked.
+        stderr = io.StringIO()
+        with patch("publication_wait.watch", return_value=None), redirect_stderr(stderr):
+            self.assertTrue(wait_and_create(self.ref)["ok"])
+        rows = self.records("start_gate", stderr)
+        # No watcher means the pre-change 250 ms cadence, and the log states that period.
+        self.assertEqual((len(rows), rows[0]["inotify"], rows[0]["events"], rows[0]["timeouts"],
+                          rows[0]["fallback_seconds"]),
+                         (1, False, 0, 0, publication_wait.POLL_SECONDS))
 
 
 if __name__ == "__main__":

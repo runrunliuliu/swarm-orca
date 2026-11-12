@@ -88,6 +88,22 @@ export const ORCAD_ARTIFACTS: readonly OrcadArtifact[] = [
 
 /** Written after the artifacts, so it is never an input to its own hash. */
 export const ORCAD_VERSION_FILENAME = '.version'
+
+/**
+ * `.version` is `<product version>+<build sha>`, e.g. `0.1.0+4046bdb7dbaa`.
+ *
+ * Why the product version alone is not enough: every orcad build in this repo's history
+ * answers `0.1.0`, so a version string cannot say which artifact is installed. The build sha
+ * is the only field that distinguishes them, and it is what the version pointer reports.
+ */
+export function parseOrcadVersionMarker(
+  text: string
+): { version: string; buildId: string | null } | null {
+  const match = /^([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.]+)?)(?:\+([0-9a-f]{7,40}))?$/.exec(
+    text.trim()
+  )
+  return match ? { version: match[1], buildId: match[2] ?? null } : null
+}
 export const ORCAD_TEMPLATE_MANIFEST_FILENAME = 'orcad-template.json'
 export const ORCAD_TEMPLATE_TARGETS_DIR = 'targets'
 

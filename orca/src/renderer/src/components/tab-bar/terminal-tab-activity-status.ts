@@ -235,6 +235,10 @@ export function terminalTabActivityToAgentDotState(
     case 'interrupted':
     case 'done':
       return status
+    // Why `no-evidence` joins the quiet cases: a tab badge is an attention cue, while
+    // "this agent has not reported" is a sidebar/card statement. The tab strip stays as
+    // quiet as it is for a plain shell.
+    case 'no-evidence':
     case 'active':
     case 'inactive':
       return null

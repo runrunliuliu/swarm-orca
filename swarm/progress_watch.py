@@ -17,6 +17,8 @@ import re
 import selectors
 import signal
 import stat
+import sys
+import threading
 import subprocess
 import tempfile
 import time
@@ -687,6 +689,15 @@ def validate_state(value):
     return value
 
 
+def idle_until_stopped(stop_waiting, seconds):
+    """Block until a stop is requested or the tick interval elapses.
+
+    Separated out so the wakeup count is assertable: one wait per tick, not one per 0.5 s shard,
+    and a stop that arrives mid-tick is acted on at once instead of at the end of the shard.
+    """
+    return seconds > 0 and stop_waiting.wait(seconds)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
@@ -713,10 +724,15 @@ def main():
     except FileNotFoundError:
         previous = {}
     stopped = False
+    # Why an Event rather than a flag plus a 0.5 s shard: the loop only needs to know when to
+    # stop, and a 60 s tick used to wake 120 times to find out. Waiting on the event wakes once,
+    # and a SIGTERM is acted on immediately instead of at the end of the current shard.
+    stop_waiting = threading.Event()
 
     def stop(_signal, _frame):
         nonlocal stopped
         stopped = True
+        stop_waiting.set()
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     while not stopped:
@@ -724,8 +740,7 @@ def main():
         previous = tick(config, directory, previous)
         if args.once:
             break
-        while not stopped and time.monotonic() - started < 60:
-            time.sleep(0.5)
+        idle_until_stopped(stop_waiting, 60 - (time.monotonic() - started))
     os.close(lock)
 
 

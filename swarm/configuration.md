@@ -61,16 +61,18 @@ provider 限定 `--model` 选择器且拒绝 effort/backend；`codex-ark` 的模
 
 ```bash
 tests/run_offline.sh --fast   # 按变更范围迭代，约 2.5 分钟
-tests/run_offline.sh -q       # 全量：合并/交付前门禁（默认 4 路并行）
+tests/run_blast.sh --range HEAD~1  # 默认门禁：只跑 diff 影响到的模块
+tests/run_offline.sh -q       # 全量（默认 4 路并行）：跨模块/发布前
 tests/run_offline.sh --jobs 1 # 全量单进程，可复现形式
 ```
 
-门禁默认 4 路并行（NAS 挂载实测 99 模块 / 2577 项：单进程 363 s，`--jobs 4` 115 s，均 99/99
-OK）；出结论时必须写明 job 数。当 N 超过本次选中的模块数时并发不可能有收益，运行器会直接
+模块数与项数**不写死**：以 `tests/run_offline.sh --list` 的行数和本次输出为准（会随套件增长）。
+`--modules`/`run_blast.sh` 的定向跑报 `selection: k/N modules (explicit)` 与 `TARGETED OK`，
+不能当作离线 PASS；出结论时必须写明 job 数。当 N 超过本次选中的模块数时并发不可能有收益，运行器会直接
 拒绝（`exit 2`）而不是静默降级。`-p`/`-s` 选的是测试而非模块，始终顺序执行。
 
-`--fast` 排除 `tests/run_offline.sh` 文件头列出的 4 个耗时主因模块，只用于迭代，不得作为
-离线 PASS 上报。脚本自行清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT`；
+`--fast` 排除 `tests/run_offline.sh` 文件头 `SLOW` 列表里的耗时主因模块（个数以该列表为准），
+只用于迭代，不得作为离线 PASS 上报。脚本自行清除 `SWARM_WORKER_PROFILES` 与 `RSI_CHECKER_TEST_ROOT`；
 不要手动继承私有策略路径，也不要把私有旧代码目录加入 `PYTHONPATH`。测试边界见
 [测试指南](docs/testing/reliability.md)；离线 PASS 不替代目标文件系统、原生 runtime 或
 真实 Agent 验收。

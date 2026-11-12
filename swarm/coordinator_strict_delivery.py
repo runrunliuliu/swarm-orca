@@ -20,6 +20,7 @@ from coordinator_strict import StrictCheckError, caller_result, require
 from coordinator_strict_prepare import load_input
 from coordinator_strict_start import load, live, plan, require_unstarted_attempt, validate_start_window
 from bootstrap_s5 import protect, checkpoint, cli_options, cli_owner, plan_commands
+import publication_wait
 
 
 MODE = "continuous-native-file-v1"
@@ -261,25 +262,36 @@ def wait_for_config(ref):
     # Only a read-only live caller check; never issue gates/create/dispatch here.
     live(expected, expected, initial)
     from observation_budget import ObservationBusy, ObservationTimeout
-    while True:
-        try:
-            checkpoint()
-        except (ObservationBusy, ObservationTimeout):
-            # Owner contention or an expired local read budget is not a
-            # publication verdict: aborting here reported "delivery failed"
-            # while the Operator was still publishing. The loop deadline below
-            # still bounds the wait, so keep polling.
-            pass
-        require(time.monotonic() < stop and timestamp(now()) < timestamp(expected["deadline"]),
-                "strict_config_wait_expired")
-        pinned(ref)
-        try:
-            target.lstat()  # A dangling symlink is a failure, not a missing publication.
-        except FileNotFoundError:
-            time.sleep(min(0.25, max(0, stop - time.monotonic())))
-            continue
-        publication_ref = file_ref(target)
-        break
+    # Watch once, not per iteration: an event may only *shorten* this wait, so the pinned re-check
+    # and the deadline still decide. With no watcher (inotify unavailable here) the wait keeps the
+    # pre-change 250 ms polling cadence, so that host behaves exactly as before; the fallback
+    # period for a lost event bounds delivery, so it is logged.
+    watcher = publication_wait.watch(target)
+    try:
+        while True:
+            try:
+                checkpoint()
+            except (ObservationBusy, ObservationTimeout):
+                # Owner contention or an expired local read budget is not a
+                # publication verdict: aborting here reported "delivery failed"
+                # while the Operator was still publishing. The loop deadline below
+                # still bounds the wait, so keep polling.
+                pass
+            require(time.monotonic() < stop and timestamp(now()) < timestamp(expected["deadline"]),
+                    "strict_config_wait_expired")
+            pinned(ref)
+            try:
+                target.lstat()  # A dangling symlink is a failure, not a missing publication.
+            except FileNotFoundError:
+                publication_wait.idle(
+                    watcher, min(publication_wait.FALLBACK_SECONDS, max(0.0, stop - time.monotonic())))
+                continue
+            publication_ref = file_ref(target)
+            break
+    finally:
+        publication_wait.log("config_publication", watcher)
+        if watcher is not None:
+            watcher.close()
     publication = parse(pinned(publication_ref))
     modern = expected["schema_version"] in (4, 5)
     activated = publication.get("schema_version") == 3

@@ -14,7 +14,9 @@ import {
 import { pruneAppImageExtractedRoots } from './appimage-extraction-pruning'
 import { withAppImageRegistrationLock } from './appimage-registration-lock'
 import { getBundledLauncherPath } from './bundled-cli-launcher-path'
+import { planOrcaCliScript, type OrcaCliScriptPlan } from './build-pointer'
 import { quoteShell } from './cli-install-path-format'
+import type { OrcaBuildCli } from '../../shared/build-pointer'
 
 // Why: marks a dispatcher this function wrote so repeat serve starts overwrite
 // our own file idempotently but never clobber a user's own ~/.local/bin/orca.
@@ -31,6 +33,14 @@ export type LinuxBareOrcaDispatcherOptions = {
   appImageCacheRootPath?: string
   /** Test seam — defaults to running the AppImage's own `--appimage-extract`. */
   appImageExtractRunner?: (appImagePath: string, cwd: string) => Promise<void>
+  /**
+   * Version pointer to follow (see `src/shared/build-pointer.ts`). Unset keeps the historical
+   * fixed-launcher script, which is what a self-contained install wants: nothing outside this
+   * bundle decides what bare `orca` runs.
+   */
+  buildPointerPath?: string | null
+  /** Local launcher a pointer-following script falls back to when no pointer exists at all. */
+  buildPointerFallbackLauncher?: string | null
 }
 
 export type LinuxBareOrcaDispatcherState =
@@ -41,8 +51,10 @@ export type LinuxBareOrcaDispatcherState =
 export type LinuxBareOrcaDispatcherResult = {
   state: LinuxBareOrcaDispatcherState
   dispatcherPath: string
-  /** The bundled `orca-ide` launcher the dispatcher execs. */
+  /** The launcher or version pointer the dispatcher resolves at exec time. */
   target: string | null
+  /** Set when the written script refuses to run: why the version pointer was unusable. */
+  failure?: string | null
 }
 
 // Why: on Linux the CLI installs as `orca-ide`, not bare `orca`, to avoid
@@ -55,23 +67,83 @@ export type LinuxBareOrcaDispatcherResult = {
 export async function installLinuxBareOrcaDispatcher(
   options: LinuxBareOrcaDispatcherOptions
 ): Promise<LinuxBareOrcaDispatcherResult> {
-  const dispatcherPath = join(options.homePath ?? homedir(), '.local', 'bin', 'orca')
+  const dispatcherPath = resolveBareOrcaDispatcherPath(options.homePath)
   if (existsSync(dispatcherPath) && !(await isOwnedDispatcher(dispatcherPath))) {
     return { state: 'skipped-foreign', dispatcherPath, target: null }
+  }
+
+  const pointerPath = options.buildPointerPath ?? null
+  if (pointerPath) {
+    // Why before resolveStableLauncherPath: a usable pointer names the CLI itself, so an AppImage
+    // copy does not have to be extracted (a slow, disk-writing step) only to be ignored.
+    const plan = planOrcaCliScript({
+      pointerPath,
+      localCli: options.buildPointerFallbackLauncher
+        ? { executable: options.buildPointerFallbackLauncher, args: [] }
+        : null
+    })
+    if (plan.mode !== 'local') {
+      return publishBareOrcaDispatcher(
+        dispatcherPath,
+        plan,
+        plan.mode === 'pointer' ? pointerPath : null
+      )
+    }
   }
 
   const launcher = await resolveStableLauncherPath(options)
   if (!launcher) {
     return { state: 'skipped-launcher-missing', dispatcherPath, target: null }
   }
-
-  const installed = await publishDispatcher(
+  return publishBareOrcaDispatcher(
     dispatcherPath,
-    insertDispatcherMarker(buildBareOrcaCliScript(launcher))
+    { mode: 'local', script: buildBareOrcaCliScript(launcher), failure: null },
+    launcher
   )
-  return installed
-    ? { state: 'installed', dispatcherPath, target: launcher }
-    : { state: 'skipped-foreign', dispatcherPath, target: null }
+}
+
+/**
+ * Publish `~/.local/bin/orca` on a host that promotes builds by pointer, without an Electron
+ * resource tree: the caller supplies its own launcher as the no-pointer fallback. orcad calls
+ * this on every start, so a headless update becomes the CLI of the next shell even though the
+ * desktop app (which used to own this file) was never rebuilt.
+ */
+export async function installBareOrcaBuildPointerDispatcher(options: {
+  homePath?: string
+  buildPointerPath: string
+  localCli: OrcaBuildCli | null
+}): Promise<LinuxBareOrcaDispatcherResult> {
+  const dispatcherPath = resolveBareOrcaDispatcherPath(options.homePath)
+  if (existsSync(dispatcherPath) && !(await isOwnedDispatcher(dispatcherPath))) {
+    return { state: 'skipped-foreign', dispatcherPath, target: null }
+  }
+  const plan = planOrcaCliScript({
+    pointerPath: options.buildPointerPath,
+    localCli: options.localCli
+  })
+  return publishBareOrcaDispatcher(
+    dispatcherPath,
+    plan,
+    plan.mode === 'pointer' ? options.buildPointerPath : null
+  )
+}
+
+async function publishBareOrcaDispatcher(
+  dispatcherPath: string,
+  plan: OrcaCliScriptPlan,
+  target: string | null
+): Promise<LinuxBareOrcaDispatcherResult> {
+  const installed = await publishDispatcher(dispatcherPath, insertDispatcherMarker(plan.script))
+  return {
+    state: installed ? 'installed' : 'skipped-foreign',
+    dispatcherPath,
+    target: installed ? target : null,
+    failure: plan.failure
+  }
+}
+
+function resolveBareOrcaDispatcherPath(homePath?: string): string {
+  return join(homePath ?? homedir(), '.local', 'bin', 'orca')
 }
 
 /** Bare-`orca` script that execs the one Linux CLI launcher. */

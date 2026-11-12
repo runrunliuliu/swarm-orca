@@ -23,7 +23,8 @@ from bootstrap_protocol import ControlBinding, EVENTS
 from bootstrap_actions import ACTIONS, SUBMIT_TARGETS, command, completion_slot, submission
 from bootstrap_admission import CandidateReader, chain_confirmations, confirmed, control_paths
 from bootstrap_events import EvidenceReader, binding, contract_fields, review, version
-from coordinator_io import canonical, digest, file_ref, now, parse, pinned, require, timestamp, validate_ref
+from coordinator_io import (canonical, digest, file_ref, now, parse, pinned, publish_new, require,
+                            timestamp, validate_ref)
 from coordinator_strict import caller_result
 from coordinator_strict_request import observed_coordinator
 import provider_capability
@@ -557,7 +558,31 @@ class RoleTool(BootstrapMachine, ActionReader):
         # `inspect_action` reads the owner's own status for that distinction.
         raise ValueError("bootstrap_submission_requires_reconciliation")
 
-    def submit(self, intent_ref, source_ref):
+    def materialize_template(self, intent_ref, intent, submission):
+        """Write the fields candidate from the template the intent already pins.
+
+        Why this is not "trusting a template": the bytes are regenerated from the same
+        authorities the validator reads, then the intent's own recorded template must match them
+        (`bootstrap_template_drift`), and the result still goes through the unchanged
+        `validate_candidate` path below. Skipping validation is impossible here — there is no
+        second write path, only a second way of producing the bytes.
+
+        Only `fields-intent` qualifies: its candidate is fully determined by the contract. Review
+        stages carry `decision`/`notes`/`reviewed_at`, which are the reviewer's judgement and are
+        refused rather than filled in by a tool.
+        """
+        require(intent["action"] == "fields-intent", "bootstrap_from_template_not_allowed")
+        request_ref = intent["payload"].get("request")
+        require(isinstance(request_ref, dict) and "path" in request_ref,
+                "bootstrap_action_request_mismatch")
+        regenerated = self.template("fields", request_ref)
+        recorded = intent["payload"].get("candidate_template")
+        require(recorded == regenerated, "bootstrap_template_drift")
+        candidate = Path(submission["candidate_path"])
+        publish_new(candidate, regenerated)
+        return file_ref(candidate)
+
+    def submit(self, intent_ref, source_ref=None, from_template=False):
         # The fence is read from disk before any owner round trip, including the
         # one inside `action_intent()`: a busy executor must never be able to
         # present a permanent refusal as a transient one (attempt24).
@@ -569,7 +594,28 @@ class RoleTool(BootstrapMachine, ActionReader):
                 "bootstrap_action_binding_mismatch")
         require(name in SUBMIT_TARGETS, "bootstrap_action_requires_specialized_tool")
         submission = self.submission(name)
+        materialized = None
+        if from_template:
+            require(source_ref is None, "bootstrap_from_template_conflicts_with_source")
+            source_ref = self.materialize_template(intent_ref, intent, submission)
+            materialized = Path(submission["candidate_path"])
+        else:
+            require(source_ref is not None, "bootstrap_candidate_source_required")
         require(intent["payload"].get("submission") == submission, "bootstrap_submission_contract_mismatch")
+        try:
+            return self.commit_candidate(intent_ref, source_ref, submission, name,
+                                         from_template=from_template)
+        except BaseException:
+            # Why clean up only here: these bytes are the tool's, not the caller's. Leaving them
+            # behind would make the next attempt fail on a candidate it did not write.
+            if materialized is not None:
+                try:
+                    materialized.unlink()
+                except OSError:
+                    pass
+            raise
+
+    def commit_candidate(self, intent_ref, source_ref, submission, name, *, from_template=False):
         target = SUBMIT_TARGETS[name]
         raw = self.candidate_bytes(source_ref, submission)
         self.submission_output_empty(target)
@@ -604,7 +650,9 @@ class RoleTool(BootstrapMachine, ActionReader):
                 raise SubmissionInFlight("bootstrap_submission_output_awaiting_reconcile") from exc
             raise
         self.local_check(confirmations=False)
-        return {"result": refs[0], "execution_authorized": False}
+        return {"result": refs[0], "execution_authorized": False,
+                "materialized_from_template": bool(from_template),
+                "authored": not from_template}
 
     def validate_candidate(self, intent_ref, raw, *, confirmations=True):
         slot = self.slot if confirmations else self.pinned_slot
@@ -772,6 +820,20 @@ def connect(owner_ref):
     return control, AuthorityClient(control, owner_ref)
 
 
+def candidate_ref(args):
+    """The caller-supplied candidate Ref, or None when the tool materializes the bytes.
+
+    Why a helper: every submit used to build `{path: args.input, sha256: args.input_sha256}`
+    unconditionally, which turned `--from-template` (no `--input`) into `{path: None}` and made
+    the documented command unusable while the direct tool call still passed its test.
+    """
+    # `not args.input` is the branch's reconcile case: `reconcile` carries its target in
+    # --target-path, so a missing --input must stay None instead of {path: None}.
+    if args.from_template or not args.input:
+        return None
+    return dict(path=args.input, sha256=args.input_sha256)
+
+
 def cli_main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("provision", "serve", "arm", "stop", "query", "heartbeat", "reconcile", "pull", "produce", "submit", "readiness", "complete", "advance", "inspect-action", "build", "plan"))
@@ -794,6 +856,9 @@ def cli_main(argv=None):
     parser.add_argument("--poll", type=float, default=30)
     parser.add_argument("--until-stage", type=int)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--from-template", dest="from_template", action="store_true",
+                        help="submit: materialize the fields candidate from the intent's pinned "
+                             "template instead of a hand-authored file; refused for review stages")
     args = parser.parse_args(argv)
     try:
         require(args.execute == (args.mode not in {"query", "heartbeat", "plan", "inspect-action"}), "bootstrap_explicit_execute_required")
@@ -827,9 +892,14 @@ def cli_main(argv=None):
                     # exits; only externally observed exit permits reconciliation.
                     raise
             return 0
+        if getattr(args, "from_template", False) and args.mode != "submit":
+            # Why refuse instead of ignoring: a flag that is accepted and dropped reads as "the
+            # tool will do it for me" on stages where materializing a candidate is exactly what
+            # must not happen (review/readiness carry a human decision).
+            raise ValueError("bootstrap_from_template_requires_submit")
         owner_ref = dict(path=args.owner, sha256=args.owner_sha256)
         control, authority = connect(owner_ref)
-        ref = dict(path=args.input, sha256=args.input_sha256) if args.input else None
+        ref = candidate_ref(args)
         if args.mode == "query":
             result = asdict(authority.query(control, ref))
         elif args.mode == "heartbeat":
@@ -857,7 +927,7 @@ def cli_main(argv=None):
                 elif args.mode == "produce":
                     result = tool.produce(intent)
                 elif args.mode == "submit":
-                    result = tool.submit(intent, ref)
+                    result = tool.submit(intent, ref, from_template=args.from_template)
                 elif args.mode == "readiness":
                     result = tool.submit_readiness(intent, parse(pinned(ref)))
                 elif args.mode == "complete":
