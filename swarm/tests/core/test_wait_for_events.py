@@ -14,6 +14,8 @@ import tempfile
 import textwrap
 import unittest
 
+import wait_for_events
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -26,11 +28,12 @@ WRAPPER = ROOT / "wait_for_events.py"
 class FakeCli:
     """A CLI that prints the argv it received, then the scripted response."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, delay: float = 0.0) -> None:
         self.path = directory / "fake-orca"
         self.path.write_text(textwrap.dedent('''\
             #!/bin/sh
             printf '%s\\n' "$@" > "$(dirname "$0")/argv.txt"
+        ''') + (f'    sleep {delay}\n' if delay else "") + textwrap.dedent('''\
             cat "$(dirname "$0")/stdout.txt"
             cat "$(dirname "$0")/stderr.txt" >&2
             exit "$(cat "$(dirname "$0")/exit.txt")"
@@ -58,7 +61,7 @@ class WaitWrapperTests(unittest.TestCase):
 
     def run_wrapper(self, *args):
         return subprocess.run([sys.executable, "-B", str(WRAPPER), "--cli", str(self.cli.path), *args],
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=120)
 
     def test_messages_are_printed_one_row_each(self):
         self.cli.respond(stdout=pretty({"ok": True, "result": {
@@ -140,6 +143,100 @@ class WaitWrapperTests(unittest.TestCase):
         completed = self.run_wrapper()
         self.assertEqual(completed.returncode, 2)
         self.assertIn("runtime_unavailable", completed.stderr)
+
+    def test_this_runtime_timeout_shape_is_a_timeout(self):
+        # Why: the measured answer to an elapsed `check --wait` here is `ok:true`, `count:0`, no
+        # `timedOut` key and exit 0. Classifying that as an empty batch is how a caller concludes
+        # "a batch was delivered empty" after waiting out the whole window.
+        self.cli = FakeCli(self.dir, delay=1.0)
+        self.cli.respond(stdout=pretty({"ok": True, "result": {"messages": [], "count": 0}}),
+                         stderr="_keepalive 15s\n")
+        completed = self.run_wrapper("--timeout-ms", "1000")
+        self.assertEqual(completed.returncode, 124, completed.stdout + completed.stderr)
+        self.assertIn("timeout", completed.stderr)
+        self.assertEqual(completed.stdout, "")
+
+    def test_the_documented_window_is_what_the_wrapper_asks_for(self):
+        self.cli.respond(stdout=pretty({"ok": True, "result": {"messages": [], "count": 0}}))
+        self.run_wrapper("--timeout-ms", "1000")
+        argv = self.cli.argv()
+        self.assertEqual(argv[argv.index("--timeout-ms") + 1], "1000")
+
+
+class ElapsedTimeoutInferenceTests(unittest.TestCase):
+    """The boundary of the elapsed guess, pinned exactly and without a subprocess.
+
+    A wrong `124` turns "nothing was delivered" into a failure a caller retries, so each edge is
+    asserted on both sides instead of being described in prose.
+    """
+
+    WINDOW = 300_000
+
+    def receipt(self, **body):
+        return pretty({"ok": True, "result": {"messages": [], "count": 0, **body}})
+
+    def classify(self, stdout, elapsed_ms, timeout_ms=None, returncode=0):
+        return wait_for_events.classify(returncode, stdout, elapsed_ms=elapsed_ms,
+                                        timeout_ms=self.WINDOW if timeout_ms is None else timeout_ms)[0]
+
+    def test_a_spent_window_is_a_timeout(self):
+        self.assertEqual(self.classify(self.receipt(), self.WINDOW), wait_for_events.TIMEOUT)
+
+    def test_the_tolerance_only_loosens_toward_a_spent_window(self):
+        self.assertEqual(self.classify(self.receipt(), self.WINDOW - wait_for_events.TOLERANCE_MS),
+                         wait_for_events.TIMEOUT)
+        self.assertEqual(self.classify(self.receipt(), self.WINDOW - wait_for_events.TOLERANCE_MS - 1),
+                         wait_for_events.EMPTY)
+
+    def test_an_early_empty_batch_is_not_a_timeout(self):
+        # Ten milliseconds early is inside the tolerance band on purpose: the timing slack exists
+        # because a window that spent itself must not be reported as a delivery. An early answer
+        # far outside the band stays an empty batch, not a retryable failure.
+        self.assertEqual(self.classify(self.receipt(), self.WINDOW * 0.1), wait_for_events.EMPTY)
+
+    def test_an_explicit_not_timed_out_wins_over_the_clock(self):
+        # `timedOut: false` is the CLI stating a fact; the wrapper's clock is only a fallback for
+        # the runtime that omits the key.
+        for key in ("timedOut", "timeout"):
+            with self.subTest(key=key):
+                self.assertEqual(self.classify(self.receipt(**{key: False}), self.WINDOW),
+                                 wait_for_events.EMPTY)
+
+    def test_a_message_batch_is_never_a_timeout(self):
+        stdout = pretty({"ok": True, "result": {"messages": [{"type": "worker_done"}],
+                                                   "count": 1}})
+        self.assertEqual(self.classify(stdout, self.WINDOW * 2), wait_for_events.MESSAGES)
+
+    def test_an_incomplete_or_unrecognised_receipt_is_not_a_timeout(self):
+        cases = {
+            "no ok": pretty({"result": {"messages": [], "count": 0}}),
+            "not ok": pretty({"ok": False, "result": {"messages": [], "count": 0}}),
+            "ok is not bool": pretty({"ok": 1, "result": {"messages": [], "count": 0}}),
+            "only count": pretty({"ok": True, "result": {"count": 0}}),
+            "only messages": pretty({"ok": True, "result": {"messages": []}}),
+            "count is not zero": pretty({"ok": True, "result": {"messages": [], "count": 7}}),
+            "messages is not a list": pretty({"ok": True, "result": {"messages": None,
+                                                                     "count": 0}}),
+            "truncated": pretty({"ok": True, "result": {"messages": [], "count": 0}})[:-12],
+            "empty stdout": "",
+            "keepalive only": "_keepalive 15s\n",
+        }
+        for name, stdout in cases.items():
+            with self.subTest(case=name):
+                self.assertNotEqual(self.classify(stdout, self.WINDOW * 2), wait_for_events.TIMEOUT)
+
+    def test_a_failed_or_signal_killed_cli_is_transport_not_timeout(self):
+        # A child that was killed never answered, so its elapsed time is not evidence about the
+        # wait. An outer `timeout` around this wrapper has the same shape.
+        for code in (-15, -9, 2, 1, 127):
+            with self.subTest(returncode=code):
+                self.assertEqual(
+                    self.classify(self.receipt(), self.WINDOW * 2, returncode=code),
+                    wait_for_events.USAGE_OR_TRANSPORT)
+
+    def test_without_a_measurement_the_old_classification_is_untouched(self):
+        payload = self.receipt()
+        self.assertEqual(wait_for_events.classify(0, payload)[0], wait_for_events.EMPTY)
 
 
 class WaitRuleIsDocumentedTests(unittest.TestCase):

@@ -18,6 +18,25 @@ Exit status is the classification, so a shell caller cannot mistake one case for
 0 = messages, 3 = empty batch, 124 = timeout, 2 = usage or transport failure.
 Nothing here starts, releases, abandons or retries anything; that authority stays with the caller.
 
+A timeout is not only the exit-124 shape: this runtime answers an elapsed `check --wait` with
+`ok: true`, `count: 0`, **no** `timedOut` key and exit 0 (measured 2026-11-12), which used to be
+classified as an empty batch. That collapse made "waited the whole window and nothing came"
+indistinguishable from "a batch was delivered empty", and any caller that re-enters on the
+second case is reasoning about the wrong event. So the wrapper measures its own elapsed monotonic
+time and treats a complete, empty receipt that spent the window as the timeout it is.
+
+The inference is deliberately narrow, because a wrong `124` is worse than a missed one:
+
+* only when the receipt is complete (`ok: true`, an explicit empty `messages` list, `count: 0`)
+  **and** carries no `timedOut`/`timeout` key - an explicit `false` is the CLI stating "not
+  timed out" and always wins over the elapsed guess;
+* only within `TOLERANCE_MS` of the window, and only in the "budget is spent" direction, so an
+  early empty batch stays an empty batch;
+* never for a signal-killed child, a non-zero exit, or a truncated/half-written JSON receipt.
+
+Because the guess reads the wrapper's own clock, the caller's outer deadline must exceed
+`--timeout-ms`; otherwise the receipt never arrives and nothing can be classified.
+
 Standard library only, like the rest of this directory.
 """
 
@@ -27,6 +46,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 
 MESSAGES = 0
 USAGE_OR_TRANSPORT = 2
@@ -42,6 +62,12 @@ DEFAULT_TYPES = "worker_done,escalation,question"
 # only so an older runtime still classifies correctly.
 ROW_KEYS = ("messages", "deliveries", "rows", "batch")
 TIMEOUT_KEYS = ("timedOut", "timeout")
+
+# How far before the requested window an empty receipt may come back and still be "spent".
+# Sub-second slack only: timers and socket teardown round, but a CLI that answered early said
+# something real about an empty batch, and 200 ms is not enough time for it to be wrong about a
+# window it was also given.
+TOLERANCE_MS = 200
 
 
 def unwrap(payload):
@@ -103,15 +129,47 @@ def timed_out(payload) -> bool:
     return isinstance(body, dict) and any(body.get(key) is True for key in TIMEOUT_KEYS)
 
 
-def classify(returncode: int, stdout: str) -> tuple[int, dict | list | None]:
-    """Map one CLI result to a status. A timeout in the receipt outranks the exit code."""
+def timed_out_by_elapsed(payload, elapsed_ms: float | None, timeout_ms: int | None) -> bool:
+    """A complete receipt that states "no messages" after spending the window is a timeout.
+
+    Why the shape check comes first: only this runtime's own timeout answer is safe to infer.
+    A half-parsed receipt, an unrecognised body or an explicit `timedOut: false` all mean "not
+    knowable from elapsed time", and guessing 124 there would replace "no messages" with a
+    failure the caller would retry.
+    """
+    if elapsed_ms is None or timeout_ms is None:
+        return False
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        return False
+    body = unwrap(payload)
+    if not isinstance(body, dict):
+        return False
+    if any(key in body for key in TIMEOUT_KEYS):
+        return False
+    if body.get("messages") != [] or body.get("count") != 0:
+        return False
+    return elapsed_ms >= timeout_ms - TOLERANCE_MS
+
+
+def classify(returncode: int, stdout: str, *, elapsed_ms: float | None = None,
+             timeout_ms: int | None = None) -> tuple[int, dict | list | None]:
+    """Map one CLI result to a status. A timeout in the receipt outranks the exit code.
+
+    `elapsed_ms`/`timeout_ms` are the wrapper's own measurement of the call it just made; pass
+    them and a spent window with an empty receipt classifies as TIMEOUT. Omitting them keeps the
+    old exit-code/`timedOut`-only behaviour.
+    """
     payload = parse(stdout)
     if returncode == TIMEOUT or timed_out(payload):
         return TIMEOUT, payload
     if returncode != 0:
+        # A signal-killed or failed CLI is a transport result, never a timeout guess: the child
+        # did not get to answer, so its elapsed time says nothing about the wait.
         return USAGE_OR_TRANSPORT, payload
     if payload is None:
         return EMPTY, payload
+    if not rows_of(payload) and timed_out_by_elapsed(payload, elapsed_ms, timeout_ms):
+        return TIMEOUT, payload
     return (MESSAGES if rows_of(payload) else EMPTY), payload
 
 
@@ -120,7 +178,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cli", default="orca", help="executable to call (default: orca)")
     parser.add_argument("--types", default=DEFAULT_TYPES, help="what wakes the call, not a filter")
     parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS,
-                        help="one bounded call; re-enter instead of asking for a longer window")
+                        help="one bounded call; re-enter instead of asking for a longer window "
+                             "(the caller's own deadline must exceed this, or the receipt never arrives)")
     parser.add_argument("--terminal", help="caller handle, when not inside the coordinator terminal")
     parser.add_argument("--run", help="bound Run id, when not using the caller's")
     parser.add_argument("--json", action="store_true", help="print the raw receipt to stdout")
@@ -134,10 +193,13 @@ def main(argv: list[str] | None = None) -> int:
         command += ["--terminal", args.terminal]
     if args.run:
         command += ["--run", args.run]
+    started = time.monotonic()
     completed = subprocess.run(command, capture_output=True, text=True)
+    elapsed_ms = (time.monotonic() - started) * 1000
     # Why stderr is only forwarded on failure: it is keepalive plus diagnostics, and the caller's
     # message stream must stay parseable.
-    status, payload = classify(completed.returncode, completed.stdout)
+    status, payload = classify(completed.returncode, completed.stdout, elapsed_ms=elapsed_ms,
+                               timeout_ms=args.timeout_ms)
     if status == TIMEOUT:
         print("timeout: no wake within the window; enumerate and re-enter, do not act",
               file=sys.stderr)
