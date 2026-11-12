@@ -449,8 +449,10 @@ class StrictDeliveryTests(unittest.TestCase):
                 redirect_stderr(stderr):
             self.assertTrue(wait_for_config(self.ref)["ok"])
         rows = self.records("config_publication", stderr)
-        self.assertEqual((len(rows), rows[0]["inotify"], rows[0]["events"], rows[0]["timeouts"]),
-                         (1, False, 0, 0))
+        # No watcher means the pre-change 250 ms cadence, and the log states that period.
+        self.assertEqual((len(rows), rows[0]["inotify"], rows[0]["events"], rows[0]["timeouts"],
+                          rows[0]["fallback_seconds"]),
+                         (1, False, 0, 0, publication_wait.POLL_SECONDS))
         self.assert_no_start()
 
 

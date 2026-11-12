@@ -653,8 +653,10 @@ class StrictStartTests(unittest.TestCase):
         with patch("publication_wait.watch", return_value=None), redirect_stderr(stderr):
             self.assertTrue(wait_and_create(self.ref)["ok"])
         rows = self.records("start_gate", stderr)
-        self.assertEqual((len(rows), rows[0]["inotify"], rows[0]["events"], rows[0]["timeouts"]),
-                         (1, False, 0, 0))
+        # No watcher means the pre-change 250 ms cadence, and the log states that period.
+        self.assertEqual((len(rows), rows[0]["inotify"], rows[0]["events"], rows[0]["timeouts"],
+                          rows[0]["fallback_seconds"]),
+                         (1, False, 0, 0, publication_wait.POLL_SECONDS))
 
 
 if __name__ == "__main__":

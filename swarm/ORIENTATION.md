@@ -90,14 +90,14 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `execute` | `coordinator_driver.py:777-791` | `def execute` / `class execute` |
 | `freshness` | `coordinator_tui_continue.py:40-59` | `def freshness` / `class freshness` |
 | `identity` | `coordinator_startup.py:55-70` | `def identity` / `class identity` |
-| `idle` | `publication_wait.py:111-116` | `def idle` / `class idle` |
+| `idle` | `publication_wait.py:118-127` | `def idle` / `class idle` |
 | `intent` | `bootstrap_driver.py:131-145` | `def intent` / `class intent` |
 | `invocation` | `coordinator_prepare.py:26-48` | `def invocation` / `class invocation` |
 | `layout` | `bootstrap_protocol.py:32-33` | `def layout` / `class layout` |
 | `layout` | `coordinator_strict_delivery.py:29-34` | `def layout` / `class layout` |
 | `live` | `coordinator_strict_start.py:174-181` | `def live` / `class live` |
 | `live` | `operator_sender_correct.py:40-55` | `def live` / `class live` |
-| `log` | `publication_wait.py:128-134` | `def log` / `class log` |
+| `log` | `publication_wait.py:139-149` | `def log` / `class log` |
 | `marker` | `bootstrap_driver.py:147-162` | `def marker` / `class marker` |
 | `materialize_template` | `bootstrap_tool.py:463-485` | `def materialize_template` / `class materialize_template` |
 | `mutation` | `coordinator_tui_workflow.py:44-64` | `def mutation` / `class mutation` |
@@ -227,7 +227,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `verify_prepared` | `coordinator_request_prepare.py:192-217` | `def verify_prepared` / `class verify_prepared` |
 | `verify_prepared` | `operator_prepare.py:247-291` | `def verify_prepared` / `class verify_prepared` |
 | `version` | `bootstrap_events.py:43-47` | `def version` / `class version` |
-| `wait` | `publication_wait.py:59-92` | `def wait` / `class wait` |
+| `wait` | `publication_wait.py:66-99` | `def wait` / `class wait` |
 
 ## 不要这样做
 

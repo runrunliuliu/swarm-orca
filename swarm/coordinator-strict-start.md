@@ -308,9 +308,11 @@ python3 -B /absolute/swarm/coordinator_launch.py strict-config-plan --request /a
 ready/gate、不创建 Run、不执行发布文件中的文本。等待受原绝对 deadline 与 monotonic
 上界约束，入口剩余窗口为 `(0,900]` 秒；deadline 不因准备或交付刷新。
 等待由目标文件的 inotify 事件**提前唤醒**，但事件只允许缩短等待、不允许定义等待：轮询兜底
-始终挂着，兜底周期 1.5 秒就是最坏交付延迟（inotify 打不开或跨客户端丢事件时退回纯轮询）。
+始终挂着。inotify 打不开（`watch()` 返回 None）时保持原来的 250 ms 轮询节奏，与改动前完全
+一致；inotify 可用但事件丢失时按 1.5 秒兜底，这 1.5 秒就是该情形下的最坏交付延迟。
 每次等待在 stderr 打印一行 `publication_wait` 诊断（`kind`、`inotify`、`events`、`timeouts`、
-`fallback_seconds`）；`events` 近 0 而 `timeouts` 增长即说明该挂载上事件没到，兜底周期是真实延迟。
+`fallback_seconds`）；`events` 近 0 而 `timeouts` 增长即说明该挂载上事件没到，
+`fallback_seconds` 是真实延迟。
 它在等待前及返回前核对 live caller。请求文件改变、准确发布路径出现不完整 JSON、
 悬空链接、拒绝访问、错误 pin/绑定或过期都停止，不换路径继续扫描。
 
@@ -379,7 +381,8 @@ prepare/plan/publish/wait 入口要求剩余时间 **大于 0 且不超过 900 �
 到期则保留中间证据、不发布提交标记；即使已有 start 文件也不可消费。
 plan/wait 仍独立检查，不把准备成功当作时效保证。
 wall-clock 与 monotonic 同时限制等待；`gate-ready.json` 的等待同样由 inotify 事件提前唤醒，
-轮询兜底常挂、周期 1.5 秒（最坏交付延迟，由 stderr 的 `publication_wait` 诊断行给出）。
+轮询兜底常挂：inotify 不可用时保持 250 ms 节奏（与改动前一致），事件丢失时按 1.5 秒兜底；
+两种周期都由 stderr 的 `publication_wait` 诊断行给出。
 每次 attempt 的 request_id 必须唯一 UUID，不能复用；不得改写旧 deadline/pin 使失败重试。
 
 ```text

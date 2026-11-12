@@ -337,9 +337,9 @@ def wait_and_create(ref):
     ready_ref = file_ref(directory / "ready.json")
     bundle_path = directory / "gate-ready.json"
     # Watch once, not per iteration: an event may only *shorten* this wait, so the deadline and
-    # the `file_ref` re-check below still decide, and `watch()` returning None (inotify unavailable)
-    # degrades to exactly the polling loop it replaces. The fallback period is the real worst-case
-    # delivery latency, so it is logged instead of being implied.
+    # the `file_ref` re-check below still decide. `watch()` returning None (inotify unavailable)
+    # keeps the pre-change 250 ms polling cadence, so that host behaves exactly as before. The
+    # fallback period for a lost event is the real worst-case delivery latency, so it is logged.
     watcher = publication_wait.watch(bundle_path)
     try:
         while True:

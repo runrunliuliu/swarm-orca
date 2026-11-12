@@ -68,6 +68,17 @@ class PublicationWaitTests(unittest.TestCase):
         self.assertFalse(publication_wait.idle(None, 0.1))
         self.assertGreaterEqual(time.monotonic() - started, 0.09)
 
+    def test_without_inotify_the_wait_keeps_the_pre_change_poll_period(self):
+        # Why: "no inotify here" must not become a slower deployment. Nothing can shorten that
+        # wait, so it spends the 250 ms the two strict waits spent before this change - not the
+        # 1.5 s fallback that exists for a lost event where watches do work.
+        self.assertEqual(publication_wait.POLL_SECONDS, 0.25)
+        started = time.monotonic()
+        self.assertFalse(publication_wait.idle(None, 5.0))
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.2)
+        self.assertLess(elapsed, 0.9)
+
     def test_the_watcher_reports_counters_a_deployment_can_read(self):
         # Why: "is inotify working here?" must be answerable from logs. events=0 with timeouts>0
         # after a successful wait means the fallback period is the real delivery latency.
@@ -105,12 +116,13 @@ class PublicationWaitTests(unittest.TestCase):
                                "fallback_seconds": publication_wait.FALLBACK_SECONDS})
 
     def test_the_log_line_never_claims_inotify_when_it_is_unavailable(self):
+        # The period in the log is the one actually in force: the pre-change poll, not the fallback.
         out = io.StringIO()
         with redirect_stderr(out):
             publication_wait.log("gate", None)
         row = json.loads(out.getvalue().strip())
         self.assertEqual((row["inotify"], row["events"], row["timeouts"]), (False, 0, 0))
-        self.assertEqual(row["fallback_seconds"], publication_wait.FALLBACK_SECONDS)
+        self.assertEqual(row["fallback_seconds"], publication_wait.POLL_SECONDS)
 
 if __name__ == "__main__":
     unittest.main()

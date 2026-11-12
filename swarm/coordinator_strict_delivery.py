@@ -235,8 +235,9 @@ def wait_for_config(ref):
     live(expected, expected, initial)
     from observation_budget import ObservationBusy, ObservationTimeout
     # Watch once, not per iteration: an event may only *shorten* this wait, so the pinned re-check
-    # and the deadline still decide, and a missing watcher (inotify unavailable here) degrades to
-    # exactly the polling loop it replaces. The fallback period bounds delivery, so it is logged.
+    # and the deadline still decide. With no watcher (inotify unavailable here) the wait keeps the
+    # pre-change 250 ms polling cadence, so that host behaves exactly as before; the fallback
+    # period for a lost event bounds delivery, so it is logged.
     watcher = publication_wait.watch(target)
     try:
         while True:
