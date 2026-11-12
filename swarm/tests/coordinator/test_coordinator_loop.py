@@ -236,7 +236,9 @@ class ProbeBatchingTests(unittest.TestCase):
     """Orientation is paid in model round trips; a doc rewrite must not quietly drop the rule."""
 
     RULES = ("merge same-kind probes into one call", "Two independent probes per turn is the floor",
-             "round trips, not tool wall-clock", "need just to fill a batch")
+             "round trips, not tool wall-clock", "need just to fill a batch",
+             "read that range instead of searching for it",
+             "the index answers where to read, not what is true")
     PHASES = ("bootstrap", "recovery", "run", "closeout", "strict-bootstrap", "strict-tui-bootstrap")
 
     def test_every_phase_keeps_the_probe_batching_rule(self):

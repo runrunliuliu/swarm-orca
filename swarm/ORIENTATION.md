@@ -48,7 +48,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `caller_result` | `coordinator_strict.py:66-84` | `def caller_result` / `class caller_result` |
 | `candidate_template` | `startup_handoff.py:156-178` | `def candidate_template` / `class candidate_template` |
 | `canonical` | `coordinator_io.py:28-30` | `def canonical` / `class canonical` |
-| `canonical` | `coordinator_loop.py:299-302` | `def canonical` / `class canonical` |
+| `canonical` | `coordinator_loop.py:303-306` | `def canonical` / `class canonical` |
 | `check` | `blocking_io.py:60-63` | `def check` / `class check` |
 | `check` | `bootstrap_identity.py:229-235` | `def check` / `class check` |
 | `check` | `bootstrap_s5.py:137-141` | `def check` / `class check` |
