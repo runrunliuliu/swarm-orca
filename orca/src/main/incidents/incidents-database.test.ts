@@ -103,6 +103,31 @@ describe('openIncidentsDatabase', () => {
     expect(statSync(path).size).toBe(bytesBefore)
   })
 
+  it('migrates a v1 database by adding the M3 tables and keeping its rows', () => {
+    const path = databasePath()
+    // A v1 file: build the old schema by opening and then rolling the version back (the tables that
+    // v1 had are exactly the ones createIncidentTablesSql still creates, minus the M3 additions).
+    const first = open(path)
+    insertSample(first.db)
+    first.db.exec('DROP TABLE incident_wait_declarations; DROP TABLE incident_stall_samples')
+    first.db.pragma('user_version = 1')
+    first.db.close()
+    openDatabases.length = 0
+
+    const migrated = open(path)
+    expect(Number(migrated.db.pragma('user_version', { simple: true }))).toBe(
+      INCIDENTS_DB_SCHEMA_VERSION
+    )
+    expect(migrated.db.prepare('SELECT COUNT(*) AS n FROM incidents').get()?.n).toBe(1)
+    const tables = migrated.db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => String(row.name))
+    expect(tables).toEqual(
+      expect.arrayContaining(['incident_wait_declarations', 'incident_stall_samples'])
+    )
+  })
+
   it('supports an explicit read-only open for the CLI read paths', () => {
     const path = databasePath()
     const writable = open(path)

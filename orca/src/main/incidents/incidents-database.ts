@@ -17,8 +17,14 @@ import Database from '../sqlite/sync-database'
 import { hardenSqliteDatabaseFiles } from '../sqlite/harden-database-files'
 import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-flag'
 
-/** Bump only for additive changes; a newer version opens read-only here. */
-export const INCIDENTS_DB_SCHEMA_VERSION = 1
+/**
+ * Bump only for additive changes; a newer version opens read-only here.
+ *
+ * v2 (M3) adds the stall surface: wait declarations and the last sample. Both are additive tables,
+ * so a v1 database migrates by creating them and bumping the version — the incident rows, triggers
+ * and decisions are untouched.
+ */
+export const INCIDENTS_DB_SCHEMA_VERSION = 2
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -121,6 +127,38 @@ BEGIN SELECT RAISE(ABORT, 'incident_decision_immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_incident_decisions_no_delete
 BEFORE DELETE ON incident_decisions
 BEGIN SELECT RAISE(ABORT, 'incident_decision_immutable'); END;
+
+-- Wait declarations (M3-1). One row per (pane, epoch): a pane that is torn down and respawned comes
+-- back with a new epoch, so the old declaration can never suppress its stalls. The epoch column is
+-- the stateStartedAt observed when the declaration was made, stored as text so a caller cannot
+-- accidentally compare a number against a JSON string.
+CREATE TABLE IF NOT EXISTS incident_wait_declarations (
+  pane_key    TEXT NOT NULL,
+  epoch       TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  actor       TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER,
+  PRIMARY KEY (pane_key, epoch)
+);
+CREATE INDEX IF NOT EXISTS idx_incident_wait_expiry ON incident_wait_declarations(expires_at);
+
+-- The last stall sample (M3-3). One row per pane, replaced wholesale on each tick: this is the
+-- read model behind the stalls command, and the epoch source a wait declaration binds to.
+CREATE TABLE IF NOT EXISTS incident_stall_samples (
+  pane_key         TEXT PRIMARY KEY,
+  terminal_handle  TEXT,
+  state            TEXT NOT NULL,
+  state_started_at INTEGER NOT NULL,
+  turn_started_at  INTEGER,
+  observed_at      INTEGER NOT NULL,
+  age_ms           INTEGER NOT NULL,
+  threshold_ms     INTEGER NOT NULL,
+  would_stall      INTEGER NOT NULL,
+  reason           TEXT NOT NULL,
+  declared_wait    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_incident_stall_would ON incident_stall_samples(would_stall);
 `
 }
 
