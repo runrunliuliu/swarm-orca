@@ -13,6 +13,7 @@ import { STRICT_COORDINATOR_SCHEMA_SQL } from './schema/strict-coordinator-schem
 import { STRICT_RETIREMENT_SCHEMA_SQL } from './schema/strict-retirement-schema'
 import { STRICT_CONTINUITY_SCHEMA_SQL } from './schema/strict-continuity-schema'
 import { ADMINISTRATIVE_HISTORY_SCHEMA_SQL } from './schema/administrative-history-schema'
+import { START_GRANT_SCHEMA_SQL } from './schema/start-grant-schema'
 import { backfillStructuredWorkerOrcaSessionIds } from './schema/structured-worker-orca-session-backfill'
 import { assertStrictContinuityDatabaseWritable } from '../strict-continuity-admission'
 import { hasStrictContinuityResume } from '../strict-continuity-resume'
@@ -64,6 +65,7 @@ class OrchestrationDbCore {
     this.db.exec(STRICT_RETIREMENT_SCHEMA_SQL)
     this.db.exec(STRICT_CONTINUITY_SCHEMA_SQL)
     this.db.exec(ADMINISTRATIVE_HISTORY_SCHEMA_SQL)
+    this.db.exec(START_GRANT_SCHEMA_SQL)
     if (this.db.prepare('SELECT 1 FROM administrative_history_permits LIMIT 1').get()) {
       this.db.close()
       throw new Error('administrative_history_unfinished_permit')
