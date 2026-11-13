@@ -7,7 +7,7 @@ import type {
 } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
-import { decideWorkerReportAcceptance } from '../../../../incidents/acceptance-runtime'
+import { decideWorkerReportAcceptance } from '../../../../incidents/integration'
 
 export function importFederatedRelayItem(
   this: OrchestrationDb,

@@ -10,8 +10,7 @@ import { SSH_EXIT_UNCONFIRMED_REASON } from '../../shared/pty-liveness-verdict'
 import type { RetiredTerminalSurface } from './mobile-session-terminal-retirement'
 import { parsePaneKey } from '../../shared/stable-pane-id'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
-import { recordPtyExitIncident } from '../incidents/incident-writer'
-import { fallbackPtyIncarnationId } from '../incidents/incident-key'
+import { fallbackPtyIncarnationId, recordPtyExitIncident } from '../incidents/integration'
 
 export class OrcaRuntimeWithOnPtyExit extends OrcaRuntimeWithOnClientDisconnected {
   onPtyExit(

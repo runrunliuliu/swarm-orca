@@ -4,7 +4,7 @@ import { AGENT_PROMPT_STALLED_ERROR } from '../../../agent-prompt-submission-ver
 import {
   decideWorkerReportAcceptance,
   type AcceptanceDecision
-} from '../../../../incidents/acceptance-runtime'
+} from '../../../../incidents/integration'
 import { settleActiveDispatchesForTask } from './dispatch-completion'
 import { getActiveDispatchForTask } from './task-dispatch-reconciliation'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'

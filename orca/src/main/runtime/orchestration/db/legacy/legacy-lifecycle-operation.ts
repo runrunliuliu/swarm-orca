@@ -9,7 +9,7 @@ import type {
 import { OrchestrationError } from '../../orchestration-error'
 import { LEGACY_CONTRACT_VERSION } from '../contract-constants'
 import type { OrchestrationDb } from '../orchestration-db'
-import { decideWorkerReportAcceptance } from '../../../../incidents/acceptance-runtime'
+import { decideWorkerReportAcceptance } from '../../../../incidents/integration'
 
 export function commitLegacyLifecycleOperation(
   this: OrchestrationDb,

@@ -3,7 +3,7 @@ import { OrchestrationError } from '../../orchestration-error'
 import {
   decideMaintenanceAcceptance,
   type AcceptanceDecision
-} from '../../../../incidents/acceptance-runtime'
+} from '../../../../incidents/integration'
 import { DISPATCH_CIRCUIT_BREAK_FAILURES } from './dispatch-circuit-breaker'
 import type { OrchestrationDb } from '../orchestration-db'
 import { getActiveDispatchForTask } from './task-dispatch-reconciliation'

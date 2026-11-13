@@ -51,8 +51,7 @@ import { reconcileManagedWslCliRegistrations } from '../cli/wsl-cli-registration
 import { createWslCliReconciliationStartupBarrier } from './wsl-cli-reconciliation-startup-barrier'
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { reportProfileStateWriteFailure } from './profile-state-write-failure'
-import { scheduleIncidentShadowReconcile } from '../incidents/incidents-startup'
-import { startStallSampler } from '../incidents/incidents-stall-sampler-timer'
+import { scheduleIncidentShadowReconcile, startStallSampler } from '../incidents/integration'
 
 export async function initializeReadyFoundation(): Promise<void> {
   logStartupMilestone('app-ready')

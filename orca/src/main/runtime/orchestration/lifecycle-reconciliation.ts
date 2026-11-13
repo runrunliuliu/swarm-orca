@@ -1,7 +1,7 @@
 import type { OrchestrationDb } from './db'
 import type { MessageRow, WorkerReportOutcome } from './types'
 import { workerReportObservation } from './worker-report-observation'
-import { logAcceptanceBlocked as acceptanceLogBlocked } from '../../incidents/acceptance-runtime'
+import { logAcceptanceBlocked as acceptanceLogBlocked } from '../../incidents/integration'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 
 // Why: the tab half can change on pane break-out, while opaque legacy keys

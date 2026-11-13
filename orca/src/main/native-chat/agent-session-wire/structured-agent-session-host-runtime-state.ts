@@ -1,4 +1,4 @@
-import { observeToolErrorItem } from '../../incidents/incident-tool-error-observer'
+import { observeToolErrorItem } from '../../incidents/integration'
 import type { AgentSessionOwnerProbe } from '../../../shared/agent-session-lease-adjudication'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import {
