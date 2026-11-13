@@ -1,5 +1,9 @@
 # Strict bootstrap 离线与历史验证（#10 – #13）
 
+> **历史（2026-11-13）**：本文的离线链路与只读工具（`strict-bootstrap-state`、`bootstrap_events`）
+> 已随旧握手删除，旧 attempt 不再支持读取。原文保留为当时的验证记录。
+
+
 从 [strict-bootstrap-protocol.md](strict-bootstrap-protocol.md) 分出：开机必读是协议与
 [operator-runbook.md](operator-runbook.md)；本文保留离线纵向闭环、失败/恢复实测、交付历史与
 S5 生命周期交接。拆分只搬动字节，章节编号与内容未改。

@@ -479,7 +479,12 @@ STOP 后不准入新动作，已准入动作 drain 并报告真实结果；不�
 
 ## 8. 只读 CLI 与状态含义
 
+> **该命令已删除（2026-11-13）。** `strict-bootstrap-state`、`bootstrap_events` 与 `bootstrap_protocol`
+> 随旧握手一起移除；本文下面的只读取证语义只作设计记录，**不再有任何入口可执行**。新任务见
+> [start grant](docs/design/start-grant.md)。
+
 ```sh
+# 历史命令（已删除，勿照抄）
 python3 -B swarm/coordinator_launch.py strict-bootstrap-state \
   --bootstrap /absolute/BOOTSTRAP \
   --expect-attempt attempt-id \

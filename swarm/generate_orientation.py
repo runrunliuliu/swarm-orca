@@ -75,7 +75,7 @@ def named_in_docs(index: dict[str, list[tuple[str, int, int]]]) -> list[str]:
     """
     text = "\n".join((ROOT / name).read_text(encoding="utf-8")
                      for name in SOURCES_OF_TRUTH if (ROOT / name).exists())
-    # Every identifier that appears inside a backticked span, so `bootstrap_protocol.layout(...)`,
+    # Every identifier that appears inside a backticked span, so `coordinator_io.file_ref(...)`,
     # `OperatorScheduler.submit/query` and `payload.submission` all name their symbol. Matching the
     # whole span against the bare name missed every dotted reference, which is how most of the
     # protocol points at code.
@@ -114,19 +114,17 @@ def render() -> str:
         "",
         "1. 本文件「入口 argv」——先知道这一步跑什么。",
         "2. `docs/design/start-grant.md`：现行启动凭据设计（旧的 `strict-bootstrap-protocol.md` 已弃用，"
-        "仍可读作历史）。",
-        "3. `operator-runbook.md`：旧握手的阶段/槽位，**已冻结**，只用于读历史 attempt。",
+        "只作设计历史）。",
+        "3. 旧握手的阶段/槽位文档已删除；历史只保留在设计文档里，不再维护读取入口。",
         "4. 需要看实现时，用下面「符号索引」里的行区间直接读，**不要先 grep 名字**。",
         "",
         "## 入口 argv",
         "",
         "```bash",
     ]
-    # The role-tool argv shapes came from the retired bootstrap action table. The two verbs here are
-    # the ones that still exist: the read-only forensics reader and the start-grant entry.
-    lines.append("python3 -B <swarm>/coordinator_launch.py strict-bootstrap-state "
-                 "--bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> "
-                 "--attempt-binding-sha256 <64 hex> --check")
+    # Two entry points remain: the start-grant verbs, and the non-strict goal loop.
+    lines.append("python3 -B <swarm>/coordinator_launch.py start-grant-mint --record-file <path> "
+                 "--from <handle> --json")
     lines.append("python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --json")
     lines += [
         "```",

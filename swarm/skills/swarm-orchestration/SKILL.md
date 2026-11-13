@@ -208,11 +208,10 @@ immediately and never retried into a timeout; 2 = usage or transport. After 0, r
 with `file_ref` and the schema: a non-atomic writer is visible here before it is complete, and
 `--mode change` cannot see a rewrite that keeps both size and timestamp.
 
-The strict-bootstrap stage waiter (`strict-bootstrap-wait-stage`) and its stage slots were removed
-with the protocol they served: the current design issues **one** start grant instead of a chain of
-evidence markers, so there is no stage file to wait for. Read an archived attempt with
-`strict-bootstrap-state --check` (read-only forensics); start a new Run with
-`start-grant-mint` → `run-create --grant`.
+The strict-bootstrap stage waiter (`strict-bootstrap-wait-stage`), its stage slots **and the
+read-only attempt reader** were removed with the protocol they served: the current design issues
+**one** start grant instead of a chain of evidence markers, so there is no stage file to wait for and
+no archived attempt to read. Start a new Run with `start-grant-mint` → `run-create --grant`.
 A `sleep` micro-loop (`for`/`while` plus `sleep`, whatever the single duration) is a forbidden
 waiting form too: the `N >= 60` rule only ever covered one call, and a loop of 8 s sleeps still
 reads "slow" as "dead".

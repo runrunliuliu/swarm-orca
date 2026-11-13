@@ -163,7 +163,9 @@ def strict_bootstrap_prompt(plan, root=None):
         "Strict startup protocol: " + protocol,
         # Generated from the action table, so a stage cannot be missing from the page an Operator
         # reads while the code still expects it (see swarm/generate_runbook.py --check).
-        "Operator runbook (generated): " + str(Path(protocol).with_name("operator-runbook.md")),
+        # The generated runbook went with the handshake; the start grant's own document is the
+        # operator-facing reference now.
+        "Operator reference: docs/design/start-grant.md",
         # Surfaced, and pointed at one action: a pane told only "read on demand" kept searching
         # anyway (52-70% of its tool calls), while telling it to look the name up here first cut
         # searches by a third. Still not required reading: it is an index of line ranges, and

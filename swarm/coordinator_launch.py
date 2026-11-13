@@ -212,11 +212,6 @@ def build_plan(*, codex=None, trae=None, pi=None, cwd, archive_dir=None, write_d
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["strict-bootstrap-state"]:
-        # Read-only forensics for attempts archived under the retired protocol. The producing tools
-        # are gone; this reader stays so old attempts remain diagnosable.
-        from bootstrap_events import cli_main
-        return cli_main(argv[1:])
     if argv[:1] in (["start-grant-mint"], ["start-grant-hand"], ["start-grant-state"]):
         # Three sibling verbs, not one `start-grant <action>`: each has its own argument set and its
         # own answer, and `state` is read-only while the other two write.

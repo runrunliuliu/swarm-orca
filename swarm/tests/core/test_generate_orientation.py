@@ -64,8 +64,10 @@ class OrientationTests(unittest.TestCase):
             self.assertRegex(docs, r"\b" + symbol + r"\b")
 
     def test_the_index_keeps_the_symbols_the_docs_point_at(self):
+        # `contract_fields` went with the handshake it belonged to; the entries below are the ones
+        # the current documents still name.
         text = TARGET.read_text()
-        for symbol in ("contract_fields", "strict_plan", "build_plan"):
+        for symbol in ("strict_plan", "build_plan", "mint"):
             self.assertIn(f"`{symbol}`", text)
 
     def test_the_index_carries_no_absolute_path(self):

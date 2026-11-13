@@ -446,6 +446,8 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
 - `--grant` 参数仍不加到 `worker-start` 上（§2.10 第 1 条，两位评审都没有反对这条推导）。
 - 没有采纳"把 `start_grant_remote_unsupported` 删掉"的另一种解法：它在本节的判据下是**有判定点、
   有后果**的码，只是当前不可达；删掉会让"放宽 `--on` 时不再有人计数"这件事没有任何记录。
+- 历史读取器（`bootstrap_events` / `strict-bootstrap-state` / `bootstrap_protocol`）也已按 owner 的决定
+  删除：**旧 attempt 不再支持读取**，历史只保留在设计文档里。
 
 ### 2.12 实现复核（2026-11-13，代码落地后）
 
