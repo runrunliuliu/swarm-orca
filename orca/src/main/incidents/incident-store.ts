@@ -187,6 +187,11 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
       if (fromStatus === null) {
         return { outcome: 'not_found' as const }
       }
+      if (input.requireFromStatus !== undefined && fromStatus !== input.requireFromStatus) {
+        // Checked BEFORE the transition table on purpose: a caller that may only act on one state must
+        // not be described as an invalid move, and must not depend on what else the table allows.
+        return { outcome: 'status_changed' as const, fromStatus, toStatus: input.toStatus }
+      }
       if (fromStatus === input.toStatus) {
         return { outcome: 'status_unchanged' as const, fromStatus, toStatus: input.toStatus }
       }

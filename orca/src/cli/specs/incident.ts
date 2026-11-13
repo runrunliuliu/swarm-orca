@@ -138,12 +138,14 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     summary: 'Cluster incidents into bounded triage candidates (dry-run; --apply writes decisions only)',
     usage:
       'orca incident mine [--since 7d] [--max-groups <n>] [--max-candidates <n>] ' +
-      '[--time-budget-ms <n>] [--target watch|duplicate|needs_archive] [--apply] [--json]',
+      '[--max-scan-rows <n>] [--time-budget-ms <n>] [--target watch|duplicate|needs_archive] ' +
+      '[--apply] [--json]',
     allowedFlags: [
       ...GLOBAL_FLAGS,
       'since',
       'max-groups',
       'max-candidates',
+      'max-scan-rows',
       'time-budget-ms',
       'target',
       'apply'
@@ -151,18 +153,25 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     examples: [
       'orca incident mine',
       'orca incident mine --since 7d --json',
-      'orca incident mine --apply --target watch --max-candidates 10'
+      'orca incident mine --target watch --max-candidates 10',
+      'orca incident mine --apply --target needs_archive --max-candidates 5'
     ],
     notes: [
-      'Groups by fingerprint inside the window and reports class/source_kind counts, distinct source ids, first/last seen, the worktrees and runs involved, and the rule that promoted the cluster.',
-      'Candidate rules: at least 3 rows from at least 2 distinct source ids; a crash cluster carrying a signal, or an acceptance_failed cluster on one invariant, may qualify on 2 rows. The thresholds are constants in incident-mine.ts.',
+      'Groups by fingerprint inside the window and reports class/source_kind counts, epoch rows vs STABLE sources, distinct pane/session/dispatch/worktree/run counts, first/last seen, and the rule that promoted the cluster.',
+      'A source is an ENTITY, not an epoch: source_id already contains one (a stall is paneKey:stateStartedAt, a tool error is session:turn:code:windowStart, an acceptance is dispatch:attempt). Diversity is therefore counted on a stable key with the epoch removed (pane / session+code / dispatch+rule / pty session-or-worktree-or-run). A row whose stable key cannot be derived is reported as unknown_stable_source and NEVER counted as a source.',
+      'Candidate rules: at least 3 rows from at least 2 distinct stable sources; a signalled crash, or an acceptance_failed cluster on one invariant, may qualify on 2 rows — but also only from 2 distinct sources. A cluster that meets a row threshold while hitting one entity is reported as single_entity_recurrence and is never queued or applied. Thresholds are constants in incident-mine.ts.',
+      'Self-reports do not participate in mining: their source id is a request id, so they cannot form a cluster. They are counted in excluded.byReason.selfReport rather than given a fabricated source.',
+      'Low-information clusters (tool:unknown, generic tool:non_zero_exit, unknown_state) are reported, marked and sorted last, and their candidates come out of a separate small budget so they cannot fill the queue.',
       'Rows already duplicate/invalid/closed are excluded from the cluster counts and reported separately, so a triaged accident cannot keep growing a cluster.',
       'Dry run by default: it prints the clusters, the selected candidates and what it would set, and writes nothing (the store is opened read-only).',
-      '--apply appends one decision per candidate with actor=miner. The reason carries the rule name and its statistics (count, distinct source ids, first/last seen), never an incident body.',
+      '--apply requires an explicit --target: there is no default. The miner only routes a candidate; it does not confirm a fact, and a default destination would move rows out of the untriaged queue unattended. --target without --apply is allowed and only previews the destination.',
+      '--apply appends one decision per candidate with actor=miner. The reason carries the rule name and its statistics (rows, stable sources, unknown sources, first/last seen), never an incident body.',
       'The miner can only set watch, duplicate or needs_archive. `confirmed` is refused by name: that decision needs a human or independent context (R1).',
+      'The apply path re-reads the status inside the write transaction and only acts while the row is still untriaged and still in the state the candidate was minted from. A decision made after mining (confirmed, watch, anything) is never replaced — even when the generic transition table would allow it — and is reported as skipped_human_decided / skipped_terminal.',
       'Repeat runs are idempotent: an incident already in the target state, or already duplicate/invalid/closed, is skipped and no decision is appended, so running twice does not grow the decision log.',
-      'Bounded: --max-groups and --max-candidates cap the output, and a wall-clock budget caps the pass. Every cap that fires is reported (truncated.*) together with the full totals, so truncation is never silent.',
-      '--json emits a stable shape (version: 1) for automations: totals, excluded, truncated, limits, clusters, candidates, digest. No scheduler and no automation type is added in code.',
+      'Bounded twice over: --max-scan-rows is a HARD cap on the window query (the newest rows are read, and scan.truncated says the totals only describe those), while --max-groups/--max-candidates cap the output and decisions and a wall-clock budget caps the selection loop. scan.rows/ms and scan.digestMs report the real cost. Every cap that fires is reported (truncated.*) with the totals, and scan truncation is stated separately because it means the numbers themselves are partial.',
+      '--json emits a stable shape (version: 1) for automations: scan, totals, excluded, truncated, limits, clusters, candidates, digest. No scheduler and no automation type is added in code.',
+      'Scheduled automation should run the DRY RUN only (no --apply, no --target): a queue change is a human triage decision, so an unattended schedule must never clear untriaged rows.',
       'The `digest` field is the very object `orca incident digest` returns for the same window, built by the same function: the two commands cannot report different totals, capacity or replay state. Both text outputs print that coverage block through one formatter.',
       'The miner never changes a dispatch, an orchestration row, or any code: repair work stays a separate authorised task.'
     ]

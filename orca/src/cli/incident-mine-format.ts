@@ -21,20 +21,32 @@ function classSummary(cluster: MineCluster): string {
 
 export function formatIncidentMine(mine: IncidentMine): string {
   const lines: string[] = []
-  const mode = mine.apply ? `APPLY (target ${mine.target})` : 'dry-run (no writes)'
+  const mode = mine.apply
+    ? `APPLY (target ${mine.target ?? '—'})`
+    : mine.target === null
+      ? 'dry-run (no writes; no --target given)'
+      : `dry-run (no writes; would set ${mine.target})`
   lines.push(
     `Incident mine (last ${formatWindowLabel(mine.windowMs)}, since ${iso(mine.since)}) — ${mode}`
   )
   lines.push('')
   lines.push(
-    `Rows in window: ${mine.totals.rowsInWindow}` +
+    `Rows scanned: ${mine.scan.rows} in ${mine.scan.ms}ms (digest ${mine.scan.digestMs}ms)` +
       `    clusters: ${mine.totals.clusters}` +
       `    candidate clusters: ${mine.totals.candidateClusters}` +
       `    untriaged candidates: ${mine.totals.candidates}`
   )
+  if (mine.truncated.scan) {
+    // Separate from every other truncation: this one means the numbers themselves are partial.
+    lines.push(
+      `SCAN TRUNCATED: the window holds more than --max-scan-rows ${mine.scan.limit} rows; ` +
+        'the newest rows were read and every total below describes only those. Narrow --since.'
+    )
+  }
   lines.push(
-    `Excluded from clustering (already triaged): ${mine.excluded.total}` +
-      (mine.excluded.total === 0
+    `Excluded from clustering: ${mine.excluded.total}` +
+      ` (triaged ${mine.excluded.byReason.terminal}, self-report ${mine.excluded.byReason.selfReport})` +
+      (mine.excluded.byStatus.length === 0
         ? ''
         : `  [${mine.excluded.byStatus.map((entry) => `${entry.status}:${entry.count}`).join(', ')}]`)
   )
@@ -55,20 +67,45 @@ export function formatIncidentMine(mine: IncidentMine): string {
       `TRUNCATED: the ${mine.limits.timeBudgetMs}ms time budget ran out; the candidate set is partial.`
     )
   }
+  if (mine.truncated.lowInformation) {
+    lines.push(
+      'TRUNCATED: more low-information candidates (unknown / non_zero_exit) existed than their ' +
+        'separate budget allows; they are reported as clusters but not queued.'
+    )
+  }
   lines.push('')
   if (mine.clusters.length === 0) {
     lines.push('No clusters in this window.')
   } else {
     lines.push(
-      `${pad('FINGERPRINT', 18)} ${pad('COUNT', 6)} ${pad('SRC', 4)} ${pad('CLASS', 24)} ` +
+      `${pad('FINGERPRINT', 18)} ${pad('ROWS', 8)} ${pad('SOURCES', 16)} ${pad('CLASS', 22)} ` +
         `${pad('FIRST→LAST', 24)} RULES`
     )
     for (const cluster of mine.clusters) {
       const span = `${iso(cluster.firstSeen).slice(5, 16)}→${iso(cluster.lastSeen).slice(5, 16)}`
+      // `epochRows` and `stableSources` are printed side by side so "3 rows" cannot be read as
+      // "3 entities" — the distinction the M6 review blocked on.
+      const sources =
+        `${cluster.stableSources} src` +
+        (cluster.unknownStableSource > 0 ? ` (+${cluster.unknownStableSource}?)` : '')
+      const flags = [
+        cluster.singleEntityRecurrence ? 'single-entity' : null,
+        cluster.lowInformation ? `low-info:${cluster.lowInformationReason ?? 'yes'}` : null
+      ].filter((entry): entry is string => entry !== null)
       lines.push(
-        `${pad(`${cluster.fingerprint.slice(0, 16)}…`, 18)} ${pad(String(cluster.count), 6)} ` +
-          `${pad(String(cluster.distinctSourceIds), 4)} ${pad(classSummary(cluster), 24)} ` +
-          `${pad(span, 24)} ${cluster.rules.length === 0 ? '—' : cluster.rules.join(',')}`
+        `${pad(`${cluster.fingerprint.slice(0, 16)}…`, 18)} ${pad(`${cluster.epochRows}r/${cluster.untriagedCount}u`, 8)} ` +
+          `${pad(sources, 16)} ${pad(cluster.summary, 22)} ` +
+          `${pad(span, 24)} ${cluster.rules.length === 0 ? '—' : cluster.rules.join(',')}` +
+          (flags.length > 0 ? `  [${flags.join(', ')}]` : '')
+      )
+      lines.push(
+        `  dimensions: panes=${cluster.distinctPanes} sessions=${cluster.distinctSessions} ` +
+          `dispatches=${cluster.distinctDispatches} worktrees=${cluster.distinctWorktrees} ` +
+          `runs=${cluster.distinctRuns}` +
+          `  owner=${cluster.ownerAction}` +
+          (cluster.latestDecisionAt === null
+            ? '  last_decision=never'
+            : `  last_decision=${iso(cluster.latestDecisionAt)}`)
       )
       const places = [
         cluster.worktrees.length === 0
@@ -114,12 +151,24 @@ export function formatIncidentMine(mine: IncidentMine): string {
           'the miner never re-opens a decision a human made.'
       )
     }
+  } else if (mine.target === null) {
+    lines.push(
+      'Candidates found, but no --target was given: nothing would be written. Pass ' +
+        '--target watch|duplicate|needs_archive (with --apply) to record a triage decision.'
+    )
+    for (const candidate of mine.candidates) {
+      lines.push(
+        `  ${candidate.incidentId}  ${candidate.rule}  ` +
+          `count=${candidate.stats.count} sources=${candidate.stats.stableSources}  ` +
+          `${candidate.fromStatus} → ?`
+      )
+    }
   } else {
     lines.push(`Would set (target ${mine.target}, actor=miner) — re-run with --apply to write:`)
     for (const candidate of mine.candidates) {
       lines.push(
         `  ${candidate.incidentId}  ${candidate.rule}  ` +
-          `count=${candidate.stats.count} src=${candidate.stats.distinctSourceIds}  ` +
+          `count=${candidate.stats.count} sources=${candidate.stats.stableSources}  ` +
           `${candidate.fromStatus} → ${mine.target}`
       )
     }
@@ -134,8 +183,10 @@ export function formatIncidentMine(mine: IncidentMine): string {
   lines.push(...formatDigestCoverage(mine.digest))
   lines.push('')
   lines.push(
-    'The miner never sets confirmed: that requires a human or independent context (R1). ' +
-      'Mining, verdicts and repair tasks are separate steps; nothing here changes code or dispatch state.'
+    'The miner never sets confirmed: that requires a human or independent context (R1), and it only ' +
+      'acts on rows that are still untriaged — a decision made after mining is never overwritten. ' +
+      'A miner decision routes a candidate; it does not confirm a fact. Mining, verdicts and repair ' +
+      'tasks are separate steps, and nothing here changes code or dispatch state.'
   )
   return lines.join('\n')
 }

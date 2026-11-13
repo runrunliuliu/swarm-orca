@@ -46,6 +46,14 @@ export type AppendDecisionOutcome =
   | 'not_found'
   | 'invalid_transition'
   | 'status_unchanged'
+  /**
+   * The row was not in the status the caller required (M6 review C3).
+   *
+   * Distinct from `invalid_transition`: the move may be legal for a human, but this caller is only
+   * allowed to act on one starting state. The check runs inside the same IMMEDIATE transaction as the
+   * insert, so a decision that lands between a caller's read and its write cannot be overwritten.
+   */
+  | 'status_changed'
   | 'actor_required'
   | 'reason_required'
   | 'invalid_status'
@@ -64,6 +72,13 @@ export type AppendDecisionInput = {
   actor: string
   reason: string
   createdAt?: number
+  /**
+   * Optimistic guard: apply only if the effective status is exactly this value at write time.
+   *
+   * The miner uses `untriaged` so it can never replace a human or R1 decision it did not see, even
+   * though the generic transition table would allow `confirmed -> duplicate`.
+   */
+  requireFromStatus?: IncidentStatus
 }
 
 export type IncidentListItem = {

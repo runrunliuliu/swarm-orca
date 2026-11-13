@@ -180,6 +180,8 @@ export type IncidentDecideFailureDto = {
     | 'not_found'
     | 'invalid_transition'
     | 'status_unchanged'
+    /** The row was not in the status this caller required (M6 review C3). */
+    | 'status_changed'
     | 'actor_required'
     | 'reason_required'
     | 'invalid_status'

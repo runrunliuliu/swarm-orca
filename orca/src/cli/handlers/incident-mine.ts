@@ -1,9 +1,13 @@
 // `orca incident mine` (issue-sedimentation.md v2.7 §10, M6-1).
 //
-// Dry run by default: it clusters, selects candidates and prints what it would set. `--apply` writes
+// Dry run by default: it clusters, selects candidates and prints what it WOULD set. `--apply` writes
 // append-only decisions with actor=miner and nothing else — no dispatch, no orchestration row, no code.
 // The store is opened read-only unless `--apply` was asked for, so "this command cannot write" is a
 // property of the handle rather than a promise in a comment.
+//
+// `--apply` without `--target` is refused (M6 review C6, both reviewers chose this): a default target
+// would let an unattended schedule move rows out of the untriaged queue by itself. The operator has to
+// name the triage destination, which is a policy choice, not a default.
 //
 // Pure CLI on purpose (§10 / M6-4): a scheduled automation runs this binary and parses `--json`; no
 // scheduler, no automation type, no new IPC surface.
@@ -15,9 +19,9 @@ import { parseDigestWindow } from '../../main/incidents/incident-digest'
 import {
   DEFAULT_MINE_MAX_CANDIDATES,
   DEFAULT_MINE_MAX_GROUPS,
+  DEFAULT_MINE_MAX_SCAN_ROWS,
   DEFAULT_MINE_TIME_BUDGET_MS,
   DEFAULT_MINE_WINDOW_MS,
-  DEFAULT_MINER_TARGET,
   applyMineCandidates,
   buildIncidentMine,
   isMinerTarget,
@@ -42,10 +46,21 @@ function positiveIntFlag(
   return parsed
 }
 
-function parseTarget(ctx: Parameters<CommandHandler>[0]): MinerTarget {
+/**
+ * `--target` is optional only for a dry run (it then pre-writes the report's "would set" line). An
+ * `--apply` without it is an error: the miner has no default destination.
+ */
+function parseTarget(ctx: Parameters<CommandHandler>[0], apply: boolean): MinerTarget | null {
   const raw = stringFlag(ctx, 'target')
   if (raw === null) {
-    return DEFAULT_MINER_TARGET
+    if (apply) {
+      throw new RuntimeClientError(
+        'invalid_argument',
+        '--apply requires an explicit --target watch|duplicate|needs_archive. The miner does not pick a ' +
+          'destination for you: without one it would remove rows from the untriaged queue by default.'
+      )
+    }
+    return null
   }
   if (!isMinerTarget(raw)) {
     // §10.3: only watch / duplicate / needs_archive. `confirmed` is refused BY NAME so the message
@@ -74,8 +89,9 @@ export const mineIncident: CommandHandler = async (ctx) => {
   const maxGroups = positiveIntFlag(ctx, 'max-groups', DEFAULT_MINE_MAX_GROUPS)
   const maxCandidates = positiveIntFlag(ctx, 'max-candidates', DEFAULT_MINE_MAX_CANDIDATES)
   const timeBudgetMs = positiveIntFlag(ctx, 'time-budget-ms', DEFAULT_MINE_TIME_BUDGET_MS)
+  const maxScanRows = positiveIntFlag(ctx, 'max-scan-rows', DEFAULT_MINE_MAX_SCAN_ROWS)
   const apply = ctx.flags.get('apply') === true
-  const target = parseTarget(ctx)
+  const target = parseTarget(ctx, apply)
 
   // A dry run opens the store read-only; --apply is the only path that can write, and the write is
   // restricted to `appendDecision` below.
@@ -103,6 +119,7 @@ export const mineIncident: CommandHandler = async (ctx) => {
         windowMs,
         apply,
         target,
+        scan: { rows: 0, ms: 0, digestMs: 0, truncated: false, limit: maxScanRows },
         // Built from the same builder so an empty host still emits the digest shape, not a stub that
         // drifts from it (the builder only needs the store report here).
         digest: {
@@ -132,10 +149,22 @@ export const mineIncident: CommandHandler = async (ctx) => {
           },
           toolError: { windows: 0, wouldWrite: 0, writeEnabled: false, updatedAt: null }
         },
-        totals: { rowsInWindow: 0, clusters: 0, candidateClusters: 0, candidates: 0 },
-        excluded: { total: 0, byStatus: [] },
-        truncated: { groups: false, candidates: false, timeBudget: false },
-        limits: { maxGroups, maxCandidates, timeBudgetMs },
+        totals: {
+          rowsInWindow: 0,
+          clusters: 0,
+          candidateClusters: 0,
+          candidates: 0,
+          lowInformationClusters: 0
+        },
+        excluded: { total: 0, byStatus: [], byReason: { terminal: 0, selfReport: 0 } },
+        truncated: {
+          groups: false,
+          candidates: false,
+          timeBudget: false,
+          scan: false,
+          lowInformation: false
+        },
+        limits: { maxGroups, maxCandidates, timeBudgetMs, maxScanRows },
         clusters: [],
         candidates: []
       }
@@ -154,11 +183,13 @@ export const mineIncident: CommandHandler = async (ctx) => {
       maxGroups,
       maxCandidates,
       timeBudgetMs,
+      maxScanRows,
       apply,
       target
     })
     if (apply) {
-      mine.applied = applyMineCandidates(opened.store, mine)
+      // `target` is non-null whenever `apply` is true: parseTarget refuses the combination above.
+      mine.applied = applyMineCandidates(opened.store, mine, { target: target as MinerTarget })
     }
     if (ctx.json) {
       printIncidentJson(mine)
