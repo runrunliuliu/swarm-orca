@@ -204,9 +204,11 @@ Before deciding *whether* a task should use the task sparse workspace mode, use 
 rather than safety.
 
 For the strict bootstrap path, the known gaps (exit-classification, progression ownership, gate
-proportionality) and the draft repair plan live in
-[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md); it is a draft and
-authorizes nothing.
+proportionality) are recorded in
+[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md), and the design that
+**replaces** that protocol is [start grant](swarm/docs/design/start-grant.md): its M0 contract is
+final, M1–M5 are not implemented, and it claims no gate that does not exist yet. Both are drafts
+that authorize nothing; the current protocol stays binding until the replacement lands.
 
 For the Orca-side view of a task (workspaces, agents, spend), read
 [the Tasks workbench design](swarm/docs/design/task-workbench/README.md) and its

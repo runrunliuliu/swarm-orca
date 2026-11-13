@@ -1,6 +1,9 @@
 # Strict bootstrap：liveness、失败分类与门数收敛（修复计划）
 
-状态：**草案；P0（失败分类闭合）已按本文实现并通过离线回归，P1–P3 未实现**。本文只给诊断、修复包与
+状态：**草案；P0（失败分类闭合）已实现并保留；P1–P3 不再单独实施，由
+[start grant](start-grant.md) 的 M1–M4 取代（M1–M4 未实现）**。D1–D3 与 §2 保留为诊断记录：
+推进权（P1）在 start grant 里由“凭据向下流 + 只读投影”承担，门数（P2）升级为默认路径而不是可选优化，
+收口（P3）并入 M4 的 `state`。本文只给诊断、修复包与
 验收判据，**不构成**部署、重启、启动 Agent、迁移既有 attempt/Run 或放宽任何 gate 的授权。协议正文仍以
 [strict-bootstrap-protocol.md](../../strict-bootstrap-protocol.md) 为准；本文与它冲突时以协议为准。
 实现记录与偏差见 [§9](#9-实现记录p0-2026-11-10)。gate role 的 provider 已改为显式声明

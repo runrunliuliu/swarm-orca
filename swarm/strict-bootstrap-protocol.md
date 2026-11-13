@@ -1,5 +1,11 @@
 # Strict bootstrap 协议、生产适配与生命周期交接
 
+> **已弃用（2026-11-13）**：新建 Run 的规范由
+> [start grant（启动凭据）](docs/design/start-grant.md) 取代。本文 §1–§8 **冻结、不再更新**，正文保留用于
+> 历史 attempt 的取证与审计（`bootstrap_events.py --check` 仍按本文读历史槽位）。冲突时按范围分：
+> **已存在的历史 attempt** 以本文为准；**新的 Run 启动**以 start grant 为准——但 start grant 的 M1–M5
+> 尚未实现，在它落地之前，本文描述的 strict 路径仍是唯一可执行的实现。**弃用不等于已下线**。
+
 更新：2026-11-03。范围：新建 Trae TUI bootstrap attempt；不迁移历史 request、契约或 Run。
 
 本文保留通用状态机、双侧工具交接及生产适配边界，不包含部署方的内部路径、真实身份
