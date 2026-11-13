@@ -1,196 +1,123 @@
-# 端到端示例：从信号到 issue 文件到 guardrail 提案
+# 端到端示例（v2，按已落地实现写）
 
-- 配套文档：[issue-sedimentation.md](issue-sedimentation.md)
-- 日期：2026-11-12（Asia/Shanghai）
-- 状态：**虚构示例**，不是运行证据，不是验收结论
-- 标注约定：`[已实现]` 现有代码已产出该字段/该行为；`[设计中]` 本文定义但无实现；
-  `[缺口]` 无实现也无定义。每处标注都指向依据文件，不指向本文。
+- 配套：[../issue-sedimentation.md](../issue-sedimentation.md)、[README](README.md)
+- 状态：**虚构示例**。所有 `inc_…` / `pane-…` / `disp-…` 均为虚构标识符，不含真实 Run/Task/Dispatch/
+  终端 ID、主机名、私有路径或 session 原文。
+- 标注：`[已实现]` 当前代码有该行为；`[灰度]` 实现存在但默认不写；`[缺口]` 尚未实现。
 
-> 本文所有 `run_example01`、`task_example07`、`disp_example07a`、`term_example`、
-> `inc_...`、`clu_...`、`grd_...` 均为虚构标识符。示例中不出现真实 Run/Task/Dispatch/终端 ID、
-> 主机名、私有路径、凭据或 session 原文。字段名沿用现有代码词汇；示例值不可用于对账。
+## 场景
 
-## 0. 场景一句话
+一个 pi worker 在实施任务时被 OOM killer 杀掉；同一周内又有两个 turn 出现了同码的工具错误。
+下面的每一步都是当前代码真实会做的事。
 
-一个实施 worker 的回合续跑器连续三个回合只"重述计划"、不执行动作，被**进程外**观察者判定为
-无进展；第一次只落一条 incident record，第二次出现同一模式后才形成 issue 文件，并产出两条
-防复发提案。
+## 1. 进程死亡 → 一条 crash 记录 `[已实现]`
 
-## 1. 信号（S0，均为已有观测面）
+`onPtyExit` 在清理 PTY 状态**之前**收集快照，然后调一次 `recordPtyExitIncident(...)`：
 
-三个来源各自只陈述事实，都不下"这是 bug"的结论：
-
-| 来源 | 级别 | 例子（虚构） | 说明 |
-| --- | --- | --- | --- |
-| 回合续跑器 journal | `[已实现]` | `events.jsonl` 追加 `execution_stalled`，`no_progress_turns=3` | `coordinator_driver.py` 的 `no_progress_turns` 与 `execution_stalled` 事件；计数来自"本回合是否产生新证据"，不是模型自评 |
-| 外部观察者快照 | `[已实现]` | `status.json.alerts = ["progress_report_stale", "development_inactivity_diagnostic_not_death"]` | `progress_watch.py` 原子替换 `status.json`，`alerts.jsonl` 记录 raised/cleared 变化 |
-| 执行者自报 | `[设计中]` | 结构化 blocker 记录（`kind=blocked_on_unknown_input`、`typed_code`、`minimal_repro`） | 当前执行者 blocker 仍是散文；`[缺口]` 无 schema |
-
-```json
-{"at": "2026-11-12T03:10:00Z", "kind": "raised", "alert": "progress_report_stale"}
-{"at": "2026-11-12T03:12:30Z", "kind": "raised", "alert": "development_inactivity_diagnostic_not_death"}
-{"event": "execution_stalled", "attempt": 14, "no_progress_turns": 3,
- "novel_evidence_count": 0, "max_no_progress_turns": 3}
+```ts
+recordPtyExitIncident({
+  ptyId, incarnationId, paneKey, worktreeId,
+  agentSessionId: null,                 // 退出时 PTY 记录里没有 session id，只有 claim digest
+  agentIdentityDigest,
+  exitCode: 137, exitCause: { kind: 'signaled', signal: 9 },
+  hostExitConfirmed: true, providerExitObserved: true, surface: 'local',
+  hasAgentBinding: true                 // 有 launch/foreground/paneKey/owner claim 任一
+})
 ```
 
-注：`development_inactivity_diagnostic_not_death` 是现有观察者刻意使用的名字——15 分钟无进展
-只报"诊断"，不报"死亡"。沉淀层同样不得把它升级成"已确认 bug"。
-
-## 2. 触发（S1）：T1 阈值型，判定者是进程外观察者
-
-```
-T1 | judge=off-process watcher (not the driver, not the worker)
-condition: no_progress_turns >= max_no_progress_turns (3) AND no declared wait
-waive: wait_reason + expected_wait_until not present -> no suppression
-verdict: 触发沉淀（不是"确认 bug"）
-```
-
-`[已实现]` 抑制条件本身存在（`wait_reason` + `expected_wait_until`，见 `progress_watch.py`）；
-`[设计中]` "阈值命中即生成 incident record" 这一步。
-
-反例（本示例**不**触发）：同一 Run 的 Coordinator 在 03:05 写出
-`wait_reason=awaiting_reviewer_receipt`、`expected_wait_until=03:20Z`，则 03:10 的陈旧报告不告警。
-限制：该声明由被怀疑系统自己产出，"声明了等待"不证明等待合理，所以 incident 里必须把它
-连同声明者身份一起记录，而不是当作已排除。
-
-## 3. incident record（S2）：一次实例，不可变
-
-`[设计中]` 目录与文件族；`[已实现]` 其中被引用的字段来源。
+产生的行（示意）：
 
 ```json
 {
-  "schema_version": 1,
-  "incident_id": "inc_example01_14_no_progress",
-  "class": "no_progress",
-  "typed_code": "execution_stalled",
-  "trigger": {"channel": "T1", "judge": "progress_watch", "judge_independence": "off_process_read_only"},
-  "binding": {"run": "run_example01", "task": "task_example07", "dispatch": "disp_example07a",
-              "attempt": 14, "turn": 14, "terminal_pseudonym": "term_example"},
-  "replay_class": "not_admitted",
-  "expected": "每回合产生一个 exec 动作或新证据；3 回合内推进到 implementation",
-  "actual": {"novel_evidence_count": 0, "no_progress_turns": 3, "actions": ["plan_only", "plan_only", "plan_only"]},
-  "contract_ref": {"excerpt": "派发契约原文片段（≤200 字，脱敏）", "sha256": "…"},
-  "evidence": [
-    {"origin": "driver_events", "path": "<run>/events.jsonl", "offset": 12841,
-     "sha256": "…", "grade": "L0", "durable": true},
-    {"origin": "watcher_snapshot", "path": "<run>/progress/status.json",
-     "sha256": "…", "grade": "L0", "durable": true},
-    {"origin": "session_tail", "path": "<run>/transcripts/…tail.md", "sha256": "…",
-     "grade": "L1", "durable": false}
-  ],
-  "unknown_boundaries": [
-    "worker 是否已对 allowed_paths 产生写入：未取树级对比，N/A",
-    "第 12 回合的启动回执是否为本 attempt：驱动侧无回执"
-  ],
-  "repro_min_input": "未取得",
-  "disposition": {"state": "untriaged", "why": "单次模式，未达聚类阈值"},
-  "next_step": "人工/owner 判定是否与 11-13 的同类模式合并；不得自动重试"
+  "id": "inc_example01",
+  "source_kind": "pty_exit", "source_id": "inc-e8f1…", "facet": "exit",
+  "class": "crash", "status": "untriaged",
+  "exit_cause": "{\"kind\":\"signaled\",\"signal\":9}",
+  "evidence": { "pointers": [], "unknownBoundaries": ["no transcript pointer at PTY teardown"] }
 }
 ```
 
-关键点：
+要点：`operator_close` 不写；`unknown` 只在 pane 曾有 agent 绑定时写；同一 incarnation 重复回调
+只落一条（`UNIQUE(source_kind, source_id, facet)`）。
 
-- `disposition.state=untriaged` 是**合法终态**。系统可以记录"无人有资格判定"，不得把
-  `unknown`、`needs_reconcile` 或"看着像 bug"当成已确认（见主文档 §10 红线）。
-- `replay_class` 只说明能否重放，不说明是不是 bug；`unknown` / `needs_reconcile` 都不可重放。
-- `evidence[].grade` 必须自洽：`L1` 记录不得出现在"已归档"摘要里；`L0` 需要归档回读 SHA256。
+## 2. 运维看见它 `[已实现]`
 
-## 4. 第二次出现 → 聚类 → issue 文件（S3）
+```console
+$ orca incident list --status untriaged
+Coverage: remote_incident_capture=unsupported  capacity_latch_set=false  currently_limited=false
+          shadow: lastSeq=0 incomplete=false
+14:02  crash  pi  issue-sediment  signaled(9)  untriaged  inc_example01
 
-次日同一 `typed_code` 在另一个 task 上再次出现，两侧 record 都不可变，聚类结果是**派生视图**：
-
-```json
-{
-  "cluster_key_version": 2,
-  "cluster_id": "clu_example_stalled_plan_only",
-  "members": ["inc_example01_14_no_progress", "inc_example02_09_no_progress"],
-  "key": {"class": "no_progress", "channel": "T1", "stage": "turn_action_selection",
-          "typed_code": "execution_stalled", "site": "coordinator_driver.turn_settled",
-          "acceptance_criterion": null},
-  "severity": {"impact": "task_stalled_human_intervention_required", "unknown_states": 0},
-  "review": {"merge_judged_by": "independent_review_session", "verdict": "same_pattern",
-             "independence": "different_context_same_operator"},
-  "issue_ref": "<archive>/issues/issue_example_stalled_plan_only.md"
-}
+$ orca incident show inc_example01 --md
+# inc_example01 · crash
+退出原因  signaled(9)
+unknown   未记录证据指针：PTY 拆除时拿不到 transcript 路径（§7.1 禁止反查被清理状态）
+动作      watch / duplicate / invalid / needs_archive / confirmed（confirmed 需显式 actor+理由）
 ```
 
-`[设计中]` 聚类与 `issue_ref`；`[缺口]` 无聚类实现。
+## 3. 人工分流 `[已实现]`
 
-issue 文件（`issue_example_stalled_plan_only.md`）骨架，只填已确认事实，分析留白：
-
-```markdown
-# issue：回合续跑器在 plan-only 动作上耗尽无进展预算
-
-- 状态：open（guardrail: proposed, not merged）
-- 首次出现：2026-11-12　最近一次：2026-11-13　出现次数：2
-- 影响：任务停在 implementation 之前，需人工介入；无 unknown 状态残留
-- 判据来源：派发契约 §验收（sha256 …）；判定者：进程外观察者 + 独立审查会话
-
-## 1. 摘要（30 秒）
-连续回合只重述计划、不执行，续跑器按 3 回合阈值正确停止；失败点在"动作选择后没有校验
-动作类型"，而不是续跑器本身。
-
-## 2. 背景与预期（原文引用契约片段，≤200 字）
-
-## 3. 时间线（只写已确认事实）
-| 时间 (UTC) | 事件 | 证据 |
-| 03:06 | attempt 14 turn 12 结算：plan_only | events.jsonl@12841 (L0) |
-| 03:09 | turn 13：plan_only，novel=0 | events.jsonl@12903 (L0) |
-| 03:12 | turn 14：plan_only，no_progress_turns=3 → execution_stalled | events.jsonl@12960 (L0) |
-| 03:12 | 观察者 raised: progress_report_stale | alerts.jsonl (L0) |
-
-## 4. 未填：机制分析
-（自动化只能写事实；根因与"哪层该拦住"由审查会话填写，见主文档 §6 的写法约束）
-
-## 5. 未知边界
-- 第 12 回合之前是否已有 plan_only：窗口只回溯 3 回合
-
-## 6. 证据与 pins
-（path + sha256 + grade；L1 单独列出并标 durable=false）
-
-## 7. 防复发处置（proposed）
-见 §5；未合并前本 issue 不得置 closed。
-
-## 8. 待观察/不修复理由（仅在无代码 guardrail 时填写）
+```console
+$ orca incident decide inc_example01 --to watch --actor alice --reason "等同类复现再定"
 ```
 
-## 5. guardrail 提案（S5 → 修复循环的输出物）
+决策是**追加**的：`incident_decisions` 多一行，`incidents` 行本身不变（触发器拒 UPDATE）。
 
-`[设计中]` 提案结构；`[已实现]` 其引用的既有门禁（独立审查、离线套件、delivery 流程）。
+## 4. 一周后聚类 `[已实现]`
 
-```
-grd_example_plan_only_1（代码/契约类）
-  target: coordinator_driver 的动作校验：settled 记录为 plan_only 且无 exec 项 -> 立即
-          typed code `driver_plan_only_action`，而不是等 3 回合预算耗尽
-  acceptance: PYTHONPATH=.:tests python3 -B -m unittest core.test_coordinator_driver
-  blast: coordinator_driver.py -> core.test_coordinator_driver（tests/run_blast.sh 选择）
-  status: proposed（未改任何代码；合并需独立修改任务 + worktree + delivery 授权）
-
-grd_example_plan_only_2（观察/降噪类）
-  target: 观察者告警抑制：仅当 coordinator 报告 contain wait_reason 且未过期时压制
-          progress_report_stale；当前行为符合此规则 -> 结论"无需改动，作为已知边界记录"
-  status: no_change_recorded（属于 §8 的"有处置但无代码改动"）
+```console
+$ orca incident mine --since 7d
+Candidates (scan 4,812 rows · 38ms)
+ 12  crash/signaled · 4 stable sources (3 panes / 2 worktrees)     [候选]
+  8  tool_error/non_zero_exit · 2 sessions                          [候选·低信息]
+  2  acceptance_failed · single_entity_recurrence                   [不作候选]
 ```
 
-第二个提案是要点：**不是每条 incident 都能产出代码 guardrail**。允许"记录为已知边界 + 降噪规则"
-作为处置，但必须写在 issue 文件里可复核；不允许无声关闭。
+"来源"按**实体**数（pane / session / dispatch），不是按 `source_id` 的 epoch 数 —— 否则同一 pane
+停顿三次就会被读成"跨源复现"。
 
-## 6. 状态标注核对（本示例范围内）
+## 5. 分流建议（默认 dry-run）`[已实现]`
 
-| 环节 | 状态 | 依据 |
-| --- | --- | --- |
-| `events.jsonl` / `execution_stalled` / `no_progress_turns` | 已实现 | `swarm/coordinator_driver.py` |
-| `status.json` / `alerts.jsonl` / `wait_reason` 抑制 | 已实现 | `swarm/progress_watch.py` |
-| 归档清单 + 回读 SHA256 | 已实现（清单级别） | `swarm/evidence_archive.py` |
-| L0/L1/L2 分级规则 | 设计中 | `swarm/docs/design/blocking-isolation.md` §3.8（草案） |
-| incident record 文件族 | 设计中 | 主文档 §5 |
-| 聚类 + issue 文件 | 设计中 | 主文档 §5.4、§6 |
-| 定期只读挖掘 / 提案生成 | 设计中 | 主文档 §7 |
-| 自动改代码 / 自动合并 | **非目标** | 主文档 §7、§10 |
-| 结构化自报 blocker schema | 缺口 | 执行者 blocker 目前是散文 |
+```console
+$ orca incident mine --since 7d --apply --target watch --actor miner
+skipped_already_target  inc_example01
+appended watch          inc_example02 · inc_example03
+```
 
-## 7. 这个示例明确没有证明的事
+`--apply` 必须显式 `--target`，且**只能**从当前 `untriaged` 出发：候选生成之后如果有人先把它设成
+`confirmed`，miner 会得到 `skipped_status_changed` 而不是覆盖人的判断。
 
-- 没有证明任何一次真实 Run 会产生上述字段：本文件是虚构示例。
-- 没有证明聚类判据在真实数据上能区分"同一 bug"与"同一错误码的不同 bug"：需要实现后回放验证。
-- 没有证明 L0 归档路径可用：归档根目录、回读与脱敏需部署方配置，本文不写私有地址。
+## 6. 起草防复发项（本轮仍是人做）`[缺口]`
+
+设计上每条已确认的故障类最终要产出一个 guardrail（测试/检查器/规则条目），目前 `mine` 只出候选，
+不提草案、不开工单。这一步决定 M7 之后是否补。
+
+## 7. 验收门（另一条独立路径）`[已实现，默认无声明]
+
+若该 dispatch 声明了 acceptance：
+
+```console
+$ orca incident acceptance declare --dispatch disp-example07a --rule tests \
+    --worktree-root /path/to/worktree --cwd /path/to/worktree \
+    --command npm --command test --expect-exit 0
+```
+
+结算前主进程在**事务之外**用 argv 跑这条命令（无 shell）；不满足 → 写 incident + `acceptance_pending`
+停点，dispatch 保持 `dispatched`、worker_done 保持未读，`resolve --accept` 后由下一 tick 重新结算。
+operator 若要绕过，必须显式 `--override-acceptance` 并留下 `acceptance_overridden` 证据。
+
+## 8. 灰度中的两条判据（默认不写）`[灰度]`
+
+```console
+$ orca incident stalls          # 有语义事件就不再算停滞；ageBasis=state_fallback 时明示退化
+$ orca incident tool-errors     # 结构化高危才单次直通；文本命中最多进 non_zero_exit/unknown
+```
+
+两者都默认 off（`INCIDENT_STALL_WRITE` / `INCIDENT_TOOL_ERROR_WRITE` 仅 `on` 生效），所以上面这些
+观察**不会**自动变成 incident —— 打开写入前要先看这两张表在真实负载上的比例。
+
+## 9. 这个示例**不**代表的事
+
+- 不代表已经 live 验收：本项目至今没有"真实桌面进程被杀 → 重启 → 记录仍在"的端到端证据。
+- 不代表远端可捕获：SSH/WSL 宿主内的事实不在本机库里，`list` 会写 `remote_incident_capture=unsupported`。
+- 不代表 evidence 完整：crash 记录当前 `pointers: []`（见 §7.1）。

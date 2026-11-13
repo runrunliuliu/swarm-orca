@@ -2,10 +2,10 @@
 
 - 日期：2026-11-12（Asia/Shanghai）
 - 状态：**设计（v2.8，M1–M6 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 修复）→ v2.7（M5 BLOCK → 修复）→ v2.8（M6 BLOCK → 实体来源/显式 target → §19.8）。
+- 修订历史：v2.1–v2.8 每轮评审后的修正见 §19 与 [轮次索引](issue-sedimentation/README.md)（git log 有逐次提交）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
-- 过程材料（brief / 双方 review / 共识，逐字保留）：[`issue-sedimentation/rounds/`](issue-sedimentation/README.md)，
-  轮次索引与"每轮抓到了什么"见 [README](issue-sedimentation/README.md)。
+- 过程材料（brief / 双方 review / 共识）**不随仓库分发**，归档在私有产物区；轮次索引与
+  "每轮抓到了什么"见 [README](issue-sedimentation/README.md)。
 - 端到端示例：[`issue-sedimentation/example.md`](issue-sedimentation/example.md)（虚构 ID）。
 
 ## 0. v1 → v2 的方向变更
@@ -587,8 +587,8 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 
 ## 19. 决策与未决
 
-本节只留结论与摘要；每轮的 brief、双方原始评审与共识文件在
-[`issue-sedimentation/rounds/`](issue-sedimentation/README.md)，轮次表见该目录 README。
+本节只留结论与摘要；每轮的对象、结论、关键必改见
+[轮次索引](issue-sedimentation/README.md)（原始评审文件归档在私有产物区，不入库）。
 
 ### 19.1 已拍板（2026-11-12）
 
@@ -608,79 +608,22 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 4. “语义错但门禁全过”是否长期作为非目标；
 5. `acceptance_pending` 停点的 owner 是谁，超时后如何升级。
 
-## 19.3 M1 实施与评审记录（2026-11-13）
+### 19.3 里程碑实施与评审记录
 
-| 项 | 内容 |
-| --- | --- |
-| 提交 | `916290df`（store/key/render）、`640d285f`（onPtyExit）、`5a04946a`（CLI）、`50124307`（C1/C2）、`4b92269c`（C3/C4/C5） |
-| 规模 | 31 文件 / +4927 / −1（`orca/` 内） |
-| 评审 | codex-ark、trae 各两轮；共识两份 `VERDICT: AGREE`（原始文件见 `issue-sedimentation/rounds/`） |
-| 合并必改（已完成） | C1 fallback epoch、C2 owner-claim binding、C3 容量双字段与众数、C4 只读旁文件安全、C5 prune 可追溯 id |
-| 测试（外层复跑） | `src/main/incidents`：7 files / **80 tests**；CLI + runtime：4 files / **42 tests** |
-| 评审发现的真实缺陷 | 普通只读打开 WAL 库会**创建** 0 字节 `-wal` 与 32KB `-shm`（`list` 在悄悄长文件）；已改为无 `-wal` 时用 `immutable=1` |
-| 仍未验证 | 无 live 桌面/真实 killed PTY 验证；`skill-guide-cli-parity` 因 `orca/skill-guides` 不在 cone 未跑；cone 外 `tsc` 既有 error 未清 |
+M1–M6 每轮都由两个独立评审（codex-ark、trae）先出结论、必要时再跑共识轮，最终清单与处置见
+[轮次索引 R3–R8](issue-sedimentation/README.md)。四件值得留在正文的事：
 
-## 19.4 M2 实施与评审记录（2026-11-13）
-
-| 项 | 内容 |
-| --- | --- |
-| 提交（首版） | `d0004a4c` shadow+replay、`65910ea8` report、`8a85931a` 读模型/IPC、`d77891b6` 指针结论 |
-| 提交（评审修复） | `2e36f4a6` seq 水位 + durable drop + 有界 replay（C1/C3/C6）、`e1780f8f` replay 状态进覆盖缺口（C4）、`7b96419c` evidence 边界与同键语义（C2/C5） |
-| 首轮评审结论 | **两份均 `BLOCK`**（理由一致：轮转水位漏放、replay 绕过 evidence 脱敏、容量拒收挡住后续 crash、replay 状态对运维不可见） |
-| 共识轮 | codex-ark `AGREE-WITH-EDITS`、trae `AGREE`；C1 一致选“单调 seq 水位”而非文件身份指纹 |
-| 修复要点 | shadow 体 `v: 2` 带 `seq`；水位 `lastSeq` 扫全族；容量拒收写 durable dropped 后继续；`shadowReplay` 进 CLI/IPC；evidence 统一 sanitize（含 `repro`）、单文件 64 MiB 上限；replay 有界可续 |
-| 测试（外层复跑） | `src/main/incidents` + `src/main/startup`：85 files（83 passed / 2 skipped）/ **753 passed / 10 skipped**；CLI+IPC+preload：4 files / **43 passed** |
-| 仍未验证 | 无 live 强杀→重启演练；shadow 轮转本身只做单测未做 10MB 实测；多进程写影子交错未压测；IPC 仅 mock `ipcMain`；renderer 白名单留到有 UI 时 |
-
-## 19.5 M3 实施与评审记录（2026-11-13）
-
-| 项 | 内容 |
-| --- | --- |
-| 提交（首版） | `ca786b41` 等待声明 + 判定、`88a3af71` 采样器/`stalls`/`wait`/灰度写入 |
-| 提交（评审修复） | `a73dcccd` 语义事件时钟 + `buildIncidentKey` + coverage 错误可见、`deae60ba` `--clear` 互斥与灰度文案 |
-| 首轮评审 | codex-ark **BLOCK**（要求改年龄口径）、trae **APPROVE-WITH-CHANGES**（允许先改文案）；共识轮两份 **AGREE**，一致把 M3-C1 升级为实现修复 |
-| 分歧与收敛 | 分歧只在"改口径还是改标签"；我提出 PTY 字节不可作活动源（TUI spinner），最终三方统一为 `lastSemanticEventAt` |
-| 修复要点 | 年龄改用语义事件时钟 + `state_fallback` 标记；reason 改 `no_event_for_threshold`；字段改 `wouldWriteIfEnabled`；`status_stall` 走 `buildIncidentKey`（非法 key 计 `stall_key_rejected`）；sampler errors 进 coverage；`--clear` 互斥且整 pane |
-| 测试（外层复跑） | incidents + startup + CLI/IPC/preload：92 files（90 passed / 2 skipped）/ **833 passed / 10 skipped** |
-| 仍未验证 | 真实 60s interval tick、DB busy/磁盘满注入未做；默认 off 的灰度在生产环境没有样本基线 |
-
-## 19.6 M4 实施与评审记录（2026-11-13）
-
-| 项 | 内容 |
-| --- | --- |
-| 提交（首版） | `0d9464e7` tool_error 采集/归一码/灰度窗口、`5443dcc4` 每日摘要 |
-| 提交（评审修复） | `9dc65c45` 高危需结构化证据 + 按 turn 切窗口（C1/C2）、`643ee406` 所有 sink 变体统一通知 + 读模型声明覆盖缺口（C3/C4/C5） |
-| 首轮评审 | **两份均 BLOCK**：自由文本触发高危单次写入、窗口键缺 turn；codex 另指出 resolved-append 旁路与 provider 覆盖被默认宣称 |
-| 共识轮 | 两份 `AGREE`；C1 一致选 (iii)「provider 结构化拒绝码/errorKind + 结构化 exitCode 两者都要」 |
-| 修复要点 | 文本命中不再影响高危；结构化 exitCode 优先 `non_zero_exit`；窗口 key 加 turn；resolved/revise/lifecycle 全部走 `notifyJournaledItem`；`incident tool-errors` 打印 `covered=` 与覆盖缺口；off 口径改"零 incident 行"；`published/total/evicted` 可见 |
-| 测试（外层复跑） | incidents + agent-session-wire + CLI/IPC：**162 files / 1381 tests passed** |
-| 仍未验证 | 未做真实 provider 端到端（需真实 claude/codex 会话）；单次 60s tick 之外的持续灰度未跑；`unknown`/`non_zero_exit` 噪声限额未实现（打开写入的前置条件） |
-| 评审环境缺口 | trae 本轮两次因 provider 网络中断（stream disconnected / capacity queue）失败，第三次以最小范围重试才产出；评审记录里保留该缺口 |
-
-## 19.7 M5 实施与评审记录（2026-11-13）
-
-| 项 | 内容 |
-| --- | --- |
-| 提交（首版） | `acece904` 声明存储 + argv 执行 + 结算门、`b2358c17` 门点接入 + 停点 + resolve |
-| 提交（评审修复） | `e0f94015` 单一 gate 覆盖全部 worker_report 入口 + 显式留痕 override + fail-closed；`256dadf2` 入口点测试（C9） |
-| 首轮评审 | **两份均 BLOCK**：federation/legacy 绕过门点、`check-direct` 消费未读消息使 resolve 失效、gate 异常 fail-open、`--cwd` 可指向任意路径、`attempts` 无界、verdict 未绑规则版本、无声明仍创建库、reject 文案误导 |
-| 共识轮 | 两份 `AGREE-WITH-EDITS` / `AGREE`；唯一分歧是 override 政策，第二轮折中（worker_report 无 override + operator 路径显式 override 且留痕）后两份 `AGREE` |
-| 修复要点 | 全部 worker_report 入口进同一 gate；`acceptance_pending` 在所有消费点保留未读；`store_unavailable` 独立 verdict 且 fail-closed；无声明时 non-creating lookup；cwd 做 worktree 根 + realpath 包含校验；attempts 拆评估/观察并设上限；verdict 绑 rule digest；CLI 三态文案与 override 标记 |
-| 测试（外层复跑） | incidents + CLI + IPC：26 files / **279 tests**；受影响 orchestration 批次：109 files（108 passed）/ 971 passed，2 failed |
-| 失败归因 | 那 2 条（`worker-release-mobile-report.test.ts` 的 mobile unary/stream 用例）在基线 `fc011d66` 的临时只读 worktree 上**同样失败**，属既有失败，非本轮引入 |
-| 仍未验证 | 无 live worker/dispatch 端到端；`not_evaluated` 的 federated/legacy 停点未做专门路径测试；acceptance_overridden 未追加 incident_decisions（stop 记 decision、incident 记证据） |
-
-## 19.8 M6 实施与评审记录（2026-11-13）
-
-| 项 | 内容 |
-| --- | --- |
-| 提交（首版） | `6c08ce4f` 聚类+候选、`da7adf4f` miner 决策（有界/幂等/无 confirmed）、`c6097d32` digest 与 mine 共用口径 |
-| 提交（评审修复） | `16b9a26b` 来源改为实体、apply 不得覆盖人工判断、扫描有界（C1–C7）；`b79abde2` 评审边界固定测试（C8） |
-| 首轮评审 | **两份均 BLOCK**：`distinct source_id` 把 epoch 当来源、small-cluster 不要求不同实体；codex 另指出 apply 竞态可覆盖人工 `confirmed`/`watch`，trae 另指出 `--apply` 默认 target 会稀释人工队列 |
-| 共识轮 | codex `AGREE-WITH-EDITS`、trae `AGREE`；C6 两份一致选 (a)：`--apply` 必须显式 `--target` |
-| 修复要点 | 按 sourceKind 抽稳定键 + `epochRows`/`stableSources`/`unknown_stable_source`；单实体标 `single_entity_recurrence` 且不可 apply；apply 走 `requireFromStatus='untriaged'` 事务内守卫；扫描 LIMIT + `scan.rows/ms` + `truncated.scan`；取消默认 target；低信息簇与 self_report 处理固定 |
-| 测试（外层复跑） | incidents + CLI + IPC：27 files / **328 tests passed** |
-| 仍未验证 | 50k 行规模的实测耗时/内存未跑（只有上限与字段）；两个真实连接并发 apply 未压测；真正 scheduler/repair task/issue md 批量视图留到 M7+ |
+1. **每轮首版都测试全绿、语义有错**：M1 fallback epoch 从不落库、M2 轮转水位跳行、M3 长回合误判、
+   M4 自由文本触发高危、M5 联邦/legacy 绕过门点、M6 epoch 当来源。因此新能力先写"什么不算"的测试。
+2. **提交按里程碑成串**（`git log fc011d66..issue-sediment`）：`916290df…4b92269c` M1、
+   `d0004a4c…7b96419c` M2、`ca786b41…deae60ba` M3、`0d9464e7…643ee406` M4、
+   `acece904…256dadf2` M5、`6c08ce4f…b79abde2` M6。
+3. **测试口径**：`orca` 侧离线圈由 vitest 分批跑；`src/main/incidents` + CLI + IPC 约 330 例。
+   已知既有失败（基线同样失败，与本特性无关）：`worker-release-mobile-report.test.ts` 2 例、
+   `orchestration-session-caller-cli.test.ts` 1 例；`skill-guide-cli-parity` 需要 cone 外的
+   `orca/skill-guides`。
+4. **未验证的事**：没有 live 端到端（真实进程被杀 → 重启补回、真实 worker/dispatch 闭环）；
+   50k 行规模的 mine 耗时未实测；这些在 §19.2 的未决项里继续跟踪。
 
 ## 20. 本轮验收口径（设计阶段）
 
