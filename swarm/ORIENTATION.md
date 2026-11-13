@@ -173,7 +173,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `reconcile` | `bootstrap_control.py:434-476` | `def reconcile` / `class reconcile` |
 | `reconcile` | `bootstrap_protocol.py:139-140` | `def reconcile` / `class reconcile` |
 | `reconcile` | `operator_authority.py:168-180` | `def reconcile` / `class reconcile` |
-| `report` | `control_plane_readiness.py:294-331` | `def report` / `class report` |
+| `report` | `control_plane_readiness.py:321-358` | `def report` / `class report` |
 | `request` | `coordinator_strict_delivery.py:48-50` | `def request` / `class request` |
 | `require_operator_context` | `coordinator_startup.py:158-162` | `def require_operator_context` / `class require_operator_context` |
 | `resolve` | `coordinator_worker_profiles.py:77-136` | `def resolve` / `class resolve` |

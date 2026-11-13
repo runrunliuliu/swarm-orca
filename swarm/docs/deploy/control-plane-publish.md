@@ -260,7 +260,8 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 | --- | --- |
 | 键白名单 | 顶层只允许 `schemaVersion`/`label`/`hostnames`/`verifiedOn`/`paths`/`runtime`/`projectSetups`；`paths` 只允许三个键；多一个即 `host-override-unknown-key` |
 | 主机匹配 | `hostnames` 必须包含本机 `gethostname()`，否则 `host-override-host-mismatch`（`label` 只是标签，不参与匹配） |
-| 路径 | 必须是绝对路径（`host-override-not-absolute`）；`worktreeBase`/`artifactRoot` 必须是已存在目录（`host-override-path-missing`）；`serverCli` 必须是可执行普通文件（`host-override-server-cli-not-executable`） |
+| 路径 | 必须是绝对路径（`host-override-not-absolute`）；叶子本身不得是符号链接（`host-override-symlink`）；`worktreeBase`/`artifactRoot` 必须是已存在目录（`host-override-path-missing`）；`serverCli` 必须是可执行普通文件（`host-override-server-cli-not-executable`）；校验后把规范路径写进 `pathsResolved` |
+| 结构 | `hostnames` 必须是非空字符串列表（否则 `host-override-invalid-value`，避免字符串包含匹配）；`paths`/`runtime`/`projectSetups` 必须是对象；JSON 重复键直接拒绝（`host-override-invalid-json`） |
 | 优先级 | 显式参数 > host override > 未设置。**不发明默认路径**；未设置时计划里写 `source: unset` |
 | 缺失 | 隐式（默认路径不存在）只报告、不阻断，通用项目照常出计划；显式给出或 `--require-host-override` 时 fail-closed |
 | 记录 | 报告带 override 的 `sha256`；它与产物 `buildId` 一起固定，改变本机值是一次可见变更 |
@@ -295,7 +296,8 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 - 对 `runtime`/`projectSetups` 的运行时核验：host override 只记录，不查询 Orca 运行时。
 - 把 readiness 写进 `swarm-orchestration` 技能的第一步：技能仍是全局共享文件，改动需单独授权与
   逐 agent 验证。
-- 把宿主私有值（归档根、Server CLI、setup ID）并入 per-host override 层。
+- 对 host override 中路径的 TOCTOU 复核：readiness 只做一次校验并报告规范路径（`pathsResolved`），
+  从校验到实际使用之间若目标被替换，当前工具不会发现。
 - 让 `verify` 顺带做入口导入自检（见上一条，当前只校验清单/名称/符号链接）。
 - 在产物上做导入自检：当前只校验清单、名称与符号链接，不 import `code/` 中的模块。
 

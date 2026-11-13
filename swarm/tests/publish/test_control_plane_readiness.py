@@ -9,6 +9,11 @@ import control_plane_readiness as readiness
 from deploy import publish_control_plane as publisher
 
 
+def socket_gethostname():
+    import socket
+    return socket.gethostname()
+
+
 def write(path, text="x\n"):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -344,6 +349,56 @@ class ReadinessTests(Fixture):
                                  paths={"serverCli": str(cli)})))
         self.assertFalse(result["ready"])
         self.assertIn("host-override-server-cli-not-executable: %s" % cli, result["blocking"])
+
+    def test_a_hostname_string_cannot_match_by_substring(self):
+        import socket
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override(
+                                 hostnames="%s-extra" % socket.gethostname())))
+        self.assertFalse(result["ready"])
+        self.assertTrue(any(item.startswith("host-override-invalid-value: hostnames")
+                            for item in result["blocking"]))
+
+    def test_hostnames_must_be_a_list_of_strings(self):
+        for value in ({"a": 1}, [socket_gethostname(), 5], []):
+            result = self.report(control_plane=str(self.artifact()),
+                                 host_override=str(self.override(hostnames=value)))
+            self.assertFalse(result["ready"])
+
+    def test_a_malformed_nested_container_is_refused_not_raised(self):
+        for key, value in (("paths", []), ("runtime", "x"), ("projectSetups", [])):
+            result = self.report(control_plane=str(self.artifact()),
+                                 host_override=str(self.override(**{key: value})))
+            self.assertFalse(result["ready"])
+            self.assertIn("host-override-invalid-value: %s" % key, result["blocking"])
+
+    def test_duplicate_json_keys_are_refused(self):
+        path = self.override()
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace('"label": "test-host",',
+                                     '"label": "test-host", "label": "other",'), encoding="utf-8")
+        result = self.report(control_plane=str(self.artifact()), host_override=str(path))
+        self.assertFalse(result["ready"])
+        self.assertIn("host-override-invalid-json: duplicate key 'label'", result["blocking"])
+
+    def test_a_symlinked_path_is_refused_and_the_target_is_reported(self):
+        real = self.temporary() / "real-artifacts"
+        real.mkdir()
+        link = self.temporary() / "linked-artifacts"
+        link.symlink_to(real, target_is_directory=True)
+        blocked = self.report(control_plane=str(self.artifact()),
+                              host_override=str(self.override(paths={"artifactRoot": str(link)})))
+        self.assertFalse(blocked["ready"])
+        self.assertIn("host-override-symlink: paths.artifactRoot", blocked["blocking"])
+        ok = self.report(control_plane=str(self.artifact()))
+        self.assertEqual(ok["hostOverride"]["pathsResolved"], {})
+
+    def test_the_override_reports_resolved_paths(self):
+        override = self.override()
+        result = self.report(control_plane=str(self.artifact()), host_override=str(override))
+        resolved = result["hostOverride"]["pathsResolved"]
+        for key in ("worktreeBase", "artifactRoot", "serverCli"):
+            self.assertTrue(resolved[key].startswith("/"))
 
     def test_main_exit_codes(self):
         artifact, skills = self.artifact(), self.skills(*readiness.REQUIRED_SKILLS)

@@ -241,8 +241,8 @@ def host_override(path):
     """Validate the host-local values; never invent, merge silently or search directories."""
     target = Path(path).expanduser() if path else default_override_path()
     block = {"state": "missing", "path": str(target), "label": None, "sha256": None,
-             "paths": {}, "runtime": {}, "projectSetups": {}, "explicit": bool(path),
-             "reasons": []}
+             "paths": {}, "pathsResolved": {}, "runtime": {}, "projectSetups": {},
+             "explicit": bool(path), "reasons": []}
     if not target.is_file():
         block["reasons"].append("host-override-missing: %s" % target)
         return block
@@ -253,7 +253,7 @@ def host_override(path):
         return block
 
     try:
-        data = json.loads(target.read_text(encoding="utf-8"))
+        data = load_strict_json(target.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         return refuse("host-override-invalid-json: %s" % error)
     if not isinstance(data, dict):
@@ -263,32 +263,59 @@ def host_override(path):
         return refuse("host-override-unknown-key: %s" % ", ".join(unknown))
     if data.get("schemaVersion") != OVERRIDE_SCHEMA_VERSION:
         return refuse("host-override-schema-unsupported: %r" % data.get("schemaVersion"))
-    hostnames = data.get("hostnames") or []
+    hostnames = data.get("hostnames")
+    if not isinstance(hostnames, list) or not hostnames \
+            or not all(isinstance(item, str) and item for item in hostnames):
+        return refuse("host-override-invalid-value: hostnames must be a non-empty list of strings")
     if socket.gethostname() not in hostnames:
         return refuse("host-override-host-mismatch: %s not in %s"
                       % (socket.gethostname(), hostnames))
-    paths = data.get("paths") or {}
+    paths = data.get("paths", {})
+    if not isinstance(paths, dict):
+        return refuse("host-override-invalid-value: paths")
+    resolved_paths = {}
     for name, value in sorted(paths.items()):
         if name not in OVERRIDE_PATH_KEYS:
             return refuse("host-override-unknown-key: paths.%s" % name)
         if not isinstance(value, str) or not value.startswith("/"):
             return refuse("host-override-not-absolute: paths.%s" % name)
-        resolved = Path(value)
+        target_path = Path(value)
+        if target_path.is_symlink():
+            return refuse("host-override-symlink: paths.%s" % name)
         if name == "serverCli":
-            if not (resolved.is_file() and os.access(resolved, os.X_OK)):
+            if not (target_path.is_file() and os.access(target_path, os.X_OK)):
                 return refuse("host-override-server-cli-not-executable: %s" % value)
-        elif not resolved.is_dir():
+        elif not target_path.is_dir():
             return refuse("host-override-path-missing: paths.%s" % name)
-    for name, value in sorted((data.get("runtime") or {}).items()):
+        resolved_paths[name] = str(target_path.resolve())
+    runtime = data.get("runtime", {})
+    if not isinstance(runtime, dict):
+        return refuse("host-override-invalid-value: runtime")
+    for name, value in sorted(runtime.items()):
         if not isinstance(value, str) or not value:
             return refuse("host-override-invalid-value: runtime.%s" % name)
-    for name, value in sorted((data.get("projectSetups") or {}).items()):
+    setups = data.get("projectSetups", {})
+    if not isinstance(setups, dict):
+        return refuse("host-override-invalid-value: projectSetups")
+    for name, value in sorted(setups.items()):
         if not isinstance(value, str) or not value:
             return refuse("host-override-invalid-value: projectSetups.%s" % name)
     block.update(state="ok", label=data.get("label"), sha256=sha256(target),
-                 paths=dict(paths), runtime=dict(data.get("runtime") or {}),
-                 projectSetups=dict(data.get("projectSetups") or {}))
+                 paths=dict(paths), pathsResolved=resolved_paths, runtime=dict(runtime),
+                 projectSetups=dict(setups))
     return block
+
+
+def load_strict_json(text):
+    """Parse JSON but refuse duplicate keys: last-wins would hide what the hash covers."""
+    def no_duplicates(pairs):
+        seen = {}
+        for key, value in pairs:
+            if key in seen:
+                raise ValueError("duplicate key %r" % key)
+            seen[key] = value
+        return seen
+    return json.loads(text, object_pairs_hook=no_duplicates)
 
 
 def report(args):
