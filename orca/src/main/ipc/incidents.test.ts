@@ -16,30 +16,48 @@ import {
 } from '../incidents/incident-writer'
 import {
   decideIncident,
+  INCIDENT_COUNTS_CHANGED_CHANNEL,
+  readIncidentCountsSnapshot,
   readIncidentDetail,
   readIncidentSnapshot,
   registerIncidentHandlers
 } from './incidents'
+import { __resetIncidentCountsPushForTests } from './incident-counts-push'
 
 const handled = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+const sent: { channel: string; payload: unknown }[] = []
+const windowMock = {
+  isDestroyed: () => false,
+  webContents: { send: (channel: string, payload: unknown) => sent.push({ channel, payload }) }
+}
 
 vi.mock('electron', () => ({
   ipcMain: {
     handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
       handled.set(channel, handler)
     }
-  }
+  },
+  // Why a window mock at all: registering the handlers is what starts the counts push, so the push has
+  // to have somewhere to send. The shape asserted below is the real wire shape (`incidents:countsChanged`).
+  BrowserWindow: { getAllWindows: () => [windowMock] }
 }))
 
 const directories: string[] = []
 const databases: OpenIncidentsDatabase[] = []
 
 function realStore(): IncidentStore {
+  return realStoreWithDatabase().store
+}
+
+function realStoreWithDatabase(): { store: IncidentStore; opened: OpenIncidentsDatabase } {
   const directory = mkdtempSync(join(tmpdir(), 'orca-incident-ipc-'))
   directories.push(directory)
   const opened = openIncidentsDatabase(join(directory, 'incidents', 'incidents.db'))
   databases.push(opened)
-  return createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes })
+  return {
+    store: createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes }),
+    opened
+  }
 }
 
 function record(overrides: Partial<IncidentRecord> = {}): IncidentRecord {
@@ -69,7 +87,9 @@ function record(overrides: Partial<IncidentRecord> = {}): IncidentRecord {
 afterEach(() => {
   vi.restoreAllMocks()
   __resetIncidentWriterForTests()
+  __resetIncidentCountsPushForTests()
   handled.clear()
+  sent.length = 0
   for (const opened of databases.splice(0)) {
     try {
       opened.db.close()
@@ -192,10 +212,38 @@ describe('decideIncident', () => {
   })
 })
 
+describe('readIncidentCountsSnapshot', () => {
+  it('counts what the badge draws, and answers a closed failure without a store', () => {
+    const { store, opened } = realStoreWithDatabase()
+    store.insertIncident(record())
+    store.insertIncident(record({ id: 'inc_ipc_2', sourceId: 'ptyinc-ipc-2', class: 'tool_error' }))
+    store.appendDecision({ incidentId: 'inc_ipc_2', toStatus: 'watch', actor: 'alice', reason: 'r' })
+    __configureIncidentStoreForTests(store, opened.db)
+
+    const result = readIncidentCountsSnapshot({ topWorktrees: 1 })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value).toMatchObject({ untriaged: 1, total: 2 })
+    expect(result.value.byClass.crash).toBe(1)
+    expect(result.value.byClass.tool_error).toBe(0)
+    expect(result.value.byWorktree).toEqual([{ worktreeId: 'wt-1', untriaged: 1 }])
+    expect(result.value.coverage.gap).toBe(false)
+
+    __configureIncidentStoreForTests(null)
+    expect(readIncidentCountsSnapshot(undefined)).toMatchObject({
+      ok: false,
+      code: 'incident_store_unavailable'
+    })
+  })
+})
+
 describe('registerIncidentHandlers', () => {
-  it('registers exactly the three read/triage channels', () => {
+  it('registers exactly the read/triage/count channels', () => {
     registerIncidentHandlers()
     expect([...handled.keys()].sort()).toEqual([
+      'incidents:counts',
       'incidents:decide',
       'incidents:detail',
       'incidents:snapshot'
@@ -209,5 +257,19 @@ describe('registerIncidentHandlers', () => {
     }
     expect(snapshot.ok).toBe(true)
     expect(snapshot.value.total).toBe(1)
+  })
+
+  it('pushes the coalesced counts to the window after a write', async () => {
+    const { store, opened } = realStoreWithDatabase()
+    __configureIncidentStoreForTests(store, opened.db)
+    registerIncidentHandlers()
+
+    store.insertIncident(record())
+    // Real timers here: the push's windows are short (100ms quiet / 500ms cap) and the assertion is
+    // about the channel and payload, not about the exact settle time.
+    await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 2_000 })
+    expect(sent[0].channel).toBe(INCIDENT_COUNTS_CHANGED_CHANNEL)
+    expect(sent[0].channel).toBe('incidents:countsChanged')
+    expect(sent[0].payload).toMatchObject({ untriaged: 1, total: 1 })
   })
 })
