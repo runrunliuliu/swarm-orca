@@ -23,6 +23,10 @@ import {
   registerIncidentHandlers
 } from './incidents'
 import { __resetIncidentCountsPushForTests } from './incident-counts-push'
+import {
+  registerIncidentMirrorCoverageReader,
+  resetIncidentMirrorCoverageReaderForTests
+} from './incident-mirror-coverage'
 
 const handled = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
 const sent: { channel: string; payload: unknown }[] = []
@@ -125,8 +129,37 @@ describe('readIncidentSnapshot', () => {
       status: 'untriaged',
       effectiveStatus: 'untriaged',
       worktreeId: 'wt-1',
+      // M7-B: the panel's agent column needs the session binding, and a pane-level fact says null
+      // rather than inventing an agent name.
+      agentSessionId: null,
       decisionCount: 0
     })
+  })
+
+  it('attaches the mirror coverage when a reader is registered, and omits it otherwise', () => {
+    const { store, opened } = realStoreWithDatabase()
+    store.insertIncident(record())
+    __configureIncidentStoreForTests(store, opened.db)
+
+    // No reader: "not reported" is absence, never a fabricated "mirrored".
+    const withoutMirror = readIncidentSnapshot({ limit: 10 })
+    expect(withoutMirror.ok && 'remoteMirror' in withoutMirror.value.coverage).toBe(false)
+
+    registerIncidentMirrorCoverageReader(() => ({ capture: 'not_probed', unsynced: 3 }))
+    const withMirror = readIncidentSnapshot({ limit: 10 })
+    expect(withMirror.ok && withMirror.value.coverage.remoteMirror).toEqual({
+      capture: 'not_probed',
+      unsynced: 3
+    })
+
+    // A throwing mirror read must not fail the list: it degrades to "not reported".
+    registerIncidentMirrorCoverageReader(() => {
+      throw new Error('mirror read failed')
+    })
+    const throwing = readIncidentSnapshot({ limit: 10 })
+    expect(throwing.ok).toBe(true)
+    expect(throwing.ok && 'remoteMirror' in throwing.value.coverage).toBe(false)
+    resetIncidentMirrorCoverageReaderForTests()
   })
 
   it('rejects an unknown filter and an unavailable store with a closed result', () => {
@@ -240,13 +273,17 @@ describe('readIncidentCountsSnapshot', () => {
 })
 
 describe('registerIncidentHandlers', () => {
-  it('registers exactly the read/triage/count channels', () => {
+  it('registers exactly the read/triage/count/grayscale channels', () => {
     registerIncidentHandlers()
     expect([...handled.keys()].sort()).toEqual([
       'incidents:counts',
       'incidents:decide',
       'incidents:detail',
-      'incidents:snapshot'
+      'incidents:snapshot',
+      // M7-B: read-only diagnostics. They are registered here so the panel has one surface, and they
+      // expose no write path (see incident-gray-views.test.ts).
+      'incidents:stalls',
+      'incidents:toolErrors'
     ])
     const store = realStore()
     store.insertIncident(record())

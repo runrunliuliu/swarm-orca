@@ -16,6 +16,10 @@ import type {
   IncidentListRequest,
   IncidentSnapshotDto
 } from '../../shared/incident-api-types'
+import type {
+  IncidentStallsViewDto,
+  IncidentToolErrorsViewDto
+} from '../../shared/incident-gray-types'
 
 export type IncidentIpcResult<T> =
   | { ok: true; value: T }
@@ -34,4 +38,14 @@ export type IncidentApi = {
    * Returns the unsubscribe function, matching the other push bridges.
    */
   onCountsChanged: (callback: (counts: IncidentCountsDto) => void) => () => void
+  /**
+   * The stall sampler's last pass (§7.2): read-only, and a row marked `wouldWriteIfEnabled` is an
+   * observation the host did *not* record. The renderer only formats it.
+   */
+  stalls: () => Promise<IncidentIpcResult<IncidentStallsViewDto>>
+  /**
+   * The tool-error windows (§7.3): read-only, with the provider coverage that bounds what silence
+   * means, and `written` to tell a recorded incident from an observation.
+   */
+  toolErrors: () => Promise<IncidentIpcResult<IncidentToolErrorsViewDto>>
 }
