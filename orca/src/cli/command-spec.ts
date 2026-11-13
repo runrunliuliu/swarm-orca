@@ -1,3 +1,26 @@
+/**
+ * Optional help grouping (simplify S5).
+ *
+ * Display only: it never changes a command path, a flag or dispatch. A group that prints headings is
+ * one whose commands declare a group; every other group keeps the flat list it always had, so this
+ * vocabulary cannot leak into unrelated help output.
+ */
+export type CommandSpecGroup = 'daily' | 'diagnostic' | 'config' | 'maintenance'
+
+export const COMMAND_SPEC_GROUP_ORDER: readonly CommandSpecGroup[] = [
+  'daily',
+  'diagnostic',
+  'config',
+  'maintenance'
+]
+
+export const COMMAND_SPEC_GROUP_LABELS: Record<CommandSpecGroup, string> = {
+  daily: 'Daily',
+  diagnostic: 'Diagnostic',
+  config: 'Config',
+  maintenance: 'Maintenance'
+}
+
 export type CommandSpec = {
   path: string[]
   // Why: conventional alternate verbs should resolve without duplicating specs or handlers.
@@ -7,6 +30,8 @@ export type CommandSpec = {
   destructive?: boolean
   hidden?: boolean
   summary: string
+  /** Show this command under a heading in `--help` for its group (see CommandSpecGroup). */
+  group?: CommandSpecGroup
   usage: string
   allowedFlags: string[]
   // Why: repeatability is per-command vocabulary. `--agent` repeats for `search`

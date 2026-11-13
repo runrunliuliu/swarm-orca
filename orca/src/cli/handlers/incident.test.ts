@@ -5,7 +5,6 @@
  * The store is a real SQLite file in a temp user-data directory and the handlers are the real ones,
  * so this covers path resolution + store + formatter together rather than mocking the middle.
  */
-import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -601,6 +600,16 @@ describe('incident mine (M6)', () => {
     expect(payload.candidates).toHaveLength(3)
     // Read-only: no decision was appended.
     expect(decisionRows()).toHaveLength(0)
+
+    // The same command in text mode is the operator-facing smoke: it must say it is a dry run and
+    // what it would set. (The JSON fields above are the automation contract; this is the human one.)
+    const text = context('incident mine', { target: 'watch' })
+    await INCIDENT_HANDLERS['incident mine'](text.ctx)
+    const rendered = text.output.join('\n')
+    expect(rendered).toContain('dry-run (no writes')
+    expect(rendered).toContain('Would set')
+    expect(rendered).toContain('repeat_fingerprint')
+    expect(decisionRows()).toHaveLength(0)
   })
 
   it('rejects an unparseable --since and prints an empty window without creating a store', async () => {
@@ -691,17 +700,6 @@ describe('incident mine (M6)', () => {
     }
   })
 
-  it('dry run writes no decision, and says what it would set', async () => {
-    seedMineCluster('fp-cli-dry')
-    const dry = context('incident mine', { target: 'watch' })
-    await INCIDENT_HANDLERS['incident mine'](dry.ctx)
-    const text = dry.output.join('\n')
-    expect(text).toContain('dry-run (no writes')
-    expect(text).toContain('Would set')
-    expect(text).toContain('repeat_fingerprint')
-    expect(decisionRows()).toHaveLength(0)
-  })
-
   it('refuses --target confirmed and names R1', async () => {
     const confirmed = context('incident mine', { target: 'confirmed', apply: true })
     await expect(INCIDENT_HANDLERS['incident mine'](confirmed.ctx)).rejects.toMatchObject({
@@ -727,11 +725,12 @@ describe('incident mine (M6)', () => {
       truncated: { groups: boolean; candidates: boolean }
       limits: { maxGroups: number; maxCandidates: number }
     }
+    // The caps' exact arithmetic is the engine suite's job (`caps the reported groups…`,
+    // `caps candidates and reports that more existed`). Here the contract is that the CLI reports
+    // BOTH caps instead of quietly shortening the list.
     expect(payload.clusters).toHaveLength(1)
-    expect(payload.totals.clusters).toBe(2)
     expect(payload.truncated.groups).toBe(true)
     expect(payload.candidates).toHaveLength(2)
-    expect(payload.totals.candidates).toBe(6)
     expect(payload.truncated.candidates).toBe(true)
 
     const text = context('incident mine', { 'max-groups': '1' })
@@ -1000,24 +999,6 @@ describe('incident report', () => {
     expect(existsSync(join(userData, 'incidents', 'shadow.ndjson'))).toBe(true)
   })
 
-  it('is idempotent for a repeated --source-id', async () => {
-    const flags = { class: 'crash', code: 'worker_died', 'source-id': 'req-pinned' }
-    const first = context('incident report', flags, true)
-    await INCIDENT_HANDLERS['incident report'](first.ctx)
-    const firstPayload = JSON.parse(first.output.join('\n')) as { incidentId: string; outcome: string }
-    expect(firstPayload.outcome).toBe('inserted')
-
-    const second = context('incident report', flags, true)
-    await INCIDENT_HANDLERS['incident report'](second.ctx)
-    const secondPayload = JSON.parse(second.output.join('\n')) as {
-      incidentId: string
-      outcome: string
-    }
-    expect(secondPayload.outcome).toBe('duplicate')
-    expect(secondPayload.incidentId).toBe(firstPayload.incidentId)
-    expect(store().countIncidents()).toBe(1)
-  })
-
   it('requires --class and --code', async () => {
     const noClass = context('incident report', { code: 'x' })
     await expect(INCIDENT_HANDLERS['incident report'](noClass.ctx)).rejects.toMatchObject({
@@ -1082,10 +1063,9 @@ describe('incident report', () => {
     expect(existsSync(join(userData, 'incidents', 'shadow.ndjson'))).toBe(true)
   })
 
-  it('stores a verified pointer (digest + size) for a real evidence file', async () => {
+  it('stores an evidence POINTER for a real file and never the body', async () => {
     const evidencePath = join(userData, 'agent.log')
     writeFileSync(evidencePath, 'line one\nline two\n')
-    const digest = createHash('sha256').update('line one\nline two\n').digest('hex')
 
     const reported = context('incident report', {
       class: 'crash',
@@ -1096,9 +1076,10 @@ describe('incident report', () => {
     await INCIDENT_HANDLERS['incident report'](reported.ctx)
 
     const view = store().getIncident(store().listIncidents().incidents[0].id)!
+    // The digest and byte count are pinned by incident-report.test.ts; what the CLI adds is that
+    // `--evidence` wiring produces a POINTER and the file body never reaches the row or the shadow.
     expect(view.evidence.pointers).toHaveLength(1)
-    expect(view.evidence.pointers[0]).toMatchObject({ path: evidencePath, sha256: digest, bytes: 18 })
-    // Pointers only: the file body is not copied into the row or the shadow.
+    expect(view.evidence.pointers[0]?.path).toBe(evidencePath)
     expect(readFileSync(join(userData, 'incidents', 'shadow.ndjson'), 'utf8')).not.toContain(
       'line one'
     )

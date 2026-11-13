@@ -1,4 +1,9 @@
 import type { CommandSpec } from './args'
+import {
+  COMMAND_SPEC_GROUP_LABELS,
+  COMMAND_SPEC_GROUP_ORDER,
+  type CommandSpecGroup
+} from './command-spec'
 import { findCommandSpec, isCommandGroup, matches, supportsBrowserPageFlag } from './args'
 import { unknownCommandData } from './command-suggestion'
 import { formatCommandScopedFlagHelp } from './command-scoped-flag-help'
@@ -65,15 +70,53 @@ export function formatCommandHelp(spec: CommandSpec): string {
 export function formatGroupHelp(specs: CommandSpec[], groupPath: string[]): string {
   const group = groupPath.join(' ')
   const lines = [`orca ${group}`, '', `Usage: orca ${group} <command> [options]`, '', 'Commands:']
-  for (const spec of specs) {
-    if (
-      spec.hidden === true ||
-      spec.path.length <= groupPath.length ||
-      !matches(spec.path.slice(0, groupPath.length), groupPath)
-    ) {
-      continue
+  const visible = specs.filter(
+    (spec) =>
+      spec.hidden !== true &&
+      spec.path.length > groupPath.length &&
+      matches(spec.path.slice(0, groupPath.length), groupPath)
+  )
+  const line = (spec: CommandSpec): string =>
+    `  ${spec.path.slice(groupPath.length).join(' ').padEnd(18)} ${spec.summary}`
+
+  // Why conditional: a group that declares no sections keeps the exact flat list it always printed, so
+  // introducing the vocabulary for one command group cannot reformat every other group's help.
+  const grouped = visible.some((spec) => spec.group !== undefined)
+  if (!grouped) {
+    for (const spec of visible) {
+      lines.push(line(spec))
     }
-    lines.push(`  ${spec.path.slice(groupPath.length).join(' ').padEnd(18)} ${spec.summary}`)
+  } else {
+    const byGroup = new Map<CommandSpecGroup, CommandSpec[]>()
+    const ungrouped: CommandSpec[] = []
+    for (const spec of visible) {
+      if (spec.group === undefined) {
+        ungrouped.push(spec)
+        continue
+      }
+      const bucket = byGroup.get(spec.group)
+      if (bucket === undefined) {
+        byGroup.set(spec.group, [spec])
+      } else {
+        bucket.push(spec)
+      }
+    }
+    for (const groupName of COMMAND_SPEC_GROUP_ORDER) {
+      const bucket = byGroup.get(groupName)
+      if (bucket === undefined || bucket.length === 0) {
+        continue
+      }
+      lines.push('', `${COMMAND_SPEC_GROUP_LABELS[groupName]}:`)
+      for (const spec of bucket) {
+        lines.push(line(spec))
+      }
+    }
+    if (ungrouped.length > 0) {
+      lines.push('', 'Other:')
+      for (const spec of ungrouped) {
+        lines.push(line(spec))
+      }
+    }
   }
   lines.push('', `Run \`orca ${group} <command> --help\` for command-specific usage.`)
   return lines.join('\n')
