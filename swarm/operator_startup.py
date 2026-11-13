@@ -5,24 +5,18 @@ prepares/reconciles one deployment, then calls its existing foreground run/verif
 No Agent launch, remote-shell send, business executor or identity synthesis.
 """
 
-import argparse
 from pathlib import Path
 import os
-import shlex
-import subprocess
 import sys
-import time
 from types import SimpleNamespace
 
-from coordinator_io import (bound_lock, canonical, digest, file_ref, now, parse, pinned,
-                            publish_new, read_json, replace_json, require, timestamp)
+from coordinator_io import (canonical, digest, file_ref, now, parse, path, pinned,
+                            read_json, require, timestamp)
 from coordinator_startup import KIND, identity
 import tui_adapter
 from coordinator_creation_time import creation_bounds
 import operator_monitor as monitor
 import operator_monitor_deploy as deploy
-import operator_readiness as readiness
-from blocking_io import bounded, run as bounded_io, BlockingIOTimeout
 
 
 INPUT_KEYS = {"schema_version", "strict_start", "continuation_publication", "sender",

@@ -8,7 +8,6 @@ and the real Pi transcript reader run against ordinary files.
 import copy
 from datetime import datetime, timedelta, timezone
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -18,7 +17,6 @@ from unittest.mock import patch
 
 from coordinator_io import canonical, digest, file_ref, now, publish_new, timestamp
 from bootstrap_events import observed_coordinator  # moved with the historical slot reader
-from coordinator_startup import identity, validate
 from pi_tui import observe
 import pi_policy
 import pi_transcript

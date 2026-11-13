@@ -134,42 +134,6 @@ scheduler sends. All references are re-read at every readiness observation.
 
 
 @bounded("trigger_ready", mutation=True)
-def attest_trigger(ref, input_ref, *, call=None):
-    """Publish an original Operator's trigger preflight, never an acceptance PASS."""
-    from coordinator_io import bound_lock
-    from operator_startup import load
-    # Cheap pinned input checks precede native identity queries / owner RPC.
-    # The publication path repeats these checks; this is not authorization.
-    trigger_candidate(input_ref)
-    plan, _, _, _ = load(ref)
-    if "runtime" in plan:
-        from startup_runtime import established
-        config_ref = read_json(plan["continuation_publication"])
-        if plan["bootstrap_owner"] is not None:
-            _, owner = authority(plan)
-            result = owner.rpc("runtime-attest-trigger", lifecycle=ref, continuation=config_ref, candidate=input_ref)
-            return dict(ok=True, trigger_readiness=result, acceptance_complete=False, automatic_sends_allowed=False)
-        plan, _, contract = established(ref, config_ref)
-        from coordinator_startup import check_actor_context, require_operator_context
-        from operator_session import observe_identity
-        check_actor_context(contract, "operator")
-        require_operator_context(contract)
-        from operator_monitor import bind_contract
-        terminal = bind_contract(call, contract)(["terminal", "show", "--terminal", contract["operator"]["terminal"]], contract["runtime"], 20)["terminal"]
-        observe_identity(cli=contract["cli"]["path"], runtime=contract["runtime"], operator=contract["operator"],
-            workspace=terminal["worktreeId"], profile=contract["observation"]["profile"],
-            log_root=contract["observation"]["log_root"], max_age_seconds=contract["freshness"]["context_max_age_seconds"])
-        with bound_lock(Path(plan["state_root"]), ref, "startup-role-action"):
-            value = trigger_review(ref, input_ref, plan, contract)
-            result = publish(plan, plan["execution"]["trigger"]["readiness"], value, actor="operator")
-        return dict(ok=True, trigger_readiness=result, acceptance_complete=False, automatic_sends_allowed=False)
-    plan, _, contract, _ = context(ref, call=call, actor="operator")
-    with bound_lock(Path(plan["state_root"]), ref, "startup-role-action"):
-        value = trigger_review(ref, input_ref, plan, contract)
-        context(ref, call=call, actor="operator")
-        trigger_window(value, publishing=True)
-        result = publish(plan, plan["execution"]["trigger"]["readiness"], value, actor="operator")
-    return dict(ok=True, trigger_readiness=result, acceptance_complete=False, automatic_sends_allowed=False)
 
 
 def trigger_template(*, with_window=False):
@@ -222,35 +186,6 @@ def trigger_candidate(input_ref):
     return candidate, trigger
 
 
-def trigger_review(ref, input_ref, plan, contract):
-    """Read-only validation shared by startup and the narrow runtime Operator RPC."""
-    require(plan["execution"]["mode"] == "native-event", "startup_native_trigger_required")
-    candidate, trigger = trigger_candidate(input_ref)
-    require(trigger.get("kind") == "native_event_trigger_preflight" and trigger.get("ready") is True
-            and trigger.get("run") == contract["run"] and trigger.get("source") == plan["execution"]["trigger"]["source"]
-            and isinstance(trigger.get("trigger_id"), str) and trigger["trigger_id"], "startup_trigger_scope_changed")
-    checked = now()
-    require(timestamp(trigger["checked_at"]) <= timestamp(checked) < timestamp(candidate["valid_until"])
-            <= timestamp(trigger["valid_until"]),
-            "startup_trigger_readiness_expired")
-    limit = plan["runtime"]["deadline"] if "runtime" in plan else plan["bootstrap_deadline"]
-    require(limit is None or timestamp(candidate["valid_until"]) <= timestamp(limit), "startup_trigger_readiness_expired")
-    admitted = _handshake_retired(ref, _handshake_retired(plan,  Path(plan["state_root"]) / "admission.json"))
-    if trigger["source"] == "worker_done":
-        require(admitted["kind"] == "worker-dispatched", "startup_worker_trigger_requires_worker")
-        native = parse(pinned(parse(pinned(admitted["evidence"]))["response"]))
-        require(trigger["trigger_id"] == native["dispatchId"], "startup_trigger_scope_changed")
-    config_ref = read_json(plan["continuation_publication"])
-    from coordinator_tui_continue import load
-    config, _, _ = load(config_ref)
-    require(config.get("startup_lifecycle") == ref and not unknown_sends(config, plan["monitor_state_root"]),
-            "startup_isolation_send_unknown")
-    trigger_window(candidate, publishing=True)
-    return dict(schema_version=2 if "release_window" in candidate else 1, lifecycle=ref,
-            run=contract["run"], source=trigger["source"], operator=contract["operator"], decision="ready",
-            checked_at=checked, valid_until=candidate["valid_until"],
-            evidence=[input_ref, candidate["trigger"], *candidate["evidence"]],
-            **({"release_window": candidate["release_window"]} if "release_window" in candidate else {}))
 
 
 def startup_gate(config):
