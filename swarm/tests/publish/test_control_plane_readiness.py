@@ -34,6 +34,10 @@ class Fixture(unittest.TestCase):
 
     def source(self, code=True, model=True, profiles=True):
         root = self.temporary() / "orca_src"
+        write(root / "swarm-orca" / "orca" / "skills" / "orca-cli" / "SKILL.md",
+              "---\nname: orca-cli\n---\n")
+        write(root / "swarm-orca" / "orca" / "skills" / "orchestration" / "SKILL.md",
+              "---\nname: orchestration\n---\n")
         write(root / "AGENTS.md")
         write(root / "swarm-private-integration.md")
         write(root / "workspaces.json", "{}\n")
@@ -236,7 +240,9 @@ class ReadinessTests(Fixture):
         common = ["--project", str(self.project()), "--control-plane", str(artifact),
                   "--skills-dir", str(skills), "--json"]
         self.assertEqual(readiness.main(common), 0)
+        absent = self.temporary() / "absent-pointer"
         self.assertEqual(readiness.main(["--project", str(self.project()),
+                                         "--pointer", str(absent),
                                          "--skills-dir", str(skills)]),
                          readiness.EXIT_BLOCKED)
 

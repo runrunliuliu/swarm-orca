@@ -28,8 +28,13 @@ class Fixture(unittest.TestCase):
         self.directories.append(directory)
         return Path(directory)
 
-    def source(self):
+    def source(self, stubs=True):
         root = self.temporary() / "orca_src"
+        if stubs:
+            write(root / "swarm-orca" / "orca" / "skills" / "orca-cli" / "SKILL.md",
+                  "---\nname: orca-cli\n---\n")
+            write(root / "swarm-orca" / "orca" / "skills" / "orchestration" / "SKILL.md",
+                  "---\nname: orchestration\n---\n")
         write(root / "AGENTS.md")
         write(root / "swarm-private-integration.md")
         write(root / "workspaces.json", "{}\n")
@@ -57,13 +62,22 @@ class Fixture(unittest.TestCase):
 class PlanTests(Fixture):
     def test_plan_excludes_tests_caches_and_validation_and_counts_the_rest(self):
         report = self.plan_report(self.source())
-        self.assertEqual(report["fileCount"], 12)
+        self.assertEqual(report["fileCount"], 14)
         self.assertIn("code/tests", report["excluded"])
         self.assertIn("private/docs/validation", report["excluded"])
         self.assertIn("private/trials", report["excluded"])
         self.assertNotIn("code/.pytest_cache/CACHEDIR.TAG", report["included"])
         self.assertNotIn("code/tests/test_launch.py", report["included"])
         self.assertIn("code/coordinator_launch.py", report["included"])
+
+    def test_plan_carries_the_two_orca_stubs_into_code_skills(self):
+        report = self.plan_report(self.source())
+        self.assertIn("code/skills/orca-cli/SKILL.md", report["included"])
+        self.assertIn("code/skills/orchestration/SKILL.md", report["included"])
+
+    def test_a_missing_stub_directory_is_refused(self):
+        with self.assertRaises(publisher.Failure):
+            self.plan_report(self.source(stubs=False))
 
     def test_plan_is_read_only(self):
         source = self.source()
@@ -123,7 +137,7 @@ class PublishTests(Fixture):
         self.assertEqual(identity["installDir"], str(artifact.resolve()))
         self.assertTrue(identity["source"]["unpinned"])
         self.assertEqual(identity["copyRuleVersion"], publisher.COPY_RULE_VERSION)
-        self.assertEqual(len((artifact / publisher.MANIFEST).read_text().splitlines()), 12)
+        self.assertEqual(len((artifact / publisher.MANIFEST).read_text().splitlines()), 14)
         self.assertFalse((artifact / "code" / "tests").exists())
         self.assertEqual(pointer.resolve(), artifact.resolve())
         self.assertEqual(publisher.main(["verify", "--artifact", str(artifact)]), 0)

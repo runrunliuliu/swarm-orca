@@ -31,6 +31,7 @@
 ├── .swarm-build.json      # 身份文件（§3.1）
 ├── MANIFEST.sha256        # 逐文件摘要（§3.2）
 ├── code/                  # = swarm-orca/swarm/（保内部相对结构），另含 code/AGENTS.md
+│                          #   code/skills/ = 三个业务技能 + orca-cli/orchestration 两个发现桩
 ├── private/               # = 私有 swarm/ 的政策、acceptance、配置 JSON
 ├── overlay/               # = 私有根 skills/ 的入口材料
 ├── workspace/             # = 源码根 AGENTS.md、索引与目录策略
@@ -51,7 +52,8 @@
 | 根 `skills/` | 140K | ✅ `overlay/` | 私有路由入口（如 runtime selection） |
 | 根 `AGENTS.md`、`swarm-private-integration.md`、`workspaces.json`、`workspace-directory-policy.md` | 小 | ✅ 产物根 | 策略与索引，供角色读取 |
 | `swarm-orca/{AGENTS.md,README.md,MIGRATION_STATUS.md,NOTICE.md}` | 小 | ✅ 产物根 | 许可证与公开边界（NOTICE 必带） |
-| `swarm-orca/orca/` | 2.5G | ❌ | CLI 开发检出；`orca-cli`/`orchestration` 是发现桩，正文由选定的二进制用 `orca skills get` 提供 |
+| `swarm-orca/orca/skills/{orca-cli,orchestration}/` | ~8K | ✅ `code/skills/` | 两个发现桩；正文仍由选定的二进制用 `orca skills get` 提供，进产物只为让四个技能都能仅从产物解析 |
+| `swarm-orca/orca/` 其余部分 | 2.5G | ❌ | CLI 开发检出，与产物无关 |
 | `.git/`（含子模块 git） | 241M | ❌ | 身份改由 `.swarm-build.json` 记录 commit |
 | `remote-server/`、`pi-extensions/`、`training-monitor/`、`retrospective/`、根 `docs/` | 约 1.5M | ❌ | 与本产物无关 |
 | `.vscode/`、`.codex/`、`.aws/`、`.trae/`、`.agents/` | — | ❌ | 按项目放置的本地/凭据配置，机器级产物不得携带 |
@@ -89,7 +91,7 @@
     "dirty": false,
     "dirtyPaths": []
   },
-  "copyRuleVersion": 1,
+  "copyRuleVersion": 2,
   "included": ["..."],
   "excluded": ["..."],
   "host": "<host>",
@@ -107,6 +109,8 @@
   不可复算的字段是发布声明，不是可验证事实。
 - `dirty: true` 时发布必须显式 `--allow-dirty`，产物仍然产出，但 readiness 在 `--require-pin` 下
   以 `control-plane-dirty` 拒绝把它当作带 pin 的启动来源；`unpinned` 同理。
+- `copyRuleVersion` 记录白名单版本：`2` 起把 `orca-cli`/`orchestration` 两个发现桩放进 `code/skills/`，
+  使四个技能都能只靠产物解析；`1` 的旧产物缺这两项，只能服务两个业务技能，`verify` 本身不受影响。
 - 不持久化任何一次性的回执字段；`MANIFEST.sha256` 是文件级事实，身份文件是发布级事实。
 
 ### 3.2 `MANIFEST.sha256`
@@ -248,7 +252,8 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
   `--artifacts` 与宿主文档核对，不自动填充。
 - 把 readiness 写进 `swarm-orchestration` 技能的第一步：技能仍是全局共享文件，改动需单独授权与
   逐 agent 验证。
-- 发布后的技能重新指向（`~/.agents/skills` 仍指源码检出）。
+- 把宿主私有值（归档根、Server CLI、setup ID）并入 per-host override 层。
+- 让 `verify` 顺带做入口导入自检（见上一条，当前只校验清单/名称/符号链接）。
 - 在产物上做导入自检：当前只校验清单、名称与符号链接，不 import `code/` 中的模块。
 
 ## 10. 兼容

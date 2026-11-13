@@ -34,7 +34,7 @@ from pathlib import Path
 
 ARTIFACT = "swarm-control-plane"
 SCHEMA_VERSION = 1
-COPY_RULE_VERSION = 1
+COPY_RULE_VERSION = 2
 IDENTITY = ".swarm-build.json"
 MANIFEST = "MANIFEST.sha256"
 EXIT_PRECONDITION = 78
@@ -42,6 +42,11 @@ EXIT_PRECONDITION = 78
 # Directory copies: (destination, source relative to --source-root, excluded prefixes).
 DIR_RULES = (
     ("code", "swarm-orca/swarm", ("tests", "__pycache__")),
+    # The two discovery stubs stay stubs: their body is served by the selected binary via
+    # `orca skills get`. Shipping them keeps every installed skill resolvable from the artifact
+    # alone, so no skill link has to reach back into a source checkout.
+    ("code/skills/orca-cli", "swarm-orca/orca/skills/orca-cli", ("__pycache__",)),
+    ("code/skills/orchestration", "swarm-orca/orca/skills/orchestration", ("__pycache__",)),
     ("private", "swarm", ("tests", "__pycache__", "docs/validation", "trials")),
     ("overlay", "skills", ("__pycache__",)),
 )
