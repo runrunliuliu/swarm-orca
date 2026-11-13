@@ -280,6 +280,9 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'incident tool-errors',
       'incident digest',
       'incident mine',
+      // M7 merge seam: C exported `mirrorIncident` in INCIDENT_HANDLERS but the eager routing table
+      // never listed it, so the one command that reads the mirror's link state was unreachable.
+      'incident mirror',
       'incident acceptance declare',
       'incident acceptance list',
       'incident acceptance show',
