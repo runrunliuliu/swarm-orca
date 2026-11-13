@@ -11,6 +11,9 @@ Imported on: 2026-11-04
 - Kept existing public configuration/path adaptations and excluded private execution reports and accounting documents. No private Git history was imported.
 - This is a source-only update; it does not deploy a runtime, launch Agents, or establish live acceptance.
 
+> 注（2026-11-13）：下面这条命令列出的 `test_startup_handoff` / `test_operator_startup` / `test_bootstrap_*`
+> 已随旧握手删除，记录保留为当时的迁移证据，重跑会得到 “module not found”。
+
 Validation for this sync (from `swarm/`, with `RSI_CHECKER_TEST_ROOT` unset):
 
 - `PYTHONPATH=.:tests python3 -B -m unittest test_evidence_archive test_worker_usage_preserve test_startup_handoff test_coordinator_tui_prepare test_operator_startup test_bootstrap_production test_bootstrap_transport -v`: 161 tests passed.

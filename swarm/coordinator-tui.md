@@ -1,5 +1,10 @@
 # 常驻 Coordinator TUI（显式试验路径）
 
+> **部分历史（2026-11-13）**：continuation/TUI 续跑本身仍是现行路径；本文中依赖旧握手产物
+> （`ready.json`、`strict-config-*`、`startup_handoff`）的部分已删除，见
+> [start grant](docs/design/start-grant.md)。
+
+
 本次修复的是一次性 `trae exec` 结束后留下 shell、后续文本无法进入 Coordinator 的
 生命周期断点。TUI 能在模型回合结束后保留原生 Agent 进程，并通过 Orca 原生 Run
 mailbox 接收消息。**常驻进程不等于任务完成，也不等于服务/崩溃恢复。**

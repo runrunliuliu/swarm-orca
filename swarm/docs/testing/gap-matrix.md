@@ -48,11 +48,11 @@
 
 | reliability.md 要求 | 现有回归入口 | 覆盖度 | 缺口性质 | 备注 |
 | --- | --- | --- | --- | --- |
-| D-contract：身份/授权/角色/路径/hash/generation 拒绝 | `tests/bootstrap/test_bootstrap_production.py:393`、`:464`、`:555`；`tests/core/test_native_preflight.py`（24 项）；`tests/core/test_authority_bundle.py:128`、`:156` | 覆盖（离线） | — | 拒绝码逐条断言，符合“不能只给整目录退出码” |
-| D-contract：candidate/final 只由 owner 发布、六动作 complete_argv | `tests/bootstrap/test_bootstrap_submission.py:47`、`:62`、`:87`、`:104`、`:158`；`tests/bootstrap/test_bootstrap_workflow.py:39`、`:114` | 覆盖 | — | 含 symlink/hardlink 与发布前复检 |
-| D-contract：过期身份重验与心跳边界（不续租） | `tests/bootstrap/test_bootstrap_production.py:193`、`:209`、`:231`、`:282`、`:302` | 覆盖 | — | 与附录“心跳与身份租期”一致 |
-| D-contract：Operator gate 缺失/Coordinator 提前 idle/continuation 缺失 | `tests/core/test_startup_handoff*.py`（40 项，gate/prepare/trigger/monitor 四个模块）、`tests/operators/test_operator_startup.py`（33 项） | 部分 | **A** | 有 gate/continuation 拒绝，但“Coordinator 提前 idle 后 IPC 是否准确指向 Operator”未见直接断言 |
-| D-contract：无 Worker 分支、autonomous 缺 lifecycle 失败、native-event/manual 不发送 | `tests/operators/test_operator_startup.py`；`tests/coordinator/test_coordinator_tui_scheduler.py:980` | 部分 | **A** | `native-event` 窗口过期不转自主有断言（scheduler:980 区段），独立“无 Worker 显式分支”的负面用例未单列 |
+| D-contract：身份/授权/角色/路径/hash/generation 拒绝 | `tests/core/test_native_preflight.py`（24 项）；`tests/core/test_authority_bundle.py:128`、`:156`；`start grant` 侧见 `start-grant-create/-mint/-spawn` 三个 Orca 测试模块 | 覆盖（离线） | — | 旧握手的 `test_bootstrap_production` 已随代码删除；拒绝码逐条断言的要求不变 |
+| D-contract：candidate/final 只由 owner 发布、六动作 complete_argv | **已删除**：动作表与 owner 提交面（`test_bootstrap_submission`/`_workflow`）随旧握手移除 | 无 | **A** | 现行替代：`start grant` 的不可变记录（同 id 同字节幂等、异字节冲突），断言在 `start-grant-mint.test.ts` |
+| D-contract：过期身份重验与心跳边界（不续租） | `tests/core/test_startup_cli.py`、`tests/operators/test_operator_monitor*.py`（身份时效仍在这些活路径上断言） | 部分 | **A** | 旧 owner 租期用例随代码删除；`start grant` 的 deadline/撤销由服务端时钟判定（`start-grant-create/-spawn`） |
+| D-contract：Operator gate 缺失/Coordinator 提前 idle/continuation 缺失 | **已删除**：`test_startup_handoff*` 与 `test_operator_startup` 随 lifecycle v2 移除 | 无 | **A** | 现行路径不再有 S5 gate；Run 建好后的 continuation 断言仍在 `test_coordinator_tui_*` 与 `test_startup_cli` |
+| D-contract：无 Worker 分支、autonomous 缺 lifecycle 失败、native-event/manual 不发送 | `tests/coordinator/test_coordinator_tui_scheduler.py:980` | 部分 | **A** | lifecycle 侧用例随 v2 删除；`native-event` 窗口过期不转自主仍有断言，独立“无 Worker 显式分支”的负面用例未单列 |
 | D-control：并发上限 | `coordinator_driver.py:310` + `tests/coordinator/test_coordinator_driver.py:783`；`supervisor/engine.py:339–352` + `tests/core/test_supervisor.py:531`、`:908` | 覆盖 | — | 含 unknown/owned/nested 计入 |
 | D-control：依赖未满足 / 乱序完成不提前集成 | `supervisor/engine.py:345`、`:371–378`；`tests/core/test_supervisor.py:531`、`:556`、`:962` | 覆盖（Supervisor） | **B**（strict 侧） | strict 路径无声明 DAG，见 S2 |
 | D-control：审查拒绝/返工/单写入者 | `supervisor/config.py:142–161`；`tests/core/test_supervisor.py:209`、`:556` | 部分 | **C** | 只校验“契约层”不变量；返工循环本身在 Supervisor MVP 中不支持（`docs/supervisor.md:6` 明确“不支持任务重试”）|

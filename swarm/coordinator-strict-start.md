@@ -1,6 +1,7 @@
 # strict 启动握手：先就绪，再发布，再连续校验/创建
 
-> **已弃用（2026-11-13，部分）**：`create` 之后的 S0–S5 握手由
+> **已删除（2026-11-13，部分）**：`create` 之后的 S0–S5 握手工具已随代码删除（`bootstrap_*`、
+> `strict-start-*`、`strict-config-*`、`startup_handoff`）。设计由
 > [start grant](docs/design/start-grant.md) 取代，`start grant` 的 P1–P3 已不再单独实施。
 > **保留**：本文的 `strict-caller-check` 与 create 段（start grant 的 create 校验建在同一个活身份读取上），
 > 以及 S5 之前的既有行为描述——那段代码今天仍在运行，删掉文档等于删掉唯一说明。

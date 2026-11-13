@@ -1,5 +1,10 @@
 # 独立 Coordinator 启动门（Operator 负责，本地实现）
 
+> **历史（2026-11-13）**：本文的两阶段启动门读取的是旧握手的 `ready.json` / `gate-ready.json`，这些
+> 生产者已删除。现行路径是 [start grant](docs/design/start-grant.md)（mint → `run-create --grant` →
+> `worker-start`），本文只作历史。
+
+
 适用于外层 Operator 与独立 Coordinator 协作的**新 Run**。不能先由 Operator
 创建 Run/派发研究 Worker，再把名为 Coordinator 的汇总 Worker 当作已完成身份交接。
 Run owner 必须是事先独立核验的 Coordinator，而不是两个都填成 Operator 的相等字段。

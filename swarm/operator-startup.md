@@ -1,5 +1,10 @@
 # Operator 启动生命周期与 readiness
 
+> **历史（2026-11-13）**：本文描述的 lifecycle v2 发布/确认链（`startup_handoff`、`strict-config-*`、
+> `bootstrap_owner` 账本）已**随旧握手删除**。现行启动授权见 [start grant](design/start-grant.md)；
+> 本文保留为设计记录，其中的命令与 `startup_handoff.py` 均不再存在。
+
+
 更新：2026-11-03。新生命周期使用 **schema v2 + 显式执行模式 + runtime policy v1**。新注册的 strict
 bootstrap attempt 必须在配置交付前接入；不再把 created→continuation 留给角色自行猜测。
 本层复用原 bootstrap、gate、首派、continuation、monitor 和 scheduler，不创建另一套

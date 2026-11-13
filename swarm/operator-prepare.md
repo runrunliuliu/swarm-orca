@@ -17,8 +17,12 @@ Worker 或报告仓库，不执行启动 argv，不发审计 gate，不解释或
 ```text
 静态文件/基线准备 → Operator 身份输入固定 → 独立外层审计 → 已授权的独立会话启动
 → 原生 caller + 会话观察 + 最终 readiness
-→ request-only strict-start-prepare → strict-config-review → 原有 session/Run/first-dispatch 门
+→ （旧：request-only strict-start-prepare → strict-config-review，**已删除**）
+→ 现行的 start grant：`start-grant-mint` → `run-create --grant` → `worker-start`
 ```
+
+> 2026-11-13：上面那行旧握手的两步与 [registration](strict-bootstrap-protocol.md) 采集入口都已删除；
+> 静态准备、身份输入与 native plan 这三段仍是现行实现。
 
 `ok:true` 只表示当前工具完成，所有入口均输出 `execution_authorized:false`。
 静态阶段的唯一成功状态是 `awaiting_external_audit`。同 UID 的 0600/0700 与文件 hash
@@ -245,7 +249,9 @@ pin、必要会话 ID、有效设置摘要和信任边界，不输出 hook 原�
 1800 秒，旧契约不因包装入口自动延长。没有“读取成功就有效”的续期逻辑。
 输出始终是 `runtime-state-and-log-not-live-process-attested`，且
 `requires_live_caller_check:true`。它不是 Operator 身份证明、实时 caller 校验或执行许可。
-会话准备完成后继续走 [strict-start-prepare](coordinator-strict-start.md)，所有审计门保留。
+会话准备完成后不再走 `strict-start-prepare`（已删除）；授权由
+[start grant](docs/design/start-grant.md) 的 `start-grant-mint` 签发，审计门随代码消失，
+只保留 `strict-caller-check` 这一道活身份门。
 
 ### 3.1 bootstrap registration：从运行时的那两行采集，不手写（含 Pi）
 

@@ -1,5 +1,10 @@
 # Software development v1 wire contract
 
+> **历史（2026-11-13）**：本文引用的实现（`bootstrap_*`、`coordinator_strict_{delivery,start,request,prepare}`、
+> `startup_handoff`）已随旧握手删除；现行启动授权见 [start grant](../../docs/design/start-grant.md)。
+> 设计与测量结论保留，文中的模块名与命令不再可执行。
+
+
 This is the local implementation contract for `software-development-v1`, not live
 acceptance or authorization. Python is standard-library only. `ref` below always means
 the existing exact `{path, sha256}` raw-byte pin. Paths are canonical absolute paths;

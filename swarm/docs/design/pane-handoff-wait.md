@@ -1,5 +1,10 @@
 # 对端等待（pane handoff / peer wait）：用原生阻塞取代 sleep 轮询（实施方案）
 
+> **历史（2026-11-13）**：本文引用的实现（`bootstrap_*`、`coordinator_strict_{delivery,start,request,prepare}`、
+> `startup_handoff`）已随旧握手删除；现行启动授权见 [start grant](../../docs/design/start-grant.md)。
+> 设计与测量结论保留，文中的模块名与命令不再可执行。
+
+
 状态：**P1–P5 已实现并过离线回归（§7 第 1–4 条）；P6 与 live 对照（§7 第 5–6 条）未执行**。本文只给诊断、
 设计、实现包与验收判据，**不构成**部署、重启、启动 Agent、修改运行中 attempt/Run 或放宽任何 gate 的授权；
 也不授权在主检出落地。等待的授权语义仍以

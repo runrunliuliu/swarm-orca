@@ -80,8 +80,7 @@ Operator 生命周期阶段、bootstrap 单侧准入。
 
 - 代表入口：`tests/coordinator/test_coordinator_tui_continue.py`、`tests/coordinator/test_coordinator_tui_scheduler.py`、
   `tests/operators/test_operator_monitor.py`、`tests/coordinator/test_coordinator_driver.py`、
-  `tests/core/test_progress_watch.py`、`tests/operators/test_operator_startup.py`、
-  `tests/bootstrap/test_bootstrap_control.py`。
+  `tests/core/test_progress_watch.py`、`tests/core/test_startup_cli.py`。
 
 **怎么造用例.** 临时目录 + FakeNative/fake CLI（记录 argv 并回放固定回执）+
 临时把时钟注入（例如 `Store(root, clock=lambda: ...)` 见 `tests/core/test_supervisor.py:1249`）+
@@ -107,13 +106,12 @@ Operator 生命周期阶段、bootstrap 单侧准入。
 strict-config request/ready/review 顺序、continuation-ref 与 checkpoint head 的
 归属、以及“不得静默升级/回退”的拒绝面。
 
-- 代表实现：`coordinator_strict_delivery.py`、`coordinator_strict_request.py`、
-  `coordinator_strict_start.py`、`bootstrap_submission.py` 对应的
-  `tests/bootstrap/test_bootstrap_submission.py`、`coordinator_authority_bundle.py`、
-  `coordinator_tui_prepare.py`、`operator_startup.py`。
-- 代表用例：`tests/bootstrap/test_bootstrap_submission.py:47`（禁止直写最终槽）、
-  `:104`（候选 SHA 与发布前复检）、`tests/core/test_authority_bundle.py:307`（配置降级拒绝）、
-  `:354`（两个合法 bundle 不可混用）、`tests/coordinator/test_coordinator_strict_delivery.py`（24 项）。
+- 代表实现（截至 2026-11-13，旧握手的 `bootstrap_submission` / `coordinator_strict_*` 已删除）：
+  `coordinator_authority_bundle.py`、`coordinator_tui_prepare.py`、`operator_startup.py`、
+  `start_grant.py`。
+- 代表用例：`tests/core/test_authority_bundle.py:307`（配置降级拒绝）、`:354`（两个合法 bundle 不可混用）、
+  `tests/core/test_start_grant.py`（记录形状/哈希/退出码）、
+  `orca/…/runs/start-grant-create.test.ts`（事务内判定与重放）。
 
 **怎么造用例.** 先生成合法 pin，再逐项破坏：字节改写、canonical 重排、
 symlink/hardlink、时间戳伪造、schema 降级、跨 owner 复用回执、重复 pull。
@@ -201,10 +199,10 @@ RSI 场景还要目标仓库的业务验收（reliability.md:20）。
 | ID | 不变量 | D 层现有证据（示例） |
 | --- | --- | --- |
 | I-1 | 同一动作的副作用至多一次（含崩溃与丢回执） | `tests/coordinator/test_coordinator_tui_continue.py:180`、`:245`、`:254`；`tests/core/test_supervisor.py:280`、`:374` |
-| I-2 | 未知结果只对账、不重放 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`；`tests/bootstrap/test_bootstrap_failures.py:176` |
+| I-2 | 未知结果只对账、不重放 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`（旧握手的 `test_bootstrap_failures` 已随代码删除） |
 | I-3 | 身份/owner/generation/incarnation 变化即停止 | `tests/coordinator/test_coordinator_tui_continue.py:274`、`:932`；`tests/core/test_supervisor.py:865`、`:1076` |
 | I-4 | pin 不可被改写、覆盖或降级 | `tests/core/test_authority_bundle.py:319`、`:368`；`tests/coordinator/test_coordinator_strict_delivery.py`（`old_intent_is_not_rewritten`） |
-| I-5 | STOP 不可被自动清除或清除后恢复 | `tests/bootstrap/test_bootstrap_control.py:160`、`:172`；`tests/core/test_monitor_stop_signals.py` |
+| I-5 | STOP 不可被自动清除或清除后恢复 | `tests/core/test_monitor_stop_signals.py`（旧 `test_bootstrap_control` 的 STOP 用例已随 owner 删除） |
 | I-6 | 预算预留幂等，未知费用不记 0 | `tests/core/test_supervisor.py:240`、`:270`、`:336` |
 | I-7 | 证据不可变、摘要核验、越界文件拒绝 | `tests/core/test_supervisor.py:836`、`:849`；`tests/core/test_safety.py:158`（ReceiptTests） |
 | I-8 | 失败/替换尝试同样计入台账与收尾 | `tests/core/test_ledger.py`、`tests/core/test_ledger_binding_coverage.py`；`tests/core/test_supervisor.py:317` |
@@ -228,7 +226,7 @@ I-12 尚无 D 层正例，见缺口矩阵。
 | FakeNative / fake CLI | `tests/bootstrap_role_fixture.py`、`tests/bootstrap_flow_fixture.py`、`tests/core/test_supervisor.py` 的 `Base` | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
 | 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:179`、`:245`）、`bootstrap_control` 的显式时间参数 | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
 | 真实文件锁竞争 | `tests/coordinator/test_coordinator_io.py:43`、`:72`；`tests/coordinator/test_coordinator_tui_scheduler.py:263` | 单写入者、busy 跳过 | 本地文件系统，不等于跨主机锁 |
-| 密钥/签名夹具 | `tests/core/test_binding.py:212`、`tests/bootstrap/test_bootstrap_transport.py:25` | 篡改、重放、错 key | 不证明真实 host 认证 |
+| 密钥/签名夹具 | `tests/core/test_binding.py:212`（旧 transport 夹具已删除） | 篡改、重放、错 key | 不证明真实 host 认证 |
 | Unix socket 端到端 | `tests/core/test_binding.py:455`、`:472` | 本地进程间签名回执 | 非网络、非远端 |
 | 大文件/大输入 | `tests/core/test_capacity_io.py:33`（17 MiB）、`tests/core/test_supervisor.py:849`（>10 MB） | 容量与完整性 | 见 S3 缺口：无总上下文上限 |
 | 有界观测预算 | `observation_budget.py:21` + `tests/core/test_observation_budget.py:30`、`:155` | 观测超时即停 | 只覆盖配合式本地 I/O |
@@ -256,12 +254,13 @@ tests/run_offline.sh --fast   # 跳过文件头 SLOW 列表，只用于迭代
 ```
 
 **模块数与项数都不写进文档**：以 `--list` 的行数和本次输出为准（两者都随套件增长；
-历史实测值只属于当时的提交，写死会让后来的人按错的分母判断"跑全了"）。`--fast` 排除的 7 个模块（`bootstrap.test_bootstrap_production`、
-`bootstrap.test_bootstrap_workflow`、`core.test_startup_handoff` 及其
-`_prepare`/`_trigger`/`_monitor` 三份、`bootstrap.test_bootstrap_failures`）合计 301 s，
-占全量 65%；成本来自真实 owner-socket RPC（约 2000 次往返，每次一个子进程做签名校验）、
-`fsync` 与 JSON 规范化，不是 sleep。它们是 bootstrap/strict 生产路径的行为证据，
-**不得为提速删除或削弱断言**。
+历史实测值只属于当时的提交，写死会让后来的人按错的分母判断"跑全了"）。`--fast` 现在排除的是
+**实测最慢的 7 个模块**（`coordinator.test_coordinator_driver`、`test_coordinator_prepare`、
+`publish.test_install_entry`、`core.test_monitor_stop_signals`、`coordinator.test_coordinator_background`、
+`operators.test_operator_monitor_recovery`、`coordinator.test_coordinator_operator`；名单在
+`tests/run_offline.sh` 的 `SLOW` 与 `tests/core/test_offline_baseline.py` 里各写一遍并互相对账）。
+2026-11-13 删除旧握手后，原先那 7 个 bootstrap/handoff 模块连同其断言一起消失了——它们测的代码已不存在，
+这不是"为提速删断言"，而是删掉的被测对象带走了测试。
 
 > **为什么要拆，而不是删.** `--jobs` 以模块为调度单位，所以并行门禁的下限是“最慢单模块”
 > 而不是总时长。`core.test_startup_handoff` 原是 40 项一个模块：本机 ext4 上 66 s，
@@ -275,7 +274,7 @@ tests/run_offline.sh --fast   # 跳过文件头 SLOW 列表，只用于迭代
 > NAS 挂载上 99 个模块 / 2577 项：单进程 363 s、`--jobs 4` 115 s，均 99/99 OK；
 > 2026-11-10 那次 `--jobs 4` 全量 892 s 且两个模块 deadline 假失败（deploy 700 s、
 > monitor 788 s）的形态已不再复现，两者在 4 路负载下为 13.4 s / 22.0 s。
-> `--jobs 8` 相对 4 收益很小（受 `bootstrap.test_bootstrap_production` 约 74 s 封顶），
+> `--jobs 8` 相对 4 收益很小（受当时最慢模块约 74 s 封顶；2026-11-13 起最慢模块换成了 coordinator driver/prepare），
 > 所以默认取 4；单进程形式仍保留为可复现口径。
 
 按变更范围选择测试（`swarm/<module>.py` → `tests/<area>/test_<module>.py`，映射与边界见

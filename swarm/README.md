@@ -28,6 +28,11 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 
 ## Strict TUI 的标准顺序
 
+> **2026-11-13：第 3 步（S0–S5 握手）已删除。** 启动授权改由
+> [start grant](docs/design/start-grant.md) 承担：`start-grant-mint` 一次签发，`run-create --grant` 建 Run，
+> 每次 `worker-start` 在服务端事务内校验。下面第 3 步与后面提到的 `strict-*` 命令只作历史记录，
+> 不再可执行。第 4/5 步（Run 建好后的首派、TUI 续跑、monitor）**仍然是现行路径**。
+
 以下是入口导航，不是可直接执行的启动命令；完整参数、固定引用及失败处理以链接协议为准。
 
 1. **前置材料。** 按[启动准备](operator-prepare.md)固定任务、授权来源、目标 worktree/基线、角色材料和启动计划；
@@ -37,7 +42,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
    `operator_prepare.py native-plan` 与 `coordinator_launch.py strict-native-plan` 复用同一个 `native_plan`：
    检查材料及 plan/workspace 绑定、Operator 身份、runtime 能力、工作区和可执行文件，全部通过才返回原生启动 argv；不自行启动。
    材料可以提前准备，真实 Operator 身份不能由静态材料替代。Coordinator 模型和权限按[显式部署配置](configuration.md)核验，不套给 Operator 会话。
-3. **由真实角色完成 strict 握手。** Coordinator 先完整读取固定提示和[启动协议](coordinator-strict-start.md)，再执行 caller-check；
+3. ~~**由真实角色完成 strict 握手。**~~ **已删除**（见上方提示）。原文保留如下，只作历史：Coordinator 先完整读取固定提示和[启动协议](coordinator-strict-start.md)，再执行 caller-check；
    原始回执放在 `BOOTSTRAP/initial-caller.json`，`strict-start/` 必须保持不存在，由 `strict-start-prepare` 独占创建。
    `strict-config-request` 的 `--check` 只校验输入，不写文件或固定正式 deadline；`--execute` 在发布前核验真实 Coordinator caller。
    契约绑定的 Operator 在自身会话执行计划输出的 `operator_check_argv` / `operator_publish_argv`，外层普通 Shell 不代发。
@@ -74,9 +79,9 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | Tasks 工作台（任务 → 工作区 → Agent → 用量） | [调研与设计](docs/design/task-workbench/README.md) + [开发计划](docs/design/task-workbench/development-plan.md) + [评审记录](docs/design/task-workbench/discussion-record.md)：把 Tasks 从 provider 列表镜像改成任务视图；含数据链就绪度、三版线框图、用量三态与 `taskRecords` 关系存储草案。**设计草案，未实现**；2026-11-09 只读评审结论为"M1 可做、M2 冻结到 H1/H2 有证据"，阶段状态只在开发计划 §9 |
 | 启动等待的唤醒（发布 → 检出） | [发布等待设计](docs/design/publication-wait.md)：两个严格启动等待从 250 ms 轮询改为 inotify 提前唤醒 + 常挂轮询兜底；事件只缩短不定义等待，无 inotify 时等于改动前。**已实现并过离线门禁**；同主机实测 252 ms → 3.6 ms、探测 9 → 2 次，跨客户端丢事件率未实测，靠日志观测 |
 | 角色间等待（不再 sleep 看屏幕） | [对端等待设计](docs/design/pane-handoff-wait.md)：把“sleep N → 读对对方屏幕”换成三条阻塞等待（mailbox `check --wait` / 文件 inotify / pane 回合边界 `tui-idle`）。**P1–P5 已实现并过离线回归**：`wait_for_events.py` 能区分本机 runtime 的超时空回包与空批，`terminal_idle_wait.py` 的等待时长参数化（调度器仍用 1 s），`wait_pane.py`（须绑定同一次提交的 `turn_started`，否则 `unverifiable`）与 `wait_for_file.py`（inotify 提前唤醒 + deadline 兜底）已可调用，三处入口文档已补两节。**P6 运行侧 hook 门禁未做，live 对照未执行**，收益口径仍是推算。现场证据为单会话 19 次 sleep / 1554 s；已过两位独立评审（approve-with-changes） |
-| strict handoff 的通道、阶段等待与投递者身份 | [handoff 通道设计](docs/design/strict-handoff-channel.md)：mailbox 为默认通道、steering 只在启动 prompt 与人工交互时合法；阶段文件改由 `strict-bootstrap-wait-stage` 等待（stage→路径只能来自 layout，禁拼路径/扫目录/`sleep` 小步循环）；接收侧用 `strict-bootstrap-handoff-accept` 把 pin 字节与 `from_handle` **两个独立断言**分开判，不匹配 fail-closed。**离线实现完成并过定向回归，live 未验收**；身份断言是自洽检查（防误填/防事故，不防冒充） |
+| strict handoff 的通道、阶段等待与投递者身份（**已删除**） | [handoff 通道设计](docs/design/strict-handoff-channel.md)：mailbox 为默认通道、steering 只在启动 prompt 与人工交互时合法。接收工具 `strict-bootstrap-handoff-accept` 与阶段等待 `strict-bootstrap-wait-stage` **已随握手一起删除**；本文只作历史。身份断言当时就是自洽检查（防误填/防事故，不防冒充） |
 | Coordinator 模型、权限与启动适配 | [部署配置](configuration.md)、[公开 JSON 示例](coordinator-model.json)、[Trae exec](trae-coordinator.md) |
-| Strict bootstrap 事件协议（Phase 1–4 本地开发） | [协议与工具契约](strict-bootstrap-protocol.md)：四 marker / 两阶段 wait / 原 builder 与 S5 同域准入，attempt-local owner 及双方候选交接工具已实现；`--check` 仍为 `ready:false`，不表示已部署常驻服务或通过 live 验收 |
+| Strict bootstrap 事件协议（**已弃用、工具已删除**） | [协议正文](strict-bootstrap-protocol.md) 冻结为历史；`strict-bootstrap-state --check` 仍可对**旧 attempt** 做只读取证，生产者（builder / owner / gate / wait）已删除 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
 | 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)；不同证明口径不自动互相回退 |
 | 观察、安全与归档 | [只读 progress watch](progress-watch.md)、[启动与收尾保护](startup-safety.md)、[私有归档接入](configuration.md#部署政策与历史材料) |
