@@ -27,6 +27,11 @@ deployment; publishing, switching the pointer and relinking skills are deploy ac
 When a change spans both layers, keep the upstream diff minimal and put the reasoning in the
 commit message: it has to survive the next upstream upgrade.
 
+`swarm/AGENTS.md` is the same kind of guidance written for the `swarm/` layer alone. Read it when
+working inside `swarm/`, and keep it true in both places: the publisher copies it to the artifact's
+`code/AGENTS.md`, where `swarm/` **is** the root, so its paths must resolve there and not only here
+(see [deploy publish](swarm/docs/deploy/control-plane-publish.md#23-入口文档按目标布局书写)).
+
 ## Directory and artifact landing
 
 - A dispatch states two absolute paths: the **working directory** (briefs, in-flight evidence,

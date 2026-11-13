@@ -39,10 +39,10 @@ class Fixture(unittest.TestCase):
         write(root / "swarm-private-integration.md")
         write(root / "workspaces.json", "{}\n")
         write(root / "workspace-directory-policy.md")
-        write(root / "swarm-orca" / "AGENTS.md")
         write(root / "swarm-orca" / "NOTICE.md")
         write(root / "swarm-orca" / "MIGRATION_STATUS.md")
-        write(root / "swarm-orca" / "README.md")
+        write(root / "swarm-orca" / "ARTIFACT.md", "# artifact\n")
+        write(root / "swarm-orca" / "swarm" / "AGENTS.md", "# code layer\n")
         write(root / "swarm-orca" / "swarm" / "coordinator_launch.py")
         write(root / "swarm-orca" / "swarm" / "docs" / "entry-paths.md")
         write(root / "swarm-orca" / "swarm" / "tests" / "test_launch.py")
@@ -84,6 +84,32 @@ class PlanTests(Fixture):
         before = sorted(path.as_posix() for path in source.rglob("*"))
         self.plan_report(source)
         self.assertEqual(before, sorted(path.as_posix() for path in source.rglob("*")))
+
+    def test_the_entry_documents_come_from_the_layout_they_document(self):
+        report = self.plan_report(self.source())
+        self.assertIn("code/AGENTS.md", report["included"])
+        self.assertIn("README.md", report["included"])
+
+    def test_a_document_that_links_into_the_source_layout_is_refused(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[entry](swarm/docs/entry-paths.md)\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("source-layout-link", str(caught.exception))
+        self.assertIn("code/AGENTS.md -> swarm/docs/entry-paths.md", str(caught.exception))
+
+    def test_a_link_that_resolves_inside_the_artifact_is_accepted(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[entry](docs/entry-paths.md) [up](../AGENTS.md)\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_workspace_files_may_link_into_the_source_layout(self):
+        source = self.source()
+        write(source / "AGENTS.md", "[ledger](swarm/ledger.md)\n")
+        report = self.plan_report(source)
+        self.assertIn("workspace/AGENTS.md", report["included"])
 
     def test_build_id_is_content_addressed(self):
         source = self.source()
@@ -201,6 +227,13 @@ class PublishTests(Fixture):
         self.assertEqual(len(after), len(before) + 1)
         self.assertTrue(any(name.startswith(".%s-staging-" % publisher.ARTIFACT)
                             for name in after))
+
+    def test_publish_writes_nothing_when_a_document_links_into_the_source_layout(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md", "[x](swarm/README.md)\n")
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+        self.assertEqual(list(self.artifacts.iterdir()), [])
 
     def test_a_symbolic_link_in_the_source_is_refused(self):
         source = self.source()

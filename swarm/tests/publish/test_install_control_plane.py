@@ -36,8 +36,9 @@ class InstallerTests(unittest.TestCase):
         write(self.source / "swarm-private-integration.md")
         write(self.source / "workspaces.json", "{}\n")
         write(self.source / "workspace-directory-policy.md")
-        for name in ("AGENTS.md", "NOTICE.md", "MIGRATION_STATUS.md", "README.md"):
+        for name in ("NOTICE.md", "MIGRATION_STATUS.md", "ARTIFACT.md"):
             write(self.source / "swarm-orca" / name)
+        write(self.source / "swarm-orca" / "swarm" / "AGENTS.md")
         write(self.source / "swarm-orca" / "swarm" / "coordinator_launch.py")
         for skill in ("swarm-orchestration", "worktree-delivery"):
             write(self.source / "swarm-orca" / "swarm" / "skills" / skill / "SKILL.md",

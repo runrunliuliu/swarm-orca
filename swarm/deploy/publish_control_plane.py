@@ -24,6 +24,8 @@ import hashlib
 import json
 import os
 import platform
+import posixpath
+import re
 import shutil
 import socket
 import subprocess
@@ -34,7 +36,7 @@ from pathlib import Path
 
 ARTIFACT = "swarm-control-plane"
 SCHEMA_VERSION = 1
-COPY_RULE_VERSION = 3
+COPY_RULE_VERSION = 4
 PROVENANCE_RULE_VERSION = 3
 IDENTITY = ".swarm-build.json"
 MANIFEST = "MANIFEST.sha256"
@@ -53,11 +55,17 @@ DIR_RULES = (
 )
 
 # File copies: (destination, source relative to --source-root).
+#
+# The two entry documents are copied from files written for the artifact's own layout, not from the
+# repository's `AGENTS.md`/`README.md`. Those describe `orca/` and `swarm/`; neither component exists
+# here, so a reader who follows them finds nothing and goes looking on the host instead (measured: a
+# pane that could not open `swarm/docs/entry-paths.md` fell back to `find /`). `code/AGENTS.md` is
+# not listed at all: it comes from `swarm/AGENTS.md` with the `code/` directory, so it cannot drift
+# from the layout it documents. Fixing this at the source beats rewriting links after the copy.
 FILE_RULES = (
-    ("code/AGENTS.md", "swarm-orca/AGENTS.md"),
     ("NOTICE.md", "swarm-orca/NOTICE.md"),
     ("MIGRATION_STATUS.md", "swarm-orca/MIGRATION_STATUS.md"),
-    ("README.md", "swarm-orca/README.md"),
+    ("README.md", "swarm-orca/ARTIFACT.md"),
     ("workspace/AGENTS.md", "AGENTS.md"),
     ("workspace/swarm-private-integration.md", "swarm-private-integration.md"),
     ("workspace/workspaces.json", "workspaces.json"),
@@ -69,6 +77,17 @@ SKIP_COMPONENTS = frozenset({".git", "__pycache__", ".pytest_cache", ".mypy_cach
                             ".ruff_cache", ".DS_Store"})
 SKIP_SUFFIXES = (".pyc", ".pyo")
 SKIP_NAMES = frozenset({".gitignore"})
+
+# Top-level components that only a source checkout has. A document copied into the artifact that
+# still links into one of them points at a tree the reader does not have.
+ABSENT_COMPONENTS = frozenset({"orca", "swarm"})
+
+# `workspace/` is staged to be copied into a project workspace and read there, where `swarm/` and
+# `swarm-orca/` do exist: its relative links are resolved against that workspace, not against this
+# artifact, so the in-place check below must not judge them.
+WORKSPACE_PREFIX = "workspace"
+
+MARKDOWN_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)")
 
 
 class Failure(Exception):
@@ -90,6 +109,35 @@ def skipped(rel, excluded_prefixes):
     if parts[-1] in SKIP_NAMES or parts[-1].endswith(SKIP_SUFFIXES):
         return True
     return any(rel == prefix or rel.startswith(prefix + "/") for prefix in excluded_prefixes)
+
+
+def source_layout_links(destination, path, destinations):
+    """Relative links in a copied document that resolve to nothing the artifact ships.
+
+    Only bare `orca/` or `swarm/` heads are reported. A `../..` reference into the source tree is a
+    different, deliberate case (excluded tests, upstream files) and stays out of scope; a document
+    written for the repository root that lands one level deeper is the mistake this catches, because
+    it is the one that makes a reader search the host for a file that was shipped in an adjacent
+    directory.
+    """
+    if not destination.endswith(".md") or destination.split("/")[0] == WORKSPACE_PREFIX:
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    found = []
+    for target in MARKDOWN_LINK.findall(text):
+        if target.startswith(("#", "/", "mailto:")) or "://" in target:
+            continue
+        written = target.split("#")[0]
+        if written.split("/")[0] not in ABSENT_COMPONENTS:
+            continue
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(destination), written))
+        if resolved in destinations:
+            continue
+        found.append("%s -> %s" % (destination, target))
+    return found
 
 
 def collect(source_root, exclusions):
@@ -126,6 +174,12 @@ def collect(source_root, exclusions):
     duplicates = sorted({name for name in destinations if destinations.count(name) > 1})
     if duplicates:
         raise Failure("destination-collision: %s" % ", ".join(duplicates))
+    shipped = set(destinations)
+    dangling = []
+    for destination, path in copies:
+        dangling.extend(source_layout_links(destination, path, shipped))
+    if dangling:
+        raise Failure("source-layout-link: %s" % "; ".join(sorted(dangling)[:5]))
     return copies, sorted(set(excluded))
 
 

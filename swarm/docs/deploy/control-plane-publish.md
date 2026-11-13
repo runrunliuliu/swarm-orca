@@ -30,14 +30,15 @@
 /opt/swarm/swarm-control-plane-<buildId>/
 ├── .swarm-build.json      # 身份文件（§3.1）
 ├── MANIFEST.sha256        # 逐文件摘要（§3.2）
-├── code/                  # = swarm-orca/swarm/（保内部相对结构），另含 code/AGENTS.md
+├── code/                  # = swarm-orca/swarm/（保内部相对结构）
+│                          #   入口文档 code/AGENTS.md 也在这一层（= swarm-orca/swarm/AGENTS.md）
 │                          #   code/skills/ = 三个业务技能 + orca-cli/orchestration 两个发现桩
 ├── private/               # = 私有 swarm/ 的政策、acceptance、配置 JSON
 ├── overlay/               # = 私有根 skills/ 的入口材料
 ├── workspace/             # = 源码根 AGENTS.md、索引与目录策略
 ├── NOTICE.md              # = swarm-orca/NOTICE.md（许可证边界，必带）
-├── MIGRATION_STATUS.md
-└── README.md
+├── MIGRATION_STATUS.md    # = swarm-orca/MIGRATION_STATUS.md
+└── README.md              # = swarm-orca/ARTIFACT.md（按产物布局书写，不是仓库 README）
 /opt/swarm/current -> swarm-control-plane-<buildId>    # 唯一“本机当前控制平面”声明
 ```
 
@@ -51,7 +52,10 @@
 | `swarm/` 的政策与配置（排除 `tests/`、`__pycache__/`、`docs/validation/`、`trials/`） | 6.6M | ✅ `private/` | 模型/runtime/白名单/归档政策 |
 | 根 `skills/` | 140K | ✅ `overlay/` | 私有路由入口（如 runtime selection） |
 | 根 `AGENTS.md`、`swarm-private-integration.md`、`workspaces.json`、`workspace-directory-policy.md` | 小 | ✅ 产物根 | 策略与索引，供角色读取 |
-| `swarm-orca/{AGENTS.md,README.md,MIGRATION_STATUS.md,NOTICE.md}` | 小 | ✅ 产物根 | 许可证与公开边界（NOTICE 必带） |
+| `swarm-orca/{NOTICE.md,MIGRATION_STATUS.md}` | 小 | ✅ 产物根 | 许可证与公开边界（NOTICE 必带）、迁移状态 |
+| `swarm-orca/ARTIFACT.md` | 小 | ✅ `README.md` | 产物形态的 README（§2.3） |
+| `swarm-orca/swarm/AGENTS.md` | 小 | ✅ `code/AGENTS.md` | 代码层入口文档，按产物布局书写（§2.3） |
+| `swarm-orca/{AGENTS.md,README.md}` | 小 | ❌ | 仓库文档：描述 `orca/`、`swarm/` 两个产物里不存在的目录（§2.3） |
 | `swarm-orca/orca/skills/{orca-cli,orchestration}/` | ~8K | ✅ `code/skills/` | 两个发现桩；正文仍由选定的二进制用 `orca skills get` 提供，进产物只为让四个技能都能仅从产物解析 |
 | `swarm-orca/orca/` 其余部分 | 2.5G | ❌ | CLI 开发检出，与产物无关 |
 | `.git/`（含子模块 git） | 241M | ❌ | 身份改由 `.swarm-build.json` 记录 commit |
@@ -74,6 +78,23 @@
 另外 `code/skills/` 内部 references 使用 `../../` 相对引用（例如
 `code/skills/swarm-orchestration/SKILL.md` 指向 `code/README.md`、`code/configuration.md`），
 压平或拆散都会断链。
+
+### 2.3 入口文档按目标布局书写
+
+入口文档不做事后改写，直接在**它将要落到的位置**写：`swarm/AGENTS.md` 就是产物的 `code/AGENTS.md`
+（`code/` = `swarm/`，相对路径两处相同），产物根 `README.md` 来自仓库根 `ARTIFACT.md`。
+
+原因是一次实测的失败模式：早先 `code/AGENTS.md` 复制的是仓库 `swarm-orca/AGENTS.md`，它写“all paths are
+repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个路径不存在（真实位置是
+`code/docs/entry-paths.md`，就在同目录 `docs/` 下）。会话按提示找不到，改用 `find / -maxdepth 8` 全盘搜索——
+本机 `/mlx_devbox`、`/mnt/bn`（NFS4）都挂在 `/` 下，这一步是纯耗时，而且 `ls docs` 里本来就有那个文件。
+
+因此 `plan` 与 `publish` 都加了一条拒绝（`source-layout-link`）：白名单里的 `.md` 若仍以 `orca/` 或
+`swarm/` 开头做相对引用，而该目标不是产物的某个路径，即 `78`，报告“文件 -> 链接”。`workspace/` 不在检查范围：
+那一类文件要复制到项目工作区里读，其 `swarm/`、`swarm-orca/` 在那边真实存在。
+
+代价与边界：这条规则只管“裸 `orca/`、`swarm/` 开头”的引用，`../../tests/...` 这类刻意指向源码检出的
+引用（被排除的测试、上游文件）不在内；Gherkin 式或链接以外的裸路径文本也不在内。
 
 ## 3. 身份与摘要
 
@@ -114,7 +135,9 @@
 - `dirty: true` 时发布必须显式 `--allow-dirty`，产物仍然产出，但 readiness 在 `--require-pin` 下
   以 `control-plane-dirty` 拒绝把它当作带 pin 的启动来源；`unpinned` 同理。
 - `copyRuleVersion` 记录白名单与身份规则的版本：`2` 起把 `orca-cli`/`orchestration` 两个发现桩放进
-  `code/skills/`；`3` 起来源摘要参与 `buildId`。`1`/`2` 的旧产物按**内容寻址**核对，`verify` 通过但
+  `code/skills/`；`3` 起来源摘要参与 `buildId`；`4` 起入口文档按目标布局书写（`code/AGENTS.md` 来自
+  `swarm/AGENTS.md`，产物根 `README.md` 来自 `swarm-orca/ARTIFACT.md`）并新增 `source-layout-link` 拒绝（§2.3）。
+  `1`/`2` 的旧产物按**内容寻址**核对，`verify` 通过但
   报告 `identityKind: legacy-content-only`，readiness 在 `--require-pin` 下以
   `control-plane-legacy-identity` 拒绝把它们当作 pin 来源。
 - 不持久化任何一次性的回执字段；`MANIFEST.sha256` 是文件级事实，身份文件是发布级事实。
@@ -164,7 +187,8 @@
 
 拒绝语义与退出码：`0` 成功；`2` 用法错误（缺必需参数、无法解析的 `--expect-config`）；
 `78` 前置或完整性检查失败，stderr 只给一行原因（`source-dirty`、`source-unpinned`、
-`source-symlink`、`artifact-exists`、`destination-collision`、`build-id-mismatch`、
+`source-symlink`、`artifact-exists`、`destination-collision`、`source-layout-link`、
+`build-id-mismatch`、
 `artifact-name-mismatch`、`included-mismatch`、`install-dir-mismatch`、`symlink-in-artifact`、
 `manifest-mismatch`、`pointer-not-a-symlink` 等），不尝试修复、不回退默认值。
 

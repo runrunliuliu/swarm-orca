@@ -12,6 +12,9 @@ claim to be a deployable implementation.
   baseline verification.
 - `swarm/` contains reusable Swarm orchestration code and public-safe examples.
 
+`ARTIFACT.md` is the README of the published control plane artifact: the publisher copies it to the
+artifact root. It is written for that layout, so its links resolve there and not in this repository.
+
 ## Scope
 
 Only reviewed, general-purpose code, documentation, and examples belong here.

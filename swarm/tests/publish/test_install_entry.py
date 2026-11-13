@@ -44,8 +44,9 @@ class InstallEntryTests(unittest.TestCase):
             write(root / "swarm-private-integration.md")
             write(root / "workspaces.json", "{}\n")
             write(root / "workspace-directory-policy.md")
-            for name in ("AGENTS.md", "NOTICE.md", "MIGRATION_STATUS.md", "README.md"):
+            for name in ("NOTICE.md", "MIGRATION_STATUS.md", "ARTIFACT.md"):
                 write(root / "swarm-orca" / name)
+            write(root / "swarm-orca" / "swarm" / "AGENTS.md")
             for stub in ("orca-cli", "orchestration"):
                 write(root / "swarm-orca" / "orca" / "skills" / stub / "SKILL.md",
                       "---\nname: %s\n---\n" % stub)

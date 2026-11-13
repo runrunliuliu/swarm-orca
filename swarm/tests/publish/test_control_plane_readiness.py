@@ -50,10 +50,10 @@ class Fixture(unittest.TestCase):
         write(root / "swarm-private-integration.md")
         write(root / "workspaces.json", "{}\n")
         write(root / "workspace-directory-policy.md")
-        write(root / "swarm-orca" / "AGENTS.md")
         write(root / "swarm-orca" / "NOTICE.md")
         write(root / "swarm-orca" / "MIGRATION_STATUS.md")
-        write(root / "swarm-orca" / "README.md")
+        write(root / "swarm-orca" / "ARTIFACT.md")
+        write(root / "swarm-orca" / "swarm" / "AGENTS.md")
         if code:
             write(root / "swarm-orca" / "swarm" / "coordinator_launch.py")
         if model:
