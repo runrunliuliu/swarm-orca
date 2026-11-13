@@ -1,3 +1,4 @@
+import { observeToolErrorItem } from '../../incidents/incident-tool-error-observer'
 import type { AgentSessionOwnerProbe } from '../../../shared/agent-session-lease-adjudication'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import {
@@ -67,6 +68,15 @@ export class StructuredAgentSessionHostRuntimeState {
   mintEventSink(sessionId: string): DeferredStructuredAgentSessionEventSink {
     const minted: DeferredStructuredAgentSessionEventSink =
       createDeferredStructuredAgentSessionEventSink({
+        // The one tool-error collection point (§7.3): a *live* sink item append, with the session id
+        // this sink was minted for. Restore/import never comes through here.
+        onItemJournaled: (item) =>
+          observeToolErrorItem({
+            sessionId,
+            itemKey: item.itemKey,
+            turnScope: item.turnScope,
+            body: item.body
+          }),
         onError: (error) => {
           this.deps.onEventSinkError?.({ sessionId, error })
           // Only the session's own sink may force its provider down; an attempt's never is.

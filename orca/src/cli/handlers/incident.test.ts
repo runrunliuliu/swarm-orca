@@ -17,6 +17,7 @@ import { createIncidentStore, type IncidentStore } from '../../main/incidents/in
 import { incidentsDatabaseFileFor } from '../../main/incidents/incidents-paths'
 import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
 import { sampleStallState } from '../../main/incidents/incidents-stall-sampler'
+import { writeMeta } from '../../main/incidents/incident-store-capacity'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
 import type { PtyExitIncidentFacts } from '../../main/incidents/incident-pty-exit'
 import { INCIDENT_HANDLERS } from './incident'
@@ -297,6 +298,56 @@ describe('incident stalls (M3-3)', () => {
     const shown = context('incident stalls')
     await INCIDENT_HANDLERS['incident stalls'](shown.ctx)
     expect(shown.output.join('\n')).toContain('No panes sampled')
+  })
+})
+
+describe('incident tool-errors (M4-1)', () => {
+  it('reports an empty window set instead of failing on a host with no store', async () => {
+    const shown = context('incident tool-errors')
+    await INCIDENT_HANDLERS['incident tool-errors'](shown.ctx)
+    expect(shown.output.join('\n')).toContain('No tool-error window')
+    expect(shown.output.join('\n')).toContain('this command never writes')
+  })
+
+  it('shows the published windows with the count and the would-write verdict', async () => {
+    const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      writeMeta(
+        opened.db,
+        'tool_error_windows',
+        JSON.stringify({
+          updatedAt: 1_700_000_000_000,
+          writeEnabled: false,
+          windows: [
+            {
+              sessionId: 'sess-1',
+              toolName: 'Bash',
+              code: 'non_zero_exit',
+              count: 5,
+              windowStart: 1_699_999_700_000,
+              lastAt: 1_700_000_000_000,
+              highSeverity: false,
+              wouldWriteIfEnabled: true,
+              written: false,
+              lastTurn: 'turn-1'
+            }
+          ]
+        })
+      )
+    } finally {
+      opened.db.close()
+    }
+    const shown = context('incident tool-errors', {}, true)
+    await INCIDENT_HANDLERS['incident tool-errors'](shown.ctx)
+    const payload = JSON.parse(shown.output.join('\n')) as {
+      windows: { code: string; count: number; wouldWriteIfEnabled: boolean }[]
+    }
+    expect(payload.windows[0]).toMatchObject({
+      code: 'non_zero_exit',
+      count: 5,
+      wouldWriteIfEnabled: true
+    })
+    expect(store().countIncidents()).toBe(0)
   })
 })
 

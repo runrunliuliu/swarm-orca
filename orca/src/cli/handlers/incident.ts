@@ -18,6 +18,7 @@ import {
 import { openIncidentStore } from '../incident-store-access'
 import { reportIncident } from './incident-report'
 import { stallsIncident, waitIncident } from './incident-stall'
+import { toolErrorsIncident } from './incident-tool-errors'
 import {
   parseIncidentClass,
   printIncidentJson,
@@ -191,6 +192,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   'incident report': reportIncident,
   'incident wait': waitIncident,
   'incident stalls': stallsIncident,
+  'incident tool-errors': toolErrorsIncident,
 
   'incident prune': async (ctx) => {
     refuseNonLocalIncidentSelector(ctx, 'orca incident prune')

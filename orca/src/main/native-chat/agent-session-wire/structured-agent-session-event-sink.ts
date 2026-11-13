@@ -10,8 +10,11 @@ import type { AgentSessionJournal } from '../agent-session-journal/journal-store
 import type { JournalLifecycleMutationInput } from '../agent-session-journal/journal-row-builders'
 import { estimateStructuredAgentSessionItemBytes } from './structured-agent-session-event-sink-estimate'
 import { StructuredAgentSessionSinkQueue } from './structured-agent-session-event-sink-queue'
-import { structuredAgentSessionJournalAppendOptions } from './structured-agent-session-journal-append-options'
 import { createStructuredAgentSessionResolvedAppend } from './structured-agent-session-resolved-append'
+import {
+  appendJournalItemAndNotify,
+  type StructuredAgentSessionJournaledItem
+} from './structured-agent-session-journaled-item'
 
 export type StructuredAgentSessionSinkAdmission =
   | { accepted: true }
@@ -199,6 +202,14 @@ export function createDeferredStructuredAgentSessionEventSink(
     watermarks?: Partial<StructuredAgentSessionSinkWatermarks>
     readingControl?: StructuredAgentSessionReadingControl
     onBackpressureChange?: (backpressured: boolean, state: StructuredAgentSessionSinkState) => void
+    /**
+     * Called once per item this *live* sink successfully journaled.
+     *
+     * Why here and not in the journal: the journal's own append also serves legacy import and
+     * restore/backfill, so a counter there would count history again on every reattach. This sink is
+     * created per live attach and nothing else writes through it.
+     */
+    onItemJournaled?: (item: StructuredAgentSessionJournaledItem) => void
   } = {}
 ): DeferredStructuredAgentSessionEventSink {
   const watermarks = { ...DEFAULT_WATERMARKS, ...deps.watermarks }
@@ -251,11 +262,13 @@ export function createDeferredStructuredAgentSessionEventSink(
             bytes: estimateStructuredAgentSessionItemBytes(identity, body),
             coalescingKey: options.coalescingKey,
             run: (bound) =>
-              bound.journal.appendItem(
+              appendJournalItemAndNotify({
+                bound,
                 identity,
                 body,
-                structuredAgentSessionJournalAppendOptions(bound.fence, options)
-              )
+                options,
+                ...(deps.onItemJournaled ? { onJournaled: deps.onItemJournaled } : {})
+              })
           },
           options
         )
@@ -266,11 +279,13 @@ export function createDeferredStructuredAgentSessionEventSink(
             bytes: estimateStructuredAgentSessionItemBytes(identity, body),
             coalescingKey: options.coalescingKey,
             run: (bound) =>
-              bound.journal.appendItem(
+              appendJournalItemAndNotify({
+                bound,
                 identity,
                 body,
-                structuredAgentSessionJournalAppendOptions(bound.fence, options)
-              )
+                options,
+                ...(deps.onItemJournaled ? { onJournaled: deps.onItemJournaled } : {})
+              })
           },
           options
         ),

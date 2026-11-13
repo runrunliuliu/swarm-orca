@@ -106,6 +106,19 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'tool-errors'],
+    summary: 'Show the tool-error sliding windows (read-only; never writes an incident)',
+    usage: 'orca incident tool-errors [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    examples: ['orca incident tool-errors', 'orca incident tool-errors --json'],
+    notes: [
+      'Per session + tool + normalized code: the current count, the window span, and whether a write-enabled collector would record it.',
+      'Normalized codes: permission_denied, path_not_found, command_not_found, timeout, non_zero_exit, tool_schema, network, unknown. permission_denied is the high-severity single-hit code.',
+      'The original error text is never stored; windowing is in-process, so a restart resets the counts.',
+      'Writing tool_error incidents is off by default (INCIDENT_TOOL_ERROR_WRITE=on in the host process); this command never writes.'
+    ]
+  },
+  {
     path: ['incident', 'prune'],
     destructive: true,
     summary: 'Delete old closed/invalid/duplicate incidents (dry run by default)',
