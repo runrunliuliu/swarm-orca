@@ -142,6 +142,49 @@ class PublishTests(Fixture):
         self.assertEqual(pointer.resolve(), artifact.resolve())
         self.assertEqual(publisher.main(["verify", "--artifact", str(artifact)]), 0)
 
+    def test_the_identity_binds_the_source_state(self):
+        clean = {"sourceRoot": "s", "orcaSrcCommit": "a", "orcaSrcBranch": "b",
+                 "swarmOrcaCommit": "c", "swarmOrcaBranch": "d",
+                 "dirty": False, "dirtyPaths": [], "unpinned": False}
+        dirty = dict(clean, dirty=True, dirtyPaths=["M docs/README.md"])
+        source = self.source()
+        with mock.patch.object(publisher, "source_state", return_value=clean):
+            self.assertEqual(self.publish(source), 0)
+        with mock.patch.object(publisher, "source_state", return_value=dirty):
+            self.assertEqual(self.publish(source, "--allow-dirty"), 0,
+                             "different provenance must not collide")
+        names = sorted(path.name for path in self.artifact_directories())
+        self.assertEqual(len(names), 2)
+        self.assertNotEqual(names[0], names[1])
+
+    def test_a_rewritten_dirty_flag_is_detected(self):
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        path = artifact / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIsNone(identity["source"]["dirty"])
+        identity["source"]["dirty"] = True
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(publisher.main(["verify", "--artifact", str(artifact)]),
+                         publisher.EXIT_PRECONDITION)
+
+    def test_a_legacy_content_only_identity_is_reported_not_trusted(self):
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        manifest = publisher.read_manifest(artifact)
+        legacy = publisher.legacy_build_id(manifest)
+        renamed = artifact.with_name("%s-%s" % (publisher.ARTIFACT, legacy))
+        artifact.rename(renamed)
+        path = renamed / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        identity["buildId"] = legacy
+        identity["copyRuleVersion"] = 2
+        identity["installDir"] = str(renamed)
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(publisher.main(["verify", "--artifact", str(renamed)]), 0)
+        report = publisher.inspect_artifact(renamed)
+        self.assertEqual(report["identityKind"], "legacy-content-only")
+
     def test_publish_refuses_an_existing_artifact(self):
         source = self.source()
         self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)

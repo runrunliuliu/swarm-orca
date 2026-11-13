@@ -123,7 +123,8 @@ def control_plane(*, pointer=None, directory=None):
 
 def released(root, report, source):
     return {"state": "ok", "path": str(root), "buildId": report.get("buildId"),
-            "source": source, "sourceTree": report.get("source"), "reason": None}
+            "identityKind": report.get("identityKind"), "source": source,
+            "sourceTree": report.get("source"), "reason": None}
 
 
 def dev_checkout(root, source):
@@ -190,6 +191,8 @@ def blocking_reasons(plane, skills, project, config, require_pin, expected=None)
     if plane["state"] == "dev-checkout" and require_pin:
         reasons.append("control-plane-dev-checkout: not a pin source")
     if plane["state"] == "ok" and require_pin:
+        if plane.get("identityKind") != "provenance":
+            reasons.append("control-plane-legacy-identity: provenance is not bound to the buildId")
         tree = plane.get("sourceTree") or {}
         if tree.get("dirty"):
             reasons.append("control-plane-dirty: published from a modified source")

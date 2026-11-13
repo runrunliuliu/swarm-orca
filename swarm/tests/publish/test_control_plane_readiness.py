@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 import unittest
@@ -204,6 +205,21 @@ class ReadinessTests(Fixture):
         self.assertFalse(result["ready"])
         self.assertIn("control-plane-unpinned: published without a pinned source",
                       result["blocking"])
+
+    def test_a_legacy_identity_artifact_is_not_a_pin_source(self):
+        artifact = self.artifact()
+        manifest = publisher.read_manifest(artifact)
+        legacy = publisher.legacy_build_id(manifest)
+        renamed = artifact.with_name("%s-%s" % (publisher.ARTIFACT, legacy))
+        artifact.rename(renamed)
+        identity_path = renamed / publisher.IDENTITY
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        identity.update(buildId=legacy, copyRuleVersion=2, installDir=str(renamed))
+        identity_path.write_text(json.dumps(identity), encoding="utf-8")
+        result = self.report(control_plane=str(renamed), require_pin=True)
+        self.assertFalse(result["ready"])
+        self.assertTrue(any(item.startswith("control-plane-legacy-identity")
+                            for item in result["blocking"]))
 
     def test_expected_config_hash_is_compared(self):
         artifact = self.artifact()

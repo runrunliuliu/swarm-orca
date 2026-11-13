@@ -34,7 +34,8 @@ from pathlib import Path
 
 ARTIFACT = "swarm-control-plane"
 SCHEMA_VERSION = 1
-COPY_RULE_VERSION = 2
+COPY_RULE_VERSION = 3
+PROVENANCE_RULE_VERSION = 3
 IDENTITY = ".swarm-build.json"
 MANIFEST = "MANIFEST.sha256"
 EXIT_PRECONDITION = 78
@@ -128,12 +129,36 @@ def collect(source_root, exclusions):
     return copies, sorted(set(excluded))
 
 
-def build_id(entries):
-    """Content identity: 12 hex characters over the sorted per-file digests."""
+def provenance(state, copy_rule_version=COPY_RULE_VERSION):
+    """The source facts an artifact's identity is bound to.
+
+    Content alone cannot distinguish a clean publication from one built out of a modified
+    checkout, so the identity would let `dirty: true` be rewritten to `false`. Binding these
+    fields makes that edit change the buildId, and therefore the directory name.
+    """
+    return {
+        "orcaSrcCommit": state.get("orcaSrcCommit"),
+        "swarmOrcaCommit": state.get("swarmOrcaCommit"),
+        "dirty": state.get("dirty"),
+        "unpinned": bool(state.get("unpinned")),
+        "copyRuleVersion": copy_rule_version,
+    }
+
+
+def build_id(entries, source=None):
+    """Identity: 12 hex characters over the sorted digest and, when given, the provenance."""
     digest = hashlib.sha256()
     for name, file_digest in sorted(entries):
         digest.update(("%s  %s\n" % (file_digest, name)).encode("utf-8"))
+    if source is not None:
+        digest.update(b"--source--\n")
+        digest.update(json.dumps(source, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     return digest.hexdigest()[:12]
+
+
+def legacy_build_id(entries):
+    """Content-only identity used by copyRuleVersion 1 and 2 artifacts."""
+    return build_id(entries)
 
 
 def git(source_root, relative, *args):
@@ -183,13 +208,14 @@ def plan(args):
     source_root = Path(args.source_root).resolve()
     copies, excluded = collect(source_root, {})
     entries = [(destination, sha256_file(path)) for destination, path in copies]
+    state = source_state(source_root)
     return {
         "mode": "plan",
-        "source": source_state(source_root),
+        "source": state,
         "copyRuleVersion": COPY_RULE_VERSION,
         "fileCount": len(entries),
         "totalBytes": sum(path.stat().st_size for _, path in copies),
-        "buildId": build_id(entries),
+        "buildId": build_id(entries, provenance(state)),
         "included": sorted(destination for destination, _ in copies),
         "artifactRoot": str(Path(args.artifact_root).resolve()) if args.artifact_root else None,
         "excluded": excluded,
@@ -252,7 +278,7 @@ def publish(args):
         # Hash what was written, not what was read: a short or changed read must not pass.
         entries = [(destination, sha256_file(staging / destination))
                    for destination, _ in copies]
-        identifier = build_id(entries)
+        identifier = build_id(entries, provenance(state))
         final = artifact_root / ("%s-%s" % (ARTIFACT, identifier))
         if final.exists():
             raise Failure("artifact-exists: %s" % final)
@@ -336,10 +362,17 @@ def inspect_artifact(root, expected_install_dir=None):
     if recorded != expected_install:
         raise Failure("install-dir-mismatch: identity says %s" % recorded)
     expected = read_manifest(root)
-    identifier = build_id(expected)
+    identifier = build_id(expected, provenance(identity.get("source") or {},
+                                               identity.get("copyRuleVersion")))
+    identity_kind = "provenance"
     if identity.get("buildId") != identifier:
-        raise Failure("build-id-mismatch: identity says %r, content is %s"
-                      % (identity.get("buildId"), identifier))
+        legacy = legacy_build_id(expected)
+        if identity.get("copyRuleVersion", 1) < PROVENANCE_RULE_VERSION \
+                and identity.get("buildId") == legacy:
+            identifier, identity_kind = legacy, "legacy-content-only"
+        else:
+            raise Failure("build-id-mismatch: identity says %r, content is %s"
+                          % (identity.get("buildId"), identifier))
     if expected_install.name != "%s-%s" % (ARTIFACT, identifier):
         raise Failure("artifact-name-mismatch: %s is not %s-%s"
                       % (expected_install.name, ARTIFACT, identifier))
@@ -364,7 +397,8 @@ def inspect_artifact(root, expected_install_dir=None):
         raise Failure("manifest-mismatch: missing=%s extra=%s changed=%s"
                       % (missing[:5], extra[:5], changed[:5]))
     return {"mode": "verify", "artifact": str(root), "buildId": identity.get("buildId"),
-            "fileCount": len(actual), "source": identity.get("source")}
+            "identityKind": identity_kind, "fileCount": len(actual),
+            "source": identity.get("source")}
 
 
 def verify(args):

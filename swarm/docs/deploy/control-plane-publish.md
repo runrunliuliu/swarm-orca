@@ -102,15 +102,21 @@
 
 规则：
 
-- `buildId` 由**暂存区实际写入的字节**派生并进入目录名，因此“路径即身份”不是口号：`verify` 会从
-  清单复算 `buildId`，并要求它既等于身份字段、又等于目录名。
+- `buildId` 由**暂存区实际写入的字节 + 来源摘要**派生并进入目录名，因此“路径即身份”不是口号：
+  `verify` 会从清单与 `source` 复算 `buildId`，并要求它既等于身份字段、又等于目录名。
+- 来源摘要参与身份：`orcaSrcCommit`、`swarmOrcaCommit`、`dirty`、`unpinned`、`copyRuleVersion`。
+  没有这一条，`dirty: true` 就能被改写成 `false` 而 `verify` 照旧通过；而“内容相同、来源从脏变净”
+  会与旧产物同名，导致无法重发。
 - 身份文件本身不在清单覆盖内（否则清单会自引用），所以它可复算的字段全部被复算：`buildId`、
-  目录名、`included` 与清单路径集合、`installDir` 与实际路径。`deployedAt`/`host`/`source` 这些
-  不可复算的字段是发布声明，不是可验证事实。
+  目录名、`included` 与清单路径集合、`installDir` 与实际路径，以及作为 `buildId` 输入的来源摘要。
+  `deployedAt`/`host`/`deployUser`/`platform` 不参与身份，它们是发布声明，不是可验证事实；
+  `source.sourceRoot`、`source.*Branch`、`source.dirtyPaths` 同样只是记录。
 - `dirty: true` 时发布必须显式 `--allow-dirty`，产物仍然产出，但 readiness 在 `--require-pin` 下
   以 `control-plane-dirty` 拒绝把它当作带 pin 的启动来源；`unpinned` 同理。
-- `copyRuleVersion` 记录白名单版本：`2` 起把 `orca-cli`/`orchestration` 两个发现桩放进 `code/skills/`，
-  使四个技能都能只靠产物解析；`1` 的旧产物缺这两项，只能服务两个业务技能，`verify` 本身不受影响。
+- `copyRuleVersion` 记录白名单与身份规则的版本：`2` 起把 `orca-cli`/`orchestration` 两个发现桩放进
+  `code/skills/`；`3` 起来源摘要参与 `buildId`。`1`/`2` 的旧产物按**内容寻址**核对，`verify` 通过但
+  报告 `identityKind: legacy-content-only`，readiness 在 `--require-pin` 下以
+  `control-plane-legacy-identity` 拒绝把它们当作 pin 来源。
 - 不持久化任何一次性的回执字段；`MANIFEST.sha256` 是文件级事实，身份文件是发布级事实。
 
 ### 3.2 `MANIFEST.sha256`
@@ -171,7 +177,7 @@
 
 | 状态 | 含义 | 消费者行为 |
 | --- | --- | --- |
-| `ok` | 指针可解析、身份可读、`installDir` 与真实路径一致、清单可复算 | 使用该产物 |
+| `ok` | 指针可解析、身份可读、`installDir` 与真实路径一致、清单与来源摘要可复算 | 使用该产物；`identityKind: legacy-content-only` 时仅作试验 |
 | `missing` | 指针不存在（自包含部署） | 报告“本机未声明控制平面”，要求显式路径 |
 | `dangling` | 链接在、目标不在 | fail-closed，不回落 |
 | `invalid` | 非符号链接、身份缺失/非法、`installDir` 不一致、清单不符 | fail-closed，不回落 |
@@ -193,7 +199,8 @@
 
 fail-closed 条件（任一命中则不输出可执行计划）：指针 `dangling`/`invalid`、
 身份与清单不符、`dev-checkout` 且请求带 pin、`ok` 但发布源 `dirty`/`unpinned` 且请求带 pin、
-必需配置缺失、`--expect-config` 给出的哈希不符、`code/` 是符号链接、必需技能缺失或名称不符。
+必需配置缺失、`--expect-config` 给出的哈希不符、`code/` 是符号链接、必需技能缺失或名称不符，
+以及 `--require-pin` 下产物的 `identityKind` 不是 `provenance`（`control-plane-legacy-identity`）。
 
 readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态；它不是启动授权。
 
