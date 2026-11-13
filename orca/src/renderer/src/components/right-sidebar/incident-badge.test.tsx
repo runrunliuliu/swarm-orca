@@ -88,6 +88,7 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(counts())).toEqual({
       count: 3,
       tone: 'alert',
+      localGap: false,
       remoteGap: false,
       label: '3 untriaged'
     })
@@ -105,6 +106,7 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(remote)).toEqual({
       count: 3,
       tone: 'alert',
+      localGap: false,
       remoteGap: true,
       label: '3 untriaged (remote view incomplete)'
     })
@@ -120,6 +122,7 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(unconfigured)).toEqual({
       count: 3,
       tone: 'alert',
+      localGap: false,
       remoteGap: false,
       label: '3 untriaged'
     })
@@ -137,6 +140,7 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(both)).toEqual({
       count: 3,
       tone: 'caution',
+      localGap: true,
       remoteGap: true,
       label: '3 untriaged (count may be incomplete; remote view incomplete)'
     })
@@ -149,18 +153,24 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(gap)).toEqual({
       count: 3,
       tone: 'caution',
+      localGap: true,
       remoteGap: false,
       label: '3 untriaged (count may be incomplete)'
     })
   })
 
-  it('reports a past capacity stop without escalating to amber', () => {
-    // History, not a current fault: the tone stays red, but the label still admits the lower bound.
+  it('escalates a capacity latch to amber: a store that refused a write may already be missing rows', () => {
+    // §11.5 keeps `capacity_latch_set` and `currently_limited` as two fields about one hole at two
+    // times. Both make the *local* count a lower bound, so both are amber; only the wording differs —
+    // a latch is a past stop, not "refusing writes right now".
     const latched = counts({ coverage: { ...counts().coverage, capacityLatchSet: true } })
-    expect(incidentBadgeFromCounts(latched)?.tone).toBe('alert')
-    expect(incidentBadgeFromCounts(latched)?.label).toBe(
-      '3 untriaged (a past capacity stop may have dropped incidents)'
-    )
+    expect(incidentBadgeFromCounts(latched)).toEqual({
+      count: 3,
+      tone: 'caution',
+      localGap: true,
+      remoteGap: false,
+      label: '3 untriaged (a past capacity stop may have dropped incidents)'
+    })
   })
 
   it('caps the rendered number so a 50k-row store cannot widen the strip', () => {
@@ -244,6 +254,26 @@ describe('ActivityBarButton badge', () => {
     // The qualifier travels with the number, so the badge cannot be read as a complete count.
     expect(gapped.querySelector('button')?.getAttribute('aria-label')).toBe(
       'Incidents — 3 untriaged (count may be incomplete)'
+    )
+  })
+
+  it('renders an amber count for a capacity latch, not only for a live refusal', async () => {
+    const latched = await renderNode(
+      <ActivityBarButton
+        item={item(
+          incidentBadgeFromCounts(
+            counts({ coverage: { ...counts().coverage, capacityLatchSet: true } })
+          )
+        )}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    const badge = latched.querySelector('[aria-hidden="true"]')
+    expect(badge?.className).toContain('bg-status-warning')
+    expect(latched.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Incidents — 3 untriaged (a past capacity stop may have dropped incidents)'
     )
   })
 

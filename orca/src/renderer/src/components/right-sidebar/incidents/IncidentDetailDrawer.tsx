@@ -12,6 +12,7 @@
 
 import { ExternalLink, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { NativeChatCopyButton } from '@/components/native-chat/NativeChatCopyButton'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { translate } from '@/i18n/i18n'
 import { formatUiRelativeTime } from '@/i18n/relative-time-format'
@@ -98,17 +99,26 @@ function EvidencePointers({
                     type="button"
                     size="icon-xs"
                     variant="ghost"
+                    // Display path, not the real one: aria-label and title are read aloud and
+                    // screenshotted (see incidentEvidenceDisplayPath). The real path only reaches
+                    // `onOpenEvidence`, which hands it to the shell.
                     aria-label={translate('auto.components.right.sidebar.incidents.IncidentDetailDrawer.fcbc1582ad',
                       'Open {{path}}',
-                      { path: row.path }
+                      { path: row.displayPath }
                     )}
-                    title={row.path}
+                    title={row.displayPath}
                     onClick={() => onOpenEvidence(pointer)}
                   >
                     <ExternalLink size={12} />
                   </Button>
+                  <NativeChatCopyButton
+                    text={row.path}
+                    label={translate('auto.components.right.sidebar.incidents.IncidentDetailDrawer.d0f2b19ecc',
+                      'Copy evidence path'
+                    )}
+                  />
                 </div>
-                <div className="break-all font-mono text-muted-foreground">{row.path}</div>
+                <div className="break-all font-mono text-muted-foreground">{row.displayPath}</div>
                 <div className="flex flex-wrap gap-x-2 text-muted-foreground">
                   <span>
                     {translate('auto.components.right.sidebar.incidents.IncidentDetailDrawer.ca8f4dcd35',

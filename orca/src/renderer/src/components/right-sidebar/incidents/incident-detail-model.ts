@@ -70,9 +70,32 @@ function safeJson(value: unknown): string {
   }
 }
 
+/**
+ * A privacy-friendly label for an evidence path: the basename plus one parent, with a leading ellipsis
+ * when more of the path was dropped.
+ *
+ * Why not the real path: evidence paths are absolute and often carry a user name, a project name or a
+ * host-specific mount (`/home/<person>/...`, `/mnt/<customer>/...`). The incident record exists to be
+ * read and screenshotted; the path is only needed to *open* the file, and the drawer keeps the real
+ * value for that one call (`openPath`) plus an explicit copy action. Nothing in the visible text,
+ * `title` or `aria-label` may contain it — the redactor does not cover paths, and §6.3 already says
+ * evidence is a pointer, not a document.
+ */
+export function incidentEvidenceDisplayPath(path: string): string {
+  const segments = path.split(/[\\/]+/).filter((segment) => segment.length > 0)
+  if (segments.length === 0) {
+    return path === '' ? '—' : path
+  }
+  const tail = segments.slice(-2).join('/')
+  return segments.length > 2 ? `…/${tail}` : tail
+}
+
 export type IncidentEvidenceRow = {
   kind: IncidentEvidencePointerDto['kind']
+  /** The real path. Only for opening/copying — never for display. */
   path: string
+  /** What the UI may show: basename plus one parent. */
+  displayPath: string
   /** Shortened for the table; the full digest stays in `sha256` for the title/copy affordance. */
   sha256Short: string | null
   sha256: string | null
@@ -95,6 +118,7 @@ export function incidentEvidenceRows(evidence: IncidentEvidenceDto | null | unde
   return evidence.pointers.map((pointer) => ({
     kind: pointer.kind,
     path: pointer.path,
+    displayPath: incidentEvidenceDisplayPath(pointer.path),
     sha256Short: pointer.sha256 === undefined ? null : pointer.sha256.slice(0, 12),
     sha256: pointer.sha256 ?? null,
     bytes: pointer.bytes ?? null,

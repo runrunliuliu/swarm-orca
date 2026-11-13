@@ -29,6 +29,7 @@ import { IncidentList } from './IncidentList'
 import {
   DEFAULT_INCIDENT_FILTERS,
   applyIncidentViewFilters,
+  incidentEmptyStateKind,
   incidentListRequest,
   incidentWorktreeOptions,
   type IncidentFilters
@@ -55,6 +56,31 @@ const VIEW_LABEL: Record<IncidentPanelView, { key: string; fallback: string }> =
   toolErrors: {
     key: 'auto.components.right.sidebar.incidents.IncidentPanel.viewToolErrors',
     fallback: 'Tool errors'
+  }
+}
+
+function emptyStateMessage(
+  kind: ReturnType<typeof incidentEmptyStateKind>,
+  counts: { shown: number; total: number }
+): string {
+  switch (kind) {
+    case 'view_filtered':
+      return translate('auto.components.right.sidebar.incidents.IncidentPanel.a49134b8d7',
+        'None of the {{shown}} loaded row(s) match the worktree/time filter. The store reports {{total}} matching incident(s) for this status/class, and rows beyond the loaded page were not examined.',
+        counts
+      )
+    case 'lower_bound':
+      return translate('auto.components.right.sidebar.incidents.IncidentPanel.e1211cdfac',
+        'Nothing matches in the rows loaded so far — and the coverage notes above say the list may be incomplete. This is not "nothing happened".'
+      )
+    case 'untriaged':
+      return translate('auto.components.right.sidebar.incidents.IncidentPanel.98da243f4d',
+        'No untriaged incidents. Confirmed, watched and archived rows are behind the Status filter.'
+      )
+    case 'filtered':
+      return translate('auto.components.right.sidebar.incidents.IncidentPanel.9836d3085b',
+        'No incident matches these filters.'
+      )
   }
 }
 
@@ -105,8 +131,11 @@ export default function IncidentPanel(): React.JSX.Element {
     () => (snapshot === null ? null : incidentRemoteCoverageLine(snapshot.coverage)),
     [snapshot]
   )
-  const listIsLowerBound =
-    snapshot !== null && incidentCoverageIsCurrentGap(localGaps) && items.length === 0
+  // Why surfaced separately: these two filters run over the loaded page, not the store. An empty
+  // result from them is not a statement about the store, and the panel must say which it is.
+  const viewFilterActive = filters.worktree !== 'all' || filters.window !== 'all'
+  const listIsLowerBound = snapshot !== null && incidentCoverageIsCurrentGap(localGaps)
+  const emptyStateKind = incidentEmptyStateKind({ filters, localGap: listIsLowerBound })
 
   const openEvidence = useCallback((pointer: IncidentEvidencePointerDto) => {
     // The existing file-open capability, deliberately not an editor jump: a pointer carries a byte
@@ -190,19 +219,10 @@ export default function IncidentPanel(): React.JSX.Element {
         selectedId={selectedId}
         now={now}
         onOpen={(item) => setSelectedId(item.id)}
-        empty={
-          listIsLowerBound
-            ? translate('auto.components.right.sidebar.incidents.IncidentPanel.e1211cdfac',
-                'Nothing matches in the rows loaded so far — and the coverage notes above say the list may be incomplete. This is not "nothing happened".'
-              )
-            : filters.status === 'untriaged' && filters.class === 'all'
-              ? translate('auto.components.right.sidebar.incidents.IncidentPanel.98da243f4d',
-                  'No untriaged incidents. Confirmed, watched and archived rows are behind the Status filter.'
-                )
-              : translate('auto.components.right.sidebar.incidents.IncidentPanel.9836d3085b',
-                  'No incident matches these filters.'
-                )
-        }
+        empty={emptyStateMessage(emptyStateKind, {
+          shown: snapshot.incidents.length,
+          total: snapshot.total
+        })}
       />
     )
   }
@@ -258,6 +278,14 @@ export default function IncidentPanel(): React.JSX.Element {
           onChange={setFilters}
           onClear={() => setFilters(DEFAULT_INCIDENT_FILTERS)}
         />
+      )}
+      {view === 'list' && snapshot !== null && viewFilterActive && (
+        <p className="shrink-0 border-b border-border px-3 py-1 text-[10px] text-muted-foreground">
+          {translate('auto.components.right.sidebar.incidents.IncidentPanel.de8cfc79a1',
+            'Worktree and time filters apply to the {{shown}} loaded row(s) only; the store query is not filtered by them ({{total}} match this status/class).',
+            { shown: snapshot.incidents.length, total: snapshot.total }
+          )}
+        </p>
       )}
 
       {renderBody()}

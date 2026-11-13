@@ -96,23 +96,34 @@ describe('IncidentDetailDrawer', () => {
     expect(withoutBoundaries.textContent).toContain('The absence itself is a gap')
   })
 
-  it('shows pointer metadata only: path, offsets, sha256 prefix, byte size', async () => {
+  it('shows pointer metadata only, and never the real absolute path', async () => {
     const onOpenEvidence = vi.fn()
     const container = await renderDrawer(detailFixture(), { onOpenEvidence })
     const text = container.textContent ?? ''
-    expect(text).toContain('/tmp/does-not-exist/transcript.jsonl')
+    // Privacy: basename + one parent, with the rest elided. The absolute path can carry a user name,
+    // a project name or a host mount, and this drawer is meant to be read and screenshotted.
+    expect(text).toContain('…/does-not-exist/transcript.jsonl')
+    expect(text).not.toContain('/tmp/does-not-exist/transcript.jsonl')
+    expect(text).not.toContain('/tmp')
     expect(text).toContain('offsets: 120..480')
     expect(text).toContain('sha256: aaaaaaaaaaaa')
     expect(text).toContain('bytes: 4096')
     // The rule itself is stated in the drawer, so a reader knows why there is no body to scroll.
     expect(text).toContain('No transcript body is loaded or rendered here')
 
+    // Titles and aria-labels are display text too: neither may leak the real path.
+    for (const node of container.querySelectorAll('[title]')) {
+      expect(node.getAttribute('title')).not.toContain('/tmp')
+    }
+
     const open = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
       button.getAttribute('aria-label')?.startsWith('Open ')
     )
+    expect(open?.getAttribute('aria-label')).toBe('Open …/does-not-exist/transcript.jsonl')
     await act(async () => {
       open?.click()
     })
+    // The real path still reaches the one call that needs it.
     expect(onOpenEvidence).toHaveBeenCalledWith(
       expect.objectContaining({ path: '/tmp/does-not-exist/transcript.jsonl', startOffset: 120 })
     )

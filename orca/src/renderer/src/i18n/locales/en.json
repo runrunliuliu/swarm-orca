@@ -13788,7 +13788,8 @@
               "d94f948519": "Pointers only: path, byte offsets and sha256. No transcript body is loaded or rendered here, and offsets are not line numbers.",
               "e9af8a88b9": "Status",
               "ec79155587": "Close incident details",
-              "fcbc1582ad": "Open {{path}}"
+              "fcbc1582ad": "Open {{path}}",
+              "d0f2b19ecc": "Copy evidence path"
             },
             "IncidentFilterBar": {
               "491025e1b3": "Status",
@@ -13844,7 +13845,9 @@
               "b9125ea2ff": "Reload incidents",
               "da40792d38": "Reading the stall sampler's last pass…",
               "e1211cdfac": "Nothing matches in the rows loaded so far — and the coverage notes above say the list may be incomplete. This is not \"nothing happened\".",
-              "e82403c02d": "Reading the tool-error windows…"
+              "e82403c02d": "Reading the tool-error windows…",
+              "a49134b8d7": "None of the {{shown}} loaded row(s) match the worktree/time filter. The store reports {{total}} matching incident(s) for this status/class, and rows beyond the loaded page were not examined.",
+              "de8cfc79a1": "Worktree and time filters apply to the {{shown}} loaded row(s) only; the store query is not filtered by them ({{total}} match this status/class)."
             },
             "IncidentTriageActions": {
               "003711947c": "Reason",

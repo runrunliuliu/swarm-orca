@@ -7,6 +7,7 @@ import {
   DEFAULT_INCIDENT_FILTERS,
   INCIDENT_LIST_LOAD_LIMIT,
   applyIncidentViewFilters,
+  incidentEmptyStateKind,
   incidentFiltersActive,
   incidentListRequest,
   incidentWorktreeOptions
@@ -76,6 +77,41 @@ describe('incidentWorktreeOptions', () => {
       { worktreeId: 'wt-2', count: 2 },
       { worktreeId: 'wt-1', count: 1 }
     ])
+  })
+})
+
+describe('incidentEmptyStateKind', () => {
+  it('says "loaded page only" whenever a view filter is active, even over a complete local store', () => {
+    expect(
+      incidentEmptyStateKind({
+        filters: { ...DEFAULT_INCIDENT_FILTERS, worktree: 'wt-1' },
+        localGap: false
+      })
+    ).toBe('view_filtered')
+    expect(
+      incidentEmptyStateKind({
+        filters: { ...DEFAULT_INCIDENT_FILTERS, window: '24h' },
+        localGap: false
+      })
+    ).toBe('view_filtered')
+  })
+
+  it('prefers the coverage lower-bound wording when a local hole is the reason', () => {
+    expect(
+      incidentEmptyStateKind({ filters: DEFAULT_INCIDENT_FILTERS, localGap: true })
+    ).toBe('lower_bound')
+  })
+
+  it('distinguishes the default untriaged view from a narrowed status/class query', () => {
+    expect(
+      incidentEmptyStateKind({ filters: DEFAULT_INCIDENT_FILTERS, localGap: false })
+    ).toBe('untriaged')
+    expect(
+      incidentEmptyStateKind({
+        filters: { ...DEFAULT_INCIDENT_FILTERS, status: 'all', class: 'crash' },
+        localGap: false
+      })
+    ).toBe('filtered')
   })
 })
 

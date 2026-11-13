@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   incidentDecisionOutcomeView,
   incidentDecisionTimeline,
+  incidentEvidenceDisplayPath,
   incidentEvidenceRows,
   incidentExitCauseView
 } from './incident-detail-model'
@@ -64,6 +65,7 @@ describe('incidentEvidenceRows', () => {
       {
         kind: 'transcript',
         path: '/tmp/transcript.jsonl',
+        displayPath: 'tmp/transcript.jsonl',
         sha256Short: 'b'.repeat(12),
         sha256: 'b'.repeat(64),
         bytes: 4096,
@@ -71,6 +73,19 @@ describe('incidentEvidenceRows', () => {
         truncated: true
       }
     ])
+  })
+
+  it('derives a display path that keeps the basename and one parent', () => {
+    // The real path is absolute and can carry a user name or a host mount; display text must not.
+    expect(incidentEvidenceDisplayPath('/home/alice/project/transcripts/run.jsonl')).toBe(
+      '…/transcripts/run.jsonl'
+    )
+    expect(incidentEvidenceDisplayPath('/tmp/file.jsonl')).toBe('tmp/file.jsonl')
+    expect(incidentEvidenceDisplayPath('file.jsonl')).toBe('file.jsonl')
+    expect(incidentEvidenceDisplayPath('C:\\Users\\alice\\log.txt')).toBe(
+      '…/alice/log.txt'
+    )
+    expect(incidentEvidenceDisplayPath('')).toBe('—')
   })
 
   it('does not fabricate an offset range when the pointer has none', () => {

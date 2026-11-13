@@ -108,6 +108,35 @@ export function incidentWorktreeOptions(
     .sort((left, right) => right.count - left.count || left.worktreeId.localeCompare(right.worktreeId))
 }
 
+/**
+ * Which empty-state sentence applies. A pure function because the distinction is the point: a
+ * worktree/time filter runs over the loaded page only, so "nothing matches" from it is *not* a
+ * statement about the store, and the panel must not render it as one (M7-B review B3).
+ */
+export type IncidentEmptyStateKind =
+  /** Worktree/time filter active: say "loaded page only", never "no incidents". */
+  | 'view_filtered'
+  /** A local coverage hole already makes the list a lower bound. */
+  | 'lower_bound'
+  /** The default untriaged view, with rows elsewhere behind the status filter. */
+  | 'untriaged'
+  | 'filtered'
+
+export function incidentEmptyStateKind(input: {
+  filters: IncidentFilters
+  localGap: boolean
+}): IncidentEmptyStateKind {
+  if (input.filters.worktree !== 'all' || input.filters.window !== 'all') {
+    return 'view_filtered'
+  }
+  if (input.localGap) {
+    return 'lower_bound'
+  }
+  return input.filters.status === 'untriaged' && input.filters.class === 'all'
+    ? 'untriaged'
+    : 'filtered'
+}
+
 /** True when anything other than the default view is in effect (for the "clear filters" affordance). */
 export function incidentFiltersActive(filters: IncidentFilters): boolean {
   return (

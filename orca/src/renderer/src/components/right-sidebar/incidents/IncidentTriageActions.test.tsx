@@ -136,6 +136,23 @@ describe('IncidentTriageActions', () => {
     expect(container.querySelectorAll('button').length).toBeGreaterThanOrEqual(5)
   })
 
+  it('marks the reason required for every action and the actor only for confirmed', async () => {
+    const container = await renderActions(vi.fn())
+    await chooseTarget(container, 'Watch')
+    const reason = container.querySelector('textarea')
+    const actor = container.querySelector('input')
+    expect(reason?.required).toBe(true)
+    expect(reason?.getAttribute('aria-required')).toBe('true')
+    // Not required for a non-confirmed action, and never prefilled.
+    expect(actor?.required).toBe(false)
+    expect(actor?.getAttribute('aria-required')).toBe('false')
+    expect(actor?.value).toBe('')
+
+    await chooseTarget(container, 'Confirmed')
+    expect(container.querySelector('input')?.required).toBe(true)
+    expect(container.querySelector('input')?.getAttribute('aria-required')).toBe('true')
+  })
+
   it('passes a typed actor through verbatim (self-reported, unverified)', async () => {
     const onDecide = vi.fn(async () => ({ outcome: 'appended' }))
     const container = await renderActions(onDecide)

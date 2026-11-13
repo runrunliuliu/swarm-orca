@@ -7,10 +7,11 @@
 //     and the one surfaced to the user would be the wrong one as soon as the store changes;
 //   * `actor` is never prefilled. §19.1 makes it self-reported and unverified, and a pre-filled
 //     "operator" would make every `confirmed` row look attributed without anyone typing a name. The
-//     field is marked required-looking only through copy, not by blocking submit — the store is the
-//     authority on whether an actor is required;
-//   * `reason` is equally the host's rule (`reason_required`), so an empty reason is submitted and
-//     answered rather than silently disabled.
+//     field carries `required`/`aria-required` only while `confirmed` is selected, so the form states
+//     the rule the store enforces; the store is still the authority (and still answers
+//     `actor_required` if the form is bypassed);
+//   * `reason` is equally the host's rule (`reason_required`): it is marked required for every action
+//     because that is what the store requires, and no transition rule is encoded here.
 //
 // Confirmation is a distinct, explicit step: the reader picks a target, then submits. There is no
 // one-click `confirmed` and no batch action.
@@ -190,6 +191,11 @@ export function IncidentTriageActions({
               value={reason}
               onChange={(event) => setReason(event.target.value)}
               rows={2}
+              // The store requires a reason for *every* decision; `required`/`aria-required` only
+              // surface that rule to the form. The main process stays the authority (it can still
+              // return `reason_required`), and no transition rule is copied here.
+              required
+              aria-required={true}
               aria-label={translate('auto.components.right.sidebar.incidents.IncidentTriageActions.003711947c',
                 'Reason'
               )}
@@ -205,6 +211,10 @@ export function IncidentTriageActions({
             <input
               value={actor}
               onChange={(event) => setActor(event.target.value)}
+              // Only `confirmed` requires an actor (§19.1). Marked, not enforced as a second policy:
+              // the store still answers `actor_required` if this form is bypassed.
+              required={target === 'confirmed'}
+              aria-required={target === 'confirmed'}
               // Never prefilled: §19.1 makes the actor an unverified claim, and a default name would
               // attribute decisions to someone who never typed anything.
               placeholder={translate('auto.components.right.sidebar.incidents.IncidentTriageActions.d5b240a0f3',
