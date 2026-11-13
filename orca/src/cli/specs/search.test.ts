@@ -52,7 +52,13 @@ describe('orca search command spec', () => {
     // that has to be visible here rather than an incidental side effect of adding a spec.
     const intentionalRepeatable: Record<string, string[] | undefined> = {
       'orchestration worker-start': ['sparse-dir'],
-      'worktree create': ['sparse-task-dir', 'sparse-task-required']
+      'worktree create': ['sparse-task-dir', 'sparse-task-required'],
+      // Why: `incident report` accepts up to eight evidence pointers (issue-sedimentation §7.5);
+      // repeating the flag is the decision that cap makes visible, not a side effect of the spec.
+      'incident report': ['evidence'],
+      // Why: `acceptance declare` runs argv with no shell (issue-sedimentation §8), so the program
+      // and every argument arrive as repeated --command values.
+      'incident acceptance declare': ['command']
     }
     for (const spec of COMMAND_SPECS) {
       if (spec === searchSpec) {
