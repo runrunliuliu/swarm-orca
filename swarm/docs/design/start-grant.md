@@ -531,7 +531,11 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
   `TARGETED OK`（44 tests）。
 - **未做**：撤销对已在跑 worker 的处理（§8 决策 2 未定，当前 revoke 只拦新 create/spawn）；自签检查
   （§8 决策 5 未定）；C7 的"两个进程同时争 `BEGIN IMMEDIATE`"（现在测的是同事务语义 + 双连接）；
-  M5 的 `coordinator_launch.py start-grant` 子命令、`README`/`reliability` 收口、旧路径标 deprecated。
+  **M5 已完成的部分**：`coordinator_launch.py start-grant-{mint,hand,state}` 三个兄弟动词（各自独立
+  argparse，`state` 只读、另两个写）；`swarm/README.md` 入口表新增"启动凭据"一行并明写 M5 未收口；
+  `reliability.md` 新增 §9.1 指向本文 §4.1（理由：矩阵必须和它断言的字段住在同一份文件里）；
+  `coordinator-strict-start.md` 加部分弃用横幅——**偏离计划**：§6 原计划删 §3–§7，但那几节描述的代码
+  今天仍在运行，删文档等于删掉唯一说明，所以改成"保留 + 顶部说明新任务不要照它搭"。
 
 ### M2 · spawn 计数 + 仓库范围（Orca，2–3 天）— **价值拐点**
 

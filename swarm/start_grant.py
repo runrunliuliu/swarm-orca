@@ -49,6 +49,22 @@ class Refused(Exception):
         self.reason = reason
 
 
+class Unverifiable(Exception):
+    """The runtime answered, but not with something that can be read as an answer."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class Transport(Exception):
+    """The call itself did not complete: the CLI is missing or exited without an answer."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 def objective_hash(text):
     """The objective hash the runtime compares against.
 
@@ -222,16 +238,18 @@ def _answer(code, stdout):
     """The runtime's `result` body, or a refusal carrying the typed code it printed."""
     payload = _parse(stdout)
     if code is None:
-        raise Refused("cli_unavailable")
+        raise Transport("cli_unavailable")
     if not isinstance(payload, dict):
-        raise Refused("answer_unreadable")
+        # Exit 0 with unreadable output is "answered, unreadable"; a non-zero exit with nothing to read
+        # is the call not completing. They are different answers and different exit statuses.
+        raise Unverifiable("answer_unreadable") if code == 0 else Transport(f"cli_exit_{code}")
     if payload.get("ok") is False:
         error = payload.get("error")
         reason = error.get("code") if isinstance(error, dict) else None
         raise Refused(reason if isinstance(reason, str) and reason else "answer_refused")
     body = payload.get("result")
     if not isinstance(body, dict):
-        raise Refused("answer_shape")
+        raise Unverifiable("answer_shape")
     return body
 
 
@@ -269,13 +287,18 @@ def emit(value, as_json):
     print(json.dumps(value, ensure_ascii=False, sort_keys=True))
 
 
-def main(argv=None):
+def cli_main(argv=None):
     parser = argparse.ArgumentParser(description="Start grants: mint, hand over, read the state.")
-    parser.add_argument("--cli", default="orca", help="executable to call (default: orca)")
-    parser.add_argument("--json", action="store_true", help="print one JSON line")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    mint_parser = commands.add_parser("mint", help="build, publish and submit one grant record")
+    def shared(subparser):
+        # On each subcommand, not the parent: `orca coordinator_launch.py start-grant-state --cli …`
+        # has to work, and a parent-only option may not follow the verb.
+        subparser.add_argument("--cli", default="orca", help="executable to call (default: orca)")
+        subparser.add_argument("--json", action="store_true", help="print one JSON line")
+        return subparser
+
+    mint_parser = shared(commands.add_parser("mint", help="build, publish and submit one grant record"))
     mint_parser.add_argument("--objective", required=True)
     mint_parser.add_argument("--max-workers", required=True, type=int)
     mint_parser.add_argument("--deadline", required=True)
@@ -287,11 +310,11 @@ def main(argv=None):
     mint_parser.add_argument("--from", dest="from_handle", required=True)
     mint_parser.add_argument("--record-dir", required=True)
 
-    hand_parser = commands.add_parser("hand", help="deliver one grant to a Coordinator")
+    hand_parser = shared(commands.add_parser("hand", help="deliver one grant to a Coordinator"))
     hand_parser.add_argument("--record", required=True)
     hand_parser.add_argument("--to", dest="to_handle", required=True)
 
-    state_parser = commands.add_parser("state", help="read the grant back")
+    state_parser = shared(commands.add_parser("state", help="read the grant back"))
     state_parser.add_argument("--grant", required=True)
     state_parser.add_argument("--record")
 
@@ -320,8 +343,14 @@ def main(argv=None):
     except Refused as refusal:
         print(f"refused: {refusal.reason}", file=sys.stderr)
         return REFUSED
+    except Unverifiable as unknown:
+        print(f"unverifiable: {unknown.reason}", file=sys.stderr)
+        return UNVERIFIABLE
+    except Transport as failure:
+        print(f"transport: {failure.reason}", file=sys.stderr)
+        return USAGE_OR_TRANSPORT
     return MINTED
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli_main())

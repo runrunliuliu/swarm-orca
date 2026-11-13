@@ -1,5 +1,12 @@
 # strict 启动握手：先就绪，再发布，再连续校验/创建
 
+> **已弃用（2026-11-13，部分）**：`create` 之后的 S0–S5 握手由
+> [start grant](docs/design/start-grant.md) 取代，`start grant` 的 P1–P3 已不再单独实施。
+> **保留**：本文的 `strict-caller-check` 与 create 段（start grant 的 create 校验建在同一个活身份读取上），
+> 以及 S5 之前的既有行为描述——那段代码今天仍在运行，删掉文档等于删掉唯一说明。
+> **新任务不要照本文搭 S0–S5**：用 `orca orchestration start-grant-mint` + `run-create --grant`。
+
+
 这条本地工作流修复终端流淘汰、失败回执被覆盖、60 秒窗口内模型准备命令及 CLI
 caller 回执封套不匹配的问题。新契约使用 schema v2 / 1800 秒上下文 / 180 秒 gate；
 旧契约、回执和 pin 保留原时限，不自动迁移。契约 v2 不等于原生策略 strict-v2；

@@ -359,6 +359,27 @@ L-flow、L-collaboration、L-events.busy/worker-idle/external-idle、L-safety.wo
 pin 一致才能作为续验输入。缺少匹配原件时报告证据缺口，不用本文或其他 Run 的标准替代。
 上述映射不恢复一份旧规范，也不自动将旧契约升级为 v2。
 
+## 9.1 启动凭据（start grant）的验收位置
+
+start grant 的断言不写在这里，写在设计文档自己那一节：
+[start grant §4.1](../../docs/design/start-grant.md)。原因很简单——矩阵必须和它断言的字段、拒绝码、
+计数口径住在同一份文件里，否则任何一处改动都会让两份文档给出两个答案。
+
+已实现部分的验证口径（M1–M4，全部**离线**，不是 live 验收）：
+
+| 层 | 断言所在 | 已执行 |
+| --- | --- | --- |
+| 存储与记录 | `orca/src/main/runtime/orchestration/{start-grant-policy,db/schema/start-grant-schema}.test.ts` | 20 例 |
+| create 绑定 | `orca/…/rpc/methods/orchestration/runs/start-grant-create.test.ts` | 11 例（含双连接幂等/冲突） |
+| mint/show/revoke | 同目录 `start-grant-mint.test.ts` | 10 例 |
+| spawn 计数与范围 | `orca/src/main/runtime/orchestration/start-grant-spawn.test.ts` | 12 例（两处插入点、含收养路径） |
+| Python mint/hand/state | `swarm/tests/core/test_start_grant.py` | 14 例 |
+
+**未验收**：任何 live Run、任何真实 provider、`START_GRANT_REQUIRED` 打开后的迁移行为。上面每一行都是
+离线信号；"第 9 个 Worker 被拒且没有终端进程"这类断言在离线层只能证明"没有请求创建终端"，真实进程计数
+必须另做 live 观察。本文其它章节的 strict bootstrap 观测点仍然有效，但它们描述的实现路径已被
+[start grant](../../docs/design/start-grant.md) 取代（协议正文的弃用横幅写明了范围）。
+
 <a id="bootstrap-regressions"></a>
 
 ## 附录：strict bootstrap 定向回归观测点

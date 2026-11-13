@@ -231,6 +231,11 @@ def main(argv=None):
     if argv[:1] == ["strict-bootstrap-handoff-accept"]:
         from bootstrap_handoff import cli_main
         return cli_main(argv[1:])
+    if argv[:1] in (["start-grant-mint"], ["start-grant-hand"], ["start-grant-state"]):
+        # Three sibling verbs, not one `start-grant <action>`: each has its own argument set and its
+        # own answer, and `state` is read-only while the other two write.
+        from start_grant import cli_main as start_grant_main
+        return start_grant_main([argv[0].removeprefix("start-grant-"), *argv[1:]])
     if argv[:1] == ["worker-plan"]:
         from coordinator_worker_plan import cli_main
         return cli_main(argv[1:])

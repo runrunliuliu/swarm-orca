@@ -213,7 +213,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `sources` | `operator_monitor_deploy.py:26-28` | `def sources` / `class sources` |
 | `stage` | `blocking_io.py:75-91` | `def stage` / `class stage` |
 | `stage` | `observation_budget.py:90-110` | `def stage` / `class stage` |
-| `state` | `start_grant.py:173-202` | `def state` / `class state` |
+| `state` | `start_grant.py:189-218` | `def state` / `class state` |
 | `stated` | `bootstrap_control.py:30-38` | `def stated` / `class stated` |
 | `status` | `coordinator_tui_scheduler.py:33-36` | `def status` / `class status` |
 | `status` | `operator_startup.py:282-312` | `def status` / `class status` |

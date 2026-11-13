@@ -167,7 +167,7 @@ class StartGrantTests(unittest.TestCase):
 
     def test_an_unreadable_answer_is_unverifiable_rather_than_success(self):
         self.cli.answer("not json", 0)
-        with self.assertRaises(start_grant.Refused) as caught:
+        with self.assertRaises(start_grant.Unverifiable) as caught:
             mint(record=self.record(), directory=str(self.dir), from_handle="term_minter",
                  cli=str(self.cli.path))
         self.assertEqual(caught.exception.reason, "answer_unreadable")

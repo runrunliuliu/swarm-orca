@@ -17,6 +17,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 
 | 路径 | 入口与用途 | 不能混用的边界 |
 | --- | --- | --- |
+| 启动凭据（start grant） | [`start-grant-mint / -hand / -state`](docs/design/start-grant.md) 让"启动一个 Run 的授权"由**不执行它的一方**签发：一次 mint 写一条不可改的批准记录，create 与每次 spawn 在服务端事务内校验。 | **M1–M4 已实现、M5 未收口**：`START_GRANT_REQUIRED` 仍是 `false`，所以既有 strict Run 不受它约束；它不改变执行路径的选择（下表两行照旧），也不是"授权内容对不对"的证明。 |
 | Strict Coordinator TUI + Operator monitor / scheduler | [启动准备](operator-prepare.md) → [strict 握手](coordinator-strict-start.md) → [TUI 续跑](coordinator-tui.md) / [monitor](operator-monitor.md)。当前 strict native 计划支持 Trae；通过原生 Run mailbox 续接真实 Coordinator。 | monitor 只有显式配置 continuation 才调用 scheduler；观察、消息入队或 Operator 结算都不等于业务完成。 |
 | 独立 goal-loop driver | [回合续跑器](coordinator-driver.md)，由 `coordinator_launch.py goal-loop` 校验，显式执行后在原 Trae exec PTY/会话串行续跑；可配[指定 Operator 执行器](coordinator-operator.md)。 | 代码拒绝 strict 计划及 `strict-v1` Run；不能作为 strict TUI 的恢复或平台提交回退。 |
 | 固定 DAG Supervisor MVP | [操作手册](docs/supervisor.md)与 [runit 模板](runit/README.md)：预先固定任务 DAG，Coordinator 派发，Sidecar 在等待检查点唤醒原 PTY。 | 专用 `config.example.json`、`coordinator-step/checkpoint` 协议和预算限制；不自动重规划、任务重试、升级模型或接管新 Coordinator。 |
