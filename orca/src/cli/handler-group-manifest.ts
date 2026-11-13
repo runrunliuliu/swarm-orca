@@ -279,6 +279,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'incident stalls',
       'incident tool-errors',
       'incident digest',
+      'incident mine',
       'incident acceptance declare',
       'incident acceptance list',
       'incident acceptance show',

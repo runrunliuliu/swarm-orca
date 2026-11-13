@@ -16,6 +16,7 @@ import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../../main/in
 import { createIncidentStore, type IncidentStore } from '../../main/incidents/incident-store'
 import { incidentsDatabaseFileFor } from '../../main/incidents/incidents-paths'
 import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
+import { incidentFingerprint } from '../../main/incidents/incident-key'
 import { sampleStallState } from '../../main/incidents/incidents-stall-sampler'
 import { writeMeta } from '../../main/incidents/incident-store-capacity'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
@@ -515,6 +516,83 @@ describe('incident digest (M4-2)', () => {
     expect(text).toContain('Total in window: 0')
     expect(text).toContain('Capacity:')
     expect(text).toContain('Shadow replay:')
+  })
+})
+
+describe('incident mine (M6-1)', () => {
+  it('clusters by fingerprint, prints the rule that promoted it, and writes nothing', async () => {
+    const fingerprint = incidentFingerprint({
+      class: 'crash',
+      sourceKind: 'pty_exit',
+      facet: 'exit',
+      signature: ['signaled:9']
+    })
+    const opened2 = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      for (const [index, sourceId] of ['p1', 'p2', 'p3'].entries()) {
+        createIncidentStore({ db: opened2.db, fileSizeBytes: opened2.fileSizeBytes }).insertIncident({
+          id: `inc_mine_cli_${index}`,
+          sourceKind: 'pty_exit',
+          sourceId,
+          facet: 'exit',
+          hostId: 'host-a',
+          worktreeId: 'wt-1',
+          runId: null,
+          taskId: null,
+          dispatchId: null,
+          agentSessionId: null,
+          ptyIncarnationId: null,
+          class: 'crash',
+          status: 'untriaged',
+          exitCause: { kind: 'signaled', signal: 9 },
+          fingerprint,
+          evidence: { pointers: [], unknownBoundaries: [] },
+          summary: 'crash',
+          createdAt: Date.now()
+        })
+      }
+    } finally {
+      opened2.db.close()
+    }
+
+    const mined = context('incident mine', {}, true)
+    await INCIDENT_HANDLERS['incident mine'](mined.ctx)
+    const payload = JSON.parse(mined.output.join('\n')) as {
+      version: number
+      totals: { clusters: number; candidateClusters: number; candidates: number }
+      clusters: { count: number; distinctSourceIds: number; rules: string[] }[]
+      candidates: { incidentId: string; rule: string }[]
+      truncated: { groups: boolean; candidates: boolean; timeBudget: boolean }
+    }
+    expect(payload.version).toBe(1)
+    expect(payload.totals).toMatchObject({ clusters: 1, candidateClusters: 1, candidates: 3 })
+    expect(payload.clusters[0]).toMatchObject({ count: 3, distinctSourceIds: 3 })
+    expect(payload.clusters[0].rules).toContain('repeat_fingerprint')
+    expect(payload.candidates).toHaveLength(3)
+    // Read-only: the store still has the three rows and no decisions.
+    const after = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      const decisions = after.db.prepare('SELECT COUNT(*) AS n FROM incident_decisions').get() as {
+        n: number
+      }
+      expect(decisions.n).toBe(0)
+    } finally {
+      after.db.close()
+    }
+  })
+
+  it('rejects an unparseable --since and prints an empty window without creating a store', async () => {
+    const bad = context('incident mine', { since: 'yesterday' })
+    await expect(INCIDENT_HANDLERS['incident mine'](bad.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const badCap = context('incident mine', { 'max-groups': '0' })
+    await expect(INCIDENT_HANDLERS['incident mine'](badCap.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const empty = context('incident mine')
+    await INCIDENT_HANDLERS['incident mine'](empty.ctx)
+    expect(empty.output.join('\n')).toContain('No clusters in this window.')
   })
 })
 

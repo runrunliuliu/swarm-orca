@@ -134,6 +134,24 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'mine'],
+    summary: 'Cluster incidents into bounded triage candidates (read-only)',
+    usage:
+      'orca incident mine [--since 7d] [--max-groups <n>] [--max-candidates <n>] ' +
+      '[--time-budget-ms <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'since', 'max-groups', 'max-candidates', 'time-budget-ms'],
+    examples: ['orca incident mine', 'orca incident mine --since 7d --json'],
+    notes: [
+      'Groups by fingerprint inside the window and reports class/source_kind counts, distinct source ids, first/last seen, the worktrees and runs involved, and the rule that promoted the cluster.',
+      'Candidate rules: at least 3 rows from at least 2 distinct source ids; a crash cluster carrying a signal, or an acceptance_failed cluster on one invariant, may qualify on 2 rows. The thresholds are constants in incident-mine.ts.',
+      'Rows already duplicate/invalid/closed are excluded from the cluster counts and reported separately, so a triaged accident cannot keep growing a cluster.',
+      'Read-only: it prints the clusters, the selected candidates and what it would set, and writes nothing (the store is opened read-only).',
+      'Bounded: --max-groups and --max-candidates cap the output, and a wall-clock budget caps the pass. Every cap that fires is reported (truncated.*) together with the full totals, so truncation is never silent.',
+      '--json emits a stable shape (version: 1) for automations: totals, excluded, truncated, limits, clusters, candidates. No scheduler and no automation type is added in code.',
+      'The miner never changes a dispatch, an orchestration row, or any code: repair work stays a separate authorised task.'
+    ]
+  },
+  {
     path: ['incident', 'acceptance', 'declare'],
     summary: 'Declare an acceptance rule for a dispatch (does not run it)',
     usage:
