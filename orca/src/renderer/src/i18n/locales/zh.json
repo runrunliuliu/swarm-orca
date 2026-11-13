@@ -13552,6 +13552,12 @@
             "metadataMatch": "会话元数据中的匹配",
             "sourceActionsUnavailable": "转录来源不可用。"
           },
+          "incident": {
+            "badge": {
+              "5986792da9": "事故计数当前不可用：无法读取该库，因此这并不表示没有待处理的事故。",
+              "5f9928ae9c": "事故计数已陈旧：最近一次读取已超过 10 分钟，因此数字可能已过期。"
+            }
+          },
           "incidents": {
             "IncidentCoverageBanner": {
               "023fd64eeb": "远端视图——全局视野，而非本机记录",

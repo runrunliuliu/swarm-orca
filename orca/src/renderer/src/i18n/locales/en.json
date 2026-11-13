@@ -13752,6 +13752,12 @@
             "metadataMatch": "Match in session metadata",
             "sourceActionsUnavailable": "The transcript source is unavailable."
           },
+          "incident": {
+            "badge": {
+              "5986792da9": "Incident counts are unavailable: the store could not be read, so this is not a statement that nothing needs triage.",
+              "5f9928ae9c": "Incident counts are stale: the last reading is over 10 minutes old, so it may be out of date."
+            }
+          },
           "incidents": {
             "IncidentCoverageBanner": {
               "023fd64eeb": "Remote view — global visibility, not this host's records",

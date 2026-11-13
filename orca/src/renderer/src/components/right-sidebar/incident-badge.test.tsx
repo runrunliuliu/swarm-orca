@@ -14,7 +14,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
 import { ActivityBarButton, type ActivityBarItem } from './activity-bar-buttons'
-import { incidentBadgeFromCounts } from './incident-badge'
+import { incidentBadgeFromCounts, incidentBadgeFromState } from './incident-badge'
+import type { IncidentCountsState } from './use-incident-counts'
 
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string) => fallback
@@ -89,6 +90,18 @@ async function renderNode(node: React.ReactElement): Promise<HTMLElement> {
   return container
 }
 
+// `null` is the mapping's "draw nothing" answer, so the helper accepts it and drops the field —
+// exactly what the activity item does in `use-right-sidebar-activity-items.ts`.
+function item(badge: ActivityBarItem['badge'] | null): ActivityBarItem {
+  return {
+    id: 'incidents',
+    icon: () => <span data-icon="incidents" />,
+    title: 'Incidents',
+    shortcut: '',
+    ...(badge === undefined || badge === null ? {} : { badge })
+  }
+}
+
 describe('incidentBadgeFromCounts', () => {
   it('draws nothing when there is nothing untriaged and nothing incomplete', () => {
     expect(incidentBadgeFromCounts(null)).toBeNull()
@@ -100,6 +113,7 @@ describe('incidentBadgeFromCounts', () => {
     // The trap: `0` plus an incomplete store must not be silent, and must not claim "0 incidents".
     const zeroWithLatch = incidentBadgeFromCounts(latchedCounts({ untriaged: 0 }))
     expect(zeroWithLatch).toEqual({
+      kind: 'count',
       count: 0,
       tone: 'caution',
       localGap: true,
@@ -127,6 +141,7 @@ describe('incidentBadgeFromCounts', () => {
       })
     )
     expect(zeroWithRemote).toEqual({
+      kind: 'count',
       count: 0,
       tone: 'alert',
       localGap: false,
@@ -138,6 +153,7 @@ describe('incidentBadgeFromCounts', () => {
 
   it('is red when the count is believed complete', () => {
     expect(incidentBadgeFromCounts(counts())).toEqual({
+      kind: 'count',
       count: 3,
       tone: 'alert',
       localGap: false,
@@ -157,6 +173,7 @@ describe('incidentBadgeFromCounts', () => {
       }
     })
     expect(incidentBadgeFromCounts(remote)).toEqual({
+      kind: 'count',
       count: 3,
       tone: 'alert',
       localGap: false,
@@ -174,6 +191,7 @@ describe('incidentBadgeFromCounts', () => {
       }
     })
     expect(incidentBadgeFromCounts(unconfigured)).toEqual({
+      kind: 'count',
       count: 3,
       tone: 'alert',
       localGap: false,
@@ -193,6 +211,7 @@ describe('incidentBadgeFromCounts', () => {
       }
     })
     expect(incidentBadgeFromCounts(both)).toEqual({
+      kind: 'count',
       count: 3,
       tone: 'caution',
       localGap: true,
@@ -207,6 +226,7 @@ describe('incidentBadgeFromCounts', () => {
       coverage: { ...counts().coverage, shadowReplayIncomplete: true, gap: true }
     })
     expect(incidentBadgeFromCounts(gap)).toEqual({
+      kind: 'count',
       count: 3,
       tone: 'caution',
       localGap: true,
@@ -222,6 +242,7 @@ describe('incidentBadgeFromCounts', () => {
     // a latch is a past stop, not "refusing writes right now".
     const latched = latchedCounts()
     expect(incidentBadgeFromCounts(latched)).toEqual({
+      kind: 'count',
       count: 3,
       tone: 'caution',
       localGap: true,
@@ -245,16 +266,6 @@ describe('incidentBadgeFromCounts', () => {
 })
 
 describe('ActivityBarButton badge', () => {
-  // `null` is the mapping's "draw nothing" answer, so the helper accepts it and drops the field —
-  // exactly what the activity item does in `use-right-sidebar-activity-items.ts`.
-  const item = (badge: ActivityBarItem['badge'] | null): ActivityBarItem => ({
-    id: 'incidents',
-    icon: () => <span data-icon="incidents" />,
-    title: 'Incidents',
-    shortcut: '',
-    ...(badge === undefined || badge === null ? {} : { badge })
-  })
-
   it('draws a secondary outline marker for a remote-only gap without changing the count colour', async () => {
     const rendered = await renderNode(
       <ActivityBarButton
@@ -410,5 +421,117 @@ describe('ActivityBarButton badge', () => {
       rendered.querySelector('button')?.click()
     })
     expect(onClick).toHaveBeenCalledTimes(1)
+  })
+})
+
+/** A state as the hook reports it; the clock is the hook's business, not this mapping's. */
+function state(
+  availability: IncidentCountsState['availability'],
+  countsValue: IncidentCountsDto | null = null
+): IncidentCountsState {
+  return { counts: countsValue, availability }
+}
+
+describe('incidentBadgeFromState: no data is not no incidents (M7-D)', () => {
+  it('draws nothing on the first paint, before any reading or failure', () => {
+    // `idle` is "nothing has arrived yet". An unavailable marker here would accuse the store during
+    // the first few milliseconds of every launch.
+    expect(incidentBadgeFromState(state('idle'))).toBeNull()
+  })
+
+  it('marks a failed read as unavailable instead of looking like an empty store', () => {
+    const badge = incidentBadgeFromState(state('unavailable'))
+    expect(badge).toEqual({
+      kind: 'unavailable',
+      reason: 'unavailable',
+      label:
+        'Incident counts are unavailable: the store could not be read, so this is not a statement that nothing needs triage.'
+    })
+    // The whole point: no number to mistake for "0 untriaged".
+    expect(badge && 'count' in badge).toBe(false)
+  })
+
+  it('marks an old reading as stale instead of letting it keep looking current', () => {
+    const badge = incidentBadgeFromState(state('stale', counts({ untriaged: 3 })))
+    expect(badge).toMatchObject({ kind: 'unavailable', reason: 'stale' })
+    expect(badge?.label).toContain('stale')
+    // A stale badge may not restate the count it no longer vouches for.
+    expect(badge && 'count' in badge).toBe(false)
+  })
+
+  it('stays silent for a stale reading that was complete and empty', () => {
+    // Documented exception: a quiet host that never had an incident would otherwise carry a permanent
+    // marker whose content is "nothing happened", which is exactly what a healthy quiet host says.
+    expect(incidentBadgeFromState(state('stale', counts({ untriaged: 0 })))).toBeNull()
+  })
+
+  it('marks a stale reading that still had a local hole (nothing to suppress)', () => {
+    const badge = incidentBadgeFromState(state('stale', latchedCounts({ untriaged: 0 })))
+    expect(badge).toMatchObject({ kind: 'unavailable', reason: 'stale' })
+  })
+
+  it('defers to the count mapping while the reading is fresh', () => {
+    const fresh = counts({ untriaged: 2 })
+    expect(incidentBadgeFromState(state('ok', fresh))).toEqual(incidentBadgeFromCounts(fresh))
+  })
+
+  it('renders the marker as a dashed muted ring with no digits, whatever the last reading said', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(incidentBadgeFromState(state('stale', counts({ untriaged: 3 }))))}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    const marker = rendered.querySelector('[data-incident-counts-unavailable="stale"]')
+    expect(marker).not.toBeNull()
+    // Muted + dashed: distinct from the solid amber/red count and from the remote outline note.
+    expect(marker?.className).toContain('border-dashed')
+    expect(marker?.className).toContain('border-muted-foreground')
+    expect(marker?.className).toContain('bg-transparent')
+    expect(marker?.className).not.toContain('bg-destructive')
+    expect(marker?.className).not.toContain('bg-status-warning')
+    // No digits anywhere: the old "3" must not survive as a current claim. The tooltip mock renders the
+    // label text, so the check is on the rendered marker and on the absence of a count element.
+    const marks = rendered.querySelectorAll('[aria-hidden="true"]')
+    expect(marks).toHaveLength(1)
+    expect(marks[0]?.textContent).toBe('')
+    expect(rendered.textContent).not.toContain('3 untriaged')
+    expect(rendered.querySelector('[data-incident-remote-gap="true"]')).toBeNull()
+    expect(rendered.querySelector('button')?.getAttribute('aria-label')).toContain(
+      'Incident counts are stale'
+    )
+  })
+
+  it('renders the unavailable marker for a failed read and keeps the label in the a11y tree', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(incidentBadgeFromState(state('unavailable')))}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    expect(rendered.querySelector('[data-incident-counts-unavailable="unavailable"]')).not.toBeNull()
+    expect(rendered.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1)
+    expect(rendered.textContent).not.toContain('untriaged')
+    expect(rendered.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Incidents — Incident counts are unavailable: the store could not be read, so this is not a statement that nothing needs triage.'
+    )
+  })
+
+  it('draws nothing at all on the first paint', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(incidentBadgeFromState(state('idle')))}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    expect(rendered.querySelector('[data-incident-counts-unavailable]')).toBeNull()
+    expect(rendered.querySelector('[aria-hidden="true"]')).toBeNull()
+    expect(rendered.querySelector('button')?.getAttribute('aria-label')).toBe('Incidents')
   })
 })

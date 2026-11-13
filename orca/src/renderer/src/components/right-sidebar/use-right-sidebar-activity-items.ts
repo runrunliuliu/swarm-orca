@@ -16,7 +16,7 @@ import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { translate } from '@/i18n/i18n'
 import { AgentSessionHistoryIcon } from './agent-session-history-icon'
 import type { ActivityBarItem } from './activity-bar-buttons'
-import { incidentBadgeFromCounts } from './incident-badge'
+import { incidentBadgeFromState } from './incident-badge'
 import { useIncidentCounts } from './use-incident-counts'
 
 export type RightSidebarActivityItems = {
@@ -49,8 +49,10 @@ export function useRightSidebarActivityItems({
   const isSshRepo = Boolean(activeRepo?.connectionId)
   const pluginSystemEnabled = useAppStore((s) => s.settings?.pluginSystemEnabled === true)
   // Why here and not in the panel: the badge must be right while the panel does not exist yet (M7-A),
-  // and the activity bar is the only thing that renders while the sidebar is closed.
-  const incidentBadge = incidentBadgeFromCounts(useIncidentCounts())
+  // and the activity bar is the only thing that renders while the sidebar is closed. The state-level
+  // mapping (M7-D) is what keeps "no data" from rendering as "no incidents": a failed or stale read
+  // draws a muted marker instead of nothing.
+  const incidentBadge = incidentBadgeFromState(useIncidentCounts())
   const pluginPanels = usePluginPanels()
   const visiblePluginPanels = useMemo(
     () => (pluginSystemEnabled ? pluginPanels : []),

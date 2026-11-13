@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { translate } from '@/i18n/i18n'
-import type { IncidentBadge } from './incident-badge'
+import type { IncidentBadge, IncidentCountBadge } from './incident-badge'
 import { INCIDENT_BADGE_MAX_COUNT } from './incident-badge'
 
 export type ActivityBarItem = {
@@ -51,9 +51,36 @@ const STATUS_DOT_COLOR: Record<CheckStatus, string> = {
  * A zero count with a gap is drawn as an outlined dot and *no digits*: showing "0" there would claim a
  * completeness the label is about to deny.
  */
-const BADGE_TONE_CLASS: Record<IncidentBadge['tone'], string> = {
+const BADGE_TONE_CLASS: Record<IncidentCountBadge['tone'], string> = {
   alert: 'bg-destructive text-destructive-foreground',
   caution: 'bg-status-warning text-black'
+}
+
+/**
+ * The marker for "this badge cannot state a count" (M7-D): a dashed muted ring, no fill, no digits.
+ *
+ * Dashed and muted on purpose: solid amber already means "this many are known, and there may be more",
+ * and a solid red/amber dot here would say the same thing about a number we do not have. The ring says
+ * only "no trustworthy count", and the label says which of the two reasons it is. `data-incident-
+ * counts-unavailable` carries the reason so a test can tell stale from failed without reading copy.
+ */
+function ActivityBarUnavailableMarkerView({
+  badge,
+  layout
+}: {
+  badge: Extract<IncidentBadge, { kind: 'unavailable' }>
+  layout: 'top' | 'side'
+}): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      data-incident-counts-unavailable={badge.reason}
+      className={cn(
+        'pointer-events-none absolute size-[8px] rounded-full border-2 border-dashed border-muted-foreground/70 bg-transparent',
+        layout === 'top' ? 'top-[4px] right-[2px]' : 'top-[4px] right-[3px]'
+      )}
+    />
+  )
 }
 
 function ActivityBarBadgeView({
@@ -63,6 +90,9 @@ function ActivityBarBadgeView({
   badge: IncidentBadge
   layout: 'top' | 'side'
 }): React.JSX.Element {
+  if (badge.kind === 'unavailable') {
+    return <ActivityBarUnavailableMarkerView badge={badge} layout={layout} />
+  }
   return (
     <>
       {badge.showCount ? (
