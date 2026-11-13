@@ -1,9 +1,9 @@
 // `orca incident list | show | decide | prune` (issue-sedimentation.md v2.3 §12; simplify S4).
 //
 // These four are the read/triage loop an operator runs by hand: two read-only views, one append-only
-// decision, one retention action. They live here, beside `incident-report.ts`, `incident-stall.ts`,
-// `incident-mine.ts` and the rest, so `handlers/incident.ts` is nothing but the command map — the same
-// shape every other CLI group already has.
+// decision, one retention action. They live here, beside `incident-report.ts`, `incident-export.ts`
+// and the rest, so `handlers/incident.ts` is nothing but the command map — the same shape every other
+// CLI group already has.
 //
 // Records are local-only (§19.1): a selector that names another machine is refused rather than
 // silently answered for this one. Store access lives in incident-store-access.ts, formatting in

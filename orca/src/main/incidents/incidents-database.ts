@@ -46,8 +46,14 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
  *     still written through the store, and the store's existing
  *     `UNIQUE(source_kind, source_id, facet)` remains the only thing that decides whether a fact is
  *     already here. Provenance only answers "was this row mirrored, and from where".
+ *
+ * v7 (M8) adds the read-only triage seam and no column on `incidents`:
+ *   * `incident_triage_rows` — the stable projection `orca incident export` serializes. Judgement
+ *     (clustering, thresholds, candidate rules) left the main process; this view is the contract a
+ *     triage skill reads, so it carries ids, entity columns, evidence pointers and the effective
+ *     status in one place instead of asking a caller to join `incident_state` themselves.
  */
-export const INCIDENTS_DB_SCHEMA_VERSION = 6
+export const INCIDENTS_DB_SCHEMA_VERSION = 7
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -187,6 +193,17 @@ SELECT
   (SELECT COUNT(*) FROM incident_decisions d WHERE d.incident_id = i.id) AS decision_count,
   (SELECT MAX(d.created_at) FROM incident_decisions d WHERE d.incident_id = i.id) AS last_decision_at
 FROM incidents i;
+
+-- The triage seam (M8-1). One row per fact, with the projected status already joined: the export
+-- command and any documented SQL read the same shape, so a skill cannot drift from the CLI.
+-- i.* keeps the entry status as status; effective_status is the projected one.
+CREATE VIEW IF NOT EXISTS incident_triage_rows AS
+SELECT
+  i.*,
+  s.status AS effective_status,
+  s.decision_count AS decision_count,
+  s.last_decision_at AS last_decision_at
+FROM incidents i JOIN incident_state s ON s.incident_id = i.id;
 
 -- Immutability (§6.2). UPDATE is unconditional: a status change is a decision row, never an edit.
 CREATE TRIGGER IF NOT EXISTS trg_incidents_no_update

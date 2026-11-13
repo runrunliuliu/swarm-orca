@@ -23,9 +23,9 @@ describe('incident help grouping', () => {
     // Daily before Diagnostic before Maintenance.
     expect(daily).toBeLessThan(diagnostic)
     expect(diagnostic).toBeLessThan(maintenance)
-    // The five daily commands are in the daily section, not scattered.
+    // The four daily commands are in the daily section, not scattered.
     const dailySection = help.slice(daily, diagnostic)
-    for (const command of ['list', 'show', 'decide', 'digest', 'mine']) {
+    for (const command of ['list', 'show', 'decide', 'export']) {
       expect(dailySection).toContain(command)
     }
     expect(dailySection).not.toContain('prune')
