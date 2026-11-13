@@ -1,7 +1,9 @@
 import type {
   AgentJournalItemBody,
-  AgentJournalItemIdentity
+  AgentJournalItemIdentity,
+  AgentJournalTurnScope
 } from '../../../shared/agent-session-journal-types'
+import { notifyJournaledItem } from './structured-agent-session-journaled-item'
 import { estimateStructuredAgentSessionItemBytes } from './structured-agent-session-event-sink-estimate'
 import type {
   StructuredAgentSessionItemAppendOptions,
@@ -13,10 +15,9 @@ import type { StructuredAgentSessionSinkQueue } from './structured-agent-session
 
 type ResolvedItem = { identity: AgentJournalItemIdentity; body: AgentJournalItemBody }
 
-/** Resolve a queued item against the journal bound at execution. The queue runs
- *  one operation at a time, so what the resolver reads is what the append revises. */
 export function createStructuredAgentSessionResolvedAppend(
-  queue: StructuredAgentSessionSinkQueue
+  queue: StructuredAgentSessionSinkQueue,
+  onJournaled?: (item: { itemKey: string; body: AgentJournalItemBody; turnScope: AgentJournalTurnScope }) => void
 ): Required<
   Pick<
     StructuredAgentSessionEventSink,
@@ -50,6 +51,7 @@ export function createStructuredAgentSessionResolvedAppend(
             resolved.body,
             structuredAgentSessionJournalAppendOptions(bound.fence, options)
           )
+          notifyJournaledItem(onJournaled, resolved.identity, resolved.body, options.turnScope)
           if (publish) {
             bound.publish()
           }
@@ -94,6 +96,7 @@ export function createStructuredAgentSessionResolvedAppend(
               body,
               structuredAgentSessionJournalAppendOptions(bound.fence, options)
             )
+            notifyJournaledItem(onJournaled, identity, body, options.turnScope)
             bound.publish()
           }
         },

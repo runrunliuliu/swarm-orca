@@ -31,6 +31,25 @@ export type JournalAppendTarget = {
   }
 }
 
+/**
+ * Fire the "it landed" observer for one item.
+ *
+ * The single notification contract for every sink write path (plain append, resolved append, lifecycle
+ * transition): called only after the write resolves, and never able to fail the write.
+ */
+export function notifyJournaledItem(
+  onJournaled: ((item: StructuredAgentSessionJournaledItem) => void) | undefined,
+  identity: AgentJournalItemIdentity,
+  body: AgentJournalItemBody,
+  turnScope: AgentJournalTurnScope
+): void {
+  try {
+    onJournaled?.({ itemKey: agentJournalItemKey(identity), body, turnScope })
+  } catch {
+    // A diagnostics observer must never fail a journal append.
+  }
+}
+
 export function appendJournalItemAndNotify(input: {
   bound: JournalAppendTarget
   identity: AgentJournalItemIdentity
@@ -51,15 +70,7 @@ export function appendJournalItemAndNotify(input: {
       structuredAgentSessionJournalAppendOptions(input.bound.fence, input.options as never)
     )
     .then((result) => {
-      try {
-        input.onJournaled?.({
-          itemKey: agentJournalItemKey(input.identity),
-          body: input.body,
-          turnScope: input.options.turnScope
-        })
-      } catch {
-        // A diagnostics observer must never fail a journal append.
-      }
+      notifyJournaledItem(input.onJournaled, input.identity, input.body, input.options.turnScope)
       return result
     })
 }

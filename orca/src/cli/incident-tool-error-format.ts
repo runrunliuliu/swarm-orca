@@ -4,6 +4,12 @@
 // lives in the host process, and windowing is in-process so a restart resets the counts.
 
 import type { ToolErrorWindowsSnapshot } from '../main/incidents/incident-tool-error-observer'
+import {
+  TOOL_ERROR_COVERAGE_NOTES,
+  TOOL_ERROR_COVERED_PROVIDERS,
+  TOOL_ERROR_UNCOVERED_PROVIDERS,
+  TOOL_ERROR_WRITE_PRECONDITION
+} from '../main/incidents/incident-tool-error-coverage'
 
 function pad(value: string, width: number): string {
   return value.length >= width ? value.slice(0, width) : value.padEnd(width)
@@ -38,17 +44,38 @@ export function formatIncidentToolErrors(snapshot: ToolErrorWindowsSnapshot): st
     }
   }
   lines.push('')
+  if (snapshot.total > snapshot.published) {
+    lines.push(
+      `Note: showing ${snapshot.published} of ${snapshot.total} windows (payload is capped); ` +
+        'the rest are counted but not listed.'
+    )
+  }
+  if (snapshot.evicted > 0) {
+    lines.push(
+      `WARNING: ${snapshot.evicted} window(s) were dropped by the in-process bound; those counts are lost.`
+    )
+  }
   lines.push(
-    'This is a grayscale view: the default mode writes no incident, and wouldWriteIfEnabled=yes ' +
-      'means "a write-enabled collector would record this window now".'
+    'This is a grayscale view: the default mode writes zero incident ROWS (it does publish this ' +
+      'snapshot), and wouldWriteIfEnabled=yes means "a write-enabled collector would record this ' +
+      'window now".'
   )
   lines.push(
     `Writing tool_error incidents: ${snapshot.writeEnabled ? 'on' : 'off'} ` +
       '(switch INCIDENT_TOOL_ERROR_WRITE=on in the host process; this command never writes).'
   )
+  lines.push(`Coverage: covered=${TOOL_ERROR_COVERED_PROVIDERS.join(',')}`)
   lines.push(
-    'Windowing is in-process: a restart resets the counts, so a burst can take one extra window to ' +
-      'reach the threshold again.'
+    `Coverage gap: no tool-error data from ${TOOL_ERROR_UNCOVERED_PROVIDERS.join(', ')} ` +
+      '(their tool results never reach this collector).'
+  )
+  for (const note of TOOL_ERROR_COVERAGE_NOTES) {
+    lines.push(`Coverage note: ${note}`)
+  }
+  lines.push(TOOL_ERROR_WRITE_PRECONDITION)
+  lines.push(
+    'Windowing is in-process and per turn: a restart resets the counts, and a new turn starts a new ' +
+      'window.'
   )
   return lines.join('\n')
 }

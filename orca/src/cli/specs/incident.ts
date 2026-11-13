@@ -112,10 +112,12 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS],
     examples: ['orca incident tool-errors', 'orca incident tool-errors --json'],
     notes: [
-      'Per session + tool + normalized code: the current count, the window span, and whether a write-enabled collector would record it.',
+      'Per session + TURN + tool + normalized code: the current count, the window span, and whether a write-enabled collector would record it. A new turn starts a new window.',
       'Normalized codes: permission_denied, path_not_found, command_not_found, timeout, non_zero_exit, tool_schema, network, unknown. permission_denied is the high-severity single-hit code.',
-      'The original error text is never stored; windowing is in-process, so a restart resets the counts.',
-      'Writing tool_error incidents is off by default (INCIDENT_TOOL_ERROR_WRITE=on in the host process); this command never writes.'
+      'The original error text is never stored; windowing is in-process, so a restart resets the counts. Turns, LRU evictions and list truncation are all reported in the output.',
+      'Codes come from structured evidence: a provider-stamped refusal kind, or a structured non-zero exit code. Text-only matches are recorded as unknown with a low-confidence hint and never open a candidate on their own.',
+      'Coverage is partial: only claude and codex write through the structured session sink; every other agent is listed as a coverage gap, so silence there is not health.',
+      'Default mode writes zero incident ROWS but still publishes this snapshot (INCIDENT_TOOL_ERROR_WRITE=on in the host process to write rows; this command never writes).'
     ]
   },
   {
@@ -126,6 +128,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     examples: ['orca incident digest', 'orca incident digest --since 7d --json'],
     notes: [
       'Counts by class, effective status and fingerprint (top 5), plus unseen/untriaged, dropped shadow lines, replay state, capacity and tool-error windows.',
+      'unseen = effective status is still `untriaged`. It is not a per-person read marker: the store has no such field, and the digest does not invent one.',
       'Every number is one aggregate over the incidents database, so it cannot drift from the store.',
       'Designed to be run by a scheduled automation: a session runs this command and posts the output. No scheduler is added in code.'
     ]

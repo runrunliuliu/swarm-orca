@@ -305,8 +305,12 @@ describe('incident tool-errors (M4-1)', () => {
   it('reports an empty window set instead of failing on a host with no store', async () => {
     const shown = context('incident tool-errors')
     await INCIDENT_HANDLERS['incident tool-errors'](shown.ctx)
-    expect(shown.output.join('\n')).toContain('No tool-error window')
-    expect(shown.output.join('\n')).toContain('this command never writes')
+    const text = shown.output.join('\n')
+    expect(text).toContain('No tool-error window')
+    expect(text).toContain('this command never writes')
+    expect(text).toContain('Coverage: covered=claude,codex')
+    expect(text).toContain('Coverage gap: no tool-error data from')
+    expect(text).toContain('zero incident ROWS')
   })
 
   it('shows the published windows with the count and the would-write verdict', async () => {
@@ -321,6 +325,7 @@ describe('incident tool-errors (M4-1)', () => {
           windows: [
             {
               sessionId: 'sess-1',
+              turn: 'turn-1',
               toolName: 'Bash',
               code: 'non_zero_exit',
               count: 5,
@@ -345,7 +350,8 @@ describe('incident tool-errors (M4-1)', () => {
     expect(payload.windows[0]).toMatchObject({
       code: 'non_zero_exit',
       count: 5,
-      wouldWriteIfEnabled: true
+      wouldWriteIfEnabled: true,
+      turn: 'turn-1'
     })
     expect(store().countIncidents()).toBe(0)
   })

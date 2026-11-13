@@ -219,7 +219,7 @@ export function createDeferredStructuredAgentSessionEventSink(
     ...(deps.readingControl ? { readingControl: deps.readingControl } : {}),
     ...(deps.onBackpressureChange ? { onBackpressureChange: deps.onBackpressureChange } : {})
   })
-  const resolvedAppend = createStructuredAgentSessionResolvedAppend(queue)
+  const resolvedAppend = createStructuredAgentSessionResolvedAppend(queue, deps.onItemJournaled)
 
   const appendLifecycleBatch = (
     settlementId: string,

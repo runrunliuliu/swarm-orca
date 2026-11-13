@@ -18,7 +18,16 @@ export const toolErrorsIncident: CommandHandler = async (ctx) => {
   try {
     const db = opened.db
     const snapshot =
-      db === null ? { updatedAt: null, writeEnabled: false, windows: [] } : readToolErrorWindows(db)
+      db === null
+        ? {
+            updatedAt: null,
+            writeEnabled: false,
+            published: 0,
+            total: 0,
+            evicted: 0,
+            windows: []
+          }
+        : readToolErrorWindows(db)
     // The switch is a property of the *host* process; report the live env when this process is the
     // host (serve/orcad) and the published value otherwise. Either way it never enables a write here.
     const writeEnabled = snapshot.writeEnabled || toolErrorWriteEnabled()
