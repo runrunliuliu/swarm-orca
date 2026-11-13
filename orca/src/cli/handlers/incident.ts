@@ -18,6 +18,7 @@ import {
 } from './incident-acceptance'
 import { INCIDENT_BASIC_HANDLERS } from './incident-basic'
 import { mirrorIncident } from './incident-mirror'
+import { archiveIncident } from './incident-archive'
 
 export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   ...INCIDENT_BASIC_HANDLERS,
@@ -27,6 +28,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   'incident pane-clocks': paneClocksIncident,
   'incident tool-failures': toolFailuresIncident,
   'incident mirror': mirrorIncident,
+  'incident archive': archiveIncident,
   'incident export': exportIncident,
   'incident acceptance declare': acceptanceDeclareIncident,
   'incident acceptance list': acceptanceListIncident,

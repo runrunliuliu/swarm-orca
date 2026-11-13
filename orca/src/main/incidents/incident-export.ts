@@ -19,6 +19,12 @@ import type {
   IncidentStatus
 } from './incident-types'
 import { parseEvidence, parseExitCause, type IncidentRow } from './incident-store-rows'
+import {
+  readEvidenceArchiveState,
+  summarizeArchive,
+  type ArchiveSummary,
+  type EvidenceArchiveRow
+} from './incident-archive'
 
 /** Bump only when a column's meaning changes; the row set is the view's, not this module's. */
 export const INCIDENT_EXPORT_VERSION = 1
@@ -70,6 +76,8 @@ export type IncidentExportRow = {
   createdAt: number
   decisionCount: number
   lastDecisionAt: number | null
+  /** Latest archive state per evidence pointer. `durable` is true only when every pointer is archived. */
+  archive: ArchiveSummary
 }
 
 export type IncidentExport = {
@@ -86,7 +94,7 @@ function text(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function rowToExport(row: IncidentRow): IncidentExportRow {
+function rowToExport(row: IncidentRow, archiveStates: readonly EvidenceArchiveRow[]): IncidentExportRow {
   return {
     id: String(row.id),
     sourceKind: row.source_kind as IncidentSourceKind,
@@ -108,7 +116,8 @@ function rowToExport(row: IncidentRow): IncidentExportRow {
     summary: String(row.summary),
     createdAt: Number(row.created_at),
     decisionCount: Number(row.decision_count ?? 0),
-    lastDecisionAt: row.last_decision_at === null ? null : Number(row.last_decision_at)
+    lastDecisionAt: row.last_decision_at === null ? null : Number(row.last_decision_at),
+    archive: summarizeArchive(archiveStates)
   }
 }
 
@@ -137,8 +146,19 @@ export function readIncidentExport(
         .get(since) as { n?: number } | undefined
     )?.n ?? 0
   )
+  const archiveByIncident = new Map<string, EvidenceArchiveRow[]>()
+  for (const state of readEvidenceArchiveState(db)) {
+    const list = archiveByIncident.get(state.incidentId)
+    if (list === undefined) {
+      archiveByIncident.set(state.incidentId, [state])
+    } else {
+      list.push(state)
+    }
+  }
   return {
-    rows: visible.map(rowToExport),
+    rows: visible.map((row) =>
+      rowToExport(row, archiveByIncident.get(String(row.id)) ?? [])
+    ),
     truncated,
     total,
     since,

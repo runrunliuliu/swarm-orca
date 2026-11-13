@@ -284,6 +284,7 @@ describe('incident export (M8-1)', () => {
       exportVersion: 1
     })
     expect(records[0].coverage).toMatchObject({ remoteIncidentCapture: 'unsupported' })
+    expect(records[0].view).toBe('incident_triage_rows')
     const incident = records.find((record) => record.kind === 'incident')
     expect(incident).toMatchObject({ class: 'crash', effectiveStatus: 'untriaged', runId: null })
     expect(incident?.evidence).toEqual({ pointers: [], unknownBoundaries: expect.any(Array) })
@@ -609,6 +610,67 @@ describe('incident wait (M3-1)', () => {
     await expect(INCIDENT_HANDLERS['incident wait'](past.ctx)).rejects.toMatchObject({
       code: 'invalid_argument'
     })
+  })
+})
+
+describe('incident archive (M8-4)', () => {
+  it('stages a report excerpt locally and reports pending, never archived, without a root', async () => {
+    const evidence = join(userData, 'agent.log')
+    writeFileSync(evidence, 'boom\n')
+    const reported = context('incident report', {
+      class: 'tool_error',
+      code: 'tool_schema_mismatch',
+      evidence
+    }, true)
+    await INCIDENT_HANDLERS['incident report'](reported.ctx)
+    const payload = JSON.parse(reported.output.join('\n')) as { incidentId: string }
+    expect(payload.incidentId).toMatch(/^inc_/)
+
+    const shown = context('incident archive', {}, true)
+    await INCIDENT_HANDLERS['incident archive'](shown.ctx)
+    const state = JSON.parse(shown.output.join('\n')) as {
+      configured: boolean
+      counts: { archive_pending: number; archived: number }
+      rows: { state: string; sha256: string | null; archivePath: string | null }[]
+    }
+    expect(state.configured).toBe(false)
+    expect(state.counts.archive_pending).toBe(1)
+    expect(state.counts.archived).toBe(0)
+    expect(state.rows[0].sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(state.rows[0].archivePath).toBeNull()
+  })
+
+  it('drains to the archive root and only then reports archived', async () => {
+    const evidence = join(userData, 'agent.log')
+    writeFileSync(evidence, 'boom\n')
+    await INCIDENT_HANDLERS['incident report'](
+      context('incident report', { class: 'tool_error', code: 'x', evidence }).ctx
+    )
+    const root = mkdtempSync(join(tmpdir(), 'orca-incident-archive-root-'))
+    const previous = process.env.ORCA_INCIDENT_ARCHIVE_ROOT
+    process.env.ORCA_INCIDENT_ARCHIVE_ROOT = root
+    try {
+      const shown = context('incident archive', { drain: true }, true)
+      await INCIDENT_HANDLERS['incident archive'](shown.ctx)
+      const payload = JSON.parse(shown.output.join('\n')) as {
+        configured: boolean
+        counts: { archived: number; archive_pending: number }
+        drain: { archived: number; remaining: number }
+      }
+      expect(payload.configured).toBe(true)
+      expect(payload.drain).toMatchObject({ archived: 1, remaining: 0 })
+      expect(payload.counts).toMatchObject({ archived: 1, archive_pending: 0 })
+      const text = context('incident archive')
+      await INCIDENT_HANDLERS['incident archive'](text.ctx)
+      expect(text.output.join('\n')).toContain('archived=1')
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ORCA_INCIDENT_ARCHIVE_ROOT
+      } else {
+        process.env.ORCA_INCIDENT_ARCHIVE_ROOT = previous
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

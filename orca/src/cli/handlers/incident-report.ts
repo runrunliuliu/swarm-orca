@@ -14,6 +14,7 @@ import {
 } from '../../main/incidents/incident-report'
 import type { IncidentEvidencePointer } from '../../main/incidents/incident-types'
 import { formatIncidentReport } from '../incident-format'
+import { stageIncidentEvidence } from '../../main/incidents/incident-archive'
 import { openIncidentStore } from '../incident-store-access'
 import { getRepeatedStringFlag } from '../flags'
 import { getDefaultUserDataPath } from '../runtime/metadata'
@@ -121,6 +122,18 @@ export const reportIncident: CommandHandler = async (ctx) => {
             'Triage and run `orca incident prune --apply` first.'
           : `Could not record the report (${result.outcome}).`
       )
+    }
+    // Evidence bodies are staged locally (bounded, small) and moved to the archive later by the
+    // runtime drain. `persistIncidentRecord` already wrote the pointer; the staging write must not
+    // change the report's outcome, so a failure there is recorded as `archive_incomplete` instead.
+    if (result.outcome === 'inserted' && result.id !== null && opened.db !== null && pointers.length > 0) {
+      stageIncidentEvidence({
+        db: opened.db,
+        incidentId: result.id,
+        pointers,
+        userDataPath,
+        now: Date.now()
+      })
     }
     const payload = {
       incidentId: result.id,

@@ -139,6 +139,21 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'archive'],
+    group: 'diagnostic',
+    summary: 'Show evidence-archive state (and optionally drain staged excerpts)',
+    usage: 'orca incident archive [--drain] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'drain'],
+    examples: ['orca incident archive', 'orca incident archive --drain --json'],
+    notes: [
+      'The incident row stores pointers only. A bounded excerpt is written to local staging and moved to the archive by an asynchronous runtime drain.',
+      'durable is never inferred: a pointer is archived only after the read-back sha256 matches. Until then it is archive_pending and must not be described as archived.',
+      'The archive root is deployment input (ORCA_INCIDENT_ARCHIVE_ROOT). Unset means this host has no archive: excerpts stay pending and the command says NOT CONFIGURED.',
+      'Crash rows carry no transcript pointer by design; their unknown boundary stays empty rather than being filled with a fabricated excerpt.',
+      '--drain performs one synchronous pass for a host whose desktop app is not running. It is a maintenance aid, not the normal path.'
+    ]
+  },
+  {
     path: ['incident', 'acceptance', 'list'],
     group: 'diagnostic',
     summary: 'List dispatch acceptance rules, gates and stops (read-only)',

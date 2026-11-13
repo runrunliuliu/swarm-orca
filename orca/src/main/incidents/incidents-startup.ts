@@ -26,6 +26,7 @@ import {
   type ShadowReconcileSummary
 } from './incident-shadow-reconcile'
 import { incidentRuntimeStore, resetIncidentStoreCache } from './incident-writer'
+import { startEvidenceArchiveDrain, stopEvidenceArchiveDrain } from './incident-archive'
 import { mainProcessUserDataPath } from './incidents-paths'
 
 export type IncidentShadowStartupResult = {
@@ -179,6 +180,9 @@ export function scheduleIncidentShadowReconcile(userDataPath?: string | null): v
         error instanceof Error ? error.name : 'unknown'
       )
     })
+    // Evidence archive drain: an unref'd background interval. It is never awaited by PTY teardown or
+    // settlement; without a configured archive root it is a no-op and the state stays `pending`.
+    startEvidenceArchiveDrain()
   })
 }
 
@@ -186,4 +190,5 @@ export function __resetIncidentShadowStartupForTests(): void {
   reconciled = false
   mirrored = false
   closeIncidentShadowSink()
+  stopEvidenceArchiveDrain()
 }

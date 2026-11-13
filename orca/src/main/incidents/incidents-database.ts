@@ -55,8 +55,15 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
  *     (clustering, thresholds, candidate rules) left the main process; this view is the contract a
  *     triage skill reads, so it carries ids, entity columns, evidence pointers and the effective
  *     status in one place instead of asking a caller to join `incident_state` themselves.
+ *
+ * v8 (M8-4) adds evidence archive state as an APPEND-ONLY event log plus a latest-state view:
+ *   * `incident_evidence_archive_events` — one row per state transition
+ *     (`staged` -> `archive_pending` -> `archived` | `archive_incomplete`). The incident row is never
+ *     updated (its UPDATE trigger forbids it), and `archived` is only written after a read-back hash
+ *     matches;
+ *   * `incident_evidence_archive_state` — the latest event per `(incident_id, pointer_index)`.
  */
-export const INCIDENTS_DB_SCHEMA_VERSION = 7
+export const INCIDENTS_DB_SCHEMA_VERSION = 8
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -274,6 +281,40 @@ CREATE TABLE IF NOT EXISTS incident_tool_failures (
 );
 CREATE INDEX IF NOT EXISTS idx_incident_tool_failures_observed
   ON incident_tool_failures(observed_at);
+
+-- Evidence archive state (M8-4). Append-only: an UPDATE or DELETE would rewrite the history of "is this
+-- evidence durable?", which is exactly what a reader must be able to audit. The incident row keeps the
+-- pointer; this table records what happened to the bounded excerpt.
+CREATE TABLE IF NOT EXISTS incident_evidence_archive_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  incident_id   TEXT NOT NULL,
+  pointer_index INTEGER NOT NULL,
+  state         TEXT NOT NULL,
+  staging_path  TEXT,
+  archive_path  TEXT,
+  sha256        TEXT,
+  bytes         INTEGER,
+  error         TEXT,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_incident_evidence_archive_events
+  ON incident_evidence_archive_events(incident_id, pointer_index, id);
+
+CREATE VIEW IF NOT EXISTS incident_evidence_archive_state AS
+SELECT e.* FROM incident_evidence_archive_events e
+JOIN (
+  SELECT incident_id, pointer_index, MAX(id) AS id
+    FROM incident_evidence_archive_events
+   GROUP BY incident_id, pointer_index
+) latest ON latest.id = e.id;
+
+CREATE TRIGGER IF NOT EXISTS trg_incident_evidence_archive_no_update
+BEFORE UPDATE ON incident_evidence_archive_events
+BEGIN SELECT RAISE(ABORT, 'incident_evidence_archive_immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS trg_incident_evidence_archive_no_delete
+BEFORE DELETE ON incident_evidence_archive_events
+BEGIN SELECT RAISE(ABORT, 'incident_evidence_archive_immutable'); END;
 
 -- Dispatch acceptance (M5). Declarations live here, not in the orchestration database: they are
 -- business expectations about a dispatch, the orchestration schema is frozen at v44, and an incident is

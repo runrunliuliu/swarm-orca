@@ -1,7 +1,7 @@
 # M8「减法」：把判断搬出 Orca（设计草案）
 
 - 日期：2026-11-14（Asia/Shanghai）
-- 状态：**草案（v0.2，已吸收三条拍板），未评审、未动代码**。基线 `issue-sediment` @ `944e66c3`。
+- 状态：**草案 v0.3：M8-1..M8-4 已实现（用户指示"继续"），尚未评审**。基线 `944e66c3`；提交与净额见 §11。
 - 上位文档：[../issue-sedimentation.md](../issue-sedimentation.md)（§7/§10/§16）、[README.md](README.md)。
 - 一句话：incidents 只存**事实**与**决策**；聚类、阈值、候选、归一化搬到 `incident-triage` skill，
   由 agent 在可复核的输入上判断，报告落 NAS，`decide` 仍由 R1 执行。
@@ -13,7 +13,7 @@
 2. **`mine` / `digest` 直接删**，不留 deprecated 别名；旧调用明确报"未知命令"，不静默空转。
 3. **两张灰度表改成事实视图**：保留面板位置，去掉判定词汇与判定字段；IPC/CLI 同步改名为
    `paneClocks` / `toolFailures`，旧 channel/命令不保留别名。
-4. **前置已补齐**：`git sparse-checkout add swarm/skills` 已执行（工作树干净）；skill 落在 `swarm/skills/incident-triage/SKILL.md`。
+4. **前置已补齐**：`git sparse-checkout add swarm/skills` 已执行；skill 落在 `swarm/skills/incident-triage/SKILL.md`。
 
 ## 1. 判据：什么必须留下，什么必须搬走
 
@@ -64,8 +64,8 @@
 4. `list --json` **不足以**当 triage 输入：`incident-store.ts:272-289` 只返回 id/class/source/worktree/
    session/status/exitCause/fingerprint/summary/createdAt/decisionCount，**没有** run/task/dispatch id、
    evidence pointers、decision 原因，默认 limit 50；`list --json` 不改，export 才是机器接缝。
-5. incidents DB `user_version=6` 且"只允许增量迁移、新版本只读"（`incidents-database.ts:21,388`）；
-   `incidents` 的 UPDATE 触发器无条件拒绝。**证据归档状态不能写在 incident 行上**，也不能 DROP COLUMN。
+5. incidents DB 只允许增量迁移、新版本只读（`incidents-database.ts:21,388`）且 `incidents` 拒绝 UPDATE：
+   **归档状态不能写在 incident 行上**，也不能 DROP COLUMN（旧缓存表是派生数据，才允许随迁移删除）。
 6. `integration.ts` 的导出清单被 `incident-integration-boundary.test.ts` 钉死；M8 保留
    `startStallSampler` / `observeToolErrorItem` 名字，只换内部行为，边界不动。
 
@@ -108,8 +108,8 @@ pane 事件时钟（采样）──┘        （不可变 + append-only）     
 - **视图**：CLI `incident stalls` → `incident pane-clocks`；IPC `incidents:stalls` → `incidents:paneClocks`；
   tab 改"Pane clocks (facts)"，去掉 `wouldWrite/threshold/reason` 与判定配色；`IncidentCoverage.stallSample`
   → `paneClock`（只报最后采样、panes、errors、legacy 行数）。
-- **表策略**：**新增** `incident_pane_clocks`（增量迁移）；旧 `incident_stall_samples` 保留不写、
-  不并入新表，历史行在 export 里标 `legacy: true`。理由：拒绝对 `user_version` 做表重建。
+- **表策略**：**新增** `incident_pane_clocks` 并**删除**旧 `incident_stall_samples`（它本来就是每 tick
+  重建的派生缓存，不是历史事实）；不做表重建，也不留 `legacy` 行。
 - **预估净删除**：−700 生产 / −400 测试（保留采样/等待/视图测试）。
 
 ### M8-3 tool_error 降级为事实（含 UI 事实视图）
@@ -154,17 +154,15 @@ crash 捕获（fallback epoch / owner-claim binding / unknown 门槛）、验收
 ```console
 orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行一条
 {"kind":"meta","view":"incident_triage_rows","exportVersion":1,"since":…,"generatedAt":…,"coverage":{…}}
-{"kind":"incident","id":…,"sourceKind":…,"sourceId":…,"facet":…,"class":…,"effectiveStatus":…,
- "worktreeId":…,"runId":…,"taskId":…,"dispatchId":…,"agentSessionId":…,"exitCause":…,
- "fingerprint":…,"summary":…,"createdAt":…,"decisionCount":…,"evidence":{…},"archive":{…}}
-{"kind":"pane_clock","paneKey":…,"state":…,"stateStartedAt":…,"lastSemanticEventAt":…,
- "ageMs":…,"ageBasis":…,"observedAt":…,"declaredWait":…}
+{"kind":"incident","id":…,"sourceKind":…,"sourceId":…,"class":…,"effectiveStatus":…,"runId":…,"taskId":…,
+ "dispatchId":…,"worktreeId":…,"agentSessionId":…,"exitCause":…,"fingerprint":…,"evidence":{…},"archive":{…}}
+{"kind":"pane_clock","paneKey":…,"state":…,"lastSemanticEventAt":…,"ageMs":…,"ageBasis":…,"observedAt":…,"declaredWait":…}
 {"kind":"tool_failure","sessionId":…,"turn":…,"toolName":…,"errorKind":…,"exitCode":…,"observedAt":…}
-{"kind":"end","counts":{"incident":…,"pane_clock":…,"tool_failure":…},"truncated":{"incident":…,…}}
+{"kind":"end","counts":{…},"total":{…},"truncated":{…},"dropped":{"tool_failure":…}}
 ```
 
-- 一种命令、一根流：`--limit` 按 kind 各自生效，截断在 `end` 里显式；`meta` 先出，`end` 后出。
-- 无 `--include`、无 `--hash`、无 DB 内容哈希：可复现靠 `view + exportVersion + since + coverage` 与报告里的 `rowsUsed`，不靠"证明数据库字节没变"。
+- 一种命令、一根流：`meta` 先出、`end` 后出，`--limit` 按 kind 生效且截断在 `end` 显式。
+- 无 `--include`/`--hash`/DB 内容哈希：可复现靠 `view + exportVersion + since + coverage` 与报告的 `rowsUsed`。
 - `coverage` 强制出现（shadowReplay / capacity / mirror / tool provider / paneClock），**空行 + 缺口不得读成"没有事故"**。
 
 ## 6. 迁移与回滚
@@ -174,7 +172,8 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 | CLI | 删 `mine`、`digest`；`stalls`/`tool-errors` 改名 `pane-clocks`/`tool-failures` | 旧命令报"未知命令"（明确失败，不静默空转）；无别名 |
 | automation | 定时任务改为"会话 + skill + export"，仍然只读 | 配方不在仓库内，属私有部署配置，需人工改一次 |
 | IPC/UI | `incidents:stalls`/`incidents:toolErrors` → `incidents:paneClocks`/`incidents:toolFailures`；DTO 去判定字段；tab 改事实文案 | 旧 renderer 打新 main 会拿到 `ok:false` 而不是空数据 |
-| DB | `user_version 6 → 7`，**只加** 3 表 2 视图 | 旧构建见 7>6 走既有只读路径（`incidents-database.ts:388`），不会误写；回滚=旧版可读不可写 |
+| CLI | 新增 `incident archive [--drain]`（状态 + 手动补档） | 无归档根时只读报告，写明 NOT CONFIGURED |
+| DB | `user_version 6 → 8`，**只加**表/视图（不重建、不 DROP 业务行） | 旧构建见版本更高走既有只读路径（`incidents-database.ts:388`）；回滚=旧版可读不可写 |
 | 代码 | 单 worktree 顺序提交 M8-1→M8-4 | 删除面互相重叠，不做 M7 式并行分支 |
 
 ## 7. 可复现性契约（triage 的输入与产出）
@@ -182,10 +181,9 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 - **输入**：`orca incident export` 的五种记录（§5）。skill 必须记录 `view/exportVersion/since/coverage` 与 `end.truncated`；缺 coverage 或截断未声明，报告视为不可复核。
 - **产出** report（Markdown + JSON 双份）：`exportVersion`、`window`、`rowsUsed:[id...]`、
   `sourceKeys`、`clusters`（依据写明）、`proposed:[{id,to,why}]`、`unknowns`、`coverage` 摘要。
-- **执行权**：skill 只产出报告与命令建议；`--apply` 不存在。`confirmed` 只能由 R1 用
-  `orca incident decide` 显式执行（`--actor` 仍自报）。报告进档案时写 sha256 并回读。
-- **可选**：`decide --report <path>` 把报告指针存进 decision（可空列，增量加列）；
-  不做也能用 `--reason` 带 `report:<sha256>`，二选一见 §9.3。
+- **执行权**：skill 只产出报告与命令建议；`confirmed` 只能由 R1 用 `orca incident decide` 显式执行
+  （`--actor` 仍自报）；报告进档案时写 sha256 并回读。
+- **可选**：`decide --report <path>` 存报告指针（可空列），或用 `--reason` 带 `report:<sha256>`（§9.3）。
 
 ## 8. 验收
 
@@ -204,46 +202,49 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 
 ### 8.2 新增测试
 
-- 迁移：6→7 增量、旧库只读、重复迁移幂等；新表/视图列与 `exportVersion` 一致。
-- export：五种记录齐全、`--limit` 分 kind 截断在 `end` 可见、覆盖块必现、`list --json` 不变。
-- 事实表：`incident_tool_failures` 去重键/上限/`dropped`；`incident_pane_clocks` 只写事实列。
-- 事实视图：两个 DTO 不含判定字段；`panes=0` 与 `dropped>0` 都不得渲染成"健康"。
-- 归档状态机：staging→pending→archived、NAS 不可达保持 pending、回读不符 `archive_incomplete`、
-  不阻塞（注入慢/抛错的归档器，断言写入调用立刻返回）。
+- 迁移 6→8 增量、旧库只读、重复迁移幂等；export 五种记录齐全、截断在 `end` 可见、覆盖块必现。
+- 事实表/视图：去重键、上限与 `dropped`；两个 DTO 不含判定字段；`panes=0`、`dropped>0` 不得渲染成"健康"。
+- 归档状态机：staging→pending→archived、无归档根保持 pending、回读不符 `archive_incomplete`、
+  写入抛错保持 pending（`incident-archive.test.ts` 用注入写者覆盖三种）。
 - 删除断言：CLI help 快照无 `mine`/`digest`/`--apply`；IPC 无旧两个 channel。
-- **skill 的测试 = 输入契约**：`swarm/skills/incident-triage/` 附 `contract.example.json` 与 report
-  模板；测试断言 export 输出通过 schema 校验、模板含 `rowsUsed`/`exportVersion`/coverage。
-  判断质量本身不可单测，明确记为不测项。
+- **skill 的测试 = 输入契约**：`contract.example.json` + report 模板；断言 export 通过 schema、
+  模板含 `rowsUsed`/`exportVersion`/coverage。判断质量不可单测，明确记为不测项。
 
 ### 8.3 跑法
 
 `cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts <分批路径> --maxWorkers=2`；
-批次：`src/main/incidents` / `src/cli` / `src/main/ipc`+`src/shared` / renderer `right-sidebar`。
-不跑全量；不跑 live NAS（用注入失败模拟），live 端到端仍是缺口。
+批次：`src/main/incidents` / `src/cli` / `src/main/ipc`+`src/shared` / renderer `right-sidebar`。不跑全量；
+不跑 live NAS（用注入失败模拟），live 端到端仍是缺口。
 
-### 8.4 减法度量（实施后用 `git diff --numstat` 重新计量）
+### 8.4 减法度量
 
-| 指标 | 估算（±15%） |
-| --- | --- |
-| 生产代码净删除 | 毛删 4,740（A 类全组）；保留/重写 +1,050（采样、等待、两个事实视图、CLI）；新增 +380（export、视图 SQL、归档） ≈ **−3,300**（区间 −3.0k ~ −3.6k） |
-| 测试净删除 | 毛删 2,470；保留/重写 ~150（事实视图测试）；新增 ~600 ≈ **−1,720** |
-| 依赖 | 0 新增；不改 orchestration `SCHEMA_VERSION` |
-| 行/行为 | 删除的每一行必须能指到"谁接管"；指不到就进 §2.2（B 类） |
+总量以 §11 的实测为准；原 ±15% 估算不再保留两套数字。判据仍是"删掉的每一行都能指到谁接管"，
+指不到就应归入 §2.2（B 类），不得删除。
 
 ## 9. 未决（需用户拍板）
 
-1. **归档根与布局**：配置来源、无 run 事实的 `_unattributed` 归属、drain 归属（主进程定时器 + `orca incident archive --drain` 兜底？）。
-2. **证据正文范围**：只归档有界窗口（推荐 64 KiB/条）还是整文件？历史指针不补档（标 `archive: none`）。
+1. **归档根与范围**：`ORCA_INCIDENT_ARCHIVE_ROOT`、无 run 落 `_unattributed/<host>`、5 分钟 unref
+   drain + `incident archive --drain` 兜底；证据按 64 KiB/条截断、历史不补档。请确认或要求改名/整文件复制。
 3. **decision 的报告指针**：是否加可空 `report_pointer` 列，还是只把 `report:<sha256>` 写进 `--reason`。
 4. **`incident wait` 去留**：作为"操作者声明"事实保留（推荐）还是随判定一起删？
 5. **triage 是否能直接 `decide`**：建议否（只出报告 + 命令建议）；`watch`/`duplicate` 也不自动 apply。
-6. **工具失败事实保留期**（行数/天数）与 `dropped` 预算；阈值只放 skill 文档与部署配置。
-7. **export 是否接受 `--min-age` 查询过滤**（推荐，仍是查询参数，不是代码判定）。
+6. **工具失败保留期**（已实现 7 天 + 20k 行上限）与 `dropped` 预算；是否接受 `--min-age` 查询过滤。
 
 ## 10. 不做与红线
 
-- 不动 B 类：crash 捕获（fallback epoch / owner-claim binding / unknown 门槛）、验收门的执行时机、
-  幂等键与不可变触发器、prune marker、覆盖缺口、merging/mirror、角标四态与全部"没数据≠没问题"文案。
-- 不把 `unknown` 归一化成失败；不让 skill 产出 `confirmed`；不在 renderer 做判定。
-- 不新增第三方依赖；不改 orchestration `SCHEMA_VERSION`；不改上游文件（`integration.ts` 导出名不变）。
-- 不保留 `mine`/`digest` 兼容层（决定 2）；不在本草案阶段改任何代码、跑测试、启动服务或部署。
+- 不动 B 类：crash 捕获（fallback epoch / owner-claim binding / unknown 门槛）、验收门时机、幂等键与
+  不可变触发器、prune marker、覆盖缺口、merging/mirror、角标四态与全部"没数据≠没问题"文案。
+- 不把 `unknown` 归一化成失败；不让 skill 产出 `confirmed`；不在 renderer 做判定；不改上游文件
+  （`integration.ts` 导出名不变）。
+- 不新增第三方依赖；不改 orchestration `SCHEMA_VERSION`；不保留 `mine`/`digest` 兼容层（决定 2）。
+
+## 11. 实施记录（M8-1..M8-4，均在 `issue-sediment`）
+
+- 提交：`7be087bc` M8-1（−2,446）、`7472ebb0` M8-2（−960）、`1428767b` M8-3（−1,174）；
+  本提交 M8-4（staging、append-only 状态、异步 drain、`incident archive`）是净新增。
+
+- `user_version 6 → 8`（增量表/视图）；orchestration `SCHEMA_VERSION` 未动，0 新依赖。
+- 测试：`src/main/incidents` + `src/main/ipc` + `src/cli` + preload bridge + renderer right-sidebar，
+  6,820 passed / 5 failed；5 条与基线一致（local-network 1、worktree-git-common-polling 1、
+  register-core-handlers 2、orchestration-session-caller-cli 1），无新增失败。未做：skill 本体
+  （待评审）、live NAS 演练、live 崩溃→triage→关闭闭环。
