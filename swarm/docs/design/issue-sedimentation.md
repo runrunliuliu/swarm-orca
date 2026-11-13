@@ -4,10 +4,9 @@
 - 状态：**设计（v2.8，M1–M6 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
 - 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 修复）→ v2.7（M5 BLOCK → 修复）→ v2.8（M6 BLOCK → 实体来源/显式 target → §19.8）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
-- 评审输入（同目录）：`issue-sedimentation.review-codex-ark.md`、`issue-sedimentation.review-trae.md`
-  （v1 评审，针对"Python 适配层 + 文件轮询"版本）；v2 评审另见
-  `issue-sedimentation.review-codex-ark-v2.md`、`issue-sedimentation.review-trae-v2.md`。
-- 端到端示例：`issue-sedimentation.example.md`（v1，虚构 ID；v2 落地后按实现更新）。
+- 过程材料（brief / 双方 review / 共识，逐字保留）：[`issue-sedimentation/rounds/`](issue-sedimentation/README.md)，
+  轮次索引与"每轮抓到了什么"见 [README](issue-sedimentation/README.md)。
+- 端到端示例：[`issue-sedimentation/example.md`](issue-sedimentation/example.md)（虚构 ID）。
 
 ## 0. v1 → v2 的方向变更
 
@@ -588,6 +587,9 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 
 ## 19. 决策与未决
 
+本节只留结论与摘要；每轮的 brief、双方原始评审与共识文件在
+[`issue-sedimentation/rounds/`](issue-sedimentation/README.md)，轮次表见该目录 README。
+
 ### 19.1 已拍板（2026-11-12）
 
 | 项 | 决定 |
@@ -612,7 +614,7 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | --- | --- |
 | 提交 | `916290df`（store/key/render）、`640d285f`（onPtyExit）、`5a04946a`（CLI）、`50124307`（C1/C2）、`4b92269c`（C3/C4/C5） |
 | 规模 | 31 文件 / +4927 / −1（`orca/` 内） |
-| 评审 | codex-ark、trae 各两轮；最终共识文件 `issue-sedimentation.consensus-*.md`，两份均 `VERDICT: AGREE`，无反对项 |
+| 评审 | codex-ark、trae 各两轮；共识两份 `VERDICT: AGREE`（原始文件见 `issue-sedimentation/rounds/`） |
 | 合并必改（已完成） | C1 fallback epoch、C2 owner-claim binding、C3 容量双字段与众数、C4 只读旁文件安全、C5 prune 可追溯 id |
 | 测试（外层复跑） | `src/main/incidents`：7 files / **80 tests**；CLI + runtime：4 files / **42 tests** |
 | 评审发现的真实缺陷 | 普通只读打开 WAL 库会**创建** 0 字节 `-wal` 与 32KB `-shm`（`list` 在悄悄长文件）；已改为无 `-wal` 时用 `immutable=1` |
