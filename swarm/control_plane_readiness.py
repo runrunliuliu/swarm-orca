@@ -234,7 +234,9 @@ OVERRIDE_PATH_KEYS = ("worktreeBase", "artifactRoot", "serverCli")
 
 
 def default_override_path():
-    return Path("/opt/swarm/hosts") / ("%s.json" % socket.gethostname())
+    """Where the host-local values live; a host that installs elsewhere sets the directory."""
+    directory = os.environ.get("SWARM_HOST_OVERRIDE_DIR", "/opt/swarm/hosts")
+    return Path(directory) / ("%s.json" % socket.gethostname())
 
 
 def host_override(path):

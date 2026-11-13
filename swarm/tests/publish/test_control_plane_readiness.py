@@ -1,9 +1,11 @@
 import json
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import control_plane_readiness as readiness
 from deploy import publish_control_plane as publisher
@@ -112,7 +114,11 @@ class Fixture(unittest.TestCase):
                   "artifacts": None,
                   "require_pin": False}
         values.update(overrides)
-        return readiness.report(SimpleNamespace(**values))
+        # The default override path is host state: point it at an empty directory so a real
+        # /opt/swarm/hosts file cannot decide what these assertions see.
+        with mock.patch.dict(os.environ,
+                             {"SWARM_HOST_OVERRIDE_DIR": str(self.temporary() / "no-hosts")}):
+            return readiness.report(SimpleNamespace(**values))
 
 
 class ReadinessTests(Fixture):
@@ -215,7 +221,6 @@ class ReadinessTests(Fixture):
                  "swarmOrcaCommit": "c", "swarmOrcaBranch": "d",
                  "dirty": True, "dirtyPaths": ["M docs/README.md"], "unpinned": False}
         artifacts = self.temporary()
-        from unittest import mock
         with mock.patch.object(publisher, "source_state", return_value=dirty):
             self.assertEqual(publisher.main(["publish", "--source-root", str(self.source()),
                                              "--artifact-root", str(artifacts),
