@@ -34,6 +34,8 @@ import type {
 } from '../../shared/incident-api-types'
 import { readIncidentCounts as readIncidentCountsFrom } from '../incidents/incident-counts'
 import { startIncidentCountsPush } from './incident-counts-push'
+import { readIncidentStallsView, readIncidentToolErrorsView } from './incident-gray-views'
+import { readIncidentRemoteMirror } from './incident-mirror-coverage'
 
 /** The push channel the preload bridge listens on (`incidents.onCountsChanged`). */
 export const INCIDENT_COUNTS_CHANGED_CHANNEL = 'incidents:countsChanged'
@@ -58,6 +60,7 @@ function listItem(item: IncidentListItem): IncidentSnapshotDto['incidents'][numb
     facet: item.facet,
     hostId: item.hostId,
     worktreeId: item.worktreeId,
+    agentSessionId: item.agentSessionId,
     status: item.status as IncidentStatusDto,
     effectiveStatus: item.effectiveStatus as IncidentStatusDto,
     exitCause: item.exitCause,
@@ -142,12 +145,18 @@ export function readIncidentSnapshot(
     ...(status === undefined ? {} : { status }),
     ...(incidentClass === undefined ? {} : { class: incidentClass })
   })
+  const remoteMirror = readIncidentRemoteMirror(runtime.db)
   return {
     ok: true,
     value: {
       incidents: result.incidents.map(listItem),
       total: result.total,
-      coverage: result.coverage
+      // The mirror's coverage is attached here, not computed: absent means "not reported by this
+      // build", which the panel renders as a stated fact rather than as completeness (M7-C).
+      coverage:
+        remoteMirror === undefined
+          ? result.coverage
+          : { ...result.coverage, remoteMirror }
     }
   }
 }
@@ -253,6 +262,10 @@ export function registerIncidentHandlers(): void {
   ipcMain.handle('incidents:counts', (_event, request: IncidentCountsRequest | undefined) =>
     readIncidentCountsSnapshot(request)
   )
+  // Why read-only handlers here: the grayscale tables are diagnostics the panel may only look at
+  // (§7.2/§7.3). Nothing on this path can write, so offering it over IPC cannot turn a write switch on.
+  ipcMain.handle('incidents:stalls', () => readIncidentStallsView())
+  ipcMain.handle('incidents:toolErrors', () => readIncidentToolErrorsView())
   // Why here: this is the one place the incident surface is attached to the window, so it is the one
   // place the store's change signal has somewhere to go. Idempotent, so a re-registration replaces
   // the subscription instead of doubling every notification.

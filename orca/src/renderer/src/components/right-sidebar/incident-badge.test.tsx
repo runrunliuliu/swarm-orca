@@ -66,6 +66,18 @@ function counts(overrides: Partial<IncidentCountsDto> = {}): IncidentCountsDto {
   }
 }
 
+/**
+ * The DTO the main process produces for a latched store: `gap` is true *because* the latch is set.
+ * Kept as its own helper so a test can never accidentally encode the old split-brain (latch set but
+ * `gap` false), which is a shape the producer no longer emits.
+ */
+function latchedCounts(overrides: Partial<IncidentCountsDto> = {}): IncidentCountsDto {
+  return counts({
+    ...overrides,
+    coverage: { ...counts(overrides).coverage, capacityLatchSet: true, gap: true }
+  })
+}
+
 async function renderNode(node: React.ReactElement): Promise<HTMLElement> {
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -78,17 +90,115 @@ async function renderNode(node: React.ReactElement): Promise<HTMLElement> {
 }
 
 describe('incidentBadgeFromCounts', () => {
-  it('draws nothing when there is nothing untriaged or no reading yet', () => {
+  it('draws nothing when there is nothing untriaged and nothing incomplete', () => {
     expect(incidentBadgeFromCounts(null)).toBeNull()
     expect(incidentBadgeFromCounts(undefined)).toBeNull()
     expect(incidentBadgeFromCounts(counts({ untriaged: 0 }))).toBeNull()
+  })
+
+  it('draws a digit-free indicator when the count is zero but a local hole exists', () => {
+    // The trap: `0` plus an incomplete store must not be silent, and must not claim "0 incidents".
+    const zeroWithLatch = incidentBadgeFromCounts(latchedCounts({ untriaged: 0 }))
+    expect(zeroWithLatch).toEqual({
+      count: 0,
+      tone: 'caution',
+      localGap: true,
+      remoteGap: false,
+      showCount: false,
+      label: 'a past capacity stop may have dropped incidents'
+    })
+
+    const zeroWithReplay = incidentBadgeFromCounts(
+      counts({ untriaged: 0, coverage: { ...counts().coverage, gap: true } })
+    )
+    expect(zeroWithReplay?.showCount).toBe(false)
+    expect(zeroWithReplay?.tone).toBe('caution')
+    expect(zeroWithReplay?.label).toBe('count may be incomplete')
+  })
+
+  it('draws a secondary digit-free indicator when only the remote view is incomplete', () => {
+    const zeroWithRemote = incidentBadgeFromCounts(
+      counts({
+        untriaged: 0,
+        coverage: {
+          ...counts().coverage,
+          remoteMirror: { capture: 'not_probed', unsynced: 2, monitored: true }
+        }
+      })
+    )
+    expect(zeroWithRemote).toEqual({
+      count: 0,
+      tone: 'alert',
+      localGap: false,
+      remoteGap: true,
+      showCount: false,
+      label: 'remote view incomplete'
+    })
   })
 
   it('is red when the count is believed complete', () => {
     expect(incidentBadgeFromCounts(counts())).toEqual({
       count: 3,
       tone: 'alert',
+      localGap: false,
+      remoteGap: false,
+      showCount: true,
       label: '3 untriaged'
+    })
+  })
+
+  it('keeps the count red and adds an outline note for a remote-only gap', () => {
+    // Arbitration option C: a remote hole is secondary. The local number is still exactly this host's
+    // fact, so the tone must stay `alert` even though the badge says more.
+    const remote = counts({
+      coverage: {
+        ...counts().coverage,
+        remoteMirror: { capture: 'not_probed', unsynced: 4, monitored: true }
+      }
+    })
+    expect(incidentBadgeFromCounts(remote)).toEqual({
+      count: 3,
+      tone: 'alert',
+      localGap: false,
+      remoteGap: true,
+      showCount: true,
+      label: '3 untriaged (remote view incomplete)'
+    })
+  })
+
+  it('does not count a peer that was never configured', () => {
+    const unconfigured = counts({
+      coverage: {
+        ...counts().coverage,
+        remoteMirror: { capture: 'unsupported', unsynced: 0, monitored: false }
+      }
+    })
+    expect(incidentBadgeFromCounts(unconfigured)).toEqual({
+      count: 3,
+      tone: 'alert',
+      localGap: false,
+      remoteGap: false,
+      showCount: true,
+      label: '3 untriaged'
+    })
+  })
+
+  it('lets a local gap win the tone while still naming the remote hole', () => {
+    const both = counts({
+      coverage: {
+        ...counts().coverage,
+        currentlyLimited: true,
+        gap: true,
+        remoteMirror: { capture: 'mirrored', unsynced: 1, monitored: true }
+      }
+    })
+    expect(incidentBadgeFromCounts(both)).toEqual({
+      count: 3,
+      tone: 'caution',
+      localGap: true,
+      remoteGap: true,
+      showCount: true,
+      label: '3 untriaged (count may be incomplete; remote view incomplete)'
     })
   })
 
@@ -99,17 +209,32 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(gap)).toEqual({
       count: 3,
       tone: 'caution',
+      localGap: true,
+      remoteGap: false,
+      showCount: true,
       label: '3 untriaged (count may be incomplete)'
     })
   })
 
-  it('reports a past capacity stop without escalating to amber', () => {
-    // History, not a current fault: the tone stays red, but the label still admits the lower bound.
-    const latched = counts({ coverage: { ...counts().coverage, capacityLatchSet: true } })
-    expect(incidentBadgeFromCounts(latched)?.tone).toBe('alert')
-    expect(incidentBadgeFromCounts(latched)?.label).toBe(
-      '3 untriaged (a past capacity stop may have dropped incidents)'
-    )
+  it('escalates a capacity latch to amber: a store that refused a write may already be missing rows', () => {
+    // §11.5 keeps `capacity_latch_set` and `currently_limited` as two fields about one hole at two
+    // times. Both make the *local* count a lower bound, so both are amber; only the wording differs —
+    // a latch is a past stop, not "refusing writes right now".
+    const latched = latchedCounts()
+    expect(incidentBadgeFromCounts(latched)).toEqual({
+      count: 3,
+      tone: 'caution',
+      localGap: true,
+      remoteGap: false,
+      showCount: true,
+      label: '3 untriaged (a past capacity stop may have dropped incidents)'
+    })
+  })
+
+  it('takes the local verdict from the DTO: gap alone is enough, no latch field needed', () => {
+    const fromDto = counts({ coverage: { ...counts().coverage, gap: true } })
+    expect(incidentBadgeFromCounts(fromDto)?.tone).toBe('caution')
+    expect(incidentBadgeFromCounts(fromDto)?.localGap).toBe(true)
   })
 
   it('caps the rendered number so a 50k-row store cannot widen the strip', () => {
@@ -128,6 +253,36 @@ describe('ActivityBarButton badge', () => {
     title: 'Incidents',
     shortcut: '',
     ...(badge === undefined || badge === null ? {} : { badge })
+  })
+
+  it('draws a secondary outline marker for a remote-only gap without changing the count colour', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(
+          incidentBadgeFromCounts(
+            counts({
+              coverage: {
+                ...counts().coverage,
+                remoteMirror: { capture: 'not_probed', unsynced: 4, monitored: true }
+              }
+            })
+          )
+        )}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    const countBadge = rendered.querySelector('[aria-hidden="true"]:not([data-incident-remote-gap])')
+    expect(countBadge?.className).toContain('bg-destructive')
+    expect(countBadge?.className).not.toContain('bg-status-warning')
+    // Outline, not a fill: the secondary marker cannot compete with the count.
+    const marker = rendered.querySelector('[data-incident-remote-gap="true"]')
+    expect(marker?.className).toContain('border-muted-foreground')
+    expect(marker?.className).toContain('bg-transparent')
+    expect(rendered.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Incidents — 3 untriaged (remote view incomplete)'
+    )
   })
 
   it('renders an amber count for a coverage gap and a red count without one', async () => {
@@ -164,6 +319,68 @@ describe('ActivityBarButton badge', () => {
     expect(gapped.querySelector('button')?.getAttribute('aria-label')).toBe(
       'Incidents — 3 untriaged (count may be incomplete)'
     )
+  })
+
+  it('renders an amber count for a capacity latch, not only for a live refusal', async () => {
+    const latched = await renderNode(
+      <ActivityBarButton
+        item={item(incidentBadgeFromCounts(latchedCounts()))}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    const badge = latched.querySelector('[aria-hidden="true"]')
+    expect(badge?.className).toContain('bg-status-warning')
+    expect(latched.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Incidents — 3 untriaged (a past capacity stop may have dropped incidents)'
+    )
+  })
+
+  it('renders a digit-free amber ring when the count is zero but a local hole exists', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(incidentBadgeFromCounts(latchedCounts({ untriaged: 0 })))}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    const indicator = rendered.querySelector('[data-incident-count-incomplete="true"]')
+    expect(indicator).not.toBeNull()
+    expect(indicator?.className).toContain('border-status-warning')
+    // No digits anywhere in the chrome: a "0" here would read as "no incidents".
+    expect(rendered.textContent ?? '').not.toMatch(/\d/)
+    expect(rendered.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Incidents — a past capacity stop may have dropped incidents'
+    )
+  })
+
+  it('renders a muted digit-free ring when only the remote view is incomplete', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(
+          incidentBadgeFromCounts(
+            counts({
+              untriaged: 0,
+              coverage: {
+                ...counts().coverage,
+                remoteMirror: { capture: 'not_probed', unsynced: 2, monitored: true }
+              }
+            })
+          )
+        )}
+        active={false}
+        onClick={vi.fn()}
+        layout="side"
+      />
+    )
+    const indicator = rendered.querySelector('[data-incident-count-incomplete="true"]')
+    expect(indicator?.className).toContain('border-muted-foreground')
+    expect(indicator?.className).not.toContain('border-status-warning')
+    expect(rendered.textContent ?? '').not.toMatch(/\d/)
+    // The secondary marker would stack on top of the dot; it must not.
+    expect(rendered.querySelector('[data-incident-remote-gap="true"]')).toBeNull()
   })
 
   it('renders no badge element when the count is zero', async () => {

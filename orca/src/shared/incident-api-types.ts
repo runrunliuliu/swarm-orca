@@ -55,6 +55,29 @@ export type IncidentStallSampleDto = {
   keyRejected: number
 }
 
+/**
+ * The remote mirror's own coverage (M7-C read model; consumed, never computed here).
+ *
+ * `capture` is the mirror's answer about *this* host's view of the peer's incidents, which is a
+ * different claim from `remoteIncidentCapture: 'unsupported'` (that one says the peer's own facts are
+ * never captured locally). Keeping them apart means a mirrored deployment does not have to rewrite
+ * the permanent-scope line, and an unprobed mirror cannot be rendered as "mirrored".
+ *
+ * Optional on purpose: absence means "this build/host has no mirror read", which a reader must treat
+ * as *not reported*, never as "nothing is missing".
+ */
+export type IncidentRemoteMirrorDto = {
+  capture: 'unsupported' | 'not_probed' | 'mirrored'
+  /** Incidents the mirror knows about but has not synchronised yet. */
+  unsynced: number
+  /**
+   * Whether this host has ever mirrored successfully, or the user explicitly put the peer in the
+   * monitored scope. A remote gap only counts when this is true: a peer that was never set up is
+   * "not configured", not "broken".
+   */
+  monitored?: boolean
+}
+
 /** §11.5: never collapse these two into one boolean again. */
 export type IncidentCoverageDto = {
   remoteIncidentCapture: 'unsupported'
@@ -70,6 +93,11 @@ export type IncidentCoverageDto = {
   }
   shadowReplay: IncidentShadowReplayDto
   stallSample: IncidentStallSampleDto
+  /**
+   * Remote-mirror coverage, when the host has a mirror read (M7-C). Absent = not reported by this
+   * build; the renderer prints it as a stated fact and does not fold it into `currentlyLimited`.
+   */
+  remoteMirror?: IncidentRemoteMirrorDto
 }
 
 export type IncidentEvidencePointerDto = {
@@ -108,6 +136,12 @@ export type IncidentListItemDto = {
   facet: string
   hostId: string
   worktreeId: string | null
+  /**
+   * The agent session this row was observed from, when the source carried one (M7-B). The list needs
+   * it for the `agent` column: a crash row without it is a pane-level fact, not an agent fact, and
+   * the panel says so rather than inventing a name.
+   */
+  agentSessionId: string | null
   /** Entry status (the immutable row's value). */
   status: IncidentStatusDto
   /** Projected from the decision log; what the UI shows. */
@@ -191,9 +225,11 @@ export type IncidentWorktreeCountDto = {
 /**
  * The coverage facts a count depends on, and nothing else (§11.5).
  *
- * `gap` is the one field a badge should branch on: it is true only while the count is *currently*
- * incomplete. `capacityLatchSet` is history and `remoteIncidentCapture` is a permanent scope limit, so
- * folding either into `gap` would leave the badge lit forever and teach everyone to ignore it.
+ * `gap` is the one field a badge should branch on: is the *local* count complete? It includes
+ * `currentlyLimited`, an unfinished shadow replay, and `capacityLatchSet` — a past refusal still means
+ * rows may be missing, so it is a lower-bound fact, not cosmetics. `remoteIncidentCapture` and the
+ * mirror stay out of it: a remote hole is graded separately (secondary) because it says the global
+ * view is incomplete, not that this host's own count is doubtful.
  */
 export type IncidentCoverageSummaryDto = {
   /** A write right now would be refused, so new incidents are not being recorded. */
@@ -206,8 +242,13 @@ export type IncidentCoverageSummaryDto = {
   shadowReplayDropped: number
   /** Counts are this host's only; SSH/WSL incidents are not captured (never will be). */
   remoteIncidentCapture: 'unsupported'
-  /** Any *current* hole above: render `untriaged` as a lower bound. */
+  /** Any *current* hole above: render `untriaged` as a lower bound. Local holes only. */
   gap: boolean
+  /**
+   * Remote-mirror coverage, when the host reports it (M7-C). Never folded into `gap`: a remote hole
+   * means the global picture is incomplete, not that this host's own records are in doubt.
+   */
+  remoteMirror?: IncidentRemoteMirrorDto
 }
 
 export type IncidentCountsRequest = {

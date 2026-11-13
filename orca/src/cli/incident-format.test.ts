@@ -159,6 +159,7 @@ describe('formatIncidentList', () => {
           facet: 'exit',
           hostId: 'host-a',
           worktreeId: 'wt-1',
+          agentSessionId: null,
           status: 'untriaged',
           effectiveStatus: 'watch',
           exitCause: { kind: 'unknown', reason: 'stop_unverified' },

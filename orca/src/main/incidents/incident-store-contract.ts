@@ -88,6 +88,8 @@ export type IncidentListItem = {
   facet: string
   hostId: string
   worktreeId: string | null
+  /** Agent session binding of the source, or null when the fact was pane/host-level (M7-B). */
+  agentSessionId: string | null
   status: IncidentStatus
   effectiveStatus: IncidentStatus
   exitCause: unknown

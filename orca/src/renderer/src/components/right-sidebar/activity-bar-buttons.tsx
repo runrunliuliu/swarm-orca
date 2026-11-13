@@ -44,9 +44,12 @@ const STATUS_DOT_COLOR: Record<CheckStatus, string> = {
 }
 
 /**
- * Count badge colours: red only when the count is believed complete, amber when coverage has a current
+ * Count badge colours: red only when the count is believed complete, amber when local coverage has a
  * gap (see `incident-badge.ts`). Theme tokens, not the raw palette the status dot above uses: a count
  * is the most prominent thing in this strip and must follow the reader's theme.
+ *
+ * A zero count with a gap is drawn as an outlined dot and *no digits*: showing "0" there would claim a
+ * completeness the label is about to deny.
  */
 const BADGE_TONE_CLASS: Record<IncidentBadge['tone'], string> = {
   alert: 'bg-destructive text-destructive-foreground',
@@ -61,16 +64,47 @@ function ActivityBarBadgeView({
   layout: 'top' | 'side'
 }): React.JSX.Element {
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'pointer-events-none absolute flex items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-[13px] tabular-nums ring-1 ring-sidebar',
-        layout === 'top' ? 'top-[3px] right-[1px] min-w-[13px]' : 'top-[3px] right-[3px] min-w-[13px]',
-        BADGE_TONE_CLASS[badge.tone]
+    <>
+      {badge.showCount ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            'pointer-events-none absolute flex items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-[13px] tabular-nums ring-1 ring-sidebar',
+            layout === 'top' ? 'top-[3px] right-[1px] min-w-[13px]' : 'top-[3px] right-[3px] min-w-[13px]',
+            BADGE_TONE_CLASS[badge.tone]
+          )}
+        >
+          {badge.count > INCIDENT_BADGE_MAX_COUNT ? `${INCIDENT_BADGE_MAX_COUNT}+` : badge.count}
+        </span>
+      ) : (
+        // Zero but incomplete: no digits. Amber ring for a local hole, muted ring when only the remote
+        // view is behind (secondary, per the M7-C arbitration). The caveat lives in the aria-label.
+        <span
+          aria-hidden="true"
+          data-incident-count-incomplete="true"
+          className={cn(
+            'pointer-events-none absolute size-[7px] rounded-full border-2 bg-transparent',
+            badge.localGap ? 'border-status-warning' : 'border-muted-foreground',
+            layout === 'top' ? 'top-[4px] right-[2px]' : 'top-[4px] right-[4px]'
+          )}
+        />
       )}
-    >
-      {badge.count > INCIDENT_BADGE_MAX_COUNT ? `${INCIDENT_BADGE_MAX_COUNT}+` : badge.count}
-    </span>
+      {/*
+        Secondary remote marker (M7-C arbitration): an outlined dot, no fill and no tone change. The
+        count above is this host's own and stays trustworthy-looking; this only says the *global* view
+        is incomplete. It is `aria-hidden` because the qualifier is already in the aria-label.
+      */}
+      {badge.remoteGap && badge.showCount && (
+        <span
+          aria-hidden="true"
+          data-incident-remote-gap="true"
+          className={cn(
+            'pointer-events-none absolute size-[6px] rounded-full border border-muted-foreground bg-transparent',
+            layout === 'top' ? 'bottom-[2px] right-[2px]' : 'bottom-[2px] right-[4px]'
+          )}
+        />
+      )}
+    </>
   )
 }
 

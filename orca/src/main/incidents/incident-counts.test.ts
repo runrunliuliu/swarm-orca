@@ -193,6 +193,24 @@ describe('readIncidentCounts', () => {
     expect(after.byClass.crash).toBe(1)
   })
 
+  it('counts a capacity latch as a local gap: a past refusal still means rows may be missing', () => {
+    const { store, opened } = openStore()
+    store.insertIncident(record())
+    // The latch is durable meta written by the capacity gate; the same flag `coverage()` reads.
+    opened.db.prepare(
+      "INSERT INTO incident_store_meta (key, value) VALUES ('capacity_limited', '1') " +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run()
+    const value = counts(store, opened)
+    // §11.5 still distinguishes the two capacity fields for wording; `gap` is the single "is the
+    // number complete?" answer, and a latch makes it a lower bound.
+    expect(value.coverage).toMatchObject({
+      capacityLatchSet: true,
+      currentlyLimited: false,
+      gap: true
+    })
+  })
+
   it('stays a floor, not a verdict, when the store reports a current coverage hole', () => {
     const { store, opened } = openStore()
     store.insertIncident(record())

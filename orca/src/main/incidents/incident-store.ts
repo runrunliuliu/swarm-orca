@@ -278,6 +278,7 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
         facet: record.facet,
         hostId: record.hostId,
         worktreeId: record.worktreeId,
+        agentSessionId: record.agentSessionId,
         status: record.status,
         effectiveStatus: String(row.effective_status) as IncidentStatus,
         exitCause: record.exitCause,
