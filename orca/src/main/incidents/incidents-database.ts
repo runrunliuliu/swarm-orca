@@ -35,8 +35,19 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
  *     read the gate" are different facts and used to share one unbounded counter (C6);
  *   * `overridden` stop state with `overridden_rules` — an operator maintenance bypass is evidence,
  *     not a silent completion (C1).
+ *
+ * v6 (M7-C) adds the remote-mirror surface (§11.1) as TWO TABLES and no column on `incidents`:
+ *   * `incident_mirror_links` — per-origin cursor and last-probe facts, plus the origin-stated count of
+ *     rows still past the cursor. These rows are what make `remote_incident_capture` distinguish
+ *     `unsupported` (nothing registered) from `not_probed` (registered, never read) from `mirrored`
+ *     (§11.1: silence must not read as "no incidents");
+ *   * `incident_mirror_rows` — provenance of a mirrored row (which origin wrote it, at which origin
+ *     seq, when it was pulled) and a prune tombstone. It is not a second dedupe: the row itself is
+ *     still written through the store, and the store's existing
+ *     `UNIQUE(source_kind, source_id, facet)` remains the only thing that decides whether a fact is
+ *     already here. Provenance only answers "was this row mirrored, and from where".
  */
-export const INCIDENTS_DB_SCHEMA_VERSION = 5
+export const INCIDENTS_DB_SCHEMA_VERSION = 6
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -103,6 +114,64 @@ CREATE TABLE IF NOT EXISTS ${PRUNE_FLAG_TABLE} (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Remote mirror links (M7-C, §11.1). One row per origin host whose incident facts this host pulls.
+--
+-- This table is *client* state about the link, never a copy of a remote fact: last_cursor is the
+-- origin's monotonic seq (the same watermark the shadow replay uses), and the probe columns are what
+-- the read model reports when a pull fails. pending_count is the origin's OWN statement of how many
+-- of its rows are still past the cursor; NULL means it did not say, and is rendered as unknown rather
+-- than 0 (§11.5's "no evidence is not zero").
+CREATE TABLE IF NOT EXISTS incident_mirror_links (
+  host_id              TEXT PRIMARY KEY,
+  last_cursor          INTEGER NOT NULL DEFAULT 0,
+  first_probe_at       INTEGER,
+  last_probe_at        INTEGER,
+  last_probe_ok        INTEGER NOT NULL DEFAULT 0,
+  last_success_at      INTEGER,
+  last_error           TEXT,
+  failure_count        INTEGER NOT NULL DEFAULT 0,
+  mirrored_count       INTEGER NOT NULL DEFAULT 0,
+  duplicate_count      INTEGER NOT NULL DEFAULT 0,
+  rejected_count       INTEGER NOT NULL DEFAULT 0,
+  dropped_count        INTEGER NOT NULL DEFAULT 0,
+  last_rejected_reason TEXT,
+  pruned_count         INTEGER NOT NULL DEFAULT 0,
+  skipped_count        INTEGER NOT NULL DEFAULT 0,
+  skipped_ranges       INTEGER NOT NULL DEFAULT 0,
+  last_skipped_reason  TEXT,
+  pending_count        INTEGER,
+  pending_at           INTEGER,
+  last_run_lines       INTEGER,
+  last_run_ms          INTEGER
+);
+
+-- Provenance of a mirrored row (M7-C). One row per incident this host pulled from an origin:
+-- incident_id -> the origin host, the origin's seq at pull time, and when it was pulled.
+--
+-- This is NOT a second dedupe table. The fact is written through the store, and the store's
+-- UNIQUE(source_kind, source_id, facet) is still what makes a re-pulled page a no-op. Provenance
+-- exists for two things the incident row cannot say: which origin exported this row (its host_id
+-- says whose fact it is, not who delivered it), and whether a fact this link saw before has since
+-- been pruned locally — a mirror must not resurrect a row an operator deleted.
+--
+-- The key columns are carried so the prune tombstone can be checked before an insert, without
+-- touching the immutable incident row — and they are UNIQUE (M7-C review C2). The lookup path
+-- decides "was this fact mirrored before", and a table that can hold two provenance rows for one
+-- fact key makes that answer ambiguous. A second dedupe it still is not: the UNIQUE here governs
+-- provenance rows, never whether a fact is inserted (that stays the incident table's key).
+CREATE TABLE IF NOT EXISTS incident_mirror_rows (
+  incident_id TEXT PRIMARY KEY,
+  source_kind TEXT NOT NULL,
+  source_id   TEXT NOT NULL,
+  facet       TEXT NOT NULL,
+  host_id     TEXT NOT NULL,
+  origin_seq  INTEGER NOT NULL,
+  pulled_at   INTEGER NOT NULL,
+  UNIQUE(source_kind, source_id, facet)
+);
+CREATE INDEX IF NOT EXISTS idx_incident_mirror_rows_host
+  ON incident_mirror_rows(host_id, origin_seq);
 
 -- The projection §6.2 asks for. A view, not a table: a mutable shadow copy would be a second place
 -- for the effective status to be wrong, and this one cannot drift from the decision log.

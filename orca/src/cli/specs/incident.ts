@@ -167,6 +167,20 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'mirror'],
+    group: 'diagnostic',
+    summary: 'Show the remote mirror link state (read-only; never writes an incident)',
+    usage: 'orca incident mirror [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    examples: ['orca incident mirror', 'orca incident mirror --json'],
+    notes: [
+      'The host that owns a PTY writes its own incidents; this host only mirrors what an origin exported. remote_capture has three states: unsupported = no origin host is registered with this store, not_probed = registered but never read (treat its incidents as unknown, never as zero), mirrored = at least one origin has been read.',
+      'unsynced is the origin\'s own statement of how many of its rows are still past the cursor, kept from the last time it spoke; unknown means the origin never said. unreachable counts origins whose most recent probe failed.',
+      'Rows refused because this host already owns the fact key, and rows an operator pruned, are counted rather than hidden: one fact is one row, and a mirror never resurrects a deleted one.',
+      'Pulling happens in the runtime (startup and reconnect); this command only reports the link rows and never opens a remote connection.'
+    ]
+  },
+  {
     path: ['incident', 'acceptance', 'list'],
     group: 'diagnostic',
     summary: 'List dispatch acceptance rules, gates and stops (read-only)',
