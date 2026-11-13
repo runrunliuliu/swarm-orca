@@ -24,22 +24,22 @@ vi.mock('electron', () => ({
 const { incidentApi } = await import('./api/incident-bridge')
 
 describe('incident preload bridge', () => {
-  it('maps snapshot/detail/decide/counts/stalls/toolErrors onto the registered channels', async () => {
+  it('maps snapshot/detail/decide/counts/paneClocks/toolFailures onto the registered channels', async () => {
     await incidentApi.snapshot({ limit: 5 })
     await incidentApi.detail({ incidentId: 'inc_1' })
     await incidentApi.decide({ incidentId: 'inc_1', toStatus: 'watch', reason: 'r' })
     await incidentApi.counts({ topWorktrees: 3 })
-    // M7-B: the grayscale tables are their own read-only channels, so a panel refresh cannot silently
-    // reach a write path.
-    await incidentApi.stalls()
-    await incidentApi.toolErrors()
+    // The fact tables are their own read-only channels, so a panel refresh cannot silently reach a
+    // write path.
+    await incidentApi.paneClocks()
+    await incidentApi.toolFailures()
     expect(invoke.mock.calls.map(([channel]) => channel)).toEqual([
       'incidents:snapshot',
       'incidents:detail',
       'incidents:decide',
       'incidents:counts',
-      'incidents:stalls',
-      'incidents:toolErrors'
+      'incidents:paneClocks',
+      'incidents:toolFailures'
     ])
     expect(invoke.mock.calls[0][1]).toEqual({ limit: 5 })
     expect(invoke.mock.calls[2][1]).toMatchObject({ incidentId: 'inc_1', toStatus: 'watch' })

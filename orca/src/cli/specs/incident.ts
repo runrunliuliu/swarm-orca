@@ -110,19 +110,18 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
-    path: ['incident', 'tool-errors'],
+    path: ['incident', 'tool-failures'],
     group: 'diagnostic',
-    summary: 'Show the tool-error sliding windows (read-only; never writes an incident)',
-    usage: 'orca incident tool-errors [--json]',
-    allowedFlags: [...GLOBAL_FLAGS],
-    examples: ['orca incident tool-errors', 'orca incident tool-errors --json'],
+    summary: 'Show recorded failed tool calls as raw facts (no normalization, no window, no verdict)',
+    usage: 'orca incident tool-failures [--since 24h|7d|90m] [--limit <n>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'since', 'limit'],
+    examples: ['orca incident tool-failures', 'orca incident tool-failures --since 7d --json'],
     notes: [
-      'Per session + TURN + tool + normalized code: the current count, the window span, and whether a write-enabled collector would record it. A new turn starts a new window.',
-      'Normalized codes: permission_denied, path_not_found, command_not_found, timeout, non_zero_exit, tool_schema, network, unknown. permission_denied is the high-severity single-hit code.',
-      'The original error text is never stored; windowing is in-process, so a restart resets the counts. Turns, LRU evictions and list truncation are all reported in the output.',
-      'Codes come from structured evidence: a provider-stamped refusal kind, or a structured non-zero exit code. Text-only matches are recorded as unknown with a low-confidence hint and never open a candidate on their own.',
-      'Coverage is partial: only claude and codex write through the structured session sink; every other agent is listed as a coverage gap, so silence there is not health.',
-      'Default mode writes zero incident ROWS but still publishes this snapshot (INCIDENT_TOOL_ERROR_WRITE=on in the host process to write rows; this command never writes).'
+      'One row per failed tool call: session, turn, tool, the provider-stamped errorKind and/or exit code, and when it was observed. No text is stored.',
+      'Orca does not normalize the error, count a window or decide severity any more: those are triage questions. Clustering and "is this worth fixing" belong to the incident-triage skill.',
+      'Coverage is partial and stated: only claude and codex write through the structured session sink; every other agent is listed as a gap, so silence there is not health.',
+      'dropped is a floor warning: rows refused by the store cap or lost to an insert failure are counted, never silently discarded.',
+      'Read-only: the store is opened without writing or migrating.'
     ]
   },
   {

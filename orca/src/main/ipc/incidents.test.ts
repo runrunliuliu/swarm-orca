@@ -283,7 +283,7 @@ describe('registerIncidentHandlers', () => {
       // no write path (see incident-gray-views.test.ts).
       'incidents:paneClocks',
       'incidents:snapshot',
-      'incidents:toolErrors'
+      'incidents:toolFailures'
     ])
     const store = realStore()
     store.insertIncident(record())

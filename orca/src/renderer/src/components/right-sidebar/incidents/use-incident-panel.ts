@@ -22,7 +22,7 @@ import type {
 } from '../../../../../shared/incident-api-types'
 import type {
   IncidentPaneClocksViewDto,
-  IncidentToolErrorsViewDto
+  IncidentToolFailuresViewDto
 } from '../../../../../shared/incident-gray-types'
 import type { IncidentDecideReply } from './IncidentTriageActions'
 
@@ -263,8 +263,8 @@ export function useIncidentPaneClocks(
   return useIncidentGrayView<IncidentPaneClocksViewDto>(active, (bridge) => bridge.paneClocks())
 }
 
-export function useIncidentToolErrors(
+export function useIncidentToolFailures(
   active: boolean
-): GrayState<IncidentToolErrorsViewDto> & { reload: () => void } {
-  return useIncidentGrayView<IncidentToolErrorsViewDto>(active, (bridge) => bridge.toolErrors())
+): GrayState<IncidentToolFailuresViewDto> & { reload: () => void } {
+  return useIncidentGrayView<IncidentToolFailuresViewDto>(active, (bridge) => bridge.toolFailures())
 }

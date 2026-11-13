@@ -16,9 +16,8 @@ import {
 } from '../incidents/incident-writer'
 import { replacePaneClocks } from '../incidents/incident-pane-clocks'
 import { samplePaneClocks } from '../incidents/incidents-stall-sampler'
-import { writeMeta } from '../incidents/incident-store-meta'
-import { TOOL_ERROR_WINDOWS_META } from '../incidents/incident-tool-error-report'
-import { readIncidentPaneClocksView, readIncidentToolErrorsView } from './incident-gray-views'
+import { recordToolFailure } from '../incidents/incident-tool-failures'
+import { readIncidentPaneClocksView, readIncidentToolFailuresView } from './incident-gray-views'
 
 const directories: string[] = []
 const databases: OpenIncidentsDatabase[] = []
@@ -90,72 +89,50 @@ describe('readIncidentPaneClocksView', () => {
   })
 })
 
-describe('readIncidentToolErrorsView', () => {
-  it('returns the published windows with written/would-write kept apart and the provider gap stated', () => {
+describe('readIncidentToolFailuresView', () => {
+  it('returns the raw facts and states the provider gap', () => {
     const { opened } = configuredStore()
-    writeMeta(
-      opened.db,
-      TOOL_ERROR_WINDOWS_META,
-      JSON.stringify({
-        updatedAt: 1_700_000_000_000,
-        writeEnabled: false,
-        published: 2,
-        total: 3,
-        evicted: 1,
-        windows: [
-          {
-            sessionId: 'sess-1',
-            turn: 'turn-1',
-            toolName: 'bash',
-            code: 'non_zero_exit',
-            count: 5,
-            windowStart: 1_699_999_000_000,
-            lastAt: 1_700_000_000_000,
-            highSeverity: false,
-            wouldWriteIfEnabled: true,
-            written: false
-          },
-          {
-            sessionId: 'sess-1',
-            turn: 'turn-2',
-            toolName: 'edit',
-            code: 'permission_denied',
-            count: 1,
-            windowStart: 1_699_999_500_000,
-            lastAt: 1_700_000_000_000,
-            highSeverity: true,
-            wouldWriteIfEnabled: true,
-            written: true
-          }
-        ]
-      })
-    )
+    recordToolFailure(opened.db, {
+      sessionId: 'sess-1',
+      itemKey: 'item-1',
+      ordinal: 0,
+      turn: 'turn-1',
+      toolName: 'bash',
+      errorKind: null,
+      exitCode: 2,
+      observedAt: Date.now()
+    })
 
-    const result = readIncidentToolErrorsView()
+    const result = readIncidentToolFailuresView()
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
     }
-    expect(result.value.published).toBe(2)
-    expect(result.value.total).toBe(3)
-    expect(result.value.evicted).toBe(1)
-    expect(result.value.windows.map((window) => window.written)).toEqual([false, true])
-    expect(result.value.windows[1]).toMatchObject({ code: 'permission_denied', highSeverity: true })
+    expect(result.value.total).toBe(1)
+    expect(result.value.rows[0]).toMatchObject({
+      sessionId: 'sess-1',
+      toolName: 'bash',
+      errorKind: null,
+      exitCode: 2
+    })
+    expect(result.value.rows[0]).not.toHaveProperty('code')
+    expect(result.value.rows[0]).not.toHaveProperty('written')
     // Coverage is a claim: an uncovered provider must be named, not implied away.
     expect(result.value.coveredProviders).toContain('claude')
     expect(result.value.coveredProviders).toContain('codex')
     expect(result.value.uncoveredProviders).toContain('pi')
   })
 
-  it('reports an unpublished snapshot as empty rather than as an error', () => {
+  it('reports an empty store as empty, never as an error', () => {
     configuredStore()
-    const result = readIncidentToolErrorsView()
+    const result = readIncidentToolFailuresView()
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
     }
-    expect(result.value.updatedAt).toBeNull()
-    expect(result.value.windows).toEqual([])
+    expect(result.value.rows).toEqual([])
+    expect(result.value.total).toBe(0)
+    expect(result.value.dropped).toBe(0)
   })
 })
 
@@ -166,7 +143,7 @@ describe('unavailable store', () => {
       ok: false,
       code: 'incident_store_unavailable'
     })
-    expect(readIncidentToolErrorsView()).toMatchObject({
+    expect(readIncidentToolFailuresView()).toMatchObject({
       ok: false,
       code: 'incident_store_unavailable'
     })

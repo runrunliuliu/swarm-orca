@@ -10,8 +10,8 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IncidentPaneClocksTable, IncidentToolErrorsTable } from './IncidentGrayTables'
-import { paneClocksViewFixture, toolErrorsViewFixture } from './incident-panel-fixtures'
+import { IncidentPaneClocksTable, IncidentToolFailuresTable } from './IncidentGrayTables'
+import { paneClocksViewFixture, toolFailuresViewFixture } from './incident-panel-fixtures'
 
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string, options?: Record<string, unknown>) =>
@@ -73,39 +73,39 @@ describe('IncidentPaneClocksTable', () => {
   })
 })
 
-describe('IncidentToolErrorsTable', () => {
-  it('renders an unwritten window dashed and a written window as a recorded incident', async () => {
-    const container = await render(<IncidentToolErrorsTable view={toolErrorsViewFixture()} />)
+describe('IncidentToolFailuresTable', () => {
+  it('renders raw facts as observed rows without a write switch', async () => {
+    const container = await render(<IncidentToolFailuresTable view={toolFailuresViewFixture()} />)
     const rows = [...container.querySelectorAll('[data-incident-gray-row]')]
     expect(rows.map((row) => row.getAttribute('data-incident-gray-row'))).toEqual([
       'observed',
-      'recorded'
+      'observed'
     ])
     expect(rows[0].className).toContain('border-dashed')
-    expect(rows[1].className).not.toContain('border-dashed')
-    expect(rows[0].textContent).toContain('would write (not recorded)')
-    expect(rows[1].textContent).toContain('recorded incident')
+    expect(rows[0].textContent).toContain('bash')
+    expect(rows[0].textContent).toContain('exit 2')
+    expect(rows[1].textContent).toContain('permission_denied')
+    expect(container.textContent).not.toContain('Writing incidents')
+    expect(container.textContent).not.toContain('would write')
   })
 
   it('states the provider coverage gap so silence is not read as absence', async () => {
-    const container = await render(<IncidentToolErrorsTable view={toolErrorsViewFixture()} />)
+    const container = await render(<IncidentToolFailuresTable view={toolFailuresViewFixture()} />)
     expect(container.textContent).toContain('Covered providers: claude, codex')
-    expect(container.textContent).toContain('Coverage gap: no tool-error data from pi, trae')
-    expect(container.textContent).toContain('Silence from them is not "no tool errors"')
+    expect(container.textContent).toContain('Coverage gap: no tool-failure data from pi, trae')
+    expect(container.textContent).toContain('Silence from them is not "no tool failures"')
   })
 
-  it('reports payload truncation and eviction separately', async () => {
+  it('reports read truncation and dropped rows separately', async () => {
     const container = await render(
-      <IncidentToolErrorsTable view={toolErrorsViewFixture({ published: 1, total: 4, evicted: 2 })} />
+      <IncidentToolFailuresTable view={toolFailuresViewFixture({ truncated: true, total: 4, dropped: 2 })} />
     )
-    expect(container.textContent).toContain('Showing 1 of 4 windows')
-    expect(container.textContent).toContain('2 window(s) were dropped')
+    expect(container.textContent).toContain('Showing 2 of 4 rows')
+    expect(container.textContent).toContain('2 failed call(s) were dropped')
   })
 
-  it('says when the switch is on: recorded rows are then a different claim', async () => {
-    const container = await render(
-      <IncidentToolErrorsTable view={toolErrorsViewFixture({ writeEnabled: true })} />
-    )
-    expect(container.textContent).toContain('Writing incidents: on in this host process')
+  it('says when nothing has been recorded instead of rendering an empty table', async () => {
+    const container = await render(<IncidentToolFailuresTable view={toolFailuresViewFixture({ rows: [], total: 0 })} />)
+    expect(container.textContent).toContain('No failed tool call has been recorded')
   })
 })

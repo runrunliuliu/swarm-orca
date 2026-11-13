@@ -1,6 +1,6 @@
 // The two grayscale read-only views over IPC (§7.2, §7.3; M7-B).
 //
-// These are projections, not new judgement: `readPaneClocks` / `readToolErrorWindows` are the exact
+// These are projections, not new judgement: `readPaneClocks` / `readToolFailures` are the exact
 // functions `orca incident pane-clocks` and `orca incident tool-errors` already call. The pane-clock
 // view carries facts only (M8-2 removed the threshold and the verdict); the tool-error view still
 // reports its collector switch until M8-3. Neither view can make anything recorded.
@@ -13,16 +13,13 @@ import type { IncidentIpcResult } from './incidents'
 import { incidentRuntimeStore } from '../incidents/incident-writer'
 import { readPaneClocks } from '../incidents/incident-pane-clocks'
 import {
-  readToolErrorWindows,
-  toolErrorWriteEnabled
-} from '../incidents/incident-tool-error-observer'
-import {
   TOOL_ERROR_COVERED_PROVIDERS,
   TOOL_ERROR_UNCOVERED_PROVIDERS
 } from '../incidents/incident-tool-error-coverage'
+import { readToolFailures } from '../incidents/incident-tool-failures'
 import type {
   IncidentPaneClocksViewDto,
-  IncidentToolErrorsViewDto
+  IncidentToolFailuresViewDto
 } from '../../shared/incident-gray-types'
 
 function unavailable<T>(): IncidentIpcResult<T> {
@@ -55,37 +52,30 @@ export function readIncidentPaneClocksView(): IncidentIpcResult<IncidentPaneCloc
 }
 
 /**
- * `orca incident tool-errors` over IPC: the published window snapshot plus the switch's live value.
+ * `orca incident tool-failures` over IPC: the raw recorded facts plus the provider coverage.
  *
- * `writeEnabled` is the host process's environment when this process is the host, and the published
- * value otherwise — the same rule the CLI applies. It reports the switch; it never sets it.
+ * No switch, no window, no `written` flag: M8-3 removed the writer and the normalisation, so every row
+ * here is a fact and the panel cannot imply that a row is (or is about to become) an incident.
  */
-export function readIncidentToolErrorsView(): IncidentIpcResult<IncidentToolErrorsViewDto> {
+export function readIncidentToolFailuresView(): IncidentIpcResult<IncidentToolFailuresViewDto> {
   const runtime = incidentRuntimeStore()
   if (runtime === null) {
     return unavailable()
   }
-  const snapshot = readToolErrorWindows(runtime.db)
+  const now = Date.now()
+  const snapshot = readToolFailures(runtime.db, {
+    now,
+    windowMs: 7 * 24 * 60 * 60 * 1000,
+    limit: 200
+  })
   return {
     ok: true,
     value: {
-      updatedAt: snapshot.updatedAt,
-      writeEnabled: snapshot.writeEnabled || toolErrorWriteEnabled(),
-      published: snapshot.published,
+      since: snapshot.since,
+      rows: snapshot.rows,
       total: snapshot.total,
-      evicted: snapshot.evicted,
-      windows: snapshot.windows.map((window) => ({
-        sessionId: window.sessionId,
-        turn: window.turn,
-        toolName: window.toolName,
-        code: window.code,
-        count: window.count,
-        windowStart: window.windowStart,
-        lastAt: window.lastAt,
-        highSeverity: window.highSeverity,
-        wouldWriteIfEnabled: window.wouldWriteIfEnabled,
-        written: window.written
-      })),
+      truncated: snapshot.truncated,
+      dropped: snapshot.dropped,
       coveredProviders: [...TOOL_ERROR_COVERED_PROVIDERS],
       uncoveredProviders: [...TOOL_ERROR_UNCOVERED_PROVIDERS]
     }

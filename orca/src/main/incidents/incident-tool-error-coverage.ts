@@ -20,12 +20,6 @@ export const TOOL_ERROR_UNCOVERED_PROVIDERS = [
  * cannot drop one silently.
  */
 export const TOOL_ERROR_COVERAGE_NOTES = [
-  'High severity (single hit) requires a structured provider refusal kind; no provider stamps one yet, so permission_denied is unreachable in practice until a translation does.',
-  'Text-only matches are recorded as unknown with a low-confidence hint and never open a candidate on their own.',
-  'unknown and non_zero_exit have no separate noise quota this milestone: observe them in default mode before enabling INCIDENT_TOOL_ERROR_WRITE.'
+  'Rows are raw facts: the provider-stamped errorKind (if any) and/or exit code. Orca does not normalize them, window them, or decide severity.',
+  'Only claude and codex write through the structured session sink; every other agent is a declared coverage gap, so silence there is not health.'
 ] as const
-
-/** Precondition for turning the switch on, stated where an operator reads it. */
-export const TOOL_ERROR_WRITE_PRECONDITION =
-  'Before INCIDENT_TOOL_ERROR_WRITE=on: run `orca incident tool-errors` for a while and confirm the ' +
-  'unknown/non_zero_exit windows are not wall-to-wall; those two codes have no quota yet.'

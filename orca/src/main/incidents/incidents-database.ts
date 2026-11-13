@@ -257,6 +257,24 @@ CREATE TABLE IF NOT EXISTS incident_pane_clocks (
   observed_at            INTEGER NOT NULL
 );
 
+-- Failed tool calls (M8-3). Raw facts only: the provider's own errorKind/exitCode, no normalized
+-- code, no window, no severity. Primary key is the journal item's own identity, so a repeated
+-- notification is a no-op. Rows are pruned by age and capped by count; the cap's refusals are counted
+-- in meta (tool_failure_dropped) instead of being silently discarded.
+CREATE TABLE IF NOT EXISTS incident_tool_failures (
+  session_id  TEXT NOT NULL,
+  item_key    TEXT NOT NULL,
+  ordinal     INTEGER NOT NULL,
+  turn        TEXT NOT NULL,
+  tool_name   TEXT NOT NULL,
+  error_kind  TEXT,
+  exit_code   INTEGER,
+  observed_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, item_key, ordinal)
+);
+CREATE INDEX IF NOT EXISTS idx_incident_tool_failures_observed
+  ON incident_tool_failures(observed_at);
+
 -- Dispatch acceptance (M5). Declarations live here, not in the orchestration database: they are
 -- business expectations about a dispatch, the orchestration schema is frozen at v44, and an incident is
 -- the durable proof that one failed. Each rule is independent (its own row, its own verdict).

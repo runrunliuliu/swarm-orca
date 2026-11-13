@@ -1,9 +1,9 @@
 // Extracting failed tool calls from one journal item (issue-sedimentation.md v2.5 §7.3, M4-1).
 //
 // The item body is the *structured* evidence: a failed `tool-call` item carries the tool name, the
-// state and a bounded output head; a message carries render blocks where a `tool-result` may be marked
-// `isError`. Nothing here reads transcripts, files or provider stderr — the journal already reduced
-// them to this shape, and the output head is only ever handed to the classifier.
+// state and structured fields; a message carries render blocks where a `tool-result` may be marked
+// `isError`. Nothing here reads transcripts, files or provider stderr, and M8-3 removed the output
+// head entirely: there is no classifier left to hand it to, and no text is stored.
 
 import type {
   AgentJournalItemBody,
@@ -14,8 +14,6 @@ import type { NativeChatBlock } from '../../shared/native-chat-types'
 export type ToolErrorObservation = {
   /** The tool that failed, as the provider named it. */
   toolName: string
-  /** Bounded output head for the low-confidence hint; dropped after the code is chosen. */
-  output: string
   /** Structured exit status from the journal item, when the provider supplied one. */
   exitCode: number | null
   /** Structured refusal kind stamped by the provider translation (M4-C1). */
@@ -36,7 +34,6 @@ function blockObservations(blocks: readonly NativeChatBlock[]): ToolErrorObserva
         // A failed call with no separate result block is still one error.
         observations.push({
           toolName: block.name,
-          output: '',
           exitCode: null,
           errorKind: null,
           ordinal: ordinal++
@@ -48,7 +45,6 @@ function blockObservations(blocks: readonly NativeChatBlock[]): ToolErrorObserva
       if (block.isError === true) {
         observations.push({
           toolName: pendingCall ?? 'unknown_tool',
-          output: block.output,
           exitCode: null,
           errorKind: null,
           ordinal: ordinal++
@@ -89,13 +85,11 @@ export function toolErrorObservations(
     if (body.state !== 'failed') {
       return { turn, observations: [] }
     }
-    const head = body.output?.head ?? ''
     return {
       turn,
       observations: [
         {
           toolName: body.name,
-          output: head,
           exitCode: structuredExitCode(body),
           errorKind: typeof body.errorKind === 'string' ? body.errorKind : null,
           ordinal: 0

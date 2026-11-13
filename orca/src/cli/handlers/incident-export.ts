@@ -7,6 +7,8 @@
 import type { HandlerContext } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
 import { openIncidentStore } from '../incident-store-access'
+import { readPaneClocks } from '../../main/incidents/incident-pane-clocks'
+import { clampToolFailureLimit, readToolFailures } from '../../main/incidents/incident-tool-failures'
 import {
   DEFAULT_EXPORT_WINDOW_MS,
   INCIDENT_EXPORT_VERSION,
@@ -85,12 +87,38 @@ export async function exportIncident(ctx: HandlerContext): Promise<void> {
     for (const row of result.rows) {
       console.log(JSON.stringify({ kind: 'incident', ...row }))
     }
+    const paneClocks = opened.db === null ? [] : readPaneClocks(opened.db, Date.now())
+    for (const row of paneClocks) {
+      console.log(JSON.stringify({ kind: 'pane_clock', ...row }))
+    }
+    const toolFailures =
+      opened.db === null
+        ? { rows: [], total: 0, truncated: false, dropped: 0 }
+        : readToolFailures(opened.db, {
+            now: Date.now(),
+            windowMs: result.windowMs,
+            limit: clampToolFailureLimit(limitRaw ?? 200)
+          })
+    for (const row of toolFailures.rows) {
+      console.log(JSON.stringify({ kind: 'tool_failure', ...row }))
+    }
     console.log(
       JSON.stringify({
         kind: 'end',
-        counts: { incident: result.rows.length },
-        total: { incident: result.total },
-        truncated: { incident: result.truncated }
+        counts: {
+          incident: result.rows.length,
+          pane_clock: paneClocks.length,
+          tool_failure: toolFailures.rows.length
+        },
+        total: {
+          incident: result.total,
+          tool_failure: toolFailures.total
+        },
+        truncated: {
+          incident: result.truncated,
+          tool_failure: toolFailures.truncated
+        },
+        dropped: { tool_failure: toolFailures.dropped }
       })
     )
   } finally {

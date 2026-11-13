@@ -18,7 +18,7 @@ import type {
 } from '../../shared/incident-api-types'
 import type {
   IncidentPaneClocksViewDto,
-  IncidentToolErrorsViewDto
+  IncidentToolFailuresViewDto
 } from '../../shared/incident-gray-types'
 
 export type IncidentIpcResult<T> =
@@ -44,8 +44,8 @@ export type IncidentApi = {
    */
   paneClocks: () => Promise<IncidentIpcResult<IncidentPaneClocksViewDto>>
   /**
-   * The tool-error windows (§7.3): read-only, with the provider coverage that bounds what silence
-   * means, and `written` to tell a recorded incident from an observation.
+   * Recorded tool-call failures (M8-3): raw facts plus the provider coverage that bounds what silence
+   * means. No window, no normalized code, no write switch.
    */
-  toolErrors: () => Promise<IncidentIpcResult<IncidentToolErrorsViewDto>>
+  toolFailures: () => Promise<IncidentIpcResult<IncidentToolFailuresViewDto>>
 }

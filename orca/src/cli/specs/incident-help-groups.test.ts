@@ -33,7 +33,7 @@ describe('incident help grouping', () => {
 
   it('keeps diagnostic and maintenance commands out of the daily section', () => {
     const diagnosticSection = help.slice(help.indexOf('Diagnostic:'), help.indexOf('Maintenance:'))
-    expect(diagnosticSection).toContain('tool-errors')
+    expect(diagnosticSection).toContain('tool-failures')
     expect(diagnosticSection).toContain('pane-clocks')
     const maintenanceSection = help.slice(help.indexOf('Maintenance:'))
     expect(maintenanceSection).toContain('prune')

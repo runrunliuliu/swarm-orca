@@ -16,7 +16,7 @@ import { createIncidentStore, type IncidentStore } from '../../main/incidents/in
 import { incidentsDatabaseFileFor } from '../../main/incidents/incidents-paths'
 import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
 import { samplePaneClocks } from '../../main/incidents/incidents-stall-sampler'
-import { writeMeta } from '../../main/incidents/incident-store-meta'
+import { recordToolFailure } from '../../main/incidents/incident-tool-failures'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
 import {
   declareAcceptanceRule,
@@ -361,59 +361,53 @@ describe('incident pane-clocks (M8-2)', () => {
   })
 })
 
-describe('incident tool-errors (M4-1)', () => {
-  it('reports an empty window set instead of failing on a host with no store', async () => {
-    const shown = context('incident tool-errors')
-    await INCIDENT_HANDLERS['incident tool-errors'](shown.ctx)
+describe('incident tool-failures (M8-3)', () => {
+  it('reports an empty fact set instead of failing on a host with no store', async () => {
+    const shown = context('incident tool-failures')
+    await INCIDENT_HANDLERS['incident tool-failures'](shown.ctx)
     const text = shown.output.join('\n')
-    expect(text).toContain('No tool-error window')
-    expect(text).toContain('this command never writes')
+    expect(text).toContain('No failed tool calls recorded')
     expect(text).toContain('Coverage: covered=claude,codex')
-    expect(text).toContain('Coverage gap: no tool-error data from')
-    expect(text).toContain('zero incident ROWS')
+    expect(text).toContain('Coverage gap: no tool-failure data from')
   })
 
-  it('shows the published windows with the count and the would-write verdict', async () => {
+  it('shows raw facts with the provider fields and no normalized code', async () => {
     const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
     try {
-      writeMeta(
-        opened.db,
-        'tool_error_windows',
-        JSON.stringify({
-          updatedAt: 1_700_000_000_000,
-          writeEnabled: false,
-          windows: [
-            {
-              sessionId: 'sess-1',
-              turn: 'turn-1',
-              toolName: 'Bash',
-              code: 'non_zero_exit',
-              count: 5,
-              windowStart: 1_699_999_700_000,
-              lastAt: 1_700_000_000_000,
-              highSeverity: false,
-              wouldWriteIfEnabled: true,
-              written: false,
-              lastTurn: 'turn-1'
-            }
-          ]
-        })
-      )
+      recordToolFailure(opened.db, {
+        sessionId: 'sess-1',
+        itemKey: 'item-1',
+        ordinal: 0,
+        turn: 'turn-1',
+        toolName: 'Bash',
+        errorKind: 'permission_denied',
+        exitCode: null,
+        observedAt: Date.now()
+      })
     } finally {
       opened.db.close()
     }
-    const shown = context('incident tool-errors', {}, true)
-    await INCIDENT_HANDLERS['incident tool-errors'](shown.ctx)
+    const shown = context('incident tool-failures', {}, true)
+    await INCIDENT_HANDLERS['incident tool-failures'](shown.ctx)
     const payload = JSON.parse(shown.output.join('\n')) as {
-      windows: { code: string; count: number; wouldWriteIfEnabled: boolean }[]
+      rows: { toolName: string; errorKind: string | null; exitCode: number | null }[]
     }
-    expect(payload.windows[0]).toMatchObject({
-      code: 'non_zero_exit',
-      count: 5,
-      wouldWriteIfEnabled: true,
-      turn: 'turn-1'
+    expect(payload.rows[0]).toMatchObject({
+      toolName: 'Bash',
+      errorKind: 'permission_denied',
+      exitCode: null
     })
+    expect(payload.rows[0]).not.toHaveProperty('code')
     expect(store().countIncidents()).toBe(0)
+  })
+
+  it('rejects an unparseable --since and a non-positive --limit', async () => {
+    await expect(
+      INCIDENT_HANDLERS['incident tool-failures'](context('incident tool-failures', { since: 'yesterday' }).ctx)
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+    await expect(
+      INCIDENT_HANDLERS['incident tool-failures'](context('incident tool-failures', { limit: '0' }).ctx)
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
   })
 })
 

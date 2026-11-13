@@ -1,21 +1,17 @@
-// The two grayscale read-only tables (§17 #18/#19 row, §12; M7-B).
+// The two read-only fact tables (formerly the "grayscale" tables; M8-2/M8-3).
 //
-// Both tables are wrapped in a dashed, muted surface with a standing sentence that says what the rows
-// are: observations from a collector whose write switch is off by default. A row that *was* recorded
-// (`written: true`, tool errors only) breaks out of that treatment with a solid border and a "recorded
-// incident" chip, so the two states are distinguishable at a glance and without reading the copy.
+// After the subtraction both tables show FACTS the host recorded — pane event clocks and failed tool
+// calls — and neither carries a verdict, a threshold, a window or a write switch. The dashed treatment
+// and the standing sentence say one thing that is still true: a row here is not an accident record.
 //
-// Neither table offers an action. These are diagnostics you read before deciding whether to turn a
-// write switch on; the panel cannot turn it on, and offering a button here would imply it could.
+// Neither table offers an action. Deciding what a row means is a triage question outside Orca.
 
 import { AlertTriangle } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import type {
   IncidentPaneClocksViewDto,
-  IncidentToolErrorsViewDto
+  IncidentToolFailuresViewDto
 } from '../../../../../shared/incident-gray-types'
-import { paneClockRowKind, toolErrorTruncation, toolErrorWindowKind } from './incident-gray-model'
 
 function Minutes({ ms }: { ms: number }): React.JSX.Element {
   return <span className="tabular-nums">{Math.round(ms / 60_000)}m</span>
@@ -46,20 +42,6 @@ function ObservedChrome({
   )
 }
 
-function WriteSwitch({ enabled }: { enabled: boolean }): React.JSX.Element {
-  return (
-    <p className="text-[10px]">
-      {enabled
-        ? translate('auto.components.right.sidebar.incidents.IncidentGrayTables.e0e9fb16cf',
-            'Writing incidents: on in this host process. Rows marked recorded have a stored incident.'
-          )
-        : translate('auto.components.right.sidebar.incidents.IncidentGrayTables.08a8f679fc',
-            'Writing incidents: off in this host process. Nothing below has produced an incident row.'
-          )}
-    </p>
-  )
-}
-
 export function IncidentPaneClocksTable({
   view
 }: {
@@ -87,7 +69,7 @@ export function IncidentPaneClocksTable({
           {view.rows.map((row) => (
             <li
               key={row.paneKey}
-              data-incident-gray-row={paneClockRowKind(row)}
+              data-incident-gray-row="observed"
               className="rounded border border-dashed border-border/70 px-2 py-1 text-[10px] text-muted-foreground"
             >
               <div className="flex flex-wrap items-center gap-x-2">
@@ -136,37 +118,36 @@ export function IncidentPaneClocksTable({
   )
 }
 
-export function IncidentToolErrorsTable({
+export function IncidentToolFailuresTable({
   view
 }: {
-  view: IncidentToolErrorsViewDto
+  view: IncidentToolFailuresViewDto
 }): React.JSX.Element {
-  const truncation = toolErrorTruncation(view)
+  const iso = (ms: number): string => new Date(ms).toISOString()
   return (
     <ObservedChrome
       label={translate('auto.components.right.sidebar.incidents.IncidentGrayTables.05dd715ac5',
-        'Observed tool errors (not recorded)'
+        'Recorded tool failures (facts)'
       )}
     >
       <p className="text-[10px]">
         {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.3ffb9723e7',
-          'Per-turn windows from the structured session collector. The threshold and severity rules stay in the host process.'
+          'One row per failed tool call: session, turn, tool and the provider-stamped errorKind/exit code. No normalization, no window and no severity — those are triage questions now.'
         )}
       </p>
-      <WriteSwitch enabled={view.writeEnabled} />
-      {truncation.payloadTruncated && (
+      {view.truncated && (
         <p className="text-[10px] text-status-warning">
           {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.2c3641754f',
-            'Showing {{published}} of {{total}} windows: the payload is capped, the rest are counted but not listed.',
-            { published: view.published, total: view.total }
+            'Showing {{shown}} of {{total}} rows: the read is capped, the rest are counted but not listed.',
+            { shown: view.rows.length, total: view.total }
           )}
         </p>
       )}
-      {truncation.evicted && (
+      {view.dropped > 0 && (
         <p className="text-[10px] text-status-warning">
           {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.00a3a930ba',
-            '{{evicted}} window(s) were dropped by the in-process bound; those counts are lost.',
-            { evicted: view.evicted }
+            '{{dropped}} failed call(s) were dropped by the store cap or an insert failure; the row count is a floor.',
+            { dropped: view.dropped }
           )}
         </p>
       )}
@@ -178,66 +159,35 @@ export function IncidentToolErrorsTable({
       </p>
       <p className="text-[10px]">
         {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.4f8b2f1488',
-          'Coverage gap: no tool-error data from {{list}}. Silence from them is not "no tool errors".',
+          'Coverage gap: no tool-failure data from {{list}}. Silence from them is not "no tool failures".',
           { list: view.uncoveredProviders.join(', ') || '—' }
         )}
       </p>
-      {view.updatedAt === null ? (
+      {view.rows.length === 0 ? (
         <p className="text-[11px]">
           {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.8f749047f1',
-            'No tool-error window has been observed on this host yet.'
+            'No failed tool call has been recorded on this host in this window.'
           )}
         </p>
       ) : (
         <ul className="space-y-1">
-          {view.windows.map((window) => {
-            const kind = toolErrorWindowKind(window)
-            return (
-              <li
-                key={`${window.sessionId}:${window.turn}:${window.toolName}:${window.code}:${window.windowStart}`}
-                data-incident-gray-row={kind}
-                className={cn(
-                  'rounded border px-2 py-1 text-[10px]',
-                  kind === 'recorded'
-                    ? 'border-border bg-background text-foreground'
-                    : 'border-dashed border-border/70 text-muted-foreground'
-                )}
-              >
-                <div className="flex flex-wrap items-center gap-x-2">
-                  <span className="truncate font-mono text-foreground">
-                    {window.sessionId.slice(0, 8)}
-                  </span>
-                  <span>{window.toolName}</span>
-                  <span className="font-mono">{window.code}</span>
-                  <span className="tabular-nums">×{window.count}</span>
-                  {window.highSeverity && (
-                    <span className="rounded border border-status-warning-border px-1 text-status-warning">
-                      {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.1f45a62bca',
-                        'structured denial (single hit)'
-                      )}
-                    </span>
-                  )}
-                  {kind === 'recorded' ? (
-                    <span className="rounded border border-border bg-secondary px-1 text-foreground">
-                      {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.21da0872e8',
-                        'recorded incident'
-                      )}
-                    </span>
-                  ) : (
-                    <span className="rounded border border-dashed border-border/70 px-1">
-                      {window.wouldWriteIfEnabled
-                        ? translate('auto.components.right.sidebar.incidents.IncidentGrayTables.ce2c2f17d2',
-                            'would write (not recorded)'
-                          )
-                        : translate('auto.components.right.sidebar.incidents.IncidentGrayTables.3a1973e19f',
-                            'observed only'
-                          )}
-                    </span>
-                  )}
-                </div>
-              </li>
-            )
-          })}
+          {view.rows.map((row) => (
+            <li
+              key={`${row.sessionId}:${row.itemKey}:${row.ordinal}`}
+              data-incident-gray-row="observed"
+              className="rounded border border-dashed border-border/70 px-2 py-1 text-[10px] text-muted-foreground"
+            >
+              <div className="flex flex-wrap items-center gap-x-2">
+                <span className="truncate font-mono text-foreground">
+                  {row.sessionId.slice(0, 8)}
+                </span>
+                <span>{row.toolName}</span>
+                <span className="font-mono">{row.errorKind ?? '—'}</span>
+                <span className="tabular-nums">exit {row.exitCode === null ? '—' : row.exitCode}</span>
+                <span className="truncate">{iso(row.observedAt)}</span>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </ObservedChrome>

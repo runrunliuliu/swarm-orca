@@ -17,7 +17,7 @@ import {
   detailFixture,
   listItemFixture,
   paneClocksViewFixture,
-  toolErrorsViewFixture
+  toolFailuresViewFixture
 } from './incident-panel-fixtures'
 
 vi.mock('@/i18n/i18n', () => ({
@@ -47,7 +47,7 @@ const api = {
   counts: vi.fn(),
   onCountsChanged: vi.fn((_callback: () => void) => () => {}),
   paneClocks: vi.fn(),
-  toolErrors: vi.fn()
+  toolFailures: vi.fn()
 }
 
 type ApiResult = { ok: true; value: unknown } | { ok: false; error: string; code: string }
@@ -83,7 +83,7 @@ beforeEach(() => {
   api.counts.mockReset().mockResolvedValue(ok(null))
   api.onCountsChanged.mockReset().mockReturnValue(() => {})
   api.paneClocks.mockReset().mockResolvedValue(ok(paneClocksViewFixture()))
-  api.toolErrors.mockReset().mockResolvedValue(ok(toolErrorsViewFixture()))
+  api.toolFailures.mockReset().mockResolvedValue(ok(toolFailuresViewFixture()))
   ;(window as unknown as { api: unknown }).api = {
     incidents: api,
     shell: { openPath: vi.fn() }
@@ -246,7 +246,7 @@ describe('IncidentPanel', () => {
   it('switches to the grayscale views and reads them only when selected', async () => {
     const container = await renderPanel()
     expect(api.paneClocks).not.toHaveBeenCalled()
-    expect(api.toolErrors).not.toHaveBeenCalled()
+    expect(api.toolFailures).not.toHaveBeenCalled()
 
     const paneClocksTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === 'Pane clocks'
@@ -261,17 +261,17 @@ describe('IncidentPanel', () => {
     expect(container.textContent).toContain('These rows are facts stored by the host process')
     expect(container.querySelector('[data-incident-gray-row="observed"]')).not.toBeNull()
 
-    const toolErrorsTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === 'Tool errors'
+    const toolFailuresTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Tool failures'
     )
     await act(async () => {
-      toolErrorsTab?.click()
+      toolFailuresTab?.click()
     })
     await act(async () => {
       await Promise.resolve()
     })
-    expect(api.toolErrors).toHaveBeenCalledTimes(1)
-    expect(container.querySelector('[data-incident-gray-row="recorded"]')).not.toBeNull()
+    expect(api.toolFailures).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-incident-gray-row="observed"]')).not.toBeNull()
   })
 
   it('refreshes on the coalesced counts push instead of polling', async () => {

@@ -12,7 +12,7 @@ import type {
 } from '../../../../../shared/incident-api-types'
 import type {
   IncidentPaneClocksViewDto,
-  IncidentToolErrorsViewDto
+  IncidentToolFailuresViewDto
 } from '../../../../../shared/incident-gray-types'
 
 export const FIXTURE_NOW = 1_700_000_000_000
@@ -140,41 +140,36 @@ export function paneClocksViewFixture(
   }
 }
 
-export function toolErrorsViewFixture(
-  overrides: Partial<IncidentToolErrorsViewDto> = {}
-): IncidentToolErrorsViewDto {
+export function toolFailuresViewFixture(
+  overrides: Partial<IncidentToolFailuresViewDto> = {}
+): IncidentToolFailuresViewDto {
   return {
-    updatedAt: FIXTURE_NOW,
-    writeEnabled: false,
-    published: 2,
-    total: 2,
-    evicted: 0,
-    windows: [
+    since: FIXTURE_NOW - 7 * 24 * 60 * 60_000,
+    rows: [
       {
         sessionId: 'sess-abcdef123456',
+        itemKey: 'item-1',
+        ordinal: 0,
         turn: 'turn-1',
         toolName: 'bash',
-        code: 'non_zero_exit',
-        count: 5,
-        windowStart: FIXTURE_NOW - 5 * 60_000,
-        lastAt: FIXTURE_NOW,
-        highSeverity: false,
-        wouldWriteIfEnabled: true,
-        written: false
+        errorKind: null,
+        exitCode: 2,
+        observedAt: FIXTURE_NOW
       },
       {
         sessionId: 'sess-abcdef123456',
+        itemKey: 'item-2',
+        ordinal: 0,
         turn: 'turn-2',
         toolName: 'edit',
-        code: 'permission_denied',
-        count: 1,
-        windowStart: FIXTURE_NOW - 2 * 60_000,
-        lastAt: FIXTURE_NOW,
-        highSeverity: true,
-        wouldWriteIfEnabled: true,
-        written: true
+        errorKind: 'permission_denied',
+        exitCode: null,
+        observedAt: FIXTURE_NOW
       }
     ],
+    total: 2,
+    truncated: false,
+    dropped: 0,
     coveredProviders: ['claude', 'codex'],
     uncoveredProviders: ['pi', 'trae'],
     ...overrides

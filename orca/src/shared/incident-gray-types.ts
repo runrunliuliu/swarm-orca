@@ -4,12 +4,8 @@
 // reads them from this host's store. The panel needs the same rows over IPC, and the important part of
 // the shape is what it *carries about itself*:
 //
-//   * `writeEnabled` is the host process's switch, reported as-is. The default is off, so the tables
-//     show observations, not accidents;
 //   * the tool-error view carries its own provider coverage. Silence from an uncovered agent must
 //     never read as "no tool errors" (§7.3 M4-C3);
-//   * `wouldWriteIfEnabled` and `written` stay separate fields rather than one boolean: "a write would
-//     happen" and "a record exists" are different claims and the UI renders them differently.
 //
 // No field here lets the renderer decide anything: it projects what the host already decided.
 
@@ -36,32 +32,29 @@ export type IncidentPaneClocksViewDto = {
   coverage: IncidentCoverageDto
 }
 
-/** One in-process tool-error window (§7.3). `windowStart` is the idempotency epoch. */
-export type IncidentToolErrorWindowDto = {
+/** One recorded tool-call failure. Raw facts: no normalized code, no window, no severity. */
+export type IncidentToolFailureRowDto = {
   sessionId: string
+  /** Stable journal item id; `(session, item, ordinal)` is the store's dedupe key. */
+  itemKey: string
+  ordinal: number
   turn: string
   toolName: string
-  code: string
-  count: number
-  windowStart: number
-  lastAt: number
-  highSeverity: boolean
-  wouldWriteIfEnabled: boolean
-  /** True once this window's incident was actually written; the only "recorded" row. */
-  written: boolean
+  /** Provider-stamped refusal kind, when the provider supplied one. */
+  errorKind: string | null
+  /** Structured exit status, when the provider supplied one. */
+  exitCode: number | null
+  observedAt: number
 }
 
-export type IncidentToolErrorsViewDto = {
-  /** When the host last published its window snapshot; `null` means nothing observed yet. */
-  updatedAt: number | null
-  writeEnabled: boolean
-  /** Windows in this payload (the host caps it). */
-  published: number
-  /** Windows the collector held; greater than `published` means payload truncation. */
+export type IncidentToolFailuresViewDto = {
+  since: number
+  rows: IncidentToolFailureRowDto[]
+  /** Rows in the window, before the read limit. */
   total: number
-  /** Windows dropped by the in-process LRU bound; their counts are lost, not merely unpublished. */
-  evicted: number
-  windows: IncidentToolErrorWindowDto[]
+  truncated: boolean
+  /** Rows refused by the hard cap or lost to an insert failure; a non-zero value means facts are missing. */
+  dropped: number
   /** Providers whose structured session events reach this collector. */
   coveredProviders: string[]
   /** Providers that never reach it — a declared gap, not an absence of tool errors. */

@@ -20,8 +20,8 @@ export const incidentApi = {
   detail: (request: IncidentDetailRequest) => ipcRenderer.invoke('incidents:detail', request),
   decide: (request: IncidentDecideRequest) => ipcRenderer.invoke('incidents:decide', request),
   counts: (request?: IncidentCountsRequest) => ipcRenderer.invoke('incidents:counts', request),
-  stalls: () => ipcRenderer.invoke('incidents:stalls'),
-  toolErrors: () => ipcRenderer.invoke('incidents:toolErrors'),
+  paneClocks: () => ipcRenderer.invoke('incidents:paneClocks'),
+  toolFailures: () => ipcRenderer.invoke('incidents:toolFailures'),
   onCountsChanged: (callback: (counts: IncidentCountsDto) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, counts: IncidentCountsDto) =>
       callback(counts)

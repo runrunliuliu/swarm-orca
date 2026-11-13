@@ -277,7 +277,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'incident report',
       'incident wait',
       'incident pane-clocks',
-      'incident tool-errors',
+      'incident tool-failures',
       'incident export',
       // M7 merge seam: C exported `mirrorIncident` in INCIDENT_HANDLERS but the eager routing table
       // never listed it, so the one command that reads the mirror's link state was unreachable.
