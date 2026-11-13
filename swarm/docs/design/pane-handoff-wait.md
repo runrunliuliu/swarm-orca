@@ -234,7 +234,15 @@ wait_pane.py --terminal H [--turn-evidence F] [--idle-timeout 300] [--json]
 ```
 
 - 阶段 A（turn 证据，**必须是强证据**）：接受 `terminal send --wait-submit` 的 receipt（`--turn-evidence`），
-  要求 `stages` 含 `turn_started`、`requestId`/`processIncarnation` 与目标 terminal 一致；
+  要求 `stages` 含 `turn_started`、`requestId`，且回执必须**绑定到目标 terminal**：一次 `terminal show`
+  （身份读取，不是进度探测）给出 `ptyId`/`incarnationId`，回执的 `processIncarnation` 必须指向同一个
+  活进程。**两种拼法都认**：`terminal send` 回执今天写的是裸 `incarnationId`
+  （`getTerminalPromptRequestBinding().processIncarnation`），编排侧记录写的是 `ptyId:incarnationId`
+  （`getTerminalProcessIncarnation`）——同名字段两种形状，只认一种会让这个通道对真实 pane 永久
+  不可用（2026-11-13 实测：组合式比较 vs 裸 id，每次 `exit 4 turn_evidence_incarnation_mismatch`）。
+  回执没有点名 pane（`send.handle`/`prompt.terminalHandle` 都为空）而只带裸 id → `turn_evidence_unbound`，
+  因为裸 id 单独不能证明它来自我们要等的那个 pane；组合式自带 `ptyId`，可以单独绑定。
+  `runtimeId:ptyId:generation` 这种降级形**永不接受**（generation 不是 incarnation）。
   没有这个文件 → 退出码 4 `unverifiable`。**不把“轮询 `terminal show` 看到工作中”当成 turn 证据**
   （那是旁观者的猜测；两评审均指出这一点）。对齐仓内先例 `supervisor/watchdog.py` 的 `tick()` 内
   `--wait-submit` + `turn_started` 判定（当前 66–70 行）。
@@ -242,7 +250,9 @@ wait_pane.py --terminal H [--turn-evidence F] [--idle-timeout 300] [--json]
   出现 `blockedReason`（现成的 `BLOCKED_REASONS`）→ 5 并**只**输出 reason 枚举，不输出屏幕内容。
 - 不变量：无论返回什么，调用方仍须复核产物（I1）。工具不发送输入、不 `ack`、不写文件。
 - 测试：`tests/core/test_wait_pane.py`（假 CLI 夹具）：turn_started→idle；**无 evidence → 4**；
-  evidence 但 incarnation 不符 → 4；blocked → 5；timeout → 124。
+  evidence 但 incarnation 不符 → 4；blocked → 5；timeout → 124。夹具的回执默认必须是**真实形状**
+  （`send.handle` + 裸 `incarnationId`），否则“夹具两侧自己拼成一致”会把这个分歧藏起来——这正是
+  2026-11-13 修的那条缺陷的成因。
 - 回退：新文件，删除即无影响。
 
 ### P4 `swarm/wait_for_file.py`（新，T2 出口）

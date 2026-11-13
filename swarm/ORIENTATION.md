@@ -193,7 +193,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `run` | `operator_monitor_deploy.py:171-228` | `def run` / `class run` |
 | `run` | `operator_startup.py:315-440` | `def run` / `class run` |
 | `run` | `trae_exec_capture.py:157-222` | `def run` / `class run` |
-| `run` | `wait_pane.py:203-204` | `def run` / `class run` |
+| `run` | `wait_pane.py:242-243` | `def run` / `class run` |
 | `run_preflight` | `native_preflight.py:566-766` | `def run_preflight` / `class run_preflight` |
 | `runtime` | `operator_continuity_route.py:77-84` | `def runtime` / `class runtime` |
 | `scope` | `observation_budget.py:123-136` | `def scope` / `class scope` |
