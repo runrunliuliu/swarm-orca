@@ -13879,6 +13879,7 @@
                 "copy": {
                   "1422b679c2": "Showing {{shown}} of {{total}} matching incidents. Worktree and time filters only see the loaded rows.",
                   "17b2083e87": "Shadow replay has not reached the end, so hinted incidents may still be missing.",
+                  "a2c68208ec": "The remote mirror is behind, but it has not stated how many incidents are still unsynchronised, so incidents from the peer may be missing.",
                   "38e8b64b7f": "The remote mirror is behind: {{unsynced}} incident(s) are not synchronised yet.",
                   "4097322546": "This store hit its capacity limit at some point (history, not a current fault): a past write may have been dropped.",
                   "7625f1478a": "The remote mirror has not been probed yet, so incidents from the peer may be missing.",

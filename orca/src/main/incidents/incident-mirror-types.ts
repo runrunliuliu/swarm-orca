@@ -1,11 +1,12 @@
 // Vocabulary for the remote incident mirror (issue-sedimentation.md §11.1, M7-C).
 //
 // WHY THIS FILE EXISTS SEPARATELY
-// The mirror is a new read-model axis, and M7-C is deliberately not allowed to edit the shared
-// coverage/DTO types while another agent works on the same surface. So every new type lives here and
-// the wiring is a single line the integrator adds (see the block at the bottom of this file). Until
-// that line lands, `orca incident mirror --json` is the authoritative read of this axis; the coarse
-// `remote_incident_capture` field on `incident list` keeps its M1 value.
+// The mirror is a new read-model axis, and M7-C was deliberately not allowed to edit the shared
+// coverage/DTO types while another agent worked on the same surface. So every new type lives here, and
+// the wiring landed at merge time as one registration call (see the block at the bottom of this file for
+// where it attaches and what it must not touch). `orca incident mirror --json` remains the authoritative
+// row-level read of this axis; the coarse `remote_incident_capture` field on `incident list` keeps its M1
+// value, because that field is a permanent scope statement, not the mirror's state.
 //
 // THE BOUNDARY
 //   * the host that holds the PTY writes its own incident facts (§11.1). Its store and its own shadow
@@ -152,39 +153,34 @@ export type MirrorInsertResult = {
   reason?: string
 }
 
-/**
- * `remoteIncidentCapture` and `remoteMirror` as the coverage object should carry them.
- *
- * MIRROR TYPES ARE ADDITIVE ON PURPOSE: a consumer that only knows `capture` keeps working, and a
- * consumer that wants the detail reads `remoteMirror.hosts`.
- */
-export type MirrorCoverageFields = {
-  remoteIncidentCapture: MirrorCaptureState
-  remoteMirror: MirrorCoverage
-}
-
 /*
- * ── Integration checklist for the coverage wiring (NOT a one-line change) ─────────────────────────
+ * ── Where the mirror axis attaches, and where it must not ─────────────────────────────────────────
  *
- * M7-C is not allowed to edit the shared coverage/IPC surface, so the mirror axis is read through
- * `readIncidentMirrorCoverage(db)` until the integrator wires it in. The reading itself is one call;
- * the type/plumbing changes around it are several, and they must land together or not at all:
+ * M7-C could not edit the shared coverage/IPC surface, so the mirror is read through
+ * `readIncidentMirrorCoverage(db)` and attached by the merge seam
+ * (`main/ipc/incident-mirror-coverage.ts` + `incident-mirror-coverage-install.ts`, registered once from
+ * `main/startup/main-process-ready-foundation.ts`). That is the ONE wiring, and it keeps two questions
+ * apart:
  *
- *   1. `src/main/incidents/incident-store-capacity.ts` in `coverage()`:
- *          const remote = readIncidentMirrorCoverage(db)      // + import
- *          return { remoteIncidentCapture: remote.capture, remoteMirror: remote, ... }
- *   2. `IncidentCoverage` (`incident-types.ts`): widen `remoteIncidentCapture` to
- *      `MirrorCaptureState` and add `remoteMirror: MirrorCoverage`.
- *   3. `IncidentCoverageDto` + `IncidentCoverageSummaryDto` (`shared/incident-api-types.ts`): mirror
- *      those two fields; the summary needs `remoteUnsynced`/`remoteUnreachable`/`remoteGap` because
- *      `gap` alone cannot say *why* the count is a floor.
- *   4. `readIncidentCounts` (`incident-counts.ts`): pass those through and decide whether
- *      `gap` includes the remote hole. Recommendation: yes, with `remoteGap` as the explanation —
- *      an unreachable origin means `untriaged` is a lower bound for the combined set.
- *   5. `IncidentListItemDto`/`IncidentDetailDto` + `main/ipc/incidents.ts` if the UI must distinguish
- *      a mirrored row from a locally observed one: the row's `hostId` already differs, but a
- *      `capture` flag would not require the UI to know the local host id.
+ *   * LOCAL coverage (`IncidentCoverage`, `IncidentCoverageSummaryDto.gap`): the capacity latch, a
+ *     current refusal, an unfinished shadow replay. These make `untriaged` a lower bound on *this* host,
+ *     and they own the badge's tone.
+ *   * REMOTE coverage (`IncidentRemoteMirrorDto`, `coverage.remoteMirror`): `capture`, `unsynced`,
+ *     `monitored`. Attached beside the local facts and graded as a secondary hint.
  *
- * Until step 1 lands, `incident list`'s `remote_incident_capture` keeps its M1 value even when link
- * rows exist; `orca incident mirror` is the surface that is already truthful.
+ * A remote hole is NEVER folded into `coverage.gap` and NEVER changes `untriaged`. An earlier draft of
+ * this checklist recommended the opposite ("`gap` should include the remote hole, with `remoteGap` as
+ * the explanation"); that was rejected because `gap` is the answer to "is this host's own count
+ * complete?", and an unreachable peer says nothing about this host's records. Folding it in would make
+ * every deployment with one configured peer permanently amber, teach people to ignore the tone, and
+ * hand the badge a number it cannot justify. Two facts, two fields: the mirror's own `capture` and
+ * `unsynced` are the explanation, so no second boolean is needed.
+ *
+ * Also not part of the seam: `IncidentCoverage.remoteIncidentCapture` keeps its M1 value
+ * (`'unsupported'`) as a permanent scope statement — "this host never captures a peer's own facts" —
+ * which stays true whether or not a mirror is wired. Widening it to `MirrorCaptureState` would give the
+ * same word two meanings, so the mirror's state lives only on `remoteMirror.capture`.
+ *
+ * The row-level detail (per-host cursors, failure counts, rejected/pruned/skipped rows) stays on
+ * `orca incident mirror --json`: a badge input must not become a second mirror read model.
  */

@@ -11,6 +11,8 @@
 //   * A remote gap only counts when this host has mirrored before or the peer is explicitly in the
 //     monitored scope. A peer that was never configured is `not_configured`: stated in the detail, not
 //     counted as a gap.
+//   * An unstated `unsynced` count on a monitored mirror is a gap, not a zero (§11.5: missing evidence
+//     is not a zero).
 //
 // Why a separate module: the badge, the banner and the drawer must agree, and they live in three files.
 // One function per question keeps the grading from being re-derived (and drifting) per surface.
@@ -38,6 +40,12 @@ export function incidentRemoteCoverageState(
     return 'not_configured'
   }
   if (mirror.capture !== 'mirrored') {
+    return 'gap'
+  }
+  // An unstated count is not zero (§11.5). A monitored mirror that has not told us how far behind it is
+  // leaves the global view incomplete; rendering it as `complete` would be the "caught up" claim the
+  // mirror module refuses to make, arriving through the UI instead.
+  if (mirror.unsynced === null) {
     return 'gap'
   }
   return mirror.unsynced > 0 ? 'gap' : 'complete'

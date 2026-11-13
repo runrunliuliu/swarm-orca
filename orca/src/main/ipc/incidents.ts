@@ -35,7 +35,10 @@ import type {
 import { readIncidentCounts as readIncidentCountsFrom } from '../incidents/incident-counts'
 import { startIncidentCountsPush } from './incident-counts-push'
 import { readIncidentStallsView, readIncidentToolErrorsView } from './incident-gray-views'
-import { readIncidentRemoteMirror } from './incident-mirror-coverage'
+import {
+  attachIncidentRemoteMirror,
+  attachIncidentRemoteMirrorToCounts
+} from './incident-mirror-coverage'
 
 /** The push channel the preload bridge listens on (`incidents.onCountsChanged`). */
 export const INCIDENT_COUNTS_CHANGED_CHANNEL = 'incidents:countsChanged'
@@ -145,7 +148,6 @@ export function readIncidentSnapshot(
     ...(status === undefined ? {} : { status }),
     ...(incidentClass === undefined ? {} : { class: incidentClass })
   })
-  const remoteMirror = readIncidentRemoteMirror(runtime.db)
   return {
     ok: true,
     value: {
@@ -153,10 +155,7 @@ export function readIncidentSnapshot(
       total: result.total,
       // The mirror's coverage is attached here, not computed: absent means "not reported by this
       // build", which the panel renders as a stated fact rather than as completeness (M7-C).
-      coverage:
-        remoteMirror === undefined
-          ? result.coverage
-          : { ...result.coverage, remoteMirror }
+      coverage: attachIncidentRemoteMirror(runtime.db, result.coverage)
     }
   }
 }
@@ -239,14 +238,15 @@ export function readIncidentCountsSnapshot(
   if (runtime === null) {
     return unavailable()
   }
-  return {
-    ok: true,
-    value: readIncidentCountsFrom({
-      db: runtime.db,
-      coverage: runtime.store.coverage(),
-      ...(request?.topWorktrees === undefined ? {} : { topWorktrees: request.topWorktrees })
-    })
-  }
+  const counts = readIncidentCountsFrom({
+    db: runtime.db,
+    coverage: runtime.store.coverage(),
+    ...(request?.topWorktrees === undefined ? {} : { topWorktrees: request.topWorktrees })
+  })
+  // The badge's secondary hint rides on the same read (M7-C seam): `coverage.gap` stays local and the
+  // mirror is attached beside it. Done here, not inside `readIncidentCounts`, so that module stays free
+  // of the IPC seam — and the push uses the same helper, so the two payloads cannot disagree.
+  return { ok: true, value: attachIncidentRemoteMirrorToCounts(runtime.db, counts) }
 }
 
 export function registerIncidentHandlers(): void {

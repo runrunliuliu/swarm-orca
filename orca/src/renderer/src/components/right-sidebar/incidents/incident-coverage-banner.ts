@@ -73,7 +73,8 @@ export function incidentCoverageIsCurrentGap(
 export type IncidentRemoteCoverageLine = {
   state: Exclude<IncidentRemoteCoverageState, 'absent'>
   capture: 'unsupported' | 'not_probed' | 'mirrored'
-  unsynced: number
+  /** `null` = the mirror never stated a count; `state` is then `gap`, never `complete` (M7-C seam). */
+  unsynced: number | null
   /** True only for `state === 'gap'`: the one case the banner may show and the badge may mark. */
   gap: boolean
 }

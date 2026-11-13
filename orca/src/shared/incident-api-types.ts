@@ -68,8 +68,14 @@ export type IncidentStallSampleDto = {
  */
 export type IncidentRemoteMirrorDto = {
   capture: 'unsupported' | 'not_probed' | 'mirrored'
-  /** Incidents the mirror knows about but has not synchronised yet. */
-  unsynced: number
+  /**
+   * Incidents the mirror knows about but has not synchronised yet.
+   *
+   * `null` is "the mirror never stated a count", which is not zero: §11.5's rule for every other
+   * coverage fact applies here too. A monitored mirror whose count is unstated is incomplete (the
+   * peer may be behind and we cannot say by how much), never "caught up".
+   */
+  unsynced: number | null
   /**
    * Whether this host has ever mirrored successfully, or the user explicitly put the peer in the
    * monitored scope. A remote gap only counts when this is true: a peer that was never set up is

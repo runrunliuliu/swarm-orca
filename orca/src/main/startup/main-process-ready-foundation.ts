@@ -52,6 +52,7 @@ import { createWslCliReconciliationStartupBarrier } from './wsl-cli-reconciliati
 import { isAgentStatusHooksEnabled } from '../agent-hooks/managed-agent-hook-controls'
 import { reportProfileStateWriteFailure } from './profile-state-write-failure'
 import { scheduleIncidentShadowReconcile, startStallSampler } from '../incidents/integration'
+import { installIncidentMirrorCoverageReader } from '../ipc/incident-mirror-coverage-install'
 
 export async function initializeReadyFoundation(): Promise<void> {
   logStartupMilestone('app-ready')
@@ -69,6 +70,13 @@ export async function initializeReadyFoundation(): Promise<void> {
     )
   })
   const canonicalUserDataPath = getCanonicalUserDataPath()
+  // Why one call, here: the incident read model asks the mirror for its coverage per snapshot through a
+  // registration (ipc/incident-mirror-coverage.ts), and this is the main-process startup path that runs
+  // once and also exists on `orca serve`, where the window-only handler registration never runs.
+  // Registering here — not in a snapshot handler — means the reader is installed before any renderer
+  // can read, and it opens no store: the mirror table is only queried through the snapshot's own
+  // connection, and a host with no feeds still never creates one (the mirror sync short-circuits).
+  installIncidentMirrorCoverageReader()
   // Why one call, here: §11.2's replay is startup-once work that must never gate the window, and
   // this is the first point that holds the canonical user-data path. It defers one turn and reports
   // its own failures; nothing below waits on it (§14 allows exactly one M2 mount point).

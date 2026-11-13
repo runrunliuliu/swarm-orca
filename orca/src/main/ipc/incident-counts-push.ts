@@ -17,6 +17,7 @@ import type { IncidentCountsDto } from '../../shared/incident-api-types'
 import { readIncidentCounts } from '../incidents/incident-counts'
 import { onIncidentStoreChange } from '../incidents/incident-store-changes'
 import { incidentRuntimeStoreIfPresent } from '../incidents/incident-writer'
+import { attachIncidentRemoteMirrorToCounts } from './incident-mirror-coverage'
 import {
   createKeyedTrailingEdgeCoalescer,
   type KeyedTrailingEdgeCoalescer
@@ -93,7 +94,10 @@ function readCountsForPush(): IncidentCountsDto | null {
     if (runtime === null) {
       return null
     }
-    return readIncidentCounts({ db: runtime.db, coverage: runtime.store.coverage() })
+    return attachIncidentRemoteMirrorToCounts(
+      runtime.db,
+      readIncidentCounts({ db: runtime.db, coverage: runtime.store.coverage() })
+    )
   } catch {
     return null
   }

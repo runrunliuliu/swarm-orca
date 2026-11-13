@@ -46,9 +46,11 @@ export function remoteCoverageText(line: IncidentRemoteCoverageLine, detail: boo
           'No remote host is mirrored or monitored from here (not configured).'
         )
       case 'complete':
+        // Unreachable with `null` by construction: the grading above only returns `complete` for a
+        // monitored mirror that stated a count. The fallback keeps the string well-formed anyway.
         return translate('auto.components.right.sidebar.incidents.incident.coverage.copy.d35e5659d8',
           'Remote mirror is synchronised: {{unsynced}} unsynchronised incident(s), so the global view is complete.',
-          { unsynced: line.unsynced }
+          { unsynced: line.unsynced ?? 0 }
         )
       case 'gap':
         return line.capture === 'not_probed'
@@ -56,10 +58,14 @@ export function remoteCoverageText(line: IncidentRemoteCoverageLine, detail: boo
               'The remote mirror has not been probed yet, so incidents from the peer may be missing.'
             )
           : line.capture === 'mirrored'
-            ? translate('auto.components.right.sidebar.incidents.incident.coverage.copy.38e8b64b7f',
-                'The remote mirror is behind: {{unsynced}} incident(s) are not synchronised yet.',
-                { unsynced: line.unsynced }
-              )
+            ? line.unsynced === null
+              ? translate('auto.components.right.sidebar.incidents.incident.coverage.copy.a2c68208ec',
+                  'The remote mirror is behind, but it has not stated how many incidents are still unsynchronised, so incidents from the peer may be missing.'
+                )
+              : translate('auto.components.right.sidebar.incidents.incident.coverage.copy.38e8b64b7f',
+                  'The remote mirror is behind: {{unsynced}} incident(s) are not synchronised yet.',
+                  { unsynced: line.unsynced }
+                )
             : translate('auto.components.right.sidebar.incidents.incident.coverage.copy.fbb676739b',
                 'Remote capture is unsupported on this host, so the peer observation cannot be mirrored.'
               )
