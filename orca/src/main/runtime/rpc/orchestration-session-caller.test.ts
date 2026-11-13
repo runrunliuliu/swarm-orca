@@ -60,6 +60,9 @@ const MINIMAL_PARAMS: Readonly<Record<string, Record<string, unknown>>> = {
   // Pre-existing drift: this method was in ORCHESTRATION_CALLER_PARAM without an entry here, so the
   // equality below could not hold even before `runCreateGranted` existed.
   'orchestration.plannedRestart': { request: {} },
+  'orchestration.startGrantMint': { record: {} },
+  'orchestration.startGrantRevoke': { grant: 'g', reason: 'r' },
+  'orchestration.startGrantShow': { grant: 'g' },
   'orchestration.strictCallerCheck': {},
   'orchestration.runRetireStrict': { run: 'run_missing', generation: 1, decision: 'reconciled' },
   'orchestration.runUse': { id: 'run_missing' },
@@ -104,10 +107,10 @@ describe('orchestration session callers at the dispatch entry', () => {
       .sort()
 
     // The population includes the read-only strict caller check.
-    // 46 methods / 30 party-naming pairs: this snapshot already registered one more of each than the
-    // numbers pinned here before `runCreateGranted` (45 / 29), so this change adds exactly one.
-    expect(registry.size).toBe(46)
-    expect(partyNaming).toHaveLength(30)
+    // 49 methods / 33 party-naming pairs: this snapshot already registered one more of each than the
+    // numbers pinned here before the start-grant work (45 / 29), plus the four grant verbs.
+    expect(registry.size).toBe(49)
+    expect(partyNaming).toHaveLength(33)
     expect(partyNaming).toEqual(
       [
         ...Object.entries(ORCHESTRATION_CALLER_PARAM).map(

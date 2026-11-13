@@ -104,6 +104,7 @@ const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   'start_grant_revoked',
   'start_grant_objective_mismatch',
   'start_grant_already_bound',
+  'start_grant_record_conflict',
   'administrative_history_quarantined',
   WORKTREE_CREATE_COLLISION_CODE,
   'worktree_id_requires_full_path',

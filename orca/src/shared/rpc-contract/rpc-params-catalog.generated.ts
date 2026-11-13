@@ -391,6 +391,11 @@ import {
   RunShowParams,
   RunUseParams
 } from './orchestration-runs-params'
+import {
+  StartGrantMintParams,
+  StartGrantRevokeParams,
+  StartGrantShowParams
+} from './orchestration-start-grant-params'
 import { WorkerDispatchParams, WorkerReadParams } from './orchestration-worker-control-params'
 import { OrchestrationWorkerTerminalUserInputParams } from './orchestration-worker-release-params'
 import {
@@ -1022,6 +1027,9 @@ export const RPC_PARAMS_BY_METHOD = {
   'orchestration.runShow': RunShowParams,
   'orchestration.runStop': RunStopParams,
   'orchestration.runUse': RunUseParams,
+  'orchestration.startGrantMint': StartGrantMintParams,
+  'orchestration.startGrantRevoke': StartGrantRevokeParams,
+  'orchestration.startGrantShow': StartGrantShowParams,
   'orchestration.strictCallerCheck': RunCurrentParams,
   'orchestration.taskCreate': TaskCreateParams,
   'orchestration.taskList': TaskListParams,
