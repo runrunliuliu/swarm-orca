@@ -170,6 +170,9 @@ export const RunCreateGrantedParams = z.object({
 - `minter` 复用 `strictTerminalAuthoritySchema`（`orchestration/strict-coordinator-policy.ts:7` 的
   `terminalHandle / paneKey / processIncarnation / launchTokenHash / hostScope`），因为
   `requireStrictTerminalCaller` 已经产出这个形状。另造一套身份字段会把"活身份"降级成"声明身份"。
+  **它由服务端写入，客户端不得提交**（M4 实现时更正）：`launchTokenHash` 是所有回执都刻意不返回的，
+  客户端永远造不出这个字段；所以 mint 的入参用 `startGrantSchema.omit({minter})`，记录里出现
+  `minter` 一律按 `start_grant_invalid_record` 拒绝，而不是静默忽略。
 - 没有 `revokedAt` 字段（§2.1）；没有 `maxWorkers: 0`（那会让 Run 永远起不了 worker，是死锁不是限制）。
 - `taskSource` / `authorizationRefs` 不进任何判定式，只进审计输出。写不出判定式却看起来像门的字段，
   最后都会被当成门来引用。
@@ -218,7 +221,8 @@ export const RunCreateGrantedParams = z.object({
 **第零点 · mint（只在这里产生凭据，不在任何地方修改它）**
 
 grant 记录住在 Orca 的库里，由 `orchestration.startGrantMint` 写入；它要求的调用者证据与今天的
-`runCreateStrict` 同一级（`requireStrictTerminalCaller`），写进 `minter` 的就是这份活身份。
+`runCreateStrict` 同一级（`requireStrictTerminalCaller`），写进 `minter` 的就是这份活身份——
+**是服务端写，不是客户端申报**（理由见 §2.2）。
 M4 的 Python `mint`（`swarm/start_grant.py`）不持有额外的权限：它只是**决定并提交**（以及用
 `publish_new` 写一份自己的溯源副本）。所以“谁能 mint”与“谁能 create 一个 strict Run”今天是一样的；
 差别只在 mint **不产生 Run**，而 create 只能消费已存在的 grant。执行者能不能自己 mint，是 §8 决策 5。
@@ -516,9 +520,18 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
   `START_GRANT_REQUIRED = false`），放进代码而不是配置项：它现在的唯一作用是"别让这次提交把既有 strict Run
   在下次 spawn 时打死"，翻成 `true` 就是全部动作，且该路径已有开关打开的测试。**这就是 §8 决策 4 现在要
   定的东西：什么时候翻。**
+  **M4**——`swarm/start_grant.py`（mint / hand / state，stdlib）：记录只构造一次、`publish_new` 独占落地、
+  提交的就是那份字节（重试必须重提同一份，否则 mint 报 `record_conflict` 而不是 replay）；`state` 用
+  `start-grant-show` 读回，并与本地记录做"去掉 `minter` 后的规范化比对"（`minter` 是服务端写的，
+  逐字节比较永远不成立）。跨语言哈希已对齐并用三条向量钉住（ASCII / 中文 / 引号+反斜杠+换行）。
+  为了让它有传输通道，同时补了 `orca orchestration start-grant-{mint,show,revoke}` 三个 CLI 动词
+  （原属 M5 的"接入"，但不先有它 M4 无处可发），`start-grant-show` 现在也返回 `workers{active,max}`
+  ——与 spawn 判定同一个计数函数，回答"第 9 个为什么被拒"。
+  验证：`core.test_start_grant` 14 例、`core.test_wait_pane` + `core.test_generate_orientation` 一并跑，
+  `TARGETED OK`（44 tests）。
 - **未做**：撤销对已在跑 worker 的处理（§8 决策 2 未定，当前 revoke 只拦新 create/spawn）；自签检查
   （§8 决策 5 未定）；C7 的"两个进程同时争 `BEGIN IMMEDIATE`"（现在测的是同事务语义 + 双连接）；
-  M4 的 Python `mint/state`、M5 的 CLI 入口与文档收口。
+  M5 的 `coordinator_launch.py start-grant` 子命令、`README`/`reliability` 收口、旧路径标 deprecated。
 
 ### M2 · spawn 计数 + 仓库范围（Orca，2–3 天）— **价值拐点**
 

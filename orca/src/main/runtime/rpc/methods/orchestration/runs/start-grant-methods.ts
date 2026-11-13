@@ -1,17 +1,19 @@
 import { defineMethod } from '../../../core'
-import type { OrchestrationDb } from '../../../../orchestration/db'
 import { hashCanonical } from '../../../orchestration-mutation-receipt'
+import type { OrchestrationDb } from '../../../../orchestration/db'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import {
   insertStartGrant,
+  startGrantSchema,
+  startGrantSubmittedSchema,
   insertStartGrantRevocation,
   readStartGrant,
   readStartGrantBinding,
   readStartGrantRevocation,
-  startGrantSchema,
   type StartGrant
 } from '../../../../orchestration/start-grant-policy'
 import { requireStrictTerminalCaller } from '../../../strict-coordinator-authority'
+import { grantActiveWorkers } from '../../../../orchestration/start-grant-spawn'
 import {
   StartGrantMintParams,
   StartGrantRevokeParams,
@@ -33,7 +35,15 @@ export const START_GRANT_METHODS = [
         ctx.orchestrationCompatibilityEvidence,
         params.from
       )
-      const parsed = startGrantSchema.safeParse(params.record)
+      const submitted = params.record
+      if (submitted !== null && typeof submitted === 'object' && 'minter' in submitted) {
+        throw new OrchestrationError(
+          'start_grant_invalid_record',
+          'A start grant record must not name its minter: the server writes the verified live caller, because a caller cannot read its own launch token.',
+          {}
+        )
+      }
+      const parsed = startGrantSubmittedSchema.safeParse(submitted)
       if (!parsed.success) {
         throw new OrchestrationError(
           'start_grant_invalid_record',
@@ -43,16 +53,17 @@ export const START_GRANT_METHODS = [
           { issues: parsed.error.issues.map((issue) => issue.path.join('.')) }
         )
       }
-      const record = parsed.data
-      // The server never lets a mint attribute itself to another terminal: the field is stored, so a
-      // record naming a different minter would be an approval signed by someone who never called.
-      if (hashCanonical(record.minter) !== hashCanonical(authority)) {
+      const complete = startGrantSchema.safeParse({ ...parsed.data, minter: authority })
+      if (!complete.success) {
         throw new OrchestrationError(
           'start_grant_invalid_record',
-          'The grant record names a different minter than this terminal; mint it as the terminal that holds the approval.',
-          { grantId: record.grantId }
+          `The grant record is not valid: ${
+            complete.error.issues[0]?.message ?? 'shape'
+          }`,
+          { issues: complete.error.issues.map((issue) => issue.path.join('.')) }
         )
       }
+      const record: StartGrant = complete.data
       const db = ctx.runtime.getOrchestrationDb()
       const existing = readStartGrant(db, record.grantId)
       if (existing) {
@@ -148,6 +159,8 @@ function exposeGrant(db: OrchestrationDb, grant: StartGrant) {
       ...(revocation ? { revokedAt: revocation.revokedAt, revokedReason: revocation.reason } : {})
     },
     run: binding ? { id: binding.runId, boundAt: binding.boundAt } : null,
+    // The same number the spawn path counts, so "why was the 9th Worker refused" is answerable here.
+    workers: { active: grantActiveWorkers(db, grant.grantId), max: grant.maxWorkers },
     effectsApplied: false as const
   }
 }

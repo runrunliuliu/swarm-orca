@@ -21,6 +21,38 @@ export const ORCHESTRATION_RUN_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['orchestration', 'start-grant-mint'],
+    summary: 'Mint one start grant from a record the caller persisted',
+    usage:
+      'orca orchestration start-grant-mint --record-file <path> [--from <handle>] [--retry-request <id>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'record-file', 'from', 'retry-request'],
+    identityFlagRoles: { from: 'caller' },
+    notes: [
+      'The record must not contain `minter`: the server writes the verified live caller, because a caller cannot read its own launch token. An identical resubmission is a retry; a different record under the same grant id is refused.',
+      'Minting is not a gate. It records who approved what, until when; the gate is create and spawn.'
+    ]
+  },
+  {
+    path: ['orchestration', 'start-grant-show'],
+    summary: 'Read one start grant with its derived state and the Run it covers',
+    usage: 'orca orchestration start-grant-show --grant <grant_id> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'grant'],
+    notes: [
+      'valid/expired/revoked are derived at read time from the server clock; nothing stores a verdict.'
+    ]
+  },
+  {
+    path: ['orchestration', 'start-grant-revoke'],
+    summary: 'Withdraw a start grant so no new Run or Worker starts under it',
+    usage:
+      'orca orchestration start-grant-revoke --grant <grant_id> --reason <text> [--from <handle>] [--retry-request <id>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'grant', 'reason', 'from', 'retry-request'],
+    identityFlagRoles: { from: 'caller' },
+    notes: [
+      'One withdrawal per grant: the same intent replays, a different reason is refused. A revocation stops new creates and spawns; it does not reach into Workers already running.'
+    ]
+  },
+  {
     path: ['orchestration', 'run-create'],
     summary: 'Create and bind a lightweight orchestration Run',
     usage:

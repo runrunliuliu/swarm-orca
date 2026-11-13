@@ -157,6 +157,11 @@ function claimedByRun(db: GrantDb, runId: string, worktreeId: string): boolean {
 
 type ActiveDispatch = { dispatchId: string; status: string; observedAt: string | null }
 
+/** How many Workers the grant currently counts, for the read-only projection. */
+export function grantActiveWorkers(db: GrantDb, grantId: string): number {
+  return activeDispatches(db, grantId).length
+}
+
 /** Active means "may still own a live Worker": settled rows are done, everything else is not. */
 function activeDispatches(db: GrantDb, grantId: string): ActiveDispatch[] {
   const rows = z

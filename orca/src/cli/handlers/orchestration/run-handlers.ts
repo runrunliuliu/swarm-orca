@@ -47,6 +47,45 @@ export const ORCHESTRATION_RUN_HANDLERS: Record<string, CommandHandler> = {
     )
     printResult(result, json, (r) => `Strict Run ${r.runId} retired; history retained.`)
   },
+  'orchestration start-grant-mint': async ({ flags, client, cwd, json }) => {
+    const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
+    // The record is submitted as the file the minter already persisted: re-serialising it here would
+    // change the bytes a retry has to reproduce for the mint to be idempotent.
+    const record: unknown = JSON.parse(
+      await readFile(getRequiredStringFlag(flags, 'record-file'), 'utf8')
+    )
+    const result = await callOrchestrationMutation<{
+      grant: { grantId: string; maxWorkers: number }
+      effectsApplied: boolean
+    }>(client, flags, 'orchestration.startGrantMint', { from, record })
+    printResult(result, json, (r) =>
+      r.effectsApplied
+        ? `Start grant ${r.grant.grantId} minted (${r.grant.maxWorkers} Workers).`
+        : `Start grant ${r.grant.grantId} already minted with the same record.`
+    )
+  },
+  'orchestration start-grant-show': async ({ flags, client, json }) => {
+    const result = await client.call('orchestration.startGrantShow', {
+      grant: getRequiredStringFlag(flags, 'grant')
+    })
+    printResult(result, json, (r) => JSON.stringify(r))
+  },
+  'orchestration start-grant-revoke': async ({ flags, client, cwd, json }) => {
+    const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
+    const result = await callOrchestrationMutation<{
+      revocation: { grantId: string; revokedAt: string }
+      effectsApplied: boolean
+    }>(client, flags, 'orchestration.startGrantRevoke', {
+      from,
+      grant: getRequiredStringFlag(flags, 'grant'),
+      reason: getRequiredStringFlag(flags, 'reason')
+    })
+    printResult(result, json, (r) =>
+      r.effectsApplied
+        ? `Start grant ${r.revocation.grantId} revoked at ${r.revocation.revokedAt}.`
+        : `Start grant ${r.revocation.grantId} was already revoked with the same reason.`
+    )
+  },
   'orchestration run-create': async ({ flags, client, cwd, json }) => {
     const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
     const objective = getRequiredStringFlag(flags, 'objective')

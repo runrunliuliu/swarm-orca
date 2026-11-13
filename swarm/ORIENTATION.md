@@ -20,7 +20,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap complete --owner <owne
 python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner <owner.json> --owner-sha256 <owner-sha256> --actor <role> --intent <intent.json> --intent-sha256 <intent-sha256>
 ```
 
-## 符号索引（129 个：协议文档点名的顶层定义与方法）
+## 符号索引（130 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -213,6 +213,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `sources` | `operator_monitor_deploy.py:26-28` | `def sources` / `class sources` |
 | `stage` | `blocking_io.py:75-91` | `def stage` / `class stage` |
 | `stage` | `observation_budget.py:90-110` | `def stage` / `class stage` |
+| `state` | `start_grant.py:173-202` | `def state` / `class state` |
 | `stated` | `bootstrap_control.py:30-38` | `def stated` / `class stated` |
 | `status` | `coordinator_tui_scheduler.py:33-36` | `def status` / `class status` |
 | `status` | `operator_startup.py:282-312` | `def status` / `class status` |

@@ -23,7 +23,7 @@ function liveAuthority(h: Harness, handle: string) {
   }
 }
 
-function record(h: Harness, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function record(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     schemaVersion: 1,
     kind: 'start_grant',
@@ -37,7 +37,6 @@ function record(h: Harness, overrides: Record<string, unknown> = {}): Record<str
     writableRoots: [],
     spend: { kind: 'none' },
     deadline: new Date(Date.now() + 3_600_000).toISOString(),
-    minter: liveAuthority(h, OPERATOR),
     mintedAt: new Date(Date.now() - 60_000).toISOString(),
     executionAuthorized: false,
     ...overrides
@@ -52,7 +51,7 @@ describe('start grant mint, show and revoke', () => {
   afterEach(() => h.close())
 
   const mint = (overrides: Record<string, unknown> = {}, from = OPERATOR) =>
-    h.call('orchestration.startGrantMint', { from, record: record(h, overrides) }, from)
+    h.call('orchestration.startGrantMint', { from, record: record(overrides) }, from)
   const show = (grant = GRANT, from?: string) =>
     h.call('orchestration.startGrantShow', { grant, ...(from ? { from } : {}) }, from)
   const revoke = (grant: string, reason: string, from = OPERATOR) =>
@@ -61,7 +60,7 @@ describe('start grant mint, show and revoke', () => {
   it('stores the record as the minting terminal, and replays an identical mint without a second row', async () => {
     // The same bytes, not a regenerated record: a retry has to resubmit what it first sent (the
     // minter therefore persists its record instead of re-deriving timestamps).
-    const submitted = record(h)
+    const submitted = record()
     const send = (body: Record<string, unknown>) =>
       h.call('orchestration.startGrantMint', { from: OPERATOR, record: body }, OPERATOR)
     const first = resultOf(await send(submitted)) as { grant: StartGrant; effectsApplied: boolean }
@@ -84,15 +83,20 @@ describe('start grant mint, show and revoke', () => {
     expect(stored.grant.maxWorkers).toBe(8)
   })
 
-  it('refuses a record that names another terminal as its minter', async () => {
+  it('refuses a record that names its own minter, and writes the verified caller instead', async () => {
+    // A caller cannot read its own launch token, so a client-built `minter` could never match the
+    // authority the server verifies; accepting one would let a record claim another terminal.
     expect(
       await h.call(
         'orchestration.startGrantMint',
-        { from: OPERATOR, record: record(h, { minter: liveAuthority(h, COORD) }) },
+        { from: OPERATOR, record: record({ minter: liveAuthority(h, OPERATOR) }) },
         OPERATOR
       )
     ).toMatchObject({ ok: false, error: { code: 'start_grant_invalid_record' } })
     expect(h.db.db.prepare('SELECT COUNT(*) AS n FROM start_grants').get()).toEqual({ n: 0 })
+
+    const stored = resultOf(await mint()) as { grant: StartGrant }
+    expect(stored.grant.minter).toEqual(liveAuthority(h, OPERATOR))
   })
 
   it('refuses a record whose hash does not match its own objective', async () => {
@@ -105,7 +109,7 @@ describe('start grant mint, show and revoke', () => {
 
   it('requires a live terminal caller to mint, and writes nothing without one', async () => {
     expect(
-      await h.call('orchestration.startGrantMint', { from: OPERATOR, record: record(h) })
+      await h.call('orchestration.startGrantMint', { from: OPERATOR, record: record() })
     ).toMatchObject(
       { ok: false, error: { code: 'strict_coordinator_required' } }
     )
@@ -181,7 +185,11 @@ describe('start grant mint, show and revoke', () => {
     const created = resultOf(
       await h.call('orchestration.runCreateGranted', { from: COORD, objective: OBJECTIVE, grant: GRANT }, COORD)
     ) as { run: { id: string } }
-    const shown = resultOf(await show()) as { run: { id: string } | null }
+    const shown = resultOf(await show()) as {
+      run: { id: string } | null
+      workers: { active: number; max: number }
+    }
     expect(shown.run?.id).toBe(created.run.id)
+    expect(shown.workers).toEqual({ active: 0, max: 8 })
   })
 })

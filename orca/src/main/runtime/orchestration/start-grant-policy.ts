@@ -35,7 +35,7 @@ const startGrantRepoScopeSchema = z.object({
   worktreeIds: z.array(z.string().min(1)).min(1).max(64).nullable()
 })
 
-export const startGrantSchema = z
+const startGrantObjectSchema = z
   .object({
     schemaVersion: z.literal(1),
     kind: z.literal('start_grant'),
@@ -56,23 +56,30 @@ export const startGrantSchema = z
     mintedAt: z.string().datetime({ offset: true }),
     executionAuthorized: z.literal(false)
   })
-  .superRefine((grant, ctx) => {
-    if (Date.parse(grant.deadline) <= Date.parse(grant.mintedAt)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['deadline'], message: 'must be after mintedAt' })
-    }
-    if (grant.objectiveHash !== objectiveHashOf(grant.objectiveText)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['objectiveHash'],
-        message: 'must be the hash of objectiveText'
-      })
-    }
-    assertUnique(ctx, grant.repos.map((scope) => scope.repoId), ['repos'])
-    for (const [index, scope] of grant.repos.entries()) {
-      assertUnique(ctx, scope.worktreeIds ?? [], ['repos', index, 'worktreeIds'])
-    }
-    assertUnique(ctx, grant.writableRoots, ['writableRoots'])
-  })
+
+// The refinements live here, after the object, so the submission shape can omit `minter` without
+// zod refusing `.omit()` on a refined schema.
+export const startGrantSchema = startGrantObjectSchema.superRefine((grant, ctx) => {
+  if (Date.parse(grant.deadline) <= Date.parse(grant.mintedAt)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['deadline'],
+      message: 'must be after mintedAt'
+    })
+  }
+  if (grant.objectiveHash !== objectiveHashOf(grant.objectiveText)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['objectiveHash'],
+      message: 'must be the hash of objectiveText'
+    })
+  }
+  assertUnique(ctx, grant.repos.map((scope) => scope.repoId), ['repos'])
+  for (const [index, scope] of grant.repos.entries()) {
+    assertUnique(ctx, scope.worktreeIds ?? [], ['repos', index, 'worktreeIds'])
+  }
+  assertUnique(ctx, grant.writableRoots, ['writableRoots'])
+})
 
 export const startGrantRevocationSchema = z.object({
   schemaVersion: z.literal(1),
@@ -91,7 +98,16 @@ export const startGrantBindingSchema = z.object({
   boundAuthority: strictTerminalAuthoritySchema
 })
 
+/**
+ * What a client may submit. `minter` is not in it: the caller cannot read its own `launchTokenHash`
+ * (every receipt deliberately omits it), so it could never reproduce the authority the server stores.
+ * The server writes `minter` from the verified live caller, and a record that tries to name one is
+ * refused rather than silently ignored — an approval must not be able to claim another terminal.
+ */
+export const startGrantSubmittedSchema = startGrantObjectSchema.omit({ minter: true })
+
 export type StartGrant = z.infer<typeof startGrantSchema>
+export type StartGrantSubmission = z.infer<typeof startGrantSubmittedSchema>
 export type StartGrantRevocation = z.infer<typeof startGrantRevocationSchema>
 export type StartGrantBinding = z.infer<typeof startGrantBindingSchema>
 export type StartGrantRepoScope = z.infer<typeof startGrantRepoScopeSchema>
