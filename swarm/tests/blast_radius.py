@@ -49,9 +49,12 @@ SHARED_MAP: dict[str, tuple[str, ...]] = {
     "blocking_io": ("core.*", "bootstrap.*", "operators.*"),
 }
 
-# Source modules that no test module reaches. Empty today: the radius above reaches every tool
-# module. An entry is a reviewed statement that a module is untested, never a shortcut.
-UNTESTED: dict[str, str] = {}
+# Source modules that no test module reaches. An entry is a reviewed statement that a module is
+# untested, never a shortcut. Package markers under `tests/` are not modules: they carry no
+# behaviour, so a new test area's `__init__.py` is recorded here instead of demanding a test.
+UNTESTED: dict[str, str] = {
+    "__init__": "test-area package marker; no behaviour to cover",
+}
 
 # Changes to the runner itself are not module-level: they change how every module is selected
 # and reported, so the radius is the whole suite (`*`) or, for the selector only, the test that
