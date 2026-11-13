@@ -1,8 +1,8 @@
 # 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.6，M1–M4 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 结构化高危/按 turn 窗口 → §19.6）。
+- 状态：**设计（v2.7，M1–M5 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 修复）→ v2.7（M5 BLOCK → 唯一门点/override 折中 → §19.7）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 评审输入（同目录）：`issue-sedimentation.review-codex-ark.md`、`issue-sedimentation.review-trae.md`
   （v1 评审，针对"Python 适配层 + 文件轮询"版本）；v2 评审另见
@@ -295,33 +295,46 @@ transcript 可能 GB 级。record 存 `{path, inode/sha256, startOffset, endOffs
   repro / 字符串数组 / 路径字段统一过同一 sanitize+redact 层；路径本身可能含敏感项目名，属于已知边界。
 - **统一 sanitize**：normal write、DB insert、shadow replay 三处共用同一层，避免 replay 成为脱敏旁路。
 
-## 8. acceptance：Orca 缺失的一等概念
+## 8. acceptance：Orca 缺失的一等概念——M5 已实现
 
-现状：orchestration 只有"mutation receipt 幂等 acceptance"，没有业务验收。因此：
+现状（设计前）：orchestration 只有"mutation receipt 幂等 acceptance"，没有业务验收。
 
 ```ts
-// 随 dispatch 持久化（新增列或独立表 worker_dispatch_acceptance）
-type Acceptance = {
-  command: string                    // 在 worker 工作区执行
-  expect: { exitCode?: number; stdoutMatches?: string }  // 至少一项
-  timeoutMs: number
+// 声明存 incidents 自有库（dispatch_acceptance / dispatch_acceptance_stops），不动 v44
+type AcceptanceRule = {
+  ruleId: string                  // 幂等键；重新声明使旧 verdict/stop 失效
+  program: string; args: string[] // argv，不是 shell 字符串
+  cwd: string                     // 必须落在 worker worktree 内（realpath 包含校验）
+  expect: { exitCode?: number; stdoutMatches?: string }  // 至少一项；stdoutMatches 是子串
+  timeoutMs: number               // 有默认与上限（当前 10 分钟）
 }
 ```
 
-判定位置与禁止事项：
+**门点**：所有 **worker_report** 结算入口（本地 `send`/`check`/coordinator tick、federation
+import、legacy lifecycle）必须进同一 gate；命令在写事务**之外**执行，结果以值传入。裁决只有
+`passed | blocked | store_unavailable` 三种：
 
-- **不得**在 lifecycle 写事务里跑外部命令（长命令/卡死会被带进结算路径）。前置检查必须在
-  `completeDispatch` 调用**之前**完成，结果以值的形式传入。
-- 满足 → 正常结算。
-- **不满足 → 必须停在一个可见停点**：写 incident + 把 dispatch 置为显式 `acceptance_pending`
-  （非终态、在列表/CLI 可见、带 owner 待处理），**不是**"状态不变地继续 running"。
-  评审指出的真实风险：既不完成也不失败、又不变状态 = 静默悬挂，无人拥有下一步。
-- 无法判定（命令不存在、超时、宿主不可达）→ `class: acceptance_failed` + `unknown` 语义，仍
-  `untriaged`，并同样进入 `acceptance_pending`。
-- 不允许 acceptance 结果直接触发 `failDispatch`：判定与状态转移分离，避免一次误判把任务判死。
+- `passed` → 正常结算（无声明时同样零副作用：non-creating lookup，不创建/迁移 incidents 库）。
+- `blocked` → 写 incident（`acceptance_failed`，仍 `untriaged`）+ 一个可见 stop；dispatch 保持
+  `dispatched`，worker_done 消息**保留未读**（所有消费点都必须识别 `acceptance_pending` 并保留），
+  因此 `resolve --accept` 后由下一 tick 重新结算；`resolve --reject` 保持 unsettled，由 owner
+  修复后重试。**绝不允许** acceptance 结果直接 `failDispatch`。
+- `store_unavailable`（已声明但库读/写失败）→ **fail-closed**：产生可见 stop，不得退化成
+  `no_rules` 放行。
 
-这样"结果不符合预期"第一次有了自动化、可复核的来源，而不是模型自述；同时不会把失败的验收变成
-没人管的悬挂任务。
+**override 政策（评审分歧的折中，两份共识 AGREE）**：worker_report 路径**不允许** override；
+operator 显式维护路径（task 终态更新、decision gate、底层维护结算）必须显式
+`--override-acceptance` 才能绕过，并**留下可见证据**（`acceptance_overridden` 记录 + incident
+证据 + 读模型标 `overridden`）。理由：operator 属 R2 外部权威，不应被业务门卡死，但也不允许
+"静默完成"。
+
+**计数与可见性**：`attempts` 拆成"评估尝试"与"gate 观察"两个计数并设上限；stop 记录
+`lastSeen` / `lastError`；`incident acceptance list|show` 输出规则、verdict、stop、override 标记，
+并说明 accepted 之后"需要一次 coordinator tick 才能结算"。
+
+**已知边界**：federated/legacy 的 `worker_done` 不自动执行命令，会以 `not_evaluated` 停点进入
+（可见、可 resolve）；federated 侧对 blocked 报告也不发布 settlement（远端继续等待，而不是收到
+一个假完成）。
 
 ## 9. issue md：派生视图
 
@@ -508,6 +521,7 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 18 | 停滞判定（语义事件时钟、等待声明、灰度写入） | **已实现（M3，默认不写）** | §7.2；提交 `ca786b41`+`88a3af71`+`a73dcccd`+`deae60ba` |
 | 19 | tool_error 聚簇（结构化高危、按 turn 窗口、provider 覆盖声明） | **已实现（M4，默认不写）** | §7.3；提交 `0d9464e7`+`9dc65c45`+`643ee406` |
 | 20 | 自报入口 `incident report`（含 evidence 上限、统一 sanitize、同键语义） | **已实现（M2）** | §7.5；提交 `65910ea8`+`7b96419c` |
+| 20b | acceptance：声明存储、argv 执行、唯一门点、可见停点、override 留痕 | **已实现（M5）** | §8；提交 `acece904`+`b2358c17`+`e0f94015`+`256dadf2` |
 | 21 | 最小 CLI（list/show/decide/prune，含容量双字段与 prune 可追溯 id） | **已实现（M1）** | §12；提交 `5a04946a`+`4b92269c` |
 | 22 | 读模型/IPC/preload | **已实现（M2）** | §12；提交 `8a85931a` |
 | 23 | 定期只读挖掘 + triage 候选 | 设计中（M6） | §10 |
@@ -627,6 +641,19 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 测试（外层复跑） | incidents + agent-session-wire + CLI/IPC：**162 files / 1381 tests passed** |
 | 仍未验证 | 未做真实 provider 端到端（需真实 claude/codex 会话）；单次 60s tick 之外的持续灰度未跑；`unknown`/`non_zero_exit` 噪声限额未实现（打开写入的前置条件） |
 | 评审环境缺口 | trae 本轮两次因 provider 网络中断（stream disconnected / capacity queue）失败，第三次以最小范围重试才产出；评审记录里保留该缺口 |
+
+## 19.7 M5 实施与评审记录（2026-11-13）
+
+| 项 | 内容 |
+| --- | --- |
+| 提交（首版） | `acece904` 声明存储 + argv 执行 + 结算门、`b2358c17` 门点接入 + 停点 + resolve |
+| 提交（评审修复） | `e0f94015` 单一 gate 覆盖全部 worker_report 入口 + 显式留痕 override + fail-closed；`256dadf2` 入口点测试（C9） |
+| 首轮评审 | **两份均 BLOCK**：federation/legacy 绕过门点、`check-direct` 消费未读消息使 resolve 失效、gate 异常 fail-open、`--cwd` 可指向任意路径、`attempts` 无界、verdict 未绑规则版本、无声明仍创建库、reject 文案误导 |
+| 共识轮 | 两份 `AGREE-WITH-EDITS` / `AGREE`；唯一分歧是 override 政策，第二轮折中（worker_report 无 override + operator 路径显式 override 且留痕）后两份 `AGREE` |
+| 修复要点 | 全部 worker_report 入口进同一 gate；`acceptance_pending` 在所有消费点保留未读；`store_unavailable` 独立 verdict 且 fail-closed；无声明时 non-creating lookup；cwd 做 worktree 根 + realpath 包含校验；attempts 拆评估/观察并设上限；verdict 绑 rule digest；CLI 三态文案与 override 标记 |
+| 测试（外层复跑） | incidents + CLI + IPC：26 files / **279 tests**；受影响 orchestration 批次：109 files（108 passed）/ 971 passed，2 failed |
+| 失败归因 | 那 2 条（`worker-release-mobile-report.test.ts` 的 mobile unary/stream 用例）在基线 `fc011d66` 的临时只读 worktree 上**同样失败**，属既有失败，非本轮引入 |
+| 仍未验证 | 无 live worker/dispatch 端到端；`not_evaluated` 的 federated/legacy 停点未做专门路径测试；acceptance_overridden 未追加 incident_decisions（stop 记 decision、incident 记证据） |
 
 ## 20. 本轮验收口径（设计阶段）
 
