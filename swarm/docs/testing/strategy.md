@@ -223,8 +223,8 @@ I-12 尚无 D 层正例，见缺口矩阵。
 
 | 能力 | 位置 | 用途 | 边界 |
 | --- | --- | --- | --- |
-| FakeNative / fake CLI | `tests/bootstrap_role_fixture.py`、`tests/bootstrap_flow_fixture.py`、`tests/core/test_supervisor.py` 的 `Base` | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
-| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:179`、`:245`）、`bootstrap_control` 的显式时间参数 | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
+| FakeNative / fake CLI | `tests/offline_env.py`、`tests/publication_wait_fixture.py`、`tests/core/test_supervisor.py` 的 `Base`（旧 bootstrap 夹具已随握手删除） | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
+| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:179`、`:245`）；start grant 的 deadline/撤销走服务端时钟（`start-grant-spawn.test.ts`） | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
 | 真实文件锁竞争 | `tests/coordinator/test_coordinator_io.py:43`、`:72`；`tests/coordinator/test_coordinator_tui_scheduler.py:263` | 单写入者、busy 跳过 | 本地文件系统，不等于跨主机锁 |
 | 密钥/签名夹具 | `tests/core/test_binding.py:212`（旧 transport 夹具已删除） | 篡改、重放、错 key | 不证明真实 host 认证 |
 | Unix socket 端到端 | `tests/core/test_binding.py:455`、`:472` | 本地进程间签名回执 | 非网络、非远端 |
@@ -262,8 +262,9 @@ tests/run_offline.sh --fast   # 跳过文件头 SLOW 列表，只用于迭代
 2026-11-13 删除旧握手后，原先那 7 个 bootstrap/handoff 模块连同其断言一起消失了——它们测的代码已不存在，
 这不是"为提速删断言"，而是删掉的被测对象带走了测试。
 
-> **为什么要拆，而不是删.** `--jobs` 以模块为调度单位，所以并行门禁的下限是“最慢单模块”
-> 而不是总时长。`core.test_startup_handoff` 原是 40 项一个模块：本机 ext4 上 66 s，
+> **为什么要拆，而不是删.**（记录保留为“并行以模块为单位”的原因；被拆的那个模块已随旧握手删除。）
+> `--jobs` 以模块为调度单位，所以并行门禁的下限是“最慢单模块”而不是总时长。
+> `core.test_startup_handoff` 曾是 40 项一个模块：本机 ext4 上 66 s，
 > 而 NAS 工作区挂载上 **577 s**（8.7×；profile 显示 694,875 次 `read_bytes`、
 > 2,807,417 次 `lstat`，**零** RPC、零 openssl——慢在源码重读，不在签名）。
 > 按主题拆成 gate/dispatch、prepare/schema、trigger/send、monitor/turn-end 四个模块后，
