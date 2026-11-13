@@ -47,6 +47,11 @@ when the task sets it, otherwise the machine pointer `/opt/swarm/current`. Never
 directories, and never substitute a source checkout that happens to be nearby: a missing pointer is a
 reported gap, not a licence to guess which code and configuration are current.
 
+If the pointer is missing or unusable, name the fix instead of improvising one: a host gets its control
+plane from `swarm/deploy/install.sh` in a checkout of this repository (see `swarm/deploy/README.md`).
+Show the read-only command first, and never run it with `--apply` unless the user asked for a
+deployment — publishing, switching the pointer and relinking skills are deploy actions, not setup.
+
 Run the read-only readiness check for the target project and keep its output as evidence:
 
 ```bash
