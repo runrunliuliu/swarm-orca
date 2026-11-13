@@ -202,6 +202,17 @@ EOF
   exit "$EXIT_PRECONDITION"
 fi
 
+# Validate the host override before anything is written. Only possible when a control plane is
+# already installed; a first install is covered by the phase-A probe on the new artifact.
+if [ -L "$POINTER" ] && [ -d "$(readlink -f "$POINTER" 2>/dev/null)" ]; then
+  installed="$(readlink -f "$POINTER")"
+  python3 -B "$installed/code/control_plane_readiness.py" --project "$SOURCE_ROOT" \
+    --control-plane "$installed" --require-host-override --host-override "$HOST_OVERRIDE" \
+    --skills-dir "$SKILLS_DIR" >/dev/null \
+    || fail "pre-flight check failed against the installed control plane (host override, skills or configs): $HOST_OVERRIDE"
+  note "host override and installed skills validated before writing"
+fi
+
 # ---------------------------------------------------------------- artifact
 
 step "artifact"
@@ -332,8 +343,11 @@ if [ "$SKIP_SKILLS" = 0 ]; then
 fi
 
 step "verify"
+verify_skills="$SKILLS_DIR"
+# With --skip-skills the links are somebody else's business: verify the artifact's own skills.
+[ "$SKIP_SKILLS" = 1 ] && verify_skills="$POINTER/code/skills"
 probe=(--project "$SOURCE_ROOT" --require-host-override --host-override "$HOST_OVERRIDE"
-       --skills-dir "$SKILLS_DIR")
+       --skills-dir "$verify_skills")
 if [ "$dirty" = "True" ] || [ "$unpinned" = "True" ]; then
   note "pin check skipped: this artifact is not a pin source (dirty=$dirty unpinned=$unpinned)"
 else

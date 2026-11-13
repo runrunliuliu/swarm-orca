@@ -39,7 +39,17 @@ class InstallerTests(unittest.TestCase):
         for name in ("AGENTS.md", "NOTICE.md", "MIGRATION_STATUS.md", "README.md"):
             write(self.source / "swarm-orca" / name)
         write(self.source / "swarm-orca" / "swarm" / "coordinator_launch.py")
-        write(self.source / "swarm-orca" / "swarm" / "deploy" / "publish_control_plane.py")
+        for skill in ("swarm-orchestration", "worktree-delivery"):
+            write(self.source / "swarm-orca" / "swarm" / "skills" / skill / "SKILL.md",
+                  "---\nname: %s\n---\n" % skill)
+        # The artifact carries the real tools, so the installer's probes validate for real. Tests
+        # that need a specific exit code replace readiness with the stub below.
+        repo_swarm = Path(__file__).resolve().parents[2]
+        shutil.copyfile(repo_swarm / "control_plane_readiness.py",
+                        self.source / "swarm-orca" / "swarm" / "control_plane_readiness.py")
+        write(self.source / "swarm-orca" / "swarm" / "deploy" / "__init__.py", "")
+        shutil.copyfile(repo_swarm / "deploy" / "publish_control_plane.py",
+                        self.source / "swarm-orca" / "swarm" / "deploy" / "publish_control_plane.py")
         write(self.source / "swarm-orca" / "orca" / "skills" / "orca-cli" / "SKILL.md",
               "---\nname: orca-cli\n---\n")
         write(self.source / "swarm-orca" / "orca" / "skills" / "orchestration" / "SKILL.md",
@@ -47,7 +57,6 @@ class InstallerTests(unittest.TestCase):
         write(self.source / "swarm" / "coordinator-model.json", "{}\n")
         write(self.source / "swarm" / "worker-model-profiles.json", "{}\n")
         write(self.source / "skills" / "runtime-selection.md")
-        self.probe(pre=0, post=0)
         self.artifacts = self.root / "artifacts"
         self.artifacts.mkdir()
         self.skills = self.root / "skills-home"
@@ -64,7 +73,8 @@ class InstallerTests(unittest.TestCase):
         self.directories.append(directory)
         return Path(directory)
 
-    def probe(self, pre=0, post=0):
+    def probe_stub(self, pre=0, post=0):
+        """Replace readiness with a stub: only exit codes the real tool cannot produce on demand."""
         write(self.source / "swarm-orca" / "swarm" / "control_plane_readiness.py",
               PROBE.format(pre=pre, post=post))
 
@@ -179,7 +189,7 @@ class InstallerTests(unittest.TestCase):
                          "%s/code/skills/orca-cli" % self.pointer)
 
     def test_a_failed_artifact_probe_never_touches_the_pointer(self):
-        self.probe(pre=1, post=0)
+        self.probe_stub(pre=1, post=0)
         result = self.run_installer("--apply")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("failed the readiness probe", result.stderr)
@@ -187,7 +197,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.link_targets(), {})
 
     def test_a_failed_post_switch_probe_removes_a_new_pointer(self):
-        self.probe(pre=0, post=1)
+        self.probe_stub(pre=0, post=1)
         result = self.run_installer("--apply")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rolling back", result.stderr)
@@ -199,9 +209,38 @@ class InstallerTests(unittest.TestCase):
         first = os.readlink(self.pointer)
         before = self.link_targets()
         write(self.source / "swarm" / "coordinator-model.json", '{"changed": true}\n')
-        self.probe(pre=0, post=1)
+        self.probe_stub(pre=0, post=1)
         result = self.run_installer("--apply")
         self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(os.readlink(self.pointer), first)
+        self.assertEqual(self.link_targets(), before)
+
+    def test_an_override_for_another_host_blocks_before_any_write(self):
+        self.assertEqual(self.run_installer("--apply").returncode, 0)
+        published = self.artifact_names()
+        write(self.source / "swarm" / "coordinator-model.json", '{"changed": true}\n')
+        self.write_override(hostnames=["some-other-host"])
+        result = self.run_installer("--apply")
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("pre-flight check failed", result.stderr)
+        self.assertEqual(self.artifact_names(), published, "nothing new may be published")
+
+    def test_a_failed_switch_restores_managed_previous_links(self):
+        """Links that pointed at another artifact layout are restored, not left on the new one."""
+        self.assertEqual(self.run_installer("--apply").returncode, 0)
+        first = os.readlink(self.pointer)
+        manual = self.artifacts / "manual" / "code" / "skills"
+        for skill in ("orca-cli", "orchestration", "swarm-orchestration", "worktree-delivery"):
+            write(manual / skill / "SKILL.md", "---\nname: %s\n---\n" % skill)
+            entry = self.skills / skill
+            entry.unlink()
+            entry.symlink_to(manual / skill)
+        before = self.link_targets()
+        write(self.source / "swarm" / "coordinator-model.json", '{"changed": true}\n')
+        self.probe_stub(pre=0, post=1)
+        result = self.run_installer("--apply")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rolling back", result.stderr)
         self.assertEqual(os.readlink(self.pointer), first)
         self.assertEqual(self.link_targets(), before)
 
