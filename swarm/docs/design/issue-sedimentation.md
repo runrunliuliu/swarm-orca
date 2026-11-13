@@ -1,8 +1,8 @@
 # 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.7，M1–M5 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 修复）→ v2.7（M5 BLOCK → 唯一门点/override 折中 → §19.7）。
+- 状态：**设计（v2.8，M1–M6 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 修复）→ v2.7（M5 BLOCK → 修复）→ v2.8（M6 BLOCK → 实体来源/显式 target → §19.8）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 评审输入（同目录）：`issue-sedimentation.review-codex-ark.md`、`issue-sedimentation.review-trae.md`
   （v1 评审，针对"Python 适配层 + 文件轮询"版本）；v2 评审另见
@@ -347,20 +347,33 @@ operator 显式维护路径（task 终态更新、decision gate、底层维护�
 v1 只做**单条** `orca incident show <id> --md`（可重建），不做"一 fingerprint 一 md"的长期视图；
 后者需要稳定的 fingerprint 语义，与聚类一起放到后续里程碑。
 
-## 10. 定期挖掘与修复（非首版）
+## 10. 定期挖掘与修复——M6 已实现（只读 + 候选）
 
-用 automations（`trigger: 'scheduled'`），不新建调度器。
-人机回路前置：**没人看就等于没做**。所以挖掘之前先有 §12 的 `list / show / decide`，否则这只是把
-没人读的日志换成没人读的 DB。
+用 automations（`trigger: 'scheduled'`），**不新建调度器**。人机回路前置：没人看就等于没做，所以
+挖掘之前先有 §12 的 `list / show / decide`。
 
-1. 定时跑一个**只读**摘要会话（或直接 CLI）：新增数 / 未看数 / 拓扑 fingerprint / 需归档数。
-   `orca incident digest [--since 24h] [--json]` 已实现（M4）。`unseen` 的语义是 effective status
-   = `untriaged`，**不是**按人的已读标记；空库时仍输出 coverage gap，不得读成"没有事故"。
-2. 候选阈值（提议）：7 天内同 fingerprint ≥3 条且来自 ≥2 个不同 `source_id`；`signaled` crash
-   与同一 invariant 的 `acceptance_failed` 可 2 条进候选。
-3. 产出落 `incident_decisions`（`actor = 'miner'`），只允许 `watch` / `duplicate` /
-   `needs_archive`；**不允许** `confirmed`（那需要 R1 的人类/独立上下文）。
-4. 修复动作回到既有独立修改任务与交付授权，不在挖掘器里自动发生；有界（条数/时间/token）。
+1. **摘要**：`orca incident digest [--since 24h] [--json]`。`unseen` = effective status
+   `untriaged`，不是按人的已读标记；空库仍输出 coverage gap，不得读成"没有事故"。
+2. **候选（M6）**：`orca incident mine [--since 7d] [--json] [--max-groups] [--max-candidates]`
+   按 `fingerprint` 聚合，默认规则：7 天内同 fingerprint ≥3 条**且 ≥2 个稳定来源**；
+   `crash+signaled` 与同 invariant 的 `acceptance_failed` 允许 2 条——但同样要求 ≥2 个稳定来源。
+3. **"来源"必须是实体，不是 epoch（M6 关键修正）**：`source_id` 里带 epoch（`pane:stateStartedAt`、
+   `session:turn:code:windowStart`、`dispatch:attempt`），直接去重会把"同一 pane 停顿三次"读成
+   "跨源复现"。因此按 sourceKind 抽稳定键：status_stall → paneKey；tool_error → session
+   （+tool/code）；acceptance → dispatch/rule；pty_exit → session/worktree/run。输出同时给
+   `epochRows` 与 `stableSources`；解析不出稳定键的行计入 `unknown_stable_source`，**不**当作新来源。
+4. **单实体重复**：只有 1 个稳定来源的簇显式标 `single_entity_recurrence`；它既不进默认 candidates，
+   也不允许被 `--apply` 处理。
+5. **写入边界**：`--apply` 必须显式 `--target`（`watch` / `duplicate` / `needs_archive`，无默认值），
+   且只能在事务内以 `requireFromStatus = 'untriaged'` 追加决策——**不得**用通用 R1 迁移表把
+   `confirmed` / `watch` 改掉，人的判断不被 miner 覆盖。`confirmed` 永不由 miner 产生。
+6. **有界**：扫描有硬行数上限并发布 `scan.rows` / `scan.ms` / `truncated.scan`（与候选截断分开
+   表述）；候选与决策各有上限，超出给总数与 `truncated`，不静默截断。
+7. **低信息簇**：`unknown` / `non_zero_exit` / `self_report` 降权或限额并显式标注；self_report 要么
+   按 code 聚类，要么声明不参与挖掘。
+8. **automation 配方**：定时任务**只跑 dry-run**（`incident mine --since <window> --json`），不带
+   `--apply`；任何自动 apply 都需要另一个有明确授权与 actor/理由的人工 triage 流程。
+9. 修复动作仍回到既有独立修改任务与交付授权，挖掘器不自动改代码。
 
 ## 11. 硬问题与容量
 
@@ -524,7 +537,7 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 20b | acceptance：声明存储、argv 执行、唯一门点、可见停点、override 留痕 | **已实现（M5）** | §8；提交 `acece904`+`b2358c17`+`e0f94015`+`256dadf2` |
 | 21 | 最小 CLI（list/show/decide/prune，含容量双字段与 prune 可追溯 id） | **已实现（M1）** | §12；提交 `5a04946a`+`4b92269c` |
 | 22 | 读模型/IPC/preload | **已实现（M2）** | §12；提交 `8a85931a` |
-| 23 | 定期只读挖掘 + triage 候选 | 设计中（M6） | §10 |
+| 23 | 定期只读挖掘 + triage 候选（稳定来源、单实体排除、有界扫描、显式 target） | **已实现（M6）** | §10；提交 `6c08ce4f`+`da7adf4f`+`c6097d32`+`16b9a26b`+`b79abde2` |
 | 24 | 远端 mirror / 多机聚合 | 缺口（M7） | §11.1 |
 | 25 | 端到端 live 验收（真实崩溃 → incident → 关闭） | **缺口** | 无 |
 
@@ -654,6 +667,18 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 测试（外层复跑） | incidents + CLI + IPC：26 files / **279 tests**；受影响 orchestration 批次：109 files（108 passed）/ 971 passed，2 failed |
 | 失败归因 | 那 2 条（`worker-release-mobile-report.test.ts` 的 mobile unary/stream 用例）在基线 `fc011d66` 的临时只读 worktree 上**同样失败**，属既有失败，非本轮引入 |
 | 仍未验证 | 无 live worker/dispatch 端到端；`not_evaluated` 的 federated/legacy 停点未做专门路径测试；acceptance_overridden 未追加 incident_decisions（stop 记 decision、incident 记证据） |
+
+## 19.8 M6 实施与评审记录（2026-11-13）
+
+| 项 | 内容 |
+| --- | --- |
+| 提交（首版） | `6c08ce4f` 聚类+候选、`da7adf4f` miner 决策（有界/幂等/无 confirmed）、`c6097d32` digest 与 mine 共用口径 |
+| 提交（评审修复） | `16b9a26b` 来源改为实体、apply 不得覆盖人工判断、扫描有界（C1–C7）；`b79abde2` 评审边界固定测试（C8） |
+| 首轮评审 | **两份均 BLOCK**：`distinct source_id` 把 epoch 当来源、small-cluster 不要求不同实体；codex 另指出 apply 竞态可覆盖人工 `confirmed`/`watch`，trae 另指出 `--apply` 默认 target 会稀释人工队列 |
+| 共识轮 | codex `AGREE-WITH-EDITS`、trae `AGREE`；C6 两份一致选 (a)：`--apply` 必须显式 `--target` |
+| 修复要点 | 按 sourceKind 抽稳定键 + `epochRows`/`stableSources`/`unknown_stable_source`；单实体标 `single_entity_recurrence` 且不可 apply；apply 走 `requireFromStatus='untriaged'` 事务内守卫；扫描 LIMIT + `scan.rows/ms` + `truncated.scan`；取消默认 target；低信息簇与 self_report 处理固定 |
+| 测试（外层复跑） | incidents + CLI + IPC：27 files / **328 tests passed** |
+| 仍未验证 | 50k 行规模的实测耗时/内存未跑（只有上限与字段）；两个真实连接并发 apply 未压测；真正 scheduler/repair task/issue md 批量视图留到 M7+ |
 
 ## 20. 本轮验收口径（设计阶段）
 
