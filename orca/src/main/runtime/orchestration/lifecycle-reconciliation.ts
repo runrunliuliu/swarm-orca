@@ -1,6 +1,7 @@
 import type { OrchestrationDb } from './db'
 import type { MessageRow, WorkerReportOutcome } from './types'
 import { workerReportObservation } from './worker-report-observation'
+import { acceptancePendingResult } from '../../incidents/acceptance-runtime'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 
 // Why: the tab half can change on pane break-out, while opaque legacy keys
@@ -37,6 +38,8 @@ export type LifecycleReconciliationResult =
   | LifecycleRejectionResult
   | { action: 'completed'; taskId: string; dispatchId: string }
   | { action: 'failed'; taskId: string; dispatchId: string }
+  /** Acceptance rules did not pass: nothing settled; the visible stop owns the next step (§8). */
+  | { action: 'acceptance_pending'; taskId: string; dispatchId: string }
   | { action: 'heartbeat_recorded'; dispatchId: string }
 
 export type LifecycleRejectionCode =
@@ -229,13 +232,7 @@ function reconcileWorkerDoneMessage(
 
   const task = db.getTask(taskId)
   if (!task) {
-    return rejectLifecycleMessage(
-      db,
-      msg,
-      'unknown_task',
-      `worker_done references unknown task ${taskId}.`,
-      onLog
-    )
+    return rejectLifecycleMessage(db, msg, 'unknown_task', `worker_done references unknown task ${taskId}.`, onLog)
   }
 
   // Why: taskId alone is not a completion authority; retried tasks can have
@@ -268,8 +265,7 @@ function reconcileWorkerDoneMessage(
   // Why: `orchestration.send` can release the DB lock before waking the
   // coordinator; the later coordinator read still needs to observe completion.
   const filesModified =
-    Array.isArray(payload.filesModified) &&
-    payload.filesModified.every((file) => typeof file === 'string')
+    Array.isArray(payload.filesModified) && payload.filesModified.every((f) => typeof f === 'string')
       ? payload.filesModified
       : []
 
@@ -278,13 +274,18 @@ function reconcileWorkerDoneMessage(
     outcome,
     messageId: msg.id,
     reportedBy: msg.from_handle,
-    subject: msg.subject,
-    body: msg.body,
+    subject: msg.subject, body: msg.body,
     completedBy: msg.from_handle,
     filesModified,
     reportPath: typeof payload.reportPath === 'string' ? payload.reportPath : null,
     completedAt: new Date().toISOString()
   })
+  // Why here and not inside the settlement transaction: the gate reads stored verdicts only; the
+  // commands already ran outside any transaction when the worker_done was admitted.
+  const acceptancePending = acceptancePendingResult({ taskId, dispatchId, log: onLog })
+  if (acceptancePending !== null) {
+    return acceptancePending
+  }
   const settlement = db.settleWorkerReport({
     taskId,
     dispatchId,

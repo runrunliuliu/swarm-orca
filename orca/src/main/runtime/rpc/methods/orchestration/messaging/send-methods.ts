@@ -23,6 +23,7 @@ import {
 import { replayMutationNudge } from './mutation-replay-nudge'
 import { sendRemoteMessage } from './send-remote'
 import { mayNameSession } from './session-recipient'
+import { evaluateAcceptanceForDispatch } from '../../../../../incidents/acceptance-runtime'
 import { sendPointToPointMessage } from './send-point-to-point'
 import { sendGroupMessage } from './send-group'
 import { sendFederatedControlMail } from './send-control-mail'
@@ -195,6 +196,12 @@ export const ORCHESTRATION_SEND_METHODS = [
             messageRunId = runBound.runId
             sendWarnings.push(runBound.warning)
           }
+        }
+        // M5-2: acceptance runs here, before the message and its settlement commit — outside any
+        // transaction, and only for a worker report that names a dispatch. A dispatch with no rules
+        // costs one indexed read and returns immediately.
+        if (params.type === 'worker_done' && routing.dispatchId !== undefined) {
+          await evaluateAcceptanceForDispatch(routing.dispatchId)
         }
         const federatedControl = sendFederatedControlMail({
           params,

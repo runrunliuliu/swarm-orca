@@ -170,11 +170,17 @@ export class Coordinator {
     if (messages.length === 0) {
       return
     }
+    // Why a keep-set: a worker_done blocked by acceptance must stay unread, or the settlement it still
+    // owes disappears when the message is marked read and `acceptance resolve --accept` has nothing
+    // left to resume. Everything else is read exactly as before.
+    const keepUnread: string[] = []
 
     for (const msg of messages) {
       switch (msg.type) {
         case 'worker_done':
-          this.handleLifecycleMessage(msg)
+          if (this.handleLifecycleMessage(msg) === 'acceptance_pending') {
+            keepUnread.push(msg.id)
+          }
           break
         case 'escalation':
           this.handleEscalation(msg)
@@ -196,20 +202,28 @@ export class Coordinator {
       }
     }
 
-    this.db.markAsRead(messages.map((m) => m.id))
+    const retained = new Set(keepUnread)
+    const read = messages.map((m) => m.id).filter((id) => !retained.has(id))
+    if (read.length > 0) {
+      this.db.markAsRead(read)
+    }
   }
 
-  private handleLifecycleMessage(msg: MessageRow): void {
+  private handleLifecycleMessage(msg: MessageRow): 'completed' | 'failed' | 'acceptance_pending' | 'other' {
     const result = reconcileLifecycleMessage(this.db, msg, this.opts.onLog)
     if (result.action === 'completed') {
       if (!this.state.completedTasks.includes(result.taskId)) {
         this.state.completedTasks.push(result.taskId)
       }
-      return
+      return 'completed'
     }
-    if (result.action === 'failed' && !this.state.failedTasks.includes(result.taskId)) {
-      this.state.failedTasks.push(result.taskId)
+    if (result.action === 'failed') {
+      if (!this.state.failedTasks.includes(result.taskId)) {
+        this.state.failedTasks.push(result.taskId)
+      }
+      return 'failed'
     }
+    return result.action === 'acceptance_pending' ? 'acceptance_pending' : 'other'
   }
 
   private handleEscalation(msg: MessageRow): void {

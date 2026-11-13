@@ -244,11 +244,14 @@ export function incidentWriterDiagnostics(): Readonly<WriterDiagnostics> {
 }
 
 /** Test seam (house pattern: `__configure…ForTests`), never called from production paths. */
-export function __configureIncidentStoreForTests(store: IncidentStore | null): void {
+export function __configureIncidentStoreForTests(
+  store: IncidentStore | null,
+  db?: RuntimeIncidentStore['db']
+): void {
   cached =
     store === null
       ? null
-      : { store, db: null as unknown as RuntimeIncidentStore['db'], path: ':test:' }
+      : { store, db: db ?? (null as unknown as RuntimeIncidentStore['db']), path: ':test:' }
 }
 
 export function __resetIncidentWriterForTests(): void {
