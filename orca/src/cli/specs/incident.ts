@@ -119,6 +119,18 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'digest'],
+    summary: 'Daily summary of incident counts (read-only; no mining, no triage)',
+    usage: 'orca incident digest [--since 24h|7d|90m] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'since'],
+    examples: ['orca incident digest', 'orca incident digest --since 7d --json'],
+    notes: [
+      'Counts by class, effective status and fingerprint (top 5), plus unseen/untriaged, dropped shadow lines, replay state, capacity and tool-error windows.',
+      'Every number is one aggregate over the incidents database, so it cannot drift from the store.',
+      'Designed to be run by a scheduled automation: a session runs this command and posts the output. No scheduler is added in code.'
+    ]
+  },
+  {
     path: ['incident', 'prune'],
     destructive: true,
     summary: 'Delete old closed/invalid/duplicate incidents (dry run by default)',

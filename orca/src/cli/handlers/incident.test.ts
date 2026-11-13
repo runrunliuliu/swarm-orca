@@ -351,6 +351,44 @@ describe('incident tool-errors (M4-1)', () => {
   })
 })
 
+describe('incident digest (M4-2)', () => {
+  it('matches the database counts', async () => {
+    const writable = store()
+    const now = Date.now()
+    const written = recordPtyExitIncidentTo(writable, facts(), { hostId: 'host-a', now })
+    recordPtyExitIncidentTo(writable, facts({ incarnationId: 'ptyinc-e2e-2' }), {
+      hostId: 'host-a',
+      now
+    })
+    const shown = context('incident digest', {}, true)
+    await INCIDENT_HANDLERS['incident digest'](shown.ctx)
+    const digest = JSON.parse(shown.output.join('\n')) as {
+      total: number
+      unseen: number
+      byClass: { class: string; count: number }[]
+      capacity: { rows: number }
+    }
+    expect(digest.total).toBe(2)
+    expect(digest.unseen).toBe(2)
+    expect(digest.byClass).toEqual([{ class: 'crash', count: 2 }])
+    expect(digest.capacity.rows).toBe(2)
+    expect(written.id).not.toBeNull()
+  })
+
+  it('rejects an unparseable --since and prints an empty window cleanly', async () => {
+    const bad = context('incident digest', { since: 'yesterday' })
+    await expect(INCIDENT_HANDLERS['incident digest'](bad.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const empty = context('incident digest')
+    await INCIDENT_HANDLERS['incident digest'](empty.ctx)
+    const text = empty.output.join('\n')
+    expect(text).toContain('Total in window: 0')
+    expect(text).toContain('Capacity:')
+    expect(text).toContain('Shadow replay:')
+  })
+})
+
 describe('incident wait (M3-1)', () => {
   function seedSample(): void {
     const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
