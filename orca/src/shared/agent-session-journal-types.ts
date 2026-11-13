@@ -118,6 +118,15 @@ export type AgentJournalToolCallItem = NativeChatToolMetadata & {
   callId?: string
   state: AgentJournalToolCallState
   output?: AgentJournalBoundedPayload
+  /**
+   * A *structured* refusal kind a provider translation can stamp (M4-C1): permission_denied,
+   * pin_mismatch, scope_violation, immutable, tool_schema, timeout, network.
+   *
+   * Why a field instead of reading the output text: severity must come from evidence the provider
+   * typed, not from a phrase in a build log. Absent means "the provider said it failed but not why",
+   * which is deliberately not enough to open a high-severity candidate.
+   */
+  errorKind?: string
 }
 
 export type AgentJournalDiffItem = {

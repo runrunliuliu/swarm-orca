@@ -10,7 +10,7 @@ import { buildIncidentKey, incidentFingerprint } from './incident-key'
 import { mintIncidentId } from './incident-writer'
 import { resolveLocalHostId } from './incidents-paths'
 import { writeMeta } from './incident-store-capacity'
-import type { ToolErrorCode } from './incident-tool-error-classifier'
+import type { ToolErrorClassification, ToolErrorCode } from './incident-tool-error-classifier'
 import type { ToolErrorWindowSnapshot, ToolErrorWindowTracker } from './incident-tool-error-window'
 
 export const TOOL_ERROR_WINDOWS_META = 'tool_error_windows'
@@ -21,27 +21,37 @@ const MAX_PUBLISHED_WINDOWS = 50
 export type ToolErrorWindowsSnapshot = {
   updatedAt: number | null
   writeEnabled: boolean
+  /** Windows in this payload (capped at MAX_PUBLISHED_WINDOWS). */
+  published: number
+  /** Windows the collector held when it published; greater than `published` means truncation. */
+  total: number
+  /** Windows dropped by the LRU bound since start; counts were lost if this is non-zero. */
+  evicted: number
   windows: ToolErrorWindowSnapshot[]
 }
 
 export function readToolErrorWindows(db: Database.Database): ToolErrorWindowsSnapshot {
   const row = db.prepare('SELECT value FROM incident_store_meta WHERE key = ?').get(TOOL_ERROR_WINDOWS_META)
   if (!row || typeof row.value !== 'string') {
-    return { updatedAt: null, writeEnabled: false, windows: [] }
+    return { updatedAt: null, writeEnabled: false, published: 0, total: 0, evicted: 0, windows: [] }
   }
   try {
     const parsed: unknown = JSON.parse(String(row.value))
     if (typeof parsed !== 'object' || parsed === null) {
-      return { updatedAt: null, writeEnabled: false, windows: [] }
+      return { updatedAt: null, writeEnabled: false, published: 0, total: 0, evicted: 0, windows: [] }
     }
     const record = parsed as Record<string, unknown>
+    const windows = Array.isArray(record.windows) ? (record.windows as ToolErrorWindowSnapshot[]) : []
     return {
       updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : null,
       writeEnabled: record.writeEnabled === true,
-      windows: Array.isArray(record.windows) ? (record.windows as ToolErrorWindowSnapshot[]) : []
+      published: typeof record.published === 'number' ? record.published : windows.length,
+      total: typeof record.total === 'number' ? record.total : windows.length,
+      evicted: typeof record.evicted === 'number' ? record.evicted : 0,
+      windows
     }
   } catch {
-    return { updatedAt: null, writeEnabled: false, windows: [] }
+    return { updatedAt: null, writeEnabled: false, published: 0, total: 0, evicted: 0, windows: [] }
   }
 }
 
@@ -51,8 +61,20 @@ export function publishToolErrorWindows(
   tracker: ToolErrorWindowTracker,
   writeEnabled: boolean
 ): void {
+  const total = tracker.size()
   const windows = tracker.snapshot().slice(0, MAX_PUBLISHED_WINDOWS)
-  writeMeta(db, TOOL_ERROR_WINDOWS_META, JSON.stringify({ updatedAt: Date.now(), writeEnabled, windows }))
+  writeMeta(
+    db,
+    TOOL_ERROR_WINDOWS_META,
+    JSON.stringify({
+      updatedAt: Date.now(),
+      writeEnabled,
+      published: windows.length,
+      total,
+      evicted: tracker.evicted(),
+      windows
+    })
+  )
 }
 
 type BuildRecordInput = {
@@ -63,6 +85,7 @@ type BuildRecordInput = {
   count: number
   windowStart: number
   highSeverity: boolean
+  classification: ToolErrorClassification
   now: number
 }
 
@@ -106,14 +129,20 @@ export function buildToolErrorRecord(
       evidence: {
         pointers: [],
         unknownBoundaries: [
-          '错误码由分类器归一（原始错误文本未存）；分类只用于聚簇，不参与处置决策。',
+          `归类依据=${input.classification.confidence}${
+            input.classification.textHint
+              ? `（文本只提供低可信聚类提示 ${input.classification.textHint}，未参与 severity 与 code）`
+              : ''
+          }；原始错误文本未存。`,
+          '高危（单次直通）只来自 provider 的结构化拒绝 kind；结构化 exitCode≠0 优先归为 non_zero_exit。',
           '窗口计数是进程内滑动窗口，重启会重置；跨重启的同一突发事件可能延后一个窗口才达成阈值。'
         ],
-        code: input.code
+        code: input.code,
+        ...(input.classification.textHint ? { repro: `text_hint:${input.classification.textHint}` } : {})
       },
       summary:
-        `${input.code} ×${input.count}${input.highSeverity ? ' (high severity)' : ''} from ` +
-        `tool ${input.toolName} within 10m`,
+        `${input.code} ×${input.count}${input.highSeverity ? ' (structured denial)' : ''} from ` +
+        `tool ${input.toolName} in turn ${input.turn} within 10m`,
       createdAt: input.now
     }
   }

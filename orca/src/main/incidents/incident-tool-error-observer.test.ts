@@ -32,14 +32,34 @@ function fixture(): { store: IncidentStore; runtime: { store: IncidentStore; db:
   return { store, runtime: { store, db: opened.db } }
 }
 
-function failedCall(name = 'Bash', head = 'process exited with code 2'): AgentJournalItemBody {
+function failedCall(
+  name = 'Bash',
+  head = 'process exited with code 2',
+  extra: { exitCode?: number; errorKind?: string } = { exitCode: 2 }
+): AgentJournalItemBody {
   return {
     kind: 'tool-call',
     name,
     input: {},
     state: 'failed',
+    ...extra,
     output: { head, byteLength: head.length, digest: 'a'.repeat(64), truncated: false }
   }
+}
+
+function observe(
+  runtime: { store: IncidentStore; db: OpenIncidentsDatabase['db'] },
+  input: { itemKey: string; body: AgentJournalItemBody; now: number; turn?: string }
+) {
+  return observeToolErrorItem({
+    sessionId: 's-1',
+    itemKey: input.itemKey,
+    turnScope: { kind: 'turn', turnItemId: input.turn ?? 'turn-1' },
+    body: input.body,
+    now: input.now,
+    runtime,
+    shadow: false
+  })
 }
 
 function countRows(store: IncidentStore): number {
@@ -94,7 +114,8 @@ describe('default mode (switch off)', () => {
       code: 'non_zero_exit',
       count: 5,
       wouldWriteIfEnabled: true,
-      written: false
+      written: false,
+      turn: 'turn-1'
     })
   })
 })
@@ -141,19 +162,118 @@ describe('switch on', () => {
     expect(countRows(store)).toBe(1)
   })
 
-  it('writes immediately for a high-severity code', () => {
+  it('writes immediately for a structured permission refusal', () => {
     const { store, runtime } = fixture()
-    observeToolErrorItem({
-      sessionId: 's-1',
+    observe(runtime, {
       itemKey: 'item-1',
-      turnScope: TURN,
-      body: failedCall('Bash', 'permission denied: /root/x'),
-      now: T0,
-      runtime,
-      shadow: false
+      body: failedCall('Bash', 'denied', { errorKind: 'permission_denied' }),
+      now: T0
     })
     expect(countRows(store)).toBe(1)
-    expect(store.listIncidents().incidents[0].class).toBe('tool_error')
+    const view = store.getIncident(store.listIncidents().incidents[0].id)!
+    expect(view.class).toBe('tool_error')
+    expect(view.evidence.code).toBe('permission_denied')
+  })
+
+  it('does NOT write on the first textual "permission denied" (M4-C1)', () => {
+    const { store, runtime } = fixture()
+    observe(runtime, {
+      itemKey: 'item-1',
+      // Text-only: the fixture carries no structured exit code and no errorKind.
+      body: failedCall('Bash', 'bash: permission denied: /root/x', {}),
+      now: T0
+    })
+    expect(countRows(store)).toBe(0)
+    const window = readToolErrorWindows(runtime.db).windows[0]
+    expect(window).toMatchObject({ code: 'unknown', count: 1, wouldWriteIfEnabled: false, highSeverity: false })
+  })
+
+  it('treats a build log with permission text and exit code 2 as non_zero_exit', () => {
+    const { store, runtime } = fixture()
+    for (let index = 0; index < 5; index += 1) {
+      observe(runtime, {
+        itemKey: `item-${index}`,
+        body: failedCall('Bash', 'npm ERR! permission denied / 403', { exitCode: 2 }),
+        now: T0 + index
+      })
+    }
+    expect(countRows(store)).toBe(1)
+    const view = store.getIncident(store.listIncidents().incidents[0].id)!
+    expect(view.evidence.code).toBe('non_zero_exit')
+    expect(view.summary).not.toContain('structured denial')
+  })
+})
+
+describe('turn boundaries (M4-C2)', () => {
+  it('does not open across two turns (3 in turn A + 2 in turn B)', () => {
+    const { store, runtime } = fixture()
+    process.env[TOOL_ERROR_WRITE_ENV] = 'on'
+    for (let index = 0; index < 3; index += 1) {
+      observe(runtime, { itemKey: `a-${index}`, body: failedCall(), now: T0 + index, turn: 'turn-A' })
+    }
+    for (let index = 0; index < 2; index += 1) {
+      observe(runtime, { itemKey: `b-${index}`, body: failedCall(), now: T0 + 10 + index, turn: 'turn-B' })
+    }
+    expect(countRows(store)).toBe(0)
+    expect(readToolErrorWindows(runtime.db).windows).toHaveLength(2)
+  })
+
+  it('opens when one turn reaches five', () => {
+    const { store, runtime } = fixture()
+    process.env[TOOL_ERROR_WRITE_ENV] = 'on'
+    for (let index = 0; index < 5; index += 1) {
+      observe(runtime, { itemKey: `t-${index}`, body: failedCall(), now: T0 + index, turn: 'turn-A' })
+    }
+    expect(countRows(store)).toBe(1)
+  })
+})
+
+describe('provider coverage (M4-C3)', () => {
+  it('claude: is_error with permission text and no structured kind stays unknown', async () => {
+    const { claudeToolBody } = await import('../claude/claude-structured-item-translation')
+    const body = claudeToolBody({
+      tool: { id: 'toolu-1', name: 'Bash', input: {} },
+      result: { toolUseId: 'toolu-1', output: 'permission denied: /root/x', failed: true }
+    })
+    const { store, runtime } = fixture()
+    process.env[TOOL_ERROR_WRITE_ENV] = 'on'
+    observe(runtime, { itemKey: 'claude-1', body, now: T0 })
+    expect(countRows(store)).toBe(0)
+    expect(readToolErrorWindows(runtime.db).windows[0]).toMatchObject({
+      code: 'unknown',
+      wouldWriteIfEnabled: false
+    })
+  })
+
+  it('codex: a failed command carries the structured exit code, so it is non_zero_exit', async () => {
+    const { codexItemBody } = await import('../codex/codex-structured-item-translation')
+    const body = codexItemBody({
+      type: 'commandExecution',
+      id: 'cmd-1',
+      command: 'npm test',
+      status: 'failed',
+      exitCode: 2,
+      aggregatedOutput: 'npm ERR! permission denied / 403'
+    })
+    expect(body).not.toBeNull()
+    const { store, runtime } = fixture()
+    process.env[TOOL_ERROR_WRITE_ENV] = 'on'
+    for (let index = 0; index < 5; index += 1) {
+      observe(runtime, { itemKey: `codex-${index}`, body: body as AgentJournalItemBody, now: T0 + index })
+    }
+    expect(countRows(store)).toBe(1)
+    const view = store.getIncident(store.listIncidents().incidents[0].id)!
+    expect(view.evidence.code).toBe('non_zero_exit')
+  })
+
+  it('names the providers that are not wired instead of claiming coverage', async () => {
+    const coverage = await import('./incident-tool-error-coverage')
+    expect(coverage.TOOL_ERROR_COVERED_PROVIDERS).toEqual(['claude', 'codex'])
+    expect(coverage.TOOL_ERROR_UNCOVERED_PROVIDERS).toEqual(
+      expect.arrayContaining(['claude-agent-teams', 'grok', 'omp', 'trae', 'cursor'])
+    )
+    expect(coverage.TOOL_ERROR_COVERED_PROVIDERS).not.toContain('grok')
+    expect(coverage.TOOL_ERROR_COVERAGE_NOTES.join(' ')).toMatch(/no provider stamps one yet/)
   })
 })
 

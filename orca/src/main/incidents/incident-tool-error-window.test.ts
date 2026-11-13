@@ -9,7 +9,7 @@ import {
 } from './incident-tool-error-window'
 
 const T0 = 1_700_000_000_000
-const key = { sessionId: 's-1', toolName: 'Bash', code: 'non_zero_exit' }
+const key = { sessionId: 's-1', turn: 'turn-1', toolName: 'Bash', code: 'non_zero_exit' }
 
 function recordAt(
   tracker: ReturnType<typeof createToolErrorWindowTracker>,
@@ -19,7 +19,6 @@ function recordAt(
   return tracker.record({
     ...key,
     ...overrides,
-    turn: 'turn-1',
     at,
     highSeverity: overrides.highSeverity ?? false
   })
@@ -57,6 +56,26 @@ describe('tool-error window', () => {
     expect(first).toMatchObject({ count: 1, wouldWriteIfEnabled: true, highSeverity: true })
   })
 
+  it('never merges counts across turns (M4-C2)', () => {
+    const tracker = createToolErrorWindowTracker()
+    for (let index = 0; index < 3; index += 1) {
+      recordAt(tracker, T0 + index, { turn: 'turn-A' })
+    }
+    // Same code, new turn: two fresh events are not the third and fourth of the previous turn.
+    for (let index = 0; index < 2; index += 1) {
+      const result = recordAt(tracker, T0 + 10 + index, { turn: 'turn-B' })
+      expect(result.count).toBe(index + 1)
+      expect(result.wouldWriteIfEnabled).toBe(false)
+    }
+    // And five in one turn still opens.
+    for (let index = 0; index < 5; index += 1) {
+      const result = recordAt(tracker, T0 + 20 + index, { turn: 'turn-C' })
+      if (index === 4) {
+        expect(result.wouldWriteIfEnabled).toBe(true)
+      }
+    }
+  })
+
   it('counts each session/tool/code separately', () => {
     const tracker = createToolErrorWindowTracker()
     for (let index = 0; index < 4; index += 1) {
@@ -90,6 +109,7 @@ describe('tool-error window', () => {
     recordAt(tracker, T0, { toolName: 'B' })
     recordAt(tracker, T0, { toolName: 'C' })
     expect(tracker.size()).toBe(2)
+    expect(tracker.evicted()).toBe(1)
     expect(tracker.snapshot().map((window) => window.toolName).sort()).toEqual(['B', 'C'])
   })
 })

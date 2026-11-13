@@ -14,9 +14,12 @@ import type { NativeChatBlock } from '../../shared/native-chat-types'
 export type ToolErrorObservation = {
   /** The tool that failed, as the provider named it. */
   toolName: string
-  /** Bounded output head for classification; dropped after the code is chosen. */
+  /** Bounded output head for the low-confidence hint; dropped after the code is chosen. */
   output: string
+  /** Structured exit status from the journal item, when the provider supplied one. */
   exitCode: number | null
+  /** Structured refusal kind stamped by the provider translation (M4-C1). */
+  errorKind: string | null
   /** Position within the item, so two failures in one message are two observations. */
   ordinal: number
 }
@@ -31,7 +34,13 @@ function blockObservations(blocks: readonly NativeChatBlock[]): ToolErrorObserva
       pendingCall = block.name
       if (block.state === 'failed') {
         // A failed call with no separate result block is still one error.
-        observations.push({ toolName: block.name, output: '', exitCode: null, ordinal: ordinal++ })
+        observations.push({
+          toolName: block.name,
+          output: '',
+          exitCode: null,
+          errorKind: null,
+          ordinal: ordinal++
+        })
       }
       continue
     }
@@ -41,6 +50,7 @@ function blockObservations(blocks: readonly NativeChatBlock[]): ToolErrorObserva
           toolName: pendingCall ?? 'unknown_tool',
           output: block.output,
           exitCode: null,
+          errorKind: null,
           ordinal: ordinal++
         })
       }
@@ -50,11 +60,17 @@ function blockObservations(blocks: readonly NativeChatBlock[]): ToolErrorObserva
   return observations
 }
 
-function exitCodeFromOutput(head: string): number | null {
-  const match = /\b(?:exit(?:ed)? (?:with )?(?:code|status)|command failed with code) (\d{1,3})\b/i.exec(
-    head
-  )
-  return match ? Number(match[1]) : null
+/**
+ * A numeric exit status, if the provider put one on the item.
+ *
+ * Deliberately NOT parsed from the output head any more (M4-C1): the journal item carries
+ * `exitCode` as a structured field (`NativeChatToolMetadata`), the codex translation populates it from
+ * the provider's own item, and every other provider leaves it absent. Absent means the status is
+ * unknown — a regex over "exited with code 2" would be a low-confidence guess promoted to a code.
+ */
+function structuredExitCode(body: { exitCode?: unknown }): number | null {
+  const value = body.exitCode
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : null
 }
 
 /**
@@ -77,7 +93,13 @@ export function toolErrorObservations(
     return {
       turn,
       observations: [
-        { toolName: body.name, output: head, exitCode: exitCodeFromOutput(head), ordinal: 0 }
+        {
+          toolName: body.name,
+          output: head,
+          exitCode: structuredExitCode(body),
+          errorKind: typeof body.errorKind === 'string' ? body.errorKind : null,
+          ordinal: 0
+        }
       ]
     }
   }

@@ -28,12 +28,7 @@ import {
   publishToolErrorWindows
 } from './incident-tool-error-report'
 import { toolErrorObservations } from './incident-tool-error-blocks'
-import {
-  HIGH_SEVERITY_TOOL_ERROR_CODES,
-  classifyToolError,
-  isHighSeverityToolError,
-  type ToolErrorCode
-} from './incident-tool-error-classifier'
+import { classifyToolError, type ToolErrorCode } from './incident-tool-error-classifier'
 import {
   createToolErrorWindowTracker,
   type ToolErrorWindowTracker
@@ -49,9 +44,7 @@ export function toolErrorWriteEnabled(env: NodeJS.ProcessEnv = process.env): boo
   return env[TOOL_ERROR_WRITE_ENV] === 'on'
 }
 
-const tracker: ToolErrorWindowTracker = createToolErrorWindowTracker({
-  highSeverityCodes: HIGH_SEVERITY_TOOL_ERROR_CODES
-})
+const tracker: ToolErrorWindowTracker = createToolErrorWindowTracker()
 /** `sessionId\0itemKey\0ordinal` of already-counted observations; bounded FIFO. */
 const counted = new Set<string>()
 
@@ -117,12 +110,13 @@ export function observeToolErrorItem(input: ToolErrorObservationInput): ToolErro
       if (!markCounted(`${input.sessionId}\u0000${input.itemKey}\u0000${observation.ordinal}`)) {
         continue
       }
-      const code = classifyToolError({
-        toolName: observation.toolName,
+      const classification = classifyToolError({
         output: observation.output,
         isError: true,
+        errorKind: observation.errorKind,
         exitCode: observation.exitCode
       })
+      const code = classification.code
       result.observations += 1
       const window = tracker.record({
         sessionId: input.sessionId,
@@ -130,7 +124,7 @@ export function observeToolErrorItem(input: ToolErrorObservationInput): ToolErro
         code,
         turn,
         at: now,
-        highSeverity: isHighSeverityToolError(code)
+        highSeverity: classification.highSeverity
       })
       if (!window.wouldWriteIfEnabled) {
         continue
@@ -152,6 +146,7 @@ export function observeToolErrorItem(input: ToolErrorObservationInput): ToolErro
         count: window.count,
         windowStart: window.windowStart,
         highSeverity: window.highSeverity,
+        classification,
         now
       })
       if (!record.ok) {
@@ -163,7 +158,7 @@ export function observeToolErrorItem(input: ToolErrorObservationInput): ToolErro
       })
       if (insert.outcome === 'inserted' || insert.outcome === 'duplicate') {
         tracker.markWritten(
-          { sessionId: input.sessionId, toolName: observation.toolName, code },
+          { sessionId: input.sessionId, turn: window.lastTurn, toolName: observation.toolName, code },
           window.windowStart
         )
         if (insert.outcome === 'inserted') {

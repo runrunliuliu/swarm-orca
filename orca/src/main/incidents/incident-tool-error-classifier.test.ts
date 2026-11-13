@@ -1,61 +1,113 @@
 /**
- * The normalized code classifier (§7.3): a stable cluster code, no stored text, and unknown is a
- * cluster rather than a guess.
+ * The classifier's trust model (M4-C1): structured evidence decides, text is only a hint, and a build
+ * log that merely says "permission denied" can never be high severity.
  */
 import { describe, expect, it } from 'vitest'
 import {
   HIGH_SEVERITY_TOOL_ERROR_CODES,
+  STRUCTURED_ERROR_KINDS,
   TOOL_ERROR_CODES,
   classifyToolError,
-  isHighSeverityToolError
+  isHighSeverityToolError,
+  textHintFor
 } from './incident-tool-error-classifier'
 
 const SECRET = 'sk-ant-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH'
 
-describe('classifyToolError', () => {
-  it('maps each family to its code', () => {
-    const cases: [string, string][] = [
-      ['bash: /root/x: Permission denied', 'permission_denied'],
-      ['EACCES: permission denied, open /etc/hosts', 'permission_denied'],
-      ['refusing: pin mismatch for worker-model-profiles.json', 'permission_denied'],
-      ['path is outside the allowed write scope', 'permission_denied'],
-      ['write failed: immutable record', 'permission_denied'],
-      ['read: no such file or directory', 'path_not_found'],
-      ['rg: command not found', 'command_not_found'],
-      ['request timed out after 30000ms', 'timeout'],
-      ['connect ECONNREFUSED 127.0.0.1:1', 'network'],
-      ['invalid arguments: required property "path"', 'tool_schema'],
-      ['process exited with code 2', 'non_zero_exit']
+describe('structured evidence decides', () => {
+  it('maps every structured denial kind, and only the permission family is high severity', () => {
+    const expectations: [string, string, boolean][] = [
+      ['permission_denied', 'permission_denied', true],
+      ['pin_mismatch', 'permission_denied', true],
+      ['scope_violation', 'permission_denied', true],
+      ['immutable', 'permission_denied', true],
+      ['tool_schema', 'tool_schema', false],
+      ['timeout', 'timeout', false],
+      ['network', 'network', false]
     ]
-    for (const [text, code] of cases) {
-      expect(classifyToolError({ output: text, isError: true }), text).toBe(code)
+    for (const [kind, code, high] of expectations) {
+      expect(classifyToolError({ errorKind: kind, isError: true }), kind).toMatchObject({
+        code,
+        confidence: 'structured',
+        highSeverity: high
+      })
+    }
+    expect(STRUCTURED_ERROR_KINDS).toHaveLength(7)
+  })
+
+  it('takes a structured exit code as non_zero_exit, even when the text claims permission', () => {
+    // The exact regression from review: a build log containing "permission denied" and a 2 exit code.
+    const classification = classifyToolError({
+      output: 'npm ERR! permission denied / 403 while fetching',
+      isError: true,
+      exitCode: 2
+    })
+    expect(classification).toMatchObject({
+      code: 'non_zero_exit',
+      confidence: 'exit_code',
+      highSeverity: false
+    })
+  })
+
+  it('lets a structured refusal kind outrank a non-zero exit code', () => {
+    expect(
+      classifyToolError({ errorKind: 'permission_denied', exitCode: 2, isError: true })
+    ).toMatchObject({ code: 'permission_denied', highSeverity: true })
+  })
+
+  it('never lets text alone produce a code or high severity', () => {
+    for (const text of [
+      'permission denied: /root/x',
+      'EACCES 403 forbidden',
+      'immutable record',
+      'pin mismatch',
+      'timed out',
+      'no such file or directory',
+      'command not found'
+    ]) {
+      const classification = classifyToolError({ output: text, isError: true })
+      expect(classification, text).toMatchObject({
+        code: 'unknown',
+        confidence: 'text_hint',
+        highSeverity: false
+      })
+      expect(classification.textHint).toBeDefined()
+      expect(TOOL_ERROR_CODES).toContain(classification.code)
     }
   })
 
-  it('folds an unrecognized error to unknown instead of inventing a code', () => {
-    expect(classifyToolError({ output: 'something odd happened', isError: true })).toBe('unknown')
-    expect(classifyToolError({ output: '', isError: true })).toBe('unknown')
-    expect(classifyToolError({ isError: false })).toBe('unknown')
+  it('reports an unrecognized error as unknown with no hint', () => {
+    expect(classifyToolError({ output: 'something odd happened', isError: true })).toEqual({
+      code: 'unknown',
+      confidence: 'unknown',
+      highSeverity: false
+    })
+    expect(classifyToolError({ isError: false })).toMatchObject({ code: 'unknown' })
   })
 
-  it('uses a structured exit code when no phrase matches', () => {
-    expect(classifyToolError({ output: 'boom', isError: true, exitCode: 3 })).toBe('non_zero_exit')
-    expect(classifyToolError({ output: 'boom', isError: true, exitCode: 0 })).toBe('unknown')
+  it('ignores a non-zero exit code of zero and an unknown kind', () => {
+    expect(classifyToolError({ exitCode: 0, output: 'boom', isError: true })).toMatchObject({
+      code: 'unknown'
+    })
+    expect(classifyToolError({ errorKind: 'mystery', exitCode: 3, isError: true })).toMatchObject({
+      code: 'non_zero_exit'
+    })
   })
 
   it('does not leak the matched text anywhere in its result', () => {
-    const code = classifyToolError({ output: `permission denied: ${SECRET}`, isError: true })
-    expect(code).toBe('permission_denied')
-    expect(JSON.stringify({ code })).not.toContain(SECRET)
-    // Every code is a member of the closed vocabulary — nothing free-form can escape.
-    expect(TOOL_ERROR_CODES).toContain(code)
+    const classification = classifyToolError({
+      output: `permission denied: ${SECRET}`,
+      isError: true
+    })
+    expect(JSON.stringify(classification)).not.toContain(SECRET)
+    // The hint is a member of the closed vocabulary, not free text.
+    expect(TOOL_ERROR_CODES).toContain(classification.textHint)
+    expect(textHintFor({ output: 'permission denied' })).toBe('permission_denied')
   })
 
-  it('treats the pin/scope/immutable family as high severity', () => {
+  it('treats only permission_denied as high severity', () => {
     expect(HIGH_SEVERITY_TOOL_ERROR_CODES).toEqual(['permission_denied'])
     expect(isHighSeverityToolError('permission_denied')).toBe(true)
-    for (const code of ['timeout', 'path_not_found', 'unknown'] as const) {
-      expect(isHighSeverityToolError(code)).toBe(false)
-    }
+    expect(isHighSeverityToolError('non_zero_exit')).toBe(false)
   })
 })

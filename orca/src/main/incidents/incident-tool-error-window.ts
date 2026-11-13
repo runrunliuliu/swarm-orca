@@ -16,6 +16,8 @@ export type ToolErrorWindowKey = {
   sessionId: string
   toolName: string
   code: string
+  /** Journal turn item id (or `thread`); a new turn opens a new window. */
+  turn: string
 }
 
 export type ToolErrorWindowSnapshot = ToolErrorWindowKey & {
@@ -33,7 +35,7 @@ export type ToolErrorWindowSnapshot = ToolErrorWindowKey & {
 type WindowState = ToolErrorWindowSnapshot & { timestamps: number[] }
 
 const windowKey = (key: ToolErrorWindowKey): string =>
-  `${key.sessionId}\u0000${key.toolName}\u0000${key.code}`
+  `${key.sessionId}\u0000${key.turn}\u0000${key.toolName}\u0000${key.code}`
 
 export type ToolErrorWindowRecordResult = {
   count: number
@@ -46,13 +48,15 @@ export type ToolErrorWindowRecordResult = {
 }
 
 export type ToolErrorWindowTracker = {
-  record: (input: ToolErrorWindowKey & { turn: string; at: number; highSeverity: boolean }) =>
+  record: (input: ToolErrorWindowKey & { at: number; highSeverity: boolean }) =>
     | ToolErrorWindowRecordResult
   markWritten: (key: ToolErrorWindowKey, windowStart: number) => void
   snapshot: () => ToolErrorWindowSnapshot[]
   reset: () => void
-  /** Bounded so a long-lived process cannot accumulate one entry per session/tool/code forever. */
+  /** Bounded so a long-lived process cannot accumulate one entry per session/turn/tool/code forever. */
   size: () => number
+  /** Windows dropped by the bound since start; a non-zero value means counts were lost (M4-C4). */
+  evicted: () => number
 }
 
 export const TOOL_ERROR_WINDOW_MAX_ENTRIES = 512
@@ -68,6 +72,7 @@ export function createToolErrorWindowTracker(options: {
   const highSeverityCodes = new Set(options.highSeverityCodes ?? ['permission_denied'])
   const maxEntries = options.maxEntries ?? TOOL_ERROR_WINDOW_MAX_ENTRIES
   const windows = new Map<string, WindowState>()
+  let evicted = 0
 
   function evictIfNeeded(): void {
     while (windows.size > maxEntries) {
@@ -77,10 +82,11 @@ export function createToolErrorWindowTracker(options: {
         return
       }
       windows.delete(oldest)
+      evicted += 1
     }
   }
 
-  function record(input: ToolErrorWindowKey & { turn: string; at: number; highSeverity: boolean }) {
+  function record(input: ToolErrorWindowKey & { at: number; highSeverity: boolean }) {
     const key = windowKey(input)
     const cutoff = input.at - windowMs
     const state = windows.get(key)
@@ -95,6 +101,7 @@ export function createToolErrorWindowTracker(options: {
       sessionId: input.sessionId,
       toolName: input.toolName,
       code: input.code,
+      turn: input.turn,
       count,
       windowStart,
       lastAt: input.at,
@@ -133,7 +140,15 @@ export function createToolErrorWindowTracker(options: {
 
   function reset(): void {
     windows.clear()
+    evicted = 0
   }
 
-  return { record, markWritten, snapshot, reset, size: () => windows.size }
+  return {
+    record,
+    markWritten,
+    snapshot,
+    reset,
+    size: () => windows.size,
+    evicted: () => evicted
+  }
 }
