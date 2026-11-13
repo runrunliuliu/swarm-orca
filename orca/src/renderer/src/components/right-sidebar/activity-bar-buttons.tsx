@@ -13,6 +13,8 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { translate } from '@/i18n/i18n'
+import type { IncidentBadge } from './incident-badge'
+import { INCIDENT_BADGE_MAX_COUNT } from './incident-badge'
 
 export type ActivityBarItem = {
   id: ActiveRightSidebarTab
@@ -27,6 +29,11 @@ export type ActivityBarItem = {
   sshOnly?: boolean
   /** Host-owned health indicator; plugin content cannot style this chrome. */
   statusIndicator?: CheckStatus
+  /**
+   * A numeric count badge (M7-A). Host-owned, like `statusIndicator`: it is a count, not a status, so
+   * it cannot be expressed as a `CheckStatus` dot.
+   */
+  badge?: IncidentBadge
 }
 
 const STATUS_DOT_COLOR: Record<CheckStatus, string> = {
@@ -34,6 +41,37 @@ const STATUS_DOT_COLOR: Record<CheckStatus, string> = {
   failure: 'bg-rose-500',
   pending: 'bg-amber-500',
   neutral: 'bg-muted-foreground'
+}
+
+/**
+ * Count badge colours: red only when the count is believed complete, amber when coverage has a current
+ * gap (see `incident-badge.ts`). Theme tokens, not the raw palette the status dot above uses: a count
+ * is the most prominent thing in this strip and must follow the reader's theme.
+ */
+const BADGE_TONE_CLASS: Record<IncidentBadge['tone'], string> = {
+  alert: 'bg-destructive text-destructive-foreground',
+  caution: 'bg-status-warning text-black'
+}
+
+function ActivityBarBadgeView({
+  badge,
+  layout
+}: {
+  badge: IncidentBadge
+  layout: 'top' | 'side'
+}): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'pointer-events-none absolute flex items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-[13px] tabular-nums ring-1 ring-sidebar',
+        layout === 'top' ? 'top-[3px] right-[1px] min-w-[13px]' : 'top-[3px] right-[3px] min-w-[13px]',
+        BADGE_TONE_CLASS[badge.tone]
+      )}
+    >
+      {badge.count > INCIDENT_BADGE_MAX_COUNT ? `${INCIDENT_BADGE_MAX_COUNT}+` : badge.count}
+    </span>
+  )
 }
 
 function activityItemAriaLabel(item: ActivityBarItem, status?: CheckStatus | null): string {
@@ -137,6 +175,8 @@ export function ActivityBarButton({
   const Icon = item.icon
   const isTop = layout === 'top'
   const effectiveStatus = item.statusIndicator ?? statusIndicator
+  const badge = item.badge ?? null
+  const baseLabel = activityItemAriaLabel(item, effectiveStatus)
 
   return (
     <Tooltip>
@@ -150,9 +190,11 @@ export function ActivityBarButton({
             active ? 'text-foreground' : 'text-muted-foreground/60 hover:text-muted-foreground'
           )}
           onClick={onClick}
-          aria-label={activityItemAriaLabel(item, effectiveStatus)}
+          aria-label={badge === null ? baseLabel : `${baseLabel} — ${badge.label}`}
         >
           <Icon size={isTop ? 16 : 18} />
+
+          {badge !== null && <ActivityBarBadgeView badge={badge} layout={layout} />}
 
           {effectiveStatus && effectiveStatus !== 'neutral' && (
             <div
@@ -173,7 +215,11 @@ export function ActivityBarButton({
         </button>
       </TooltipTrigger>
       <TooltipContent side={isTop ? 'bottom' : 'left'} sideOffset={6}>
-        {item.shortcut ? `${item.title} (${item.shortcut})` : item.title}
+        {badge === null
+          ? item.shortcut
+            ? `${item.title} (${item.shortcut})`
+            : item.title
+          : `${item.title} — ${badge.label}`}
       </TooltipContent>
     </Tooltip>
   )

@@ -1,10 +1,13 @@
-// Preload surface for the incident read model (§12, M2).
+// Preload surface for the incident read model (§12, M2 + M7-A).
 //
-// No renderer UI yet (M7): this exists so the shape is fixed now and the UI milestone cannot invent
-// a second one. Every method returns a closed result object instead of throwing across the bridge,
-// because a diagnostics surface that throws is a diagnostics surface nobody wraps correctly.
+// Every method returns a closed result object instead of throwing across the bridge, because a
+// diagnostics surface that throws is a diagnostics surface nobody wraps correctly. `counts`/
+// `onCountsChanged` are the badge pair: one pull for hydration, one push while the store changes, so
+// no renderer has to poll.
 
 import type {
+  IncidentCountsDto,
+  IncidentCountsRequest,
   IncidentDecideRequest,
   IncidentDecideResultDto,
   IncidentDecideFailureDto,
@@ -24,4 +27,11 @@ export type IncidentApi = {
   decide: (
     request: IncidentDecideRequest
   ) => Promise<IncidentIpcResult<IncidentDecideResultDto | IncidentDecideFailureDto>>
+  /** Aggregate untriaged counts plus the coverage that qualifies them (M7-A). */
+  counts: (request?: IncidentCountsRequest) => Promise<IncidentIpcResult<IncidentCountsDto>>
+  /**
+   * Main-process push, already coalesced upstream (one notification per settled burst, not per row).
+   * Returns the unsubscribe function, matching the other push bridges.
+   */
+  onCountsChanged: (callback: (counts: IncidentCountsDto) => void) => () => void
 }

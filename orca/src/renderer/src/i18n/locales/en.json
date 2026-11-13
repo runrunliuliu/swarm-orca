@@ -13354,6 +13354,15 @@
                   }
                 }
               }
+            },
+            "right": {
+              "sidebar": {
+                "activity": {
+                  "items": {
+                    "0ba7be3f04": "Incidents"
+                  }
+                }
+              }
             }
           },
           "fileExplorerOperationOwner": {

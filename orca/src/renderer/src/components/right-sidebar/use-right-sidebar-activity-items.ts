@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Plug, Files, GitBranch, ListChecks, Workflow } from 'lucide-react'
+import { Plug, Files, GitBranch, ListChecks, Workflow, AlertTriangle } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { useRepoById } from '@/store/selectors'
 import { isFolderRepo } from '../../../../shared/repo-kind'
@@ -16,6 +16,8 @@ import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { translate } from '@/i18n/i18n'
 import { AgentSessionHistoryIcon } from './agent-session-history-icon'
 import type { ActivityBarItem } from './activity-bar-buttons'
+import { incidentBadgeFromCounts } from './incident-badge'
+import { useIncidentCounts } from './use-incident-counts'
 
 export type RightSidebarActivityItems = {
   visibleItems: ActivityBarItem[]
@@ -46,6 +48,9 @@ export function useRightSidebarActivityItems({
   const isFolder = isFolderWorkspace || (activeRepo ? isFolderRepo(activeRepo) : false)
   const isSshRepo = Boolean(activeRepo?.connectionId)
   const pluginSystemEnabled = useAppStore((s) => s.settings?.pluginSystemEnabled === true)
+  // Why here and not in the panel: the badge must be right while the panel does not exist yet (M7-A),
+  // and the activity bar is the only thing that renders while the sidebar is closed.
+  const incidentBadge = incidentBadgeFromCounts(useIncidentCounts())
   const pluginPanels = usePluginPanels()
   const visiblePluginPanels = useMemo(
     () => (pluginSystemEnabled ? pluginPanels : []),
@@ -111,6 +116,18 @@ export function useRightSidebarActivityItems({
         shortcut: portsShortcut === 'Unassigned' ? '' : portsShortcut,
         sshOnly: true
       },
+      {
+        // M7-A: entry only. Clicking selects the tab; its panel arrives in M7-B, so the count is what
+        // this button communicates today.
+        id: 'incidents',
+        icon: AlertTriangle,
+        title: translate(
+          'auto.components.right.sidebar.use.right.sidebar.activity.items.0ba7be3f04',
+          'Incidents'
+        ),
+        shortcut: '',
+        ...(incidentBadge === null ? {} : { badge: incidentBadge })
+      },
       // Why: plugin panels append after the built-in tabs so core navigation
       // keeps stable positions regardless of which plugins are installed.
       ...getPluginPanelActivityItems(visiblePluginPanels, pluginPanelErrors)
@@ -118,6 +135,7 @@ export function useRightSidebarActivityItems({
     [
       checksShortcut,
       explorerShortcut,
+      incidentBadge,
       pluginPanelErrors,
       visiblePluginPanels,
       portsShortcut,
