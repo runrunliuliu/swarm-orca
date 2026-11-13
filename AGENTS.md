@@ -237,6 +237,7 @@ repository reading entry points, not a claim that every harness automatically li
 | Orca worktrees, terminals, repositories or handoff | `orca skills get orca-cli` |
 | Native messages, tasks, Dispatches and lifecycle | `orca skills get orchestration` |
 | Supervised Swarm preparation, Coordinator loop, recovery and accounting | [swarm-orchestration](swarm/skills/swarm-orchestration/SKILL.md) |
+| Incident triage: read exported facts, cluster, propose decisions (never confirms) | [incident-triage](swarm/skills/incident-triage/SKILL.md) |
 | Strict software-development-v1 scope, progress and evidence | [software-development](swarm/skills/software-development/SKILL.md) |
 | Review, merge, optional deployment and safe worktree cleanup | [worktree-delivery](swarm/skills/worktree-delivery/SKILL.md) |
 

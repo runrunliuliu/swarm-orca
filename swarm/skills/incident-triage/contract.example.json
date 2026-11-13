@@ -1,0 +1,125 @@
+{
+  "note": "Synthetic contract example for swarm/skills/incident-triage/SKILL.md. Not a real export; every id/host/path is fictional. Each item under `records` is one NDJSON line emitted by `orca incident export --json`, in order: meta, facts, end.",
+  "records": [
+    {
+      "kind": "meta",
+      "view": "incident_triage_rows",
+      "exportVersion": 1,
+      "since": 1700000000000,
+      "windowMs": 604800000,
+      "generatedAt": 1700000000000,
+      "coverage": {
+        "remoteIncidentCapture": "unsupported",
+        "capacityLatchSet": false,
+        "currentlyLimited": false,
+        "capacity": {
+          "rows": 3,
+          "bytes": 40960,
+          "maxRows": 50000,
+          "maxBytes": 524288000
+        },
+        "shadowReplay": {
+          "lastSeq": 12,
+          "incomplete": false,
+          "lastStopReason": null,
+          "failures": 0,
+          "lastError": null,
+          "dropped": 0,
+          "lastDroppedReason": null,
+          "lastRun": { "lines": 12, "bytes": 8192, "ms": 4 }
+        },
+        "paneClock": {
+          "sampledAt": 1700000000000,
+          "panes": 2,
+          "declaredWaits": 0,
+          "skipped": 0,
+          "errors": 0,
+          "lastError": null
+        }
+      },
+      "toolProviders": {
+        "covered": ["claude", "codex"],
+        "uncovered": ["pi", "trae"]
+      },
+      "mirror": {
+        "capture": "unsupported",
+        "hosts": [],
+        "unsynced": null,
+        "unsyncedAsOf": null,
+        "unreachable": 0,
+        "rejected": 0,
+        "pruned": 0,
+        "lastError": null,
+        "mirroredRowsPresent": 0,
+        "skippedRows": 0,
+        "provenanceConflicts": 0
+      }
+    },
+    {
+      "kind": "incident",
+      "id": "inc_example_1",
+      "sourceKind": "pty_exit",
+      "sourceId": "example-incarnation-1",
+      "facet": "exit",
+      "hostId": "host-example",
+      "worktreeId": "wt_example",
+      "runId": "run_example",
+      "taskId": null,
+      "dispatchId": null,
+      "agentSessionId": null,
+      "ptyIncarnationId": "example-incarnation-1",
+      "class": "crash",
+      "status": "untriaged",
+      "effectiveStatus": "untriaged",
+      "exitCause": { "kind": "signaled", "signal": 9 },
+      "fingerprint": "example-fingerprint",
+      "evidence": {
+        "pointers": [],
+        "unknownBoundaries": ["no transcript pointer at PTY teardown"]
+      },
+      "summary": "agent killed by signal 9",
+      "createdAt": 1699999000000,
+      "decisionCount": 0,
+      "lastDecisionAt": null,
+      "archive": {
+        "pointers": 0,
+        "staged": 0,
+        "pending": 0,
+        "archived": 0,
+        "incomplete": 0,
+        "durable": false
+      }
+    },
+    {
+      "kind": "pane_clock",
+      "paneKey": "tab-example:leaf-example",
+      "terminalHandle": "term_example",
+      "state": "working",
+      "stateStartedAt": 1699998000000,
+      "turnStartedAt": null,
+      "lastSemanticEventAt": null,
+      "ageMs": 2000000,
+      "ageBasis": "state_fallback",
+      "observedAt": 1700000000000,
+      "declaredWait": null
+    },
+    {
+      "kind": "tool_failure",
+      "sessionId": "session_example",
+      "itemKey": "item_example",
+      "ordinal": 0,
+      "turn": "turn_example",
+      "toolName": "bash",
+      "errorKind": null,
+      "exitCode": 2,
+      "observedAt": 1699999500000
+    },
+    {
+      "kind": "end",
+      "counts": { "incident": 1, "pane_clock": 1, "tool_failure": 1 },
+      "total": { "incident": 1, "tool_failure": 1 },
+      "truncated": { "incident": false, "tool_failure": false },
+      "dropped": { "tool_failure": 0 }
+    }
+  ]
+}

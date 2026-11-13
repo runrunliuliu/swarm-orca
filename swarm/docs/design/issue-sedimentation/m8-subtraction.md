@@ -92,7 +92,7 @@ pane 事件时钟（采样）──┘        （不可变 + append-only）     
   **无 deprecated 别名**（决定 2）。
 - **留**：`orca incident list --json`（人看，不变）；只读视图 `incident_triage_rows`（§7）与
   `orca incident export`（NDJSON 薄序列化，无分组、无阈值、无写路径）。
-- **接管**：`swarm/skills/incident-triage/SKILL.md`（前置已补齐，决定 4）。
+- **接管**：`swarm/skills/incident-triage/`（SKILL.md + contract.example.json + report-template.md）。
 - **契约变化**：`mine`、`digest` 命令与 JSON 删除；automation 配方从 `incident mine --json` 改为
   "起一个会话 + skill + export"。
 - **预估净删除**：−1,940 生产 / −910 测试；新增 export ≈ +110、视图 ≈ +20。
@@ -246,5 +246,5 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 - `user_version 6 → 8`（增量表/视图）；orchestration `SCHEMA_VERSION` 未动，0 新依赖。
 - 测试：`src/main/incidents` + `src/main/ipc` + `src/cli` + preload bridge + renderer right-sidebar，
   6,828 passed / 5 failed；5 条与基线一致（local-network 1、worktree-git-common-polling 1、
-  register-core-handlers 2、orchestration-session-caller-cli 1），无新增失败。未做：skill 本体
-  （待评审）、live NAS 演练、live 崩溃→triage→关闭闭环。
+  register-core-handlers 2、orchestration-session-caller-cli 1），无新增失败。skill 已写
+  （`swarm/skills/incident-triage/` + 契约测试）；未做：live NAS 演练、live 崩溃→triage→关闭闭环。

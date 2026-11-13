@@ -33,7 +33,7 @@
 | R9 | M7 前精简审计 | 双方一致：只做收敛，不砍语义 | 过程材料下沉、`pad()`×6、meta helper ×2、`incident-mine.ts` 三分、CLI 帮助分组 |
 | R10 | M7 代码（A 打底 / B 面板 / C 远端，三分支并行） | B: APPROVE-WITH-CHANGES（codex）+ ADDITIONS（trae）；C: CHANGES_REQUIRED（codex）+ 反驳 2 条并补 2 条（trae）；A 未单独评审，合并前补审 | B: capacity latch 未点亮主角标、证据路径泄露、零计数静默；C: incident/provenance 非原子、页内 seq 乱序、空页不推进、provenance 无唯一键、`nextSeq` 跳跃无 gap reason | `consensus` 不需要（codex/trae 逐条互证） |
 | R11 | M7 合并接缝 + 角标语义 | 接缝 APPROVE（codex）；trae 唯一残留=stale badge，已修 | 远端只进 `remoteMirror` 不得并 `gap`；`counts=null`（失败/陈旧）不得与"无事故"同形 | 角标 C 方案由 codex/trae **独立同选**，无需共识轮 |
-| R12 | M8 减法（M8-1..M8-4 四提交） | 双方 **CHANGES_REQUIRED** → 修复 `c01cfae9` | export meta 缺 provider/mirror 覆盖；staging 未挂共享写路径；死 `tool_error` key；残留 stall/window 文案 | skill 本体、live NAS、live 闭环仍未做 |
+| R12 | M8 减法（M8-1..M8-4 四提交） | 双方 **CHANGES_REQUIRED** → 修复 `c01cfae9` | export meta 缺 provider/mirror 覆盖；staging 未挂共享写路径；死 `tool_error` key；残留 stall/window 文案 | skill 本体已补（`swarm/skills/incident-triage/`）；live NAS、live 闭环仍未做 |
 
 ## 六轮代码评审反复命中的同一类问题
 
