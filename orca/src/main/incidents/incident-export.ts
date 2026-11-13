@@ -94,7 +94,11 @@ function text(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function rowToExport(row: IncidentRow, archiveStates: readonly EvidenceArchiveRow[]): IncidentExportRow {
+function rowToExport(
+  row: IncidentRow,
+  archiveStates: readonly EvidenceArchiveRow[],
+  pointerCount: number
+): IncidentExportRow {
   return {
     id: String(row.id),
     sourceKind: row.source_kind as IncidentSourceKind,
@@ -117,7 +121,7 @@ function rowToExport(row: IncidentRow, archiveStates: readonly EvidenceArchiveRo
     createdAt: Number(row.created_at),
     decisionCount: Number(row.decision_count ?? 0),
     lastDecisionAt: row.last_decision_at === null ? null : Number(row.last_decision_at),
-    archive: summarizeArchive(archiveStates)
+    archive: summarizeArchive(archiveStates, pointerCount)
   }
 }
 
@@ -156,9 +160,14 @@ export function readIncidentExport(
     }
   }
   return {
-    rows: visible.map((row) =>
-      rowToExport(row, archiveByIncident.get(String(row.id)) ?? [])
-    ),
+    rows: visible.map((row) => {
+      const exportRow = rowToExport(
+        row,
+        archiveByIncident.get(String(row.id)) ?? [],
+        parseEvidence(row.evidence).pointers.length
+      )
+      return exportRow
+    }),
     truncated,
     total,
     since,

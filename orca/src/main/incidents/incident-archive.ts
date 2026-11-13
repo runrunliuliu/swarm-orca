@@ -27,7 +27,6 @@ import {
 import { dirname, join } from 'node:path'
 import type Database from '../sqlite/sync-database'
 import type { IncidentEvidencePointer } from './incident-types'
-import { incidentRuntimeStore } from './incident-writer'
 
 export const ARCHIVE_ROOT_ENV = 'ORCA_INCIDENT_ARCHIVE_ROOT'
 /** Bounded excerpt: the point is a reviewable window, not a second copy of a GB transcript. */
@@ -195,7 +194,7 @@ function archiveTarget(root: string, bucket: string, incidentId: string, pointer
   return join(root, bucket, 'incidents', incidentId, `${pointerIndex}-${name}`)
 }
 
-function bucketFor(row: { run_id: unknown; host_id: unknown }): string {
+function bucketFor(row: Record<string, unknown>): string {
   const run = typeof row.run_id === 'string' && row.run_id.length > 0 ? row.run_id : null
   if (run !== null) {
     return run
@@ -364,58 +363,36 @@ export function readEvidenceArchiveState(db: Database.Database, incidentId?: str
 }
 
 export type ArchiveSummary = {
+  /** Pointers the incident row carries. 0 means "no evidence was ever offered", not "not staged". */
+  pointers: number
   staged: number
   pending: number
   archived: number
   incomplete: number
-  /** True only when every pointer that has a state is archived. Never inferred from an empty set. */
+  /** True only when every pointer on the row is archived. Never inferred from an empty set. */
   durable: boolean
 }
 
 /** Compact per-incident summary. An incident with no evidence pointers has no rows and is not durable. */
-export function summarizeArchive(states: readonly EvidenceArchiveRow[]): ArchiveSummary {
-  const summary: ArchiveSummary = { staged: 0, pending: 0, archived: 0, incomplete: 0, durable: false }
+export function summarizeArchive(
+  states: readonly EvidenceArchiveRow[],
+  pointerCount: number = states.length
+): ArchiveSummary {
+  const summary: ArchiveSummary = {
+    pointers: pointerCount,
+    staged: 0,
+    pending: 0,
+    archived: 0,
+    incomplete: 0,
+    durable: false
+  }
   for (const state of states) {
     if (state.state === 'staged') summary.staged += 1
     else if (state.state === 'archive_pending') summary.pending += 1
     else if (state.state === 'archived') summary.archived += 1
     else summary.incomplete += 1
   }
-  summary.durable = states.length > 0 && summary.archived === states.length
+  summary.durable = pointerCount > 0 && summary.archived === pointerCount
   return summary
-}
-
-let drainTimer: ReturnType<typeof setInterval> | null = null
-
-/**
- * Background drain: one unref'd interval, started once from the existing startup mount.
- *
- * It never runs on the PTY or settlement path, and a missing archive root is a no-op that leaves the
- * state visible as pending instead of retrying a path that does not exist.
- */
-export function startEvidenceArchiveDrain(options: { intervalMs?: number } = {}): boolean {
-  if (drainTimer !== null) {
-    return false
-  }
-  drainTimer = setInterval(() => {
-    try {
-      const runtime = incidentRuntimeStore()
-      if (runtime === null) {
-        return
-      }
-      drainEvidenceArchive({ db: runtime.db, root: resolveArchiveRoot(), now: Date.now() })
-    } catch {
-      // The append-only state is the failure surface; a timer must not throw into the process.
-    }
-  }, Math.max(1_000, options.intervalMs ?? 5 * 60 * 1000))
-  drainTimer.unref?.()
-  return true
-}
-
-export function stopEvidenceArchiveDrain(): void {
-  if (drainTimer !== null) {
-    clearInterval(drainTimer)
-    drainTimer = null
-  }
 }
 

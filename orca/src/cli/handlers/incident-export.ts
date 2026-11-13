@@ -10,6 +10,14 @@ import { openIncidentStore } from '../incident-store-access'
 import { readPaneClocks } from '../../main/incidents/incident-pane-clocks'
 import { clampToolFailureLimit, readToolFailures } from '../../main/incidents/incident-tool-failures'
 import {
+  TOOL_ERROR_COVERED_PROVIDERS,
+  TOOL_ERROR_UNCOVERED_PROVIDERS
+} from '../../main/incidents/incident-tool-error-coverage'
+import {
+  emptyMirrorCoverage,
+  readIncidentMirrorCoverage
+} from '../../main/incidents/incident-mirror-store'
+import {
   DEFAULT_EXPORT_WINDOW_MS,
   INCIDENT_EXPORT_VERSION,
   INCIDENT_EXPORT_VIEW,
@@ -70,9 +78,19 @@ export async function exportIncident(ctx: HandlerContext): Promise<void> {
           'Pass --json for the NDJSON stream.'
       )
       console.log(formatCoverageNote(result.coverage))
+      console.log(
+        `Tool providers: covered=${TOOL_ERROR_COVERED_PROVIDERS.join(',')}  ` +
+          `uncovered=${TOOL_ERROR_UNCOVERED_PROVIDERS.length}`
+      )
+      if (opened.db !== null) {
+        console.log(`Mirror: ${readIncidentMirrorCoverage(opened.db).capture}`)
+      }
       return
     }
 
+    // Coverage is mandatory and must bound every empty section: local gaps in `coverage`, the tool
+    // provider gap, and the remote mirror's three-state read. An empty export without these cannot
+    // distinguish "nothing happened" from "this host cannot see it".
     console.log(
       JSON.stringify({
         kind: 'meta',
@@ -81,7 +99,13 @@ export async function exportIncident(ctx: HandlerContext): Promise<void> {
         since: result.since,
         windowMs: result.windowMs,
         generatedAt: Date.now(),
-        coverage: result.coverage
+        coverage: result.coverage,
+        toolProviders: {
+          covered: [...TOOL_ERROR_COVERED_PROVIDERS],
+          uncovered: [...TOOL_ERROR_UNCOVERED_PROVIDERS]
+        },
+        mirror:
+          opened.db === null ? emptyMirrorCoverage() : readIncidentMirrorCoverage(opened.db)
       })
     )
     for (const row of result.rows) {

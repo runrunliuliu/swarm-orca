@@ -12,6 +12,8 @@
 
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
+import type Database from '../sqlite/sync-database'
+import { stageIncidentEvidence } from './incident-archive'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import {
   assessPtyExit,
@@ -179,7 +181,13 @@ export function resetIncidentStoreCache(): void {
 export function persistIncidentRecord(
   store: IncidentStore,
   record: Parameters<IncidentStore['insertIncident']>[0],
-  options: { userDataPath?: string | null; shadow?: boolean; shadowMode?: 'sink' | 'append' } = {}
+  options: {
+    userDataPath?: string | null
+    shadow?: boolean
+    shadowMode?: 'sink' | 'append'
+    /** Present when the caller owns the connection: evidence staging needs it to append its events. */
+    db?: Database.Database
+  } = {}
 ): { result: InsertIncidentResult; shadow: 'written' | 'failed' | 'skipped' } {
   let shadow: 'written' | 'failed' | 'skipped' = 'skipped'
   const userDataPath =
@@ -197,7 +205,30 @@ export function persistIncidentRecord(
       diagnostics.shadowFailed += 1
     }
   }
-  return { result: store.insertIncident(record), shadow }
+  const result = store.insertIncident(record)
+  // Evidence staging belongs to the shared write contract, not to one CLI command (M8 review): any
+  // writer that has a connection and pointers gets the same `staged -> archive_pending` rows. It is
+  // local and bounded, and a failure becomes `archive_incomplete` instead of failing the write.
+  if (
+    result.outcome === 'inserted' &&
+    result.id !== null &&
+    options.db !== undefined &&
+    userDataPath !== null &&
+    record.evidence.pointers.length > 0
+  ) {
+    try {
+      stageIncidentEvidence({
+        db: options.db,
+        incidentId: result.id,
+        pointers: record.evidence.pointers,
+        userDataPath,
+        now: Date.now()
+      })
+    } catch {
+      // The incident row is already durable; staging failure must not turn an insert into a failure.
+    }
+  }
+  return { result, shadow }
 }
 
 /**
@@ -209,7 +240,13 @@ export function persistIncidentRecord(
 export function recordPtyExitIncidentTo(
   store: IncidentStore | null,
   input: RecordPtyExitIncidentInput,
-  options: { hostId?: string; now?: number; userDataPath?: string | null; shadow?: boolean } = {}
+  options: {
+    hostId?: string
+    now?: number
+    userDataPath?: string | null
+    shadow?: boolean
+    db?: Database.Database
+  } = {}
 ): PtyExitIncidentWriteResult {
   const assessed = assessPtyExit(input)
   if (!assessed.write) {
@@ -234,7 +271,8 @@ export function recordPtyExitIncidentTo(
   }
   const { result } = persistIncidentRecord(store, built.record, {
     userDataPath: options.userDataPath,
-    shadow: options.shadow
+    shadow: options.shadow,
+    ...(options.db === undefined ? {} : { db: options.db })
   })
   switch (result.outcome) {
     case 'inserted':
@@ -266,7 +304,8 @@ export function recordPtyExitIncidentTo(
 export function recordPtyExitIncident(input: RecordPtyExitIncidentInput): void {
   diagnostics.attempts += 1
   try {
-    recordPtyExitIncidentTo(incidentRuntimeStore()?.store ?? null, input)
+    const runtime = incidentRuntimeStore()
+    recordPtyExitIncidentTo(runtime?.store ?? null, input, runtime === null ? {} : { db: runtime.db })
   } catch (error) {
     // Even an unexpected failure here must not escape into the PTY teardown.
     diagnostics.failures += 1

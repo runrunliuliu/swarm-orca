@@ -137,7 +137,8 @@ pane 事件时钟（采样）──┘        （不可变 + append-only）     
 - **状态机**（append-only，**不 UPDATE incident 行**）：`incident_evidence_archive_events`
   记录 `staged → archive_pending → archived | archive_incomplete`，视图取最新一条；
   `archived` 必须有 NAS 回读的 sha256 与原件相等。
-- **不阻塞**：写入只落本地 staging（有界、小），主进程异步 drain；PTY 退出与结算路径**从不等待 NAS**。
+- **不阻塞**：staging 挂在共享写路径 `persistIncidentRecord`（不是某个 CLI 命令），只落本地且有界；
+  主进程异步 drain；PTY 退出与结算路径**从不等待 NAS**。
 - **失败语义**：NAS 不可达/超时 → `durable=false, archive_pending`，读模型明示"未归档"，
   **不得**计入"已归档"；回读不符 → `archive_incomplete`，保留原件与错误，不写成功标记；
   crash 路径本就没有 transcript 指针 → 保持空指针 + `unknownBoundaries`，不伪造证据。
@@ -153,7 +154,8 @@ crash 捕获（fallback epoch / owner-claim binding / unknown 门槛）、验收
 
 ```console
 orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行一条
-{"kind":"meta","view":"incident_triage_rows","exportVersion":1,"since":…,"generatedAt":…,"coverage":{…}}
+{"kind":"meta","view":"incident_triage_rows","exportVersion":1,"since":…,"generatedAt":…,
+ "coverage":{…},"toolProviders":{"covered":[…],"uncovered":[…]},"mirror":{…}}
 {"kind":"incident","id":…,"sourceKind":…,"sourceId":…,"class":…,"effectiveStatus":…,"runId":…,"taskId":…,
  "dispatchId":…,"worktreeId":…,"agentSessionId":…,"exitCause":…,"fingerprint":…,"evidence":{…},"archive":{…}}
 {"kind":"pane_clock","paneKey":…,"state":…,"lastSemanticEventAt":…,"ageMs":…,"ageBasis":…,"observedAt":…,"declaredWait":…}
@@ -163,7 +165,8 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 
 - 一种命令、一根流：`meta` 先出、`end` 后出，`--limit` 按 kind 生效且截断在 `end` 显式。
 - 无 `--include`/`--hash`/DB 内容哈希：可复现靠 `view + exportVersion + since + coverage` 与报告的 `rowsUsed`。
-- `coverage` 强制出现（shadowReplay / capacity / mirror / tool provider / paneClock），**空行 + 缺口不得读成"没有事故"**。
+- `meta` 强制带本地 `coverage`（shadowReplay/capacity/paneClock）、`toolProviders` 覆盖缺口与 `mirror` 三态；
+  **空行 + 缺口不得读成"没有事故"**。
 
 ## 6. 迁移与回滚
 
@@ -181,8 +184,7 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 - **输入**：`orca incident export` 的五种记录（§5）。skill 必须记录 `view/exportVersion/since/coverage` 与 `end.truncated`；缺 coverage 或截断未声明，报告视为不可复核。
 - **产出** report（Markdown + JSON 双份）：`exportVersion`、`window`、`rowsUsed:[id...]`、
   `sourceKeys`、`clusters`（依据写明）、`proposed:[{id,to,why}]`、`unknowns`、`coverage` 摘要。
-- **执行权**：skill 只产出报告与命令建议；`confirmed` 只能由 R1 用 `orca incident decide` 显式执行
-  （`--actor` 仍自报）；报告进档案时写 sha256 并回读。
+- **执行权**：skill 只出报告与命令；`confirmed` 只能由 R1 显式 `orca incident decide`（`--actor` 自报）；报告归档时写 sha256 并回读。
 - **可选**：`decide --report <path>` 存报告指针（可空列），或用 `--reason` 带 `report:<sha256>`（§9.3）。
 
 ## 8. 验收
@@ -218,16 +220,14 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 
 ### 8.4 减法度量
 
-总量以 §11 的实测为准；原 ±15% 估算不再保留两套数字。判据仍是"删掉的每一行都能指到谁接管"，
-指不到就应归入 §2.2（B 类），不得删除。
+总量以 §11 实测为准；删掉的每一行都必须能指到谁接管，指不到就归入 §2.2（B 类），不得删除。
 
 ## 9. 未决（需用户拍板）
 
 1. **归档根与范围**：`ORCA_INCIDENT_ARCHIVE_ROOT`、无 run 落 `_unattributed/<host>`、5 分钟 unref
    drain + `incident archive --drain` 兜底；证据按 64 KiB/条截断、历史不补档。请确认或要求改名/整文件复制。
 3. **decision 的报告指针**：是否加可空 `report_pointer` 列，还是只把 `report:<sha256>` 写进 `--reason`。
-4. **`incident wait` 去留**：作为"操作者声明"事实保留（推荐）还是随判定一起删？
-5. **triage 是否能直接 `decide`**：建议否（只出报告 + 命令建议）；`watch`/`duplicate` 也不自动 apply。
+4. **`incident wait` 保留为事实**（已实现）；**triage 不直接 `decide`**（只出报告 + 命令建议，`watch`/`duplicate` 也不自动 apply）。
 6. **工具失败保留期**（已实现 7 天 + 20k 行上限）与 `dropped` 预算；是否接受 `--min-age` 查询过滤。
 
 ## 10. 不做与红线
@@ -236,15 +236,15 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
   不可变触发器、prune marker、覆盖缺口、merging/mirror、角标四态与全部"没数据≠没问题"文案。
 - 不把 `unknown` 归一化成失败；不让 skill 产出 `confirmed`；不在 renderer 做判定；不改上游文件
   （`integration.ts` 导出名不变）。
-- 不新增第三方依赖；不改 orchestration `SCHEMA_VERSION`；不保留 `mine`/`digest` 兼容层（决定 2）。
+- 不新增第三方依赖；不改 orchestration `SCHEMA_VERSION`；不保留 `mine`/`digest` 兼容层；本阶段不改上游文件。
 
 ## 11. 实施记录（M8-1..M8-4，均在 `issue-sediment`）
 
 - 提交：`7be087bc` M8-1（−2,446）、`7472ebb0` M8-2（−960）、`1428767b` M8-3（−1,174）、
-  M8-4（+859，含紧随的清理）。合计 **+2,914 / −6,638，净 −3,724**（含本文档 250 行）。
+  M8-4（+859，含紧随的清理）。合计 **+3,051 / −6,749，净 −3,698**（含本文档；评审修复已并入：export 覆盖块、共享写路径 staging、死 key/文案清理）。
 
 - `user_version 6 → 8`（增量表/视图）；orchestration `SCHEMA_VERSION` 未动，0 新依赖。
 - 测试：`src/main/incidents` + `src/main/ipc` + `src/cli` + preload bridge + renderer right-sidebar，
-  6,820 passed / 5 failed；5 条与基线一致（local-network 1、worktree-git-common-polling 1、
+  6,828 passed / 5 failed；5 条与基线一致（local-network 1、worktree-git-common-polling 1、
   register-core-handlers 2、orchestration-session-caller-cli 1），无新增失败。未做：skill 本体
   （待评审）、live NAS 演练、live 崩溃→triage→关闭闭环。

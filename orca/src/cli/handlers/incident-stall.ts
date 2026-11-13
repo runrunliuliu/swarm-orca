@@ -37,7 +37,7 @@ export function parseUntilFlag(value: string, now: number): number {
   if (parsed <= now) {
     throw new RuntimeClientError(
       'invalid_argument',
-      '--until is in the past; a declaration that is already expired would not suppress anything.'
+      '--until is in the past; a declaration that is already expired would not apply to any pane.'
     )
   }
   return parsed
@@ -68,7 +68,7 @@ function resolveSampledPane(
   if (!match) {
     throw new RuntimeClientError(
       'invalid_argument',
-      `No observed state for "${terminal}". The stall sampler records one sample per minute; run ` +
+      `No observed state for "${terminal}". The pane-clock sampler records one row per minute; run ` +
         '`orca incident pane-clocks` to see which panes it has seen.'
     )
   }

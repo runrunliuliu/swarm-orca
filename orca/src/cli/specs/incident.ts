@@ -230,7 +230,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['incident', 'wait'],
     group: 'maintenance',
-    summary: 'Declare that a pane is expected to be quiet (suppresses stall judgement)',
+    summary: 'Declare that a pane is expected to be quiet (recorded as triage context)',
     usage:
       'orca incident wait --terminal <handle> --reason <text> [--until <rfc3339>] [--actor <name>] [--json]\n' +
       '       orca incident wait --terminal <handle> --clear [--json]',
@@ -240,7 +240,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
       'orca incident wait --terminal term_abc --clear'
     ],
     notes: [
-      'The declaration binds to the pane epoch observed in the last sample, so a respawned pane never inherits it.',
+      'The declaration binds to the pane epoch observed in the last pane-clock sample, so a respawned pane never inherits it.',
       '--until must be a future RFC3339 timestamp. Give long waits a deadline; a declaration without one lives until --clear and is only for cases a human has explicitly confirmed.',
       '--clear removes EVERY declaration of that pane (all epochs), and cannot be combined with --reason/--until/--actor.',
       '--actor is self-reported and unverified (§19.1); it defaults to "unspecified".'

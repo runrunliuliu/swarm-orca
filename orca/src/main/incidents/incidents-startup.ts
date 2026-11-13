@@ -26,7 +26,7 @@ import {
   type ShadowReconcileSummary
 } from './incident-shadow-reconcile'
 import { incidentRuntimeStore, resetIncidentStoreCache } from './incident-writer'
-import { startEvidenceArchiveDrain, stopEvidenceArchiveDrain } from './incident-archive'
+import { drainEvidenceArchive, resolveArchiveRoot } from './incident-archive'
 import { mainProcessUserDataPath } from './incidents-paths'
 
 export type IncidentShadowStartupResult = {
@@ -153,6 +153,40 @@ export async function syncIncidentMirrorAtStartup(
     const message = error instanceof Error ? `${error.name}: ${error.message}` : 'mirror_failed'
     console.warn('[incidents] remote mirror failed:', message)
     return { ran: true, error: message }
+  }
+}
+
+let archiveDrainTimer: ReturnType<typeof setInterval> | null = null
+
+/**
+ * Evidence archive drain: one unref'd interval, started once with the other startup work.
+ *
+ * It never runs on the PTY or settlement path, and a missing archive root is a no-op that leaves the
+ * state visible as `archive_pending` instead of retrying a path that does not exist.
+ */
+export function startEvidenceArchiveDrain(options: { intervalMs?: number } = {}): boolean {
+  if (archiveDrainTimer !== null) {
+    return false
+  }
+  archiveDrainTimer = setInterval(() => {
+    try {
+      const runtime = incidentRuntimeStore()
+      if (runtime === null) {
+        return
+      }
+      drainEvidenceArchive({ db: runtime.db, root: resolveArchiveRoot(), now: Date.now() })
+    } catch {
+      // The append-only state is the failure surface; a timer must not throw into the process.
+    }
+  }, Math.max(1_000, options.intervalMs ?? 5 * 60 * 1000))
+  archiveDrainTimer.unref?.()
+  return true
+}
+
+export function stopEvidenceArchiveDrain(): void {
+  if (archiveDrainTimer !== null) {
+    clearInterval(archiveDrainTimer)
+    archiveDrainTimer = null
   }
 }
 

@@ -155,10 +155,10 @@ export default function IncidentPanel(): React.JSX.Element {
             <p className="text-[11px] text-muted-foreground">
               {paneClocks.loading
                 ? translate('auto.components.right.sidebar.incidents.IncidentPanel.da40792d38',
-                    'Reading the stall sampler\'s last pass…'
+                    'Reading the pane event clocks…'
                   )
                 : translate('auto.components.right.sidebar.incidents.IncidentPanel.63569b95d6',
-                    'No stall sample is available from this host.'
+                    'No pane clock has been recorded on this host yet.'
                   )}
             </p>
           ) : (
@@ -178,10 +178,10 @@ export default function IncidentPanel(): React.JSX.Element {
             <p className="text-[11px] text-muted-foreground">
               {toolFailures.loading
                 ? translate('auto.components.right.sidebar.incidents.IncidentPanel.e82403c02d',
-                    'Reading the tool-error windows…'
+                    'Reading the recorded tool failures…'
                   )
                 : translate('auto.components.right.sidebar.incidents.IncidentPanel.b683788f7d',
-                    'No tool-error window snapshot is available from this host.'
+                    'No tool failure has been recorded on this host yet.'
                   )}
             </p>
           ) : (

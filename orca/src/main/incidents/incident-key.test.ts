@@ -83,27 +83,6 @@ describe('acceptance epoch (dispatchId + attempt, facet per rule)', () => {
   })
 })
 
-describe('tool_error epoch (session + turn + code + window)', () => {
-  it('keeps the same tool error in two turns apart', () => {
-    const turn7 = key({ kind: 'tool_error', sessionId: 's-1', turn: 7, code: 'rate_limited', windowStart: 1_700_000_000_000 })
-    const turn8 = key({ kind: 'tool_error', sessionId: 's-1', turn: 8, code: 'rate_limited', windowStart: 1_700_000_000_000 })
-    expect(turn8.sourceId).not.toBe(turn7.sourceId)
-    expect(turn7.sourceId).toBe('s-1:7:rate_limited:1700000000000')
-  })
-
-  it('is stable inside one burst window', () => {
-    const first = key({ kind: 'tool_error', sessionId: 's-1', turn: 7, code: 'rate_limited', windowStart: 1_000 })
-    const second = key({ kind: 'tool_error', sessionId: 's-1', turn: 7, code: 'rate_limited', windowStart: 1_000 })
-    expect(second).toEqual(first)
-  })
-
-  it('rejects a burst with no turn rather than merging turns', () => {
-    expect(
-      buildIncidentKey({ kind: 'tool_error', sessionId: 's-1', turn: undefined, code: 'c', windowStart: 1 })
-    ).toEqual({ ok: false, reason: 'missing_epoch' })
-  })
-})
-
 describe('pty_exit epoch (incarnation id)', () => {
   it('is stable per incarnation', () => {
     const first = key({ kind: 'pty_exit', ptyIncarnationId: 'inc-abc' })

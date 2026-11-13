@@ -7,7 +7,7 @@
 //
 //   * a pane that stalls, recovers, then stalls again  -> the second stall vanished
 //   * one dispatch with two acceptance rules           -> the rules overwrote each other
-//   * the same tool error in two turns                 -> one turn's error absorbed the other
+//   (the tool-error burst key was a fourth case; M8-3 removed the window and this builder with it)
 //   * a PTY exit                                       -> incarnation id is already an epoch
 //
 // The epoch is always taken from an upstream field that already moves monotonically
@@ -25,14 +25,6 @@ export type IncidentKeyInput =
       kind: 'status_stall'
       paneKey: string | null | undefined
       stateStartedAt: number | string | null | undefined
-    }
-  /** §7.3: the same tool error in two turns is two incidents; the window start bounds a burst. */
-  | {
-      kind: 'tool_error'
-      sessionId: string | null | undefined
-      turn: number | string | null | undefined
-      code: string | null | undefined
-      windowStart: number | string | null | undefined
     }
   /** §7.4: per-rule facet, so two rules on one dispatch do not overwrite each other. */
   | {
@@ -169,32 +161,6 @@ export function buildIncidentKey(input: IncidentKeyInput): IncidentKey {
         sourceId: `${paneKey}${SEPARATOR}${epoch}`,
         facet: 'stall',
         fingerprintParts: ['status_stall', 'stall', `pane:${paneKey}`, `stateStartedAt:${epoch}`]
-      }
-    }
-    case 'tool_error': {
-      const sessionId = cleanEntity(input.sessionId)
-      if (sessionId === null) {
-        return { ok: false, reason: 'missing_entity' }
-      }
-      const turn = cleanEpoch(input.turn)
-      const code = cleanEntity(input.code)
-      const windowStart = cleanEpoch(input.windowStart)
-      // `turn`, `code` and the window are all part of the epoch: any one of them missing collapses
-      // distinct turns of the same tool failure into one row.
-      if (turn === null || code === null || windowStart === null) {
-        const anyMissing =
-          input.turn === null ||
-          input.turn === undefined ||
-          input.windowStart === null ||
-          input.windowStart === undefined
-        return { ok: false, reason: anyMissing ? 'missing_epoch' : 'invalid_epoch' }
-      }
-      return {
-        ok: true,
-        sourceKind: 'tool_error',
-        sourceId: [sessionId, turn, code, windowStart].join(SEPARATOR),
-        facet: `tool:${code}`,
-        fingerprintParts: ['tool_error', `code:${code}`, `tool-facet:${code}`]
       }
     }
     case 'acceptance': {

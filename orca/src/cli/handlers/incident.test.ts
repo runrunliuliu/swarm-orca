@@ -285,8 +285,17 @@ describe('incident export (M8-1)', () => {
     })
     expect(records[0].coverage).toMatchObject({ remoteIncidentCapture: 'unsupported' })
     expect(records[0].view).toBe('incident_triage_rows')
+    expect(records[0].toolProviders).toMatchObject({
+      covered: expect.arrayContaining(['claude', 'codex'])
+    })
+    expect(records[0].mirror).toMatchObject({ capture: 'unsupported' })
     const incident = records.find((record) => record.kind === 'incident')
-    expect(incident).toMatchObject({ class: 'crash', effectiveStatus: 'untriaged', runId: null })
+    expect(incident).toMatchObject({
+      class: 'crash',
+      effectiveStatus: 'untriaged',
+      runId: null,
+      archive: { archived: 0, pending: 0, durable: false }
+    })
     expect(incident?.evidence).toEqual({ pointers: [], unknownBoundaries: expect.any(Array) })
     expect(records.at(-1)).toMatchObject({
       kind: 'end',

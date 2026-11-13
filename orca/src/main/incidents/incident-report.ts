@@ -10,6 +10,7 @@
 // a pointer to a file that is not there is worse than no pointer (it looks like evidence).
 
 import { createHash, randomUUID } from 'node:crypto'
+import type Database from '../sqlite/sync-database'
 import { closeSync, openSync, readSync, statSync } from 'node:fs'
 import {
   isIncidentClass,
@@ -208,6 +209,7 @@ export function recordSelfReportTo(
     userDataPath?: string | null
     shadow?: boolean
     shadowMode?: 'sink' | 'append'
+    db?: Database.Database
   } = {}
 ): SelfReportResult {
   const record = buildSelfReportRecord(input)
