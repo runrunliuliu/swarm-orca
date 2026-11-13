@@ -96,6 +96,10 @@ export type RightSidebarTab =
   | 'source-control'
   | 'checks'
   | 'ports'
+  // Why: the incidents entry exists in M7-A (button + untriaged badge) before its panel does (M7-B).
+  // Declaring the tab here is what keeps the selection a real tab instead of a second kind of button
+  // the routing, persistence and visibility rules would all have to learn about separately.
+  | 'incidents'
   // Plugin-contributed panels are keyed `plugin:<pluginId>/<panelId>` so the
   // static union stays closed while plugin tabs remain type-representable.
   | `plugin:${string}`

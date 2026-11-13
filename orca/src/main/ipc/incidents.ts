@@ -1,14 +1,15 @@
-// The incident read model for the renderer (§12, M2).
+// The incident read model for the renderer (§12, M2 + M7-A).
 //
-// Read-only snapshot + the one mutating call triage needs (`appendDecision`). No renderer UI exists
-// yet (M7), so this surface is deliberately narrow: it exposes exactly what `orca incident
-// list/show/decide` already does, from the same store, so the two cannot drift.
+// Read-only snapshot, the aggregate counts the activity-bar badge draws, the one mutating call triage
+// needs (`appendDecision`), and the coalesced push that keeps an open renderer's counts fresh. It
+// exposes exactly what `orca incident list/show/decide` already does, from the same store, so the two
+// cannot drift.
 //
 // Why the handler opens the store instead of taking one: the incident store is per-host user data
 // resolved lazily from the app environment (same as the PTY-exit writer), and the read model must
 // see the same connection the writer uses — including its capacity latch.
 
-import { ipcMain } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import {
   isIncidentClass,
   isIncidentStatus,
@@ -20,6 +21,8 @@ import { incidentRuntimeStore } from '../incidents/incident-writer'
 import type { IncidentListItem } from '../incidents/incident-store'
 import type {
   IncidentClassDto,
+  IncidentCountsDto,
+  IncidentCountsRequest,
   IncidentDecideFailureDto,
   IncidentDecideRequest,
   IncidentDecideResultDto,
@@ -29,6 +32,11 @@ import type {
   IncidentSnapshotDto,
   IncidentStatusDto
 } from '../../shared/incident-api-types'
+import { readIncidentCounts as readIncidentCountsFrom } from '../incidents/incident-counts'
+import { startIncidentCountsPush } from './incident-counts-push'
+
+/** The push channel the preload bridge listens on (`incidents.onCountsChanged`). */
+export const INCIDENT_COUNTS_CHANGED_CHANNEL = 'incidents:countsChanged'
 
 /** A closed channel result: the renderer renders `ok: false` instead of throwing over IPC. */
 export type IncidentIpcResult<T> = { ok: true; value: T } | { ok: false; error: string; code: string }
@@ -208,6 +216,30 @@ export function decideIncident(
   }
 }
 
+/**
+ * The activity-bar counts (§12, M7-A).
+ *
+ * Same closed-result contract as the rest of this surface: an unavailable store is a stated answer, not
+ * a thrown bridge. It uses the *creating* resolver like `snapshot`, so an explicit read from the UI
+ * behaves the same as a list request — the passive push is the one that must not create the store.
+ */
+export function readIncidentCountsSnapshot(
+  request: IncidentCountsRequest | undefined
+): IncidentIpcResult<IncidentCountsDto> {
+  const runtime = incidentRuntimeStore()
+  if (runtime === null) {
+    return unavailable()
+  }
+  return {
+    ok: true,
+    value: readIncidentCountsFrom({
+      db: runtime.db,
+      coverage: runtime.store.coverage(),
+      ...(request?.topWorktrees === undefined ? {} : { topWorktrees: request.topWorktrees })
+    })
+  }
+}
+
 export function registerIncidentHandlers(): void {
   ipcMain.handle('incidents:snapshot', (_event, request: IncidentListRequest | undefined) =>
     readIncidentSnapshot(request)
@@ -218,4 +250,27 @@ export function registerIncidentHandlers(): void {
   ipcMain.handle('incidents:decide', (_event, request: IncidentDecideRequest) =>
     decideIncident(request)
   )
+  ipcMain.handle('incidents:counts', (_event, request: IncidentCountsRequest | undefined) =>
+    readIncidentCountsSnapshot(request)
+  )
+  // Why here: this is the one place the incident surface is attached to the window, so it is the one
+  // place the store's change signal has somewhere to go. Idempotent, so a re-registration replaces
+  // the subscription instead of doubling every notification.
+  startIncidentCountsPush(broadcastIncidentCountsChanged)
+}
+
+/**
+ * Tell every live window the counts moved.
+ *
+ * Deliberately not gated on `state.mainWindow`: a dashboard popout or a second window that shows the
+ * activity bar must not keep a stale badge because it is not the window this module knows about. A
+ * destroyed window is skipped rather than trusted not to throw.
+ */
+function broadcastIncidentCountsChanged(counts: IncidentCountsDto): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue
+    }
+    window.webContents.send(INCIDENT_COUNTS_CHANGED_CHANNEL, counts)
+  }
 }

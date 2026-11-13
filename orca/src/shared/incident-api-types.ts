@@ -156,6 +156,65 @@ export type IncidentSnapshotDto = {
   coverage: IncidentCoverageDto
 }
 
+/**
+ * The badge's whole input (§12, M7-A): how many rows are still untriaged, how they split, and whether
+ * that number is trustworthy right now.
+ *
+ * Two rules shaped this shape:
+ *   * `untriaged` is a *floor*, not a total, whenever `coverage.gap` is true — a stopped write path and
+ *     an empty store must never look the same (§11.5);
+ *   * `byClass` and `byWorktree` break down the same untriaged set, so a badge, the panel and the CLI
+ *     cannot disagree about what "3 untriaged" means.
+ */
+export type IncidentCountsDto = {
+  /** Rows whose effective status is `untriaged`. Always equal to the sum of `byClass`. */
+  untriaged: number
+  /** Every row in this host's store, whatever its status. */
+  total: number
+  /** Untriaged per class; every class key is present, so a caller never has to test for absence. */
+  byClass: Record<IncidentClassDto, number>
+  /**
+   * Untriaged per worktree, biggest first, at most `IncidentCountsRequest.topWorktrees` entries.
+   * Rows with no worktree binding are counted in `untriaged` but are not listed here.
+   */
+  byWorktree: IncidentWorktreeCountDto[]
+  coverage: IncidentCoverageSummaryDto
+  /** When this reading was taken (ms since epoch). */
+  readAt: number
+}
+
+export type IncidentWorktreeCountDto = {
+  worktreeId: string
+  untriaged: number
+}
+
+/**
+ * The coverage facts a count depends on, and nothing else (§11.5).
+ *
+ * `gap` is the one field a badge should branch on: it is true only while the count is *currently*
+ * incomplete. `capacityLatchSet` is history and `remoteIncidentCapture` is a permanent scope limit, so
+ * folding either into `gap` would leave the badge lit forever and teach everyone to ignore it.
+ */
+export type IncidentCoverageSummaryDto = {
+  /** A write right now would be refused, so new incidents are not being recorded. */
+  currentlyLimited: boolean
+  /** This host's store refused a write at some point. History, not a current fault. */
+  capacityLatchSet: boolean
+  /** The shadow replay did not reach the end, so hint lines may not have landed yet. */
+  shadowReplayIncomplete: boolean
+  /** Hint lines the replay dropped for capacity; those incidents will never appear. */
+  shadowReplayDropped: number
+  /** Counts are this host's only; SSH/WSL incidents are not captured (never will be). */
+  remoteIncidentCapture: 'unsupported'
+  /** Any *current* hole above: render `untriaged` as a lower bound. */
+  gap: boolean
+}
+
+export type IncidentCountsRequest = {
+  /** How many worktrees `byWorktree` may list. Bounded by the main process. */
+  topWorktrees?: number
+}
+
 export type IncidentDetailRequest = { incidentId: string }
 
 export type IncidentDecideRequest = {

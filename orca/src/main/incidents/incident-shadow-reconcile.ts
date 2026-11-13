@@ -45,6 +45,7 @@ import {
   type IncidentShadowReplayCoverage
 } from './incident-shadow-coverage'
 import type { IncidentStore } from './incident-store'
+import { emitIncidentStoreChange } from './incident-store-changes'
 import { bumpMetaNumber, readMetaNumber, writeMeta } from './incident-store-meta'
 
 /** Persist progress every N handled lines so a crash mid-run resumes close to where it stopped. */
@@ -148,6 +149,9 @@ export function reconcileIncidentShadow(options: {
     writeMeta(db, SHADOW_LAST_RUN_LINES_META, String(summary.replayed))
     writeMeta(db, SHADOW_LAST_RUN_BYTES_META, String(summary.bytesRead))
     writeMeta(db, SHADOW_LAST_RUN_MS_META, String(summary.elapsedMs))
+    // A finished replay changes the read model even with zero inserts: `incomplete` may have just
+    // turned false, which is what stops the counts from being reported as a lower bound (M7-A).
+    emitIncidentStoreChange({ kind: 'replay', rows: summary.inserted })
     return summary
   }
 

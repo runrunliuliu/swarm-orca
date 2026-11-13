@@ -33,6 +33,7 @@ import {
   type InsertIncidentResult
 } from './incident-store-contract'
 import { createCapacityGate } from './incident-store-capacity'
+import { emitIncidentStoreChange } from './incident-store-changes'
 import { pruneIncidents } from './incident-store-prune'
 import {
   rowToDecision,
@@ -158,6 +159,8 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
       }
     }
     if (inserted) {
+      // A duplicate changed nothing, so only a real insert announces itself (see incident-store-changes).
+      emitIncidentStoreChange({ kind: 'insert', rows: 1 })
       return { outcome: 'inserted', id: record.id }
     }
     const existing = db
@@ -211,6 +214,8 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
         redactString(reason).slice(0, MAX_SUMMARY_CHARS),
         input.createdAt ?? now()
       )
+      // The decision only moves the *projected* status, which is exactly what the counts read.
+      emitIncidentStoreChange({ kind: 'decision', rows: 1 })
       return {
         outcome: 'appended' as const,
         decisionId,
@@ -301,8 +306,14 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
     listIncidents,
     coverage: capacity.coverage,
     countIncidents,
-    pruneIncidents: (requested) =>
-      pruneIncidents({ db, readOnly, now, runImmediate, requested }),
+    pruneIncidents: (requested) => {
+      const result = pruneIncidents({ db, readOnly, now, runImmediate, requested })
+      // A dry run and a zero-row prune both leave the store exactly as it was: nothing to announce.
+      if (!result.dryRun && result.deleted > 0) {
+        emitIncidentStoreChange({ kind: 'prune', rows: result.deleted })
+      }
+      return result
+    },
     readOnly
   }
 }

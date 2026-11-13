@@ -68,7 +68,10 @@ export function normalizeRightSidebarTab(tab: unknown): PersistedState['ui']['ri
     tab === 'pr-checks' ||
     tab === 'source-control' ||
     tab === 'checks' ||
-    tab === 'ports'
+    tab === 'ports' ||
+    // M7-A: the incidents entry is a real tab from the start, so a persisted selection survives restart
+    // instead of snapping back to Explorer the way an unknown value would.
+    tab === 'incidents'
   ) {
     return tab
   }

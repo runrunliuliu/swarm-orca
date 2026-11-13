@@ -45,7 +45,10 @@ export const STATIC_RIGHT_SIDEBAR_TABS = [
   'pr-checks',
   'source-control',
   'checks',
-  'ports'
+  'ports',
+  // M7-A: declared here so the RPC schema and the persisted union cannot drift (the parity guard in
+  // ui-state-schema-parity-checks.ts fails the moment one gains a member the other does not).
+  'incidents'
 ] as const
 
 // Plugin panels are open-ended `plugin:<publisher>.<id>/<panel>` keys, so the
