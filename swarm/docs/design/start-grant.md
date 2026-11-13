@@ -467,6 +467,29 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
 ——`worker-start` 走到那里要 terminal 创建栈的整套 mock，所以 I1 有 3 例单测覆盖"解析"，没有端到端断言覆盖"接线"。
 这条已知缺口留在文档里，而不是用一句"tested"盖过去。
 
+### 2.13 live 验收（2026-11-13，隔离 dev runtime，`max_workers=4`）
+
+这是本文第一次**不是离线**的证据。做法：从本分支构建 CLI 与 Electron main（`pnpm build:cli` +
+`pnpm build:electron-vite`），用 `ORCA_USER_DATA_PATH=/tmp/orca-startgrant-live` 起一个**隔离的** headless
+runtime，Coordinator 是该实例里的一个 codex-ark pane，全程只跑本文写下的命令。
+
+| 断言（§4.1 的编号） | 实测 |
+| --- | --- |
+| S1 第 5 次 spawn 被拒且无终端 | `spawn ok` ×4 → 第 5 次 **`start_grant_worker_limit`**；`terminal list` **before=10 after=10** |
+| 计数与投影一致 | `start-grant-show` → `workers {"active":4,"max":4}`，`run` 已绑定，`state.valid` |
+| C1/C5 create 在 grant 下可建 | `run-create --grant` → `run_c0a24821186b`，`effectsApplied:true`，`coordinatorPolicy:strict-v1` |
+| mint 的 minter 由服务端写 | 返回记录里 `minter.launchTokenHash` 存在——客户端造不出该字段（见 §2.2） |
+| 生命周期可闭合 | 4 条 `worker_done` 逐条投递、ack、释放，`worker-list --terminal-state reclaimable` → `[]` |
+| 一个未绑定的 grant 是可见状态 | 另一份 grant `c7118520…` 的 `run` 为 `None`（"refused create 不留 runs 行"的 live 形态） |
+
+证据（含每文件 SHA256 与读回比对）在
+`/home/tiger/swarm-runs/strict-start-credential-plan/evidence-start-grant-live/`；隔离 runtime 在跑完后已停止，
+其 user data 留在 `/tmp` 未并入生产实例。
+
+**这次 live 也没证明**：`START_GRANT_REQUIRED=true` 下的迁移行为（常量仍是 `false`）、revoke 对在跑 worker 的处理
+（§8 决策 2）、任何 federation/远端路径、`writableRoots` 之外不写入。**动过的宿主状态**：dev runtime 启动时给
+codex 装了 8 条 managed hook trust 记录（它自己的正常行为），已在 note 里记下。
+
 ## 3. 代码放哪：由"能不能被模型绕过"决定，不是由语言偏好决定
 
 | 能力 | 模型能否绕过 | 必须在 | 依据 |
