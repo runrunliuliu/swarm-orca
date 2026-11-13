@@ -12,10 +12,7 @@
 import type Database from '../sqlite/sync-database'
 import type { IncidentPaneClockCoverage } from './incident-types'
 import { bumpMetaNumber, readMeta, writeMeta } from './incident-store-meta'
-import {
-  PANE_CLOCK_DECLARED_WAITS_META,
-  publishDeclaredWaitCount
-} from './incident-wait'
+import { publishDeclaredWaitCount, readDeclaredWaitCount } from './incident-wait'
 
 /** One sample per minute: enough to make an age useful without a per-event timer. */
 export const PANE_CLOCK_SAMPLE_INTERVAL_MS = 60 * 1000
@@ -156,7 +153,7 @@ export function readPaneClockCoverage(db: Database.Database): IncidentPaneClockC
   return {
     sampledAt: sampledAtRaw === null ? null : Number(sampledAtRaw),
     panes: numberFrom(db, PANE_CLOCK_PANES_META),
-    declaredWaits: numberFrom(db, PANE_CLOCK_DECLARED_WAITS_META),
+    declaredWaits: readDeclaredWaitCount(db),
     skipped: numberFrom(db, PANE_CLOCK_SKIPPED_META),
     errors: numberFrom(db, PANE_CLOCK_ERRORS_META),
     lastError: readMeta(db, PANE_CLOCK_LAST_ERROR_META)

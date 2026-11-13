@@ -240,8 +240,8 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 
 ## 11. 实施记录（M8-1..M8-4，均在 `issue-sediment`）
 
-- 提交：`7be087bc` M8-1（−2,446）、`7472ebb0` M8-2（−960）、`1428767b` M8-3（−1,174）；
-  本提交 M8-4（staging、append-only 状态、异步 drain、`incident archive`）是净新增。
+- 提交：`7be087bc` M8-1（−2,446）、`7472ebb0` M8-2（−960）、`1428767b` M8-3（−1,174）、
+  M8-4（+859，含紧随的清理）。合计 **+2,914 / −6,638，净 −3,724**（含本文档 250 行）。
 
 - `user_version 6 → 8`（增量表/视图）；orchestration `SCHEMA_VERSION` 未动，0 新依赖。
 - 测试：`src/main/incidents` + `src/main/ipc` + `src/cli` + preload bridge + renderer right-sidebar，
