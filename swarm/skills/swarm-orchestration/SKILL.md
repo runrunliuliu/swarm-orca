@@ -40,7 +40,30 @@ implementation protocols):
 | Continuation or external-operation handoff | [Continuation](references/continuation.md) |
 
 
-## 1. Discover the runtime and choose a supported execution path
+## 1. Resolve the control plane, discover the runtime and choose an execution path
+
+Before choosing anything, resolve the control plane from one explicit entry only: `SWARM_CONTROL_PLANE`
+when the task sets it, otherwise the machine pointer `/opt/swarm/current`. Never search parent
+directories, and never substitute a source checkout that happens to be nearby: a missing pointer is a
+reported gap, not a licence to guess which code and configuration are current.
+
+Run the read-only readiness check for the target project and keep its output as evidence:
+
+```bash
+python3 -B <control-plane>/code/control_plane_readiness.py --project <target-project>
+# from a source checkout: python3 -B <source>/swarm-orca/swarm/control_plane_readiness.py --project <target-project>
+```
+
+The relative form works in both layouts: `../../control_plane_readiness.py` from this file.
+
+`ready: yes` is a fact about inputs, not authorization: it starts no Run, and `max_workers` stays
+unconfirmed until the user states a positive integer. Every `blocked:` line is an explicit blocker —
+stop and report it instead of choosing another path, config or checkout. A `dev-checkout` control
+plane, or a published one whose source was dirty or unpinned, is usable for local trials only and is
+never a pin source; keep `--require-pin` in force for anything that will be resumed or audited.
+
+This check does not replace reading the deployment policy in §2, and it does not make the missing
+host override layer exist: private paths, adapters and `max_workers` still come from the task.
 
 Load the selected executable's version-matched guides with `orca skills get orca-cli` and
 `orca skills get orchestration`; use `--help` for uncovered commands. Do not invent flags. Resolve the
