@@ -88,7 +88,57 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(counts())).toEqual({
       count: 3,
       tone: 'alert',
+      remoteGap: false,
       label: '3 untriaged'
+    })
+  })
+
+  it('keeps the count red and adds an outline note for a remote-only gap', () => {
+    // Arbitration option C: a remote hole is secondary. The local number is still exactly this host's
+    // fact, so the tone must stay `alert` even though the badge says more.
+    const remote = counts({
+      coverage: {
+        ...counts().coverage,
+        remoteMirror: { capture: 'not_probed', unsynced: 4, monitored: true }
+      }
+    })
+    expect(incidentBadgeFromCounts(remote)).toEqual({
+      count: 3,
+      tone: 'alert',
+      remoteGap: true,
+      label: '3 untriaged (remote view incomplete)'
+    })
+  })
+
+  it('does not count a peer that was never configured', () => {
+    const unconfigured = counts({
+      coverage: {
+        ...counts().coverage,
+        remoteMirror: { capture: 'unsupported', unsynced: 0, monitored: false }
+      }
+    })
+    expect(incidentBadgeFromCounts(unconfigured)).toEqual({
+      count: 3,
+      tone: 'alert',
+      remoteGap: false,
+      label: '3 untriaged'
+    })
+  })
+
+  it('lets a local gap win the tone while still naming the remote hole', () => {
+    const both = counts({
+      coverage: {
+        ...counts().coverage,
+        currentlyLimited: true,
+        gap: true,
+        remoteMirror: { capture: 'mirrored', unsynced: 1, monitored: true }
+      }
+    })
+    expect(incidentBadgeFromCounts(both)).toEqual({
+      count: 3,
+      tone: 'caution',
+      remoteGap: true,
+      label: '3 untriaged (count may be incomplete; remote view incomplete)'
     })
   })
 
@@ -99,6 +149,7 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(gap)).toEqual({
       count: 3,
       tone: 'caution',
+      remoteGap: false,
       label: '3 untriaged (count may be incomplete)'
     })
   })
@@ -128,6 +179,36 @@ describe('ActivityBarButton badge', () => {
     title: 'Incidents',
     shortcut: '',
     ...(badge === undefined || badge === null ? {} : { badge })
+  })
+
+  it('draws a secondary outline marker for a remote-only gap without changing the count colour', async () => {
+    const rendered = await renderNode(
+      <ActivityBarButton
+        item={item(
+          incidentBadgeFromCounts(
+            counts({
+              coverage: {
+                ...counts().coverage,
+                remoteMirror: { capture: 'not_probed', unsynced: 4, monitored: true }
+              }
+            })
+          )
+        )}
+        active={false}
+        onClick={vi.fn()}
+        layout="top"
+      />
+    )
+    const countBadge = rendered.querySelector('[aria-hidden="true"]:not([data-incident-remote-gap])')
+    expect(countBadge?.className).toContain('bg-destructive')
+    expect(countBadge?.className).not.toContain('bg-status-warning')
+    // Outline, not a fill: the secondary marker cannot compete with the count.
+    const marker = rendered.querySelector('[data-incident-remote-gap="true"]')
+    expect(marker?.className).toContain('border-muted-foreground')
+    expect(marker?.className).toContain('bg-transparent')
+    expect(rendered.querySelector('button')?.getAttribute('aria-label')).toBe(
+      'Incidents — 3 untriaged (remote view incomplete)'
+    )
   })
 
   it('renders an amber count for a coverage gap and a red count without one', async () => {

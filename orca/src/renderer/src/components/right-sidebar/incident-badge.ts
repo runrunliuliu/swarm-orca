@@ -8,11 +8,17 @@
 // A badge that always looks urgent because a replay is unfinished teaches people to ignore both.
 
 import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
+import { incidentRemoteCoverageIsGap } from './incidents/incident-remote-coverage'
 
 export type IncidentBadge = {
   count: number
-  /** `alert` = red count, `caution` = amber count because coverage is currently incomplete. */
+  /** `alert` = red count, `caution` = amber count because *local* coverage is currently incomplete. */
   tone: 'alert' | 'caution'
+  /**
+   * A monitored remote view is behind (M7-C arbitration). Secondary: the count stays red and is still
+   * exactly what this host recorded, so this draws an outline marker rather than changing the tone.
+   */
+  remoteGap: boolean
   /** Accessible/tooltip text: the number never renders without its qualifier. */
   label: string
 }
@@ -35,16 +41,27 @@ export function incidentBadgeFromCounts(
     counts.untriaged > INCIDENT_BADGE_MAX_COUNT
       ? `${INCIDENT_BADGE_MAX_COUNT}+`
       : String(counts.untriaged)
-  const qualifier = counts.coverage.gap
-    ? 'count may be incomplete'
-    : counts.coverage.capacityLatchSet
-      ? // History, not a current fault: stated because the number is still a lower bound, but a past
-        // stop does not make today's rows doubtful the way an unfinished replay does.
-        'a past capacity stop may have dropped incidents'
-      : null
+  const qualifiers: string[] = []
+  if (counts.coverage.gap) {
+    qualifiers.push('count may be incomplete')
+  } else if (counts.coverage.capacityLatchSet) {
+    // History, not a current fault: stated because the number is still a lower bound, but a past
+    // stop does not make today's rows doubtful the way an unfinished replay does.
+    qualifiers.push('a past capacity stop may have dropped incidents')
+  }
+  // Secondary and additive: a remote hole never changes the local count's trustworthiness, so it is a
+  // second qualifier rather than an amber tone (codex-ark/trae arbitration, option C).
+  const remoteGap = incidentRemoteCoverageIsGap(counts.coverage.remoteMirror)
+  if (remoteGap) {
+    qualifiers.push('remote view incomplete')
+  }
   return {
     count: counts.untriaged,
     tone,
-    label: qualifier === null ? `${capped} untriaged` : `${capped} untriaged (${qualifier})`
+    remoteGap,
+    label:
+      qualifiers.length === 0
+        ? `${capped} untriaged`
+        : `${capped} untriaged (${qualifiers.join('; ')})`
   }
 }

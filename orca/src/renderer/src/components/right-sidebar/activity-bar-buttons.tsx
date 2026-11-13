@@ -61,16 +61,33 @@ function ActivityBarBadgeView({
   layout: 'top' | 'side'
 }): React.JSX.Element {
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'pointer-events-none absolute flex items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-[13px] tabular-nums ring-1 ring-sidebar',
-        layout === 'top' ? 'top-[3px] right-[1px] min-w-[13px]' : 'top-[3px] right-[3px] min-w-[13px]',
-        BADGE_TONE_CLASS[badge.tone]
+    <>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute flex items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-[13px] tabular-nums ring-1 ring-sidebar',
+          layout === 'top' ? 'top-[3px] right-[1px] min-w-[13px]' : 'top-[3px] right-[3px] min-w-[13px]',
+          BADGE_TONE_CLASS[badge.tone]
+        )}
+      >
+        {badge.count > INCIDENT_BADGE_MAX_COUNT ? `${INCIDENT_BADGE_MAX_COUNT}+` : badge.count}
+      </span>
+      {/*
+        Secondary remote marker (M7-C arbitration): an outlined dot, no fill and no tone change. The
+        count above is this host's own and stays trustworthy-looking; this only says the *global* view
+        is incomplete. It is `aria-hidden` because the qualifier is already in the aria-label.
+      */}
+      {badge.remoteGap && (
+        <span
+          aria-hidden="true"
+          data-incident-remote-gap="true"
+          className={cn(
+            'pointer-events-none absolute size-[6px] rounded-full border border-muted-foreground bg-transparent',
+            layout === 'top' ? 'bottom-[2px] right-[2px]' : 'bottom-[2px] right-[4px]'
+          )}
+        />
       )}
-    >
-      {badge.count > INCIDENT_BADGE_MAX_COUNT ? `${INCIDENT_BADGE_MAX_COUNT}+` : badge.count}
-    </span>
+    </>
   )
 }
 
