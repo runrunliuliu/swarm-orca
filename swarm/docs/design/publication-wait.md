@@ -1,8 +1,7 @@
 # 发布等待：事件提前唤醒 + 常挂轮询兜底（已实现）
 
-> **历史（2026-11-13）**：本文引用的实现（`bootstrap_*`、`coordinator_strict_{delivery,start,request,prepare}`、
-> `startup_handoff`）已随旧握手删除；现行启动授权见 [start grant](../../docs/design/start-grant.md)。
-> 设计与测量结论保留，文中的模块名与命令不再可执行。
+> **注（2026-11-13）**：`swarm/publication_wait.py` 仍在用；旧握手删除后，原先的 strict 调用方证据
+> 已改指仍存在的调用方。
 
 
 状态：**已实现、已过离线门禁与双评审（2026-11-12）**。同主机实测有收益，跨客户端丢事件率**未实测**，
@@ -10,8 +9,8 @@
 握手协议语义仍以 [strict 启动](../../coordinator-strict-start.md) 与
 [strict bootstrap 协议](../../strict-bootstrap-protocol.md) 为准，冲突时以协议为准。
 
-关联：实现 `swarm/publication_wait.py`；调用点 `swarm/coordinator_strict_start.py`
-（`wait_and_create` 的 `gate-ready.json` 等待）与 `swarm/coordinator_strict_delivery.py`
+关联：实现 `swarm/publication_wait.py`；调用点是仍在用的 `operator_monitor.py` 与
+`coordinator_tui_scheduler.py`（旧握手的 `strict_start` / `strict_delivery` 调用方已删除）
 （`wait_for_config` 的 `strict-config-ready.json` 等待）；测试 `tests/core/test_publication_wait.py`、
 `tests/coordinator/test_coordinator_strict_{start,delivery}.py`、夹具
 `tests/publication_wait_fixture.py`。

@@ -22,7 +22,7 @@
    的 outbox + `request-show` 对账 + `--retry-request` 幂等 + `entry["delivery"] = receipt(...)`
    （`operator_monitor.py:227-257`）；`coordinator_tui_scheduler` 的 pre-send 竞争检测与
    `incomplete_continuation`（已投递但未提交的回合只记录、不重发）；`operator-monitor.md:251-253`
-   对"已投递但未 ACK 的批次"的筛选；以及 `coordinator_strict_delivery.py:132` 已写下的
+   对"已投递但未 ACK 的批次"的筛选；以及 monitor 侧已经写下的
    `terminal text is not delivery`。缺的是把它们合成**一份可查询的、带游标的投递结局台账**。
 2. **不新建消息总线。** 台账是现有 outbox/journal/receipt 的投影与补充字段，不是第二个真相源。
    冲突时以原生回执为准，台账只记账、不仲裁。

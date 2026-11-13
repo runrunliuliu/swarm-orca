@@ -33,8 +33,8 @@ request and continuation, not the separate bounded bootstrap handshake deadline.
 | Existing caller | Added responsibility |
 | --- | --- |
 | `coordinator_startup.validate/identity` | Fixed handoff, binding, role reads; domain is part of startup identity |
-| `coordinator_request_prepare` / `coordinator_strict_start` | Original task limits remain bound during request/start validation |
-| `startup_handoff.candidate_template` | Project software binding, acceptance and deadline into prepare v2 |
+| ~~`coordinator_request_prepare` / `coordinator_strict_start`~~（已随旧握手删除） | 任务上限在启动校验期间保持绑定——现行由 start grant 的 `objectiveHash` + `maxWorkers` 承担 |
+| ~~`startup_handoff.candidate_template`~~（已删除） | 项目绑定/验收/deadline 进 prepare v2 的旧通道 |
 | `coordinator_tui_prepare` | Static selection and current snapshot before exclusive publication; continuation ref still last |
 | `coordinator_tui_checkpoint` → `coordinator_domain` | One projection validator, fixed dispatch to historical RSI or software checker |
 | `coordinator_tui_continue` | Same config/gates/claim/settle journal; current bytes before a new claim |
