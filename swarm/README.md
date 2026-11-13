@@ -81,7 +81,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | 角色间等待（不再 sleep 看屏幕） | [对端等待设计](docs/design/pane-handoff-wait.md)：把“sleep N → 读对对方屏幕”换成三条阻塞等待（mailbox `check --wait` / 文件 inotify / pane 回合边界 `tui-idle`）。**P1–P5 已实现并过离线回归**：`wait_for_events.py` 能区分本机 runtime 的超时空回包与空批，`terminal_idle_wait.py` 的等待时长参数化（调度器仍用 1 s），`wait_pane.py`（须绑定同一次提交的 `turn_started`，否则 `unverifiable`）与 `wait_for_file.py`（inotify 提前唤醒 + deadline 兜底）已可调用，三处入口文档已补两节。**P6 运行侧 hook 门禁未做，live 对照未执行**，收益口径仍是推算。现场证据为单会话 19 次 sleep / 1554 s；已过两位独立评审（approve-with-changes） |
 | strict handoff 的通道、阶段等待与投递者身份（**已删除**） | [handoff 通道设计](docs/design/strict-handoff-channel.md)：mailbox 为默认通道、steering 只在启动 prompt 与人工交互时合法。接收工具 `strict-bootstrap-handoff-accept` 与阶段等待 `strict-bootstrap-wait-stage` **已随握手一起删除**；本文只作历史。身份断言当时就是自洽检查（防误填/防事故，不防冒充） |
 | Coordinator 模型、权限与启动适配 | [部署配置](configuration.md)、[公开 JSON 示例](coordinator-model.json)、[Trae exec](trae-coordinator.md) |
-| Strict bootstrap 事件协议（**已弃用、工具与读取器均已删除**） | [协议正文](strict-bootstrap-protocol.md) 冻结为设计历史；**旧 attempt 不再提供读取入口**（`strict-bootstrap-state` 与 `bootstrap_events` 已删除），历史只作设计记录 |
+| Strict bootstrap 事件协议（**已归档、工具与读取器均已删除**） | [旧协议入口](strict-bootstrap-protocol.md) 只是归档说明：正文已移到部署方的私有归档，仓库内不再保留；`strict-bootstrap-state` 与 `bootstrap_events` 已删除，旧 attempt 不支持读取 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
 | 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)；不同证明口径不自动互相回退 |
 | 观察、安全与归档 | [只读 progress watch](progress-watch.md)、[启动与收尾保护](startup-safety.md)、[私有归档接入](configuration.md#部署政策与历史材料) |

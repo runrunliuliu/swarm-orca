@@ -85,8 +85,9 @@ class OrientationTests(unittest.TestCase):
 
     def test_the_lookup_rule_survives_in_every_place_the_reader_meets_it(self):
         """A generated index nobody is told to consult earns nothing; measure it, then pin it."""
+        # The strict protocol used to be a third place; it is archived now, and the rule lives where
+        # the reader actually meets it: the repository guide and the entry module that repeats it.
         for path, phrase in ((ROOT.parent / "AGENTS.md", "look a name up there first"),
-                             (ROOT / "strict-bootstrap-protocol.md", "只有表里没有条目时才用 grep"),
                              (ROOT / "coordinator_strict.py", "look a name up here before searching")):
             with self.subTest(path=path.name):
                 # Whitespace is flattened: these are wrapped paragraphs, not single lines.

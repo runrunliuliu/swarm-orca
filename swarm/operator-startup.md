@@ -459,7 +459,7 @@ python3 swarm/coordinator_launch.py strict-bootstrap-wait-stage \
    `subject` 四项与原投递逐字节相同（通常就是把同一份换到 mailbox 上），再加「等一次回合边界」。
    **禁止**生成新的 `handoff_id` 或新文本。接收侧按同一份去重；同一 `handoff_id` 换了字节（含换了发送
    pane）是冲突，不是「取新的那份」。
-5. 接收侧校验见 [协议正文](strict-bootstrap-protocol.md) 的「handoff 邮件的信封与拒绝码」：
+5. ~~接收侧校验见协议正文的「handoff 邮件的信封与拒绝码」~~：该段与接收工具已随协议归档/删除，以下描述只作历史：
    **pin 字节断言与投递者身份断言是两个独立断言**，缺一不可；身份断言是自洽检查，防误填/防事故，
    **不防冒充**，不得称作认证或安全边界。
 
