@@ -1,5 +1,10 @@
 # strict bootstrap live：定向取证清单
 
+> **历史（2026-11-13）**：本文描述的握手工具已**删除**（`bootstrap_*`、`strict-start-*`、`strict-config-*`、
+> `startup_handoff`）。现行启动授权见 [start grant](design/start-grant.md)。本文保留为设计记录，
+> 其中的命令不再可用。
+
+
 本文件是**记录模板与取证清单**，不是验收标准，也不授权任何运行。
 
 - 判定语义只有一个来源：[reliability.md](reliability.md)。状态词（`NOT_RUN` / `NON_HIT` /

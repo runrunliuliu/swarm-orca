@@ -1,3 +1,7 @@
+> **冻结（2026-11-13）**：生成器与它描述的 `swarm/bootstrap_actions.py` 已删除，本文不再更新。
+> 它是旧 strict bootstrap 握手的阶段/槽位记录，只用于读懂历史 attempt；新任务走
+> [start grant](docs/design/start-grant.md)。
+
 # Operator runbook（生成文件，不要手改）
 
 本文由 `swarm/generate_runbook.py` 从 `bootstrap_actions.ACTIONS` 生成；`--check` 不一致即

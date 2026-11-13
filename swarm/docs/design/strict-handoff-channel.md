@@ -1,5 +1,10 @@
 # Strict bootstrap handoff：通道选择、阶段等待与投递者溯源（设计）
 
+> **历史（2026-11-13）**：本文描述的握手工具已**删除**（`bootstrap_*`、`strict-start-*`、`strict-config-*`、
+> `startup_handoff`）。现行启动授权见 [start grant](design/start-grant.md)。本文保留为设计记录，
+> 其中的命令不再可用。
+
+
 状态：**阶段一只写设计，未实现、未验收**。本文给问题、证据形态、三个改动的方案与被否方案、
 typed code 表、验收判据、不变量与未决决策；**不构成**部署、重启、启动 Agent、修改运行中
 attempt/Run 的授权，也不授权在主检出落地。协议正文仍以

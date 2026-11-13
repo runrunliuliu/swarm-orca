@@ -7,18 +7,102 @@ does NOT produce ready_for_strict_config_request.
 
 import argparse
 from datetime import timedelta
+
 import json
 import os
 from pathlib import Path
 
 from bootstrap_protocol import BACKEND, EVENTS, PRODUCERS, layout
+from trae_coordinator import UUID  # the validator that shaped these slots
 from tui_adapter import kind_adapter
 from coordinator_io import (FilePinChanged, digest, now, parse, path, pinned,
                             read_bytes, timestamp, validate_ref)
-from coordinator_request_prepare import exact_refs, source_contract, source_contract_fields
-from coordinator_startup import build_session_contract
-from coordinator_strict import caller_result
-from coordinator_strict_request import observed_coordinator
+from coordinator_startup import build_session_contract, session_contract_value
+from coordinator_strict import StrictCheckError, caller_result
+
+
+# ── historical contract readers ──────────────────────────────────────────────
+# These four checks used to live in the strict request builders that this repository no longer
+# produces. They are kept here because the read-only diagnostic must still be able to say why an
+# *old* attempt stopped: the slots are frozen, so the rules that validated them are frozen with them.
+
+def _unique_refs(refs):
+    require(isinstance(refs, list) and refs, "strict_config_evidence_required")
+    result = []
+    for ref in refs:
+        validate_ref(ref)
+        require(Path(ref["path"]).is_absolute(), "strict_config_evidence_path_invalid")
+        if ref not in result:
+            result.append(ref)
+    return result
+
+
+def exact_refs(refs):
+    require(_unique_refs(refs) == refs, "strict_prepare_duplicate_evidence")
+    return refs  # Never sort, expand embedded JSON, or normalize duplicates.
+
+
+def source_contract(expected):
+    fields = parse(pinned(expected["contract_fields"]))
+    return source_contract_fields(expected, fields)
+
+
+def source_contract_fields(expected, fields):
+    require(isinstance(fields, dict) and not {"schema_version", "freshness"} & fields.keys(),
+            "new_contract_fields_required")
+    for key in ("cli", "runtime", "workspace", "coordinator"):
+        require(fields.get(key) == expected[key], "strict_prepare_contract_binding_mismatch")
+    require(fields.get("skill_read_evidence") in exact_refs(expected["readiness_evidence"]),
+            "strict_start_readiness_evidence_required")
+    session_contract_value(fields)  # Reject a Run binding; never silently discard it.
+    if "domain_binding" in fields:
+        from software_development import scoped_json
+        task = scoped_json(fields["domain_binding"]["contract"], fields["observation"]["roots"])
+        if "task_deadline" in expected:
+            require(expected["task_deadline"] == task["policy"]["deadline"],
+                    "software_deadline_changed")
+    return fields
+
+
+def observed_coordinator(value, initial):
+    observation = parse(pinned(value["session_observation"]))
+    require(isinstance(observation, dict) and type(observation.get("schema_version")) is int
+            and observation["schema_version"] == 1,
+            "strict_config_session_observation_invalid")
+    caller = initial["caller"]
+    sid = observation.get("thread_id")
+    require(isinstance(sid, str) and UUID.fullmatch(sid) is not None
+            and observation.get("session_id") == sid,
+            "strict_config_provider_session_required")
+    require(observation.get("runtime_id") == value["runtime"]
+            and observation.get("effective", {}).get("cwd") == value["workspace"]["path"],
+            "strict_config_observation_scope_mismatch")
+    kind = observation.get("kind")
+    adapter = kind_adapter(kind) if isinstance(kind, str) else None
+    if adapter is not None:
+        binding = observation["binding"]
+        terminal = binding["terminal"]
+        require(observation.get("adapter") == adapter
+                and observation.get("caller_receipt") == value["caller_receipt"]
+                and binding["runtime"]["runtimeId"] == value["runtime"]
+                and binding["session_id"] == sid,
+                "strict_config_observation_binding_mismatch")
+        require(caller["processIncarnation"] == terminal["ptyId"] + ":" + terminal["incarnationId"],
+                "strict_config_incarnation_mismatch")
+    elif kind in ("trae_startup_anchor", "trae_session_observation"):
+        require(observation.get("run_id") is None, "strict_config_observation_has_run")
+        terminal = observation["terminal"]
+    else:
+        raise StrictCheckError("strict_config_session_observation_unsupported")
+    require(terminal["handle"] == caller["terminalHandle"]
+            and terminal["worktreeId"] == value["workspace"]["id"]
+            and terminal["tabId"] + ":" + terminal["leafId"] == caller["paneKey"]
+            and terminal.get("executionHostId") == "local"
+            and caller["hostScope"].get("kind") == "local",
+            "strict_config_observation_caller_mismatch")
+    require(caller["processIncarnation"].rsplit(":", 1)[-1] == terminal["incarnationId"],
+            "strict_config_incarnation_mismatch")
+    return {"terminal": terminal["handle"], "incarnation": terminal["incarnationId"], "session": sid}
 
 
 class BootstrapError(ValueError):

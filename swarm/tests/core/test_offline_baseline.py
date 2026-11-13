@@ -97,12 +97,13 @@ class OfflineBaselineTests(unittest.TestCase):
 class OfflineRunnerModeTests(unittest.TestCase):
     """Mode selection is a coverage claim, so it is asserted rather than assumed."""
 
-    # The handoff chain is four modules rather than one so a parallel run is bounded by a
-    # quarter of the old floor; the set is one SLOW group in both this tuple and the script.
-    SLOW = ("bootstrap.test_bootstrap_production", "bootstrap.test_bootstrap_workflow",
-            "core.test_startup_handoff", "core.test_startup_handoff_prepare",
-            "core.test_startup_handoff_trigger", "core.test_startup_handoff_monitor",
-            "bootstrap.test_bootstrap_failures")
+    # The wall-time dominators after the strict handshake was removed (measured on this host):
+    # the coordinator driver/prepare pair, the installer, and the monitor/lifecycle modules. The
+    # set is one SLOW group in both this tuple and the script.
+    SLOW = ("coordinator.test_coordinator_driver", "coordinator.test_coordinator_prepare",
+            "publish.test_install_entry", "core.test_monitor_stop_signals",
+            "coordinator.test_coordinator_background", "operators.test_operator_monitor_recovery",
+            "coordinator.test_coordinator_operator")
     root = Path(__file__).resolve().parents[2]
     script = root / "tests" / "run_offline.sh"
 
@@ -313,8 +314,8 @@ class BlastRadiusTests(unittest.TestCase):
         # Why: a shared fixture is neither a source nor a test module, so a change to one used to
         # select nothing and hard-fail the command - whose only escape was a hand-widened run,
         # the judgement this tool exists to replace.
-        reasons = self.radius.tests_for_helper(self.root / "tests" / "startup_handoff_fixture.py")
-        self.assertIn("core.test_startup_handoff", reasons)
+        reasons = self.radius.tests_for_helper(self.root / "tests" / "publication_wait_fixture.py")
+        self.assertIn("core.test_wait_for_file", reasons)
         self.assertEqual(set(reasons.values()), {"helper"})
         self.assertTrue(set(reasons) <= self.radius.available)
 
@@ -326,7 +327,8 @@ class BlastRadiusTests(unittest.TestCase):
         self.assertIn("nothing changed", completed.stderr)
 
     def test_a_source_with_no_radius_fails_closed(self):
-        with patch.object(self.blast, "select", return_value=({}, [], ["swarm/invented.py"])), \
+        with patch.object(self.blast, "select",
+                          return_value=({}, [], [], ["swarm/invented.py"])), \
                 redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             self.assertEqual(self.blast.main(["--range", "HEAD~1", "--json"]), 2)
 

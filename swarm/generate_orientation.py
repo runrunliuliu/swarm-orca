@@ -101,13 +101,8 @@ def named_in_docs(index: dict[str, list[tuple[str, int, int]]]) -> list[str]:
 
 
 def render() -> str:
-    from bootstrap_actions import command
-
     index = defined_symbols()
     names = named_in_docs(index)
-    owner = {"path": "<owner.json>", "sha256": "<owner-sha256>"}
-    intent = {"path": "<intent.json>", "sha256": "<intent-sha256>"}
-    script = str(ROOT / "coordinator_launch.py")
 
     lines = [
         "# ORIENTATION（生成文件，不要手改）",
@@ -118,21 +113,21 @@ def render() -> str:
         "## 最短必读顺序",
         "",
         "1. 本文件「入口 argv」——先知道这一步跑什么。",
-        "2. `strict-bootstrap-protocol.md` §1–§9：规范与准入（离线材料不在必读内）。",
-        "3. `operator-runbook.md`：阶段、owner、槽位。",
+        "2. `docs/design/start-grant.md`：现行启动凭据设计（旧的 `strict-bootstrap-protocol.md` 已弃用，"
+        "仍可读作历史）。",
+        "3. `operator-runbook.md`：旧握手的阶段/槽位，**已冻结**，只用于读历史 attempt。",
         "4. 需要看实现时，用下面「符号索引」里的行区间直接读，**不要先 grep 名字**。",
         "",
         "## 入口 argv",
         "",
         "```bash",
     ]
-    for mode in ("pull", "produce", "submit", "complete", "inspect-action"):
-        argv = [token.replace(script, "<swarm>/coordinator_launch.py")
-                for token in command(owner, "<role>", mode, intent)]
-        argv[0] = "python3"
-        if mode != "inspect-action" and "--execute" not in argv:
-            argv.append("--execute")
-        lines.append(" ".join(argv))
+    # The role-tool argv shapes came from the retired bootstrap action table. The two verbs here are
+    # the ones that still exist: the read-only forensics reader and the start-grant entry.
+    lines.append("python3 -B <swarm>/coordinator_launch.py strict-bootstrap-state "
+                 "--bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> "
+                 "--attempt-binding-sha256 <64 hex> --check")
+    lines.append("python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --json")
     lines += [
         "```",
         "",

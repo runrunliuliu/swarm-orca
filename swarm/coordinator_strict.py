@@ -15,7 +15,6 @@ import sys
 from coordinator_input import bind_prompt, input_bytes
 from coordinator_io import canonical, digest, now, parse, pinned, timestamp
 from coordinator_loop import phase_contract
-from coordinator_task_source import strict_request_version_text
 from trae_coordinator import build_trae_plan, native, verify_trae_executable
 import pi_coordinator
 import tui_adapter
@@ -31,6 +30,15 @@ MAX_PINNED_INPUT_BYTES = 256 * 1024
 
 class StrictCheckError(ValueError):
     """Fixed local diagnostics only; native/provider messages remain private."""
+
+
+def _strict_request_version_text(*, independently_reviewed=False, null_note=False):
+    qualifier = "independently reviewed " if independently_reviewed else "reviewed "
+    note = " and separate recovery_note"
+    if null_note:
+        note += " (null if absent)"
+    return (f"Use input schema v4 with {qualifier}contract_fields pin and task_source pin{note}; "
+            "it generates request schema v5.")
 
 
 def require(condition, code):
@@ -184,7 +192,7 @@ def strict_bootstrap_prompt(plan, root=None):
         "not Coordinator recovery. Read-only poll expiry is pending with unverified current liveness; "
         "a last verified heartbeat never confirms a commit or extends the attempt deadline. "
         "Do not end the model turn while awaiting a bootstrap action or inject TUI input to resume either role.",
-        strict_request_version_text(independently_reviewed=True, null_note=True),
+        _strict_request_version_text(independently_reviewed=True, null_note=True),
         "Wait/review only through strict-config-plan and its exact strict-config-wait command; do not scan or derive delivery paths.",
         "Do not create a Run before the session gate; do not dispatch Workers before both first-dispatch gates.",
         "Run the strict-start wait command as ONE uninterrupted foreground call: that waiter consumes gate-ready.json "
@@ -248,8 +256,13 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None, helpe
     # pins sandbox/approval/Max, a Pi adapter pins the reviewed policy. Mixing them (a Pi
     # pane told to verify Trae settings) is the defect this keeps out of the prompt.
     agent = provider_of(plan)
-    from coordinator_strict_delivery import layout
-    delivery = layout(plan["artifact_dirs"]["archive"])
+    # Inlined: this module outlives the strict delivery module, and the plan text needs the same
+    # fixed slots it published.
+    archive = Path(plan["artifact_dirs"]["archive"])
+    delivery = {"mode": "continuous-native-file-v1",
+                "request_path": str(archive / "strict-config-request.json"),
+                "publication_path": str(archive / "strict-config-ready.json"),
+                "directory": str(archive / "strict-start")}
     phase = "strict-tui-bootstrap" if tui else "strict-bootstrap"
     if helper_root is not None:
         # Only a pinned root enters the plan; the default shape stays untouched.
@@ -272,7 +285,7 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None, helpe
         "use strict-config-request --input <reviewed-input> --input-sha256 <pin> --execute "
         "to publish request_path from pinned session_observation, caller, runtime/workspace, "
         "task_deadline and final readiness. "
-        + strict_request_version_text(independently_reviewed=True, null_note=True) + " "
+        + _strict_request_version_text(independently_reviewed=True, null_note=True) + " "
         "Leave strict-start absent. Operator runs strict-start-prepare with only your request pin, "
         "then strict-config-review approve/reject; never copy/edit/expand readiness_evidence. "
         "Run objective comes verbatim from the business task_source, never a recovery substep. "

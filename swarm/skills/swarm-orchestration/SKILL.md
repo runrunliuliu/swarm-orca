@@ -208,20 +208,11 @@ immediately and never retried into a timeout; 2 = usage or transport. After 0, r
 with `file_ref` and the schema: a non-atomic writer is visible here before it is complete, and
 `--mode change` cannot see a rewrite that keeps both size and timestamp.
 
-Stage files (`events/000N-*.json`) do **not** use the generic file form: the path comes from the
-attempt bundle through the fixed entry, never from a hand-assembled relative path, a directory scan
-or a glob.
-
-```bash
-python3 swarm/coordinator_launch.py strict-bootstrap-wait-stage \
-  --bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> \
-  --attempt-binding-sha256 <64 hex> --stage 2 --timeout-ms 300000 --json
-```
-
-Exit 0 validated, 124 timeout, 4 attempt/binding unreachable, 5 the path is there but the chain does
-not validate (no re-read), 2 usage or a pin mismatch. At 0 it prints the evidence Ref it read: carry
-that exact `{path, sha256}` forward, do not compute your own, and do not skip it because
-`already_satisfied` is true — 0 is neither confirmation nor permission to advance.
+The strict-bootstrap stage waiter (`strict-bootstrap-wait-stage`) and its stage slots were removed
+with the protocol they served: the current design issues **one** start grant instead of a chain of
+evidence markers, so there is no stage file to wait for. Read an archived attempt with
+`strict-bootstrap-state --check` (read-only forensics); start a new Run with
+`start-grant-mint` → `run-create --grant`.
 A `sleep` micro-loop (`for`/`while` plus `sleep`, whatever the single duration) is a forbidden
 waiting form too: the `N >= 60` rule only ever covered one call, and a loop of 8 s sleeps still
 reads "slow" as "dead".

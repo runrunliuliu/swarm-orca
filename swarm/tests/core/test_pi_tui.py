@@ -17,7 +17,7 @@ import uuid
 from unittest.mock import patch
 
 from coordinator_io import canonical, digest, file_ref, now, publish_new, timestamp
-from coordinator_strict_request import observed_coordinator
+from bootstrap_events import observed_coordinator  # moved with the historical slot reader
 from coordinator_startup import identity, validate
 from pi_tui import observe
 import pi_policy

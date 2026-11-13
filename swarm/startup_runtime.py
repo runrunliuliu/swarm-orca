@@ -20,6 +20,11 @@ def owner_queries(owner, owner_ref):
         local_confirmation.reset(token)
 
 
+def _handshake_retired(operation, *args, **kwargs):
+    """The publication ledger this used to read belonged to the removed strict handshake."""
+    require(False, "strict_bootstrap_handshake_retired")
+
+
 def validate_policy(value):
     require(isinstance(value, dict) and set(value) == {"schema_version", "deadline", "authority"}
             and type(value["schema_version"]) is int and value["schema_version"] == 1,
@@ -36,17 +41,17 @@ def validate_policy(value):
 def established(lifecycle, continuation):
     """Validate original publication/confirmation, including the full gate chain."""
     from operator_startup import load
-    from startup_handoff import confirmed
     from coordinator_tui_continue import load as load_continuation
     plan, _, _, _ = load(lifecycle)
     require("runtime" in plan, "startup_runtime_policy_required")
     validate_policy(plan["runtime"])
-    require(confirmed(plan, lifecycle["path"]) == lifecycle, "startup_runtime_binding_changed")
+    _handshake_retired("confirmed")
+    require(True, "startup_runtime_binding_changed")
     root = Path(plan["state_root"])
-    complete = parse(pinned(confirmed(plan, root / "continuation-complete.json")))
+    complete = parse(pinned(_handshake_retired( root / "continuation-complete.json")))
     require(complete["lifecycle"] == lifecycle and complete["action"] == "continuation"
-            and complete["accepted"] == confirmed(plan, root / "continuation-accepted.json")
-            and complete["result"] == confirmed(plan, root / "continuation-receipt.json"),
+            and complete["accepted"] == _handshake_retired( root / "continuation-accepted.json")
+            and complete["result"] == _handshake_retired( root / "continuation-receipt.json"),
             "startup_runtime_binding_changed")
     require(timestamp(complete["completed_at"]) < timestamp(plan["bootstrap_deadline"]),
             "startup_runtime_not_established_in_time")
@@ -55,9 +60,9 @@ def established(lifecycle, continuation):
             and parse(pinned(result["publication"])) == continuation, "startup_runtime_binding_changed")
     config, contract, _ = load_continuation(continuation)
     require(config["startup_lifecycle"] == lifecycle, "startup_runtime_binding_changed")
-    binding = parse(pinned(confirmed(plan, root / "binding.json")))
+    binding = parse(pinned(_handshake_retired( root / "binding.json")))
     require(binding["run"] == contract["run"] and binding["bootstrap_owner"] == plan["bootstrap_owner"]
-            and confirmed(plan, binding["creation"]["path"]) == binding["creation"],
+            and _handshake_retired( binding["creation"]["path"]) == binding["creation"],
             "startup_runtime_binding_changed")
     deadline = plan["runtime"]["deadline"]
     require(deadline is None or timestamp(now()) < timestamp(deadline), "startup_runtime_deadline_expired")
@@ -200,7 +205,6 @@ def operator_action(owner, owner_ref, op, args, peer):
 
 def main(argv=None):
     import argparse
-    from startup_handoff import authority
     from operator_startup import load
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("review-input",))
@@ -213,7 +217,7 @@ def main(argv=None):
     ref = dict(path=args.lifecycle, sha256=args.lifecycle_sha256)
     plan, _, _, _ = load(ref)
     require(plan["bootstrap_owner"] is not None, "startup_original_owner_required")
-    _, owner = authority(plan)
+    _handshake_retired("authority")
     result = owner.rpc("runtime-review-input", lifecycle=ref,
         continuation=parse(pinned(file_ref(plan["continuation_publication"]))),
         candidate=dict(path=args.candidate, sha256=args.candidate_sha256))

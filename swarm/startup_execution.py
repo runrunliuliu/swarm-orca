@@ -15,6 +15,11 @@ from blocking_io import bounded
 MODES = {"autonomous", "native-event", "manual"}
 
 
+def _handshake_retired(operation, *args, **kwargs):
+    """A strict-handshake record cannot be confirmed any more; say so instead of crashing."""
+    require(False, "strict_bootstrap_handshake_retired")
+
+
 def validate(policy):
     require(isinstance(policy, dict) and set(policy) == {"mode", "trigger"}
             and policy["mode"] in MODES, "startup_execution_mode_required")
@@ -58,19 +63,9 @@ def can_send(config):
         plan, _, _, _ = load(config["startup_lifecycle"])
         require(not os.path.lexists(Path(plan["state_root"]) / "STOP"), "startup_persistent_stop")
         if plan["bootstrap_owner"] is not None:
-            from startup_handoff import authority
-            control, owner = authority(plan)
-            require(not os.path.lexists(Path(control.attempt_binding["path"]).parent / "control" / "STOP.json"),
-                    "startup_persistent_stop")
-            # Read-only confirmation; sender is not an authenticated review role.
-            require(owner.query(control, config["startup_lifecycle"]).status == "confirmed",
-                    "startup_output_unconfirmed")
-            if "runtime" in plan:
-                from startup_runtime import continuation_ref
-                require(owner.runtime_observe(control, config["startup_lifecycle"], continuation_ref(config))["state"] == "ready",
-                        "startup_original_owner_not_ready")
-            else:
-                require(owner.observe(control)["state"] == "ready", "startup_original_owner_not_ready")
+            # A plan written by the removed strict handshake cannot be confirmed any more; the
+            # sender path for it fails closed instead of reading a ledger that no longer exists.
+            _handshake_retired("authority")
         elif "runtime" in plan:
             from startup_runtime import established, continuation_ref
             established(config["startup_lifecycle"], continuation_ref(config))
@@ -131,8 +126,7 @@ scheduler sends. All references are re-read at every readiness observation.
     require(limit is None or timestamp(receipt["valid_until"]) <= timestamp(limit), "startup_trigger_readiness_expired")
     for ref in receipt["evidence"]:
         pinned(ref)
-    from startup_handoff import confirmed
-    confirmed(plan, value["trigger"]["readiness"])
+    _handshake_retired(plan,  value["trigger"]["readiness"])
     require(not unknown_sends(config, plan["monitor_state_root"]), "startup_isolation_send_unknown")
     # Evidence/owner reads may consume the entire validity window.
     trigger_window(receipt, publishing=False)
@@ -142,7 +136,6 @@ scheduler sends. All references are re-read at every readiness observation.
 @bounded("trigger_ready", mutation=True)
 def attest_trigger(ref, input_ref, *, call=None):
     """Publish an original Operator's trigger preflight, never an acceptance PASS."""
-    from startup_handoff import context, publish, authority
     from coordinator_io import bound_lock
     from operator_startup import load
     # Cheap pinned input checks precede native identity queries / owner RPC.
@@ -231,7 +224,6 @@ def trigger_candidate(input_ref):
 
 def trigger_review(ref, input_ref, plan, contract):
     """Read-only validation shared by startup and the narrow runtime Operator RPC."""
-    from startup_handoff import confirmed, admission
     require(plan["execution"]["mode"] == "native-event", "startup_native_trigger_required")
     candidate, trigger = trigger_candidate(input_ref)
     require(trigger.get("kind") == "native_event_trigger_preflight" and trigger.get("ready") is True
@@ -243,7 +235,7 @@ def trigger_review(ref, input_ref, plan, contract):
             "startup_trigger_readiness_expired")
     limit = plan["runtime"]["deadline"] if "runtime" in plan else plan["bootstrap_deadline"]
     require(limit is None or timestamp(candidate["valid_until"]) <= timestamp(limit), "startup_trigger_readiness_expired")
-    admitted = admission(ref, confirmed(plan, Path(plan["state_root"]) / "admission.json"))
+    admitted = _handshake_retired(ref, _handshake_retired(plan,  Path(plan["state_root"]) / "admission.json"))
     if trigger["source"] == "worker_done":
         require(admitted["kind"] == "worker-dispatched", "startup_worker_trigger_requires_worker")
         native = parse(pinned(parse(pinned(admitted["evidence"]))["response"]))
@@ -267,5 +259,4 @@ def startup_gate(config):
         return parse(pinned(config["dispatch_gate"]))
     require("startup_evidence" in config and "startup_lifecycle" in config,
             "startup_run_readiness_required")
-    from startup_handoff import admission
-    return admission(config["startup_lifecycle"], config["startup_evidence"])["gate"]
+    return _handshake_retired(config["startup_lifecycle"], config["startup_evidence"])["gate"]

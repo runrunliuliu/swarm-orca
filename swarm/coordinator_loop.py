@@ -12,7 +12,11 @@ from pathlib import Path
 import shlex
 import sys
 
-from coordinator_task_source import strict_request_version_text
+
+
+def _strict_request_version_text():
+    return ("Use input schema v4 with reviewed contract_fields pin and task_source pin and separate "
+            "recovery_note; it generates request schema v5.")
 
 
 OWNERSHIP = (
@@ -83,7 +87,7 @@ PHASES = {
         "config delivery using strict-config-plan / strict-config-wait. First generate the request "
         "with strict-config-request from pinned observer/caller evidence, not guessed session IDs "
         "or Worker timeout values. " +
-        strict_request_version_text() + " never replace the business objective with a recovery substep. "
+        _strict_request_version_text() + " never replace the business objective with a recovery substep. "
         "Operator prepares only from the request pin and records strict-config-review approve/reject; "
         "never copy/edit/expand readiness_evidence or pre-create strict-start. "
         "Review the resulting "
@@ -141,7 +145,7 @@ PHASES = {
         "using strict-config-plan / strict-config-wait before the Operator session gate. "
         "First use strict-config-request with pinned observer/caller evidence and a separate "
         "handshake deadline; never derive identity from paneKey or use Worker timeout_ms. " +
-        strict_request_version_text() + " "
+        _strict_request_version_text() + " "
         "never replace the business objective with a recovery substep. "
         "Operator runs strict-start-prepare from only the request pin, then strict-config-review "
         "approve/reject and strict-config-publish; never copy/edit/expand readiness_evidence "

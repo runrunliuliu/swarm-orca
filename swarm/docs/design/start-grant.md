@@ -749,6 +749,38 @@ grep -rn "strict-bootstrap\|strict-start-prepare\|strict-config-review" swarm/sk
 python3 -B swarm/generate_orientation.py --check
 ```
 
+### 5.0 执行记录（2026-11-13，一次性删除完成）
+
+按 §5.1 的清查结论执行。**没有分批**：三次测量（删动作表 → 110/293 例红；切 `coordinator_io` 的 S5 守卫
+→ 3 例测试的是被切的守卫；按依赖方向分层 → 闭包经 `coordinator_io` 覆盖 71 个模块）都指向同一件事——
+旧握手与活路径（TUI 续跑、monitor、readiness）在**函数级**交织，任何分批都要先把测试改写成一个随即被删的世界。
+
+一个 commit 删掉的：
+
+| 类别 | 内容 | 数量 |
+| --- | --- | --- |
+| 生产模块 | `bootstrap_{actions,driver,tool,s5,control,transport,admission,stage_wait,handoff,identity?no,registration,diagnostics}`、`coordinator_{request_prepare,strict_delivery,strict_start,strict_request,strict_prepare,prepared_commit}`、`startup_handoff`、`generate_runbook` | 19（≈6.9k 行） |
+| 测试/夹具模块 | `tests/bootstrap/*` 15 个、`tests/coordinator/*` 7 个、`tests/core/*` 7 个、3 个 fixture | 36（≈10k 行） |
+| 活模块内的 S5 段 | `operator_startup`（`prepare/publication/status/run/main` 整段删除，`validate_inputs` 改为结构性读取 pinned 配置）、`startup_execution`（`validate` 删除；`can_send`/`startup_gate` 的 publication 分支改为 fail-closed `strict_bootstrap_handshake_retired`）、`startup_runtime`（`established`/`main` 的确认链 fail-closed）、`coordinator_strict`/`coordinator_loop`（内联原本来自删除模块的提示文本与 layout）、`coordinator_task_source`（内联 `unique_refs`） | 6 个文件 |
+| CLI | `coordinator_launch.py` 去掉 `strict-bootstrap`、`strict-bootstrap-wait-stage`、`strict-bootstrap-registration`、`strict-bootstrap-handoff-accept`、`strict-start-prepare`、`strict-config-review`、`strict-config-request`、`strict-config-{plan,publish,wait}`、`strict-start-{plan,wait,publish}`；**保留** `strict-bootstrap-state`（历史只读取证）与 `strict-native-plan`/`strict-session-check` | 1 个文件 |
+
+保留并明确承担职责的：`bootstrap_events.py`（历史槽位读取器，四个契约校验函数**内联**进它，因为被删的
+builder 不再生产这些字节）、`bootstrap_protocol.py`（layout/常量，读取器仍用）、`bootstrap_identity.py`
+（gate-role 身份核验，`operator_monitor` 仍在用）、`coordinator_strict.py`（`strict-caller-check` /
+`strict-native-plan`）、`coordinator_io` 的 `publish_new`/`fsync_dir`/`directory_lock`。
+
+**验证**：`tests/run_offline.sh --jobs 4` → **84/84 模块、2366 tests、41.8 s，全绿**；
+`generate_orientation.py --check` 通过（符号索引从 130 项降到生成后的新集合）；
+`tests/run_offline.sh --fast` 的 SLOW 列表按新测得的 wall-time dominators 重写
+（coordinator driver/prepare、install_entry、monitor_stop_signals、background、monitor_recovery、
+coordinator_operator），`test_offline_baseline` 同步。
+
+**消失的测试模块**（36 个，逐个列在 commit message 里）：整块 `tests/bootstrap/` 与本设计无关的
+`test_operator_startup`、`test_coordinator_{domain,launch,prepared_commit,request_prepare,strict_delivery,
+strict_prepare,strict_request,strict_start}`、`test_{blocking_review,generate_runbook,observation_budget,
+startup_handoff*}`，以及 3 个 fixture。**两处如实记下的缺口**：`bootstrap_events`（历史读取器）与
+`observation_budget`（模块仍在用，但它的测试用被删的 `AuthorityClient` 当载体）现在**没有自动化测试**。
+
 ### 5.1 清查结果（2026-11-13，删任何一行之前跑的一遍）
 
 | 批 | 目标文件 | 行数 | 同 commit 要删的测试 | 测试行数 | 生产侧牵连 |
