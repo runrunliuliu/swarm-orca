@@ -1,8 +1,8 @@
 # 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.5，M1–M3 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 评审分歧 → 共识 → 语义事件时钟 → §19.5）。
+- 状态：**设计（v2.6，M1–M4 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 修订：v2 初稿 → v2.1（两轮评审）→ v2.2（§19.1 三条决策）→ v2.3（M1 评审修正）→ v2.4（M2 BLOCK → 修复）→ v2.5（M3 分歧 → 共识）→ v2.6（M4 BLOCK → 结构化高危/按 turn 窗口 → §19.6）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 评审输入（同目录）：`issue-sedimentation.review-codex-ark.md`、`issue-sedimentation.review-trae.md`
   （v1 评审，针对"Python 适配层 + 文件轮询"版本）；v2 评审另见
@@ -258,12 +258,27 @@ transcript 可能 GB 级。record 存 `{path, inode/sha256, startOffset, endOffs
 - **判据边界**："45 分钟内持续有事件但无实质进展"（例如反复重试同一失败）**不**由本判据处理，
   归 M4 的 `tool_error` 聚簇。
 
-### 7.3 tool_error（工具/回合错误）——设计中
+### 7.3 tool_error（工具/回合错误）——M4 已实现（默认不写）
 
-- **写点**：transcript 适配器解析出的 tool result 错误与 turn end 错误（各 CLI adapter 已有解析）。
-- **判据（提议默认，待拍板）**：同 session、同 tool、同 normalized code 在 10 分钟内连续 **5 次**；
-  `permission` / `pin` / `scope` / `immutable` 类高危错误可单次直通候选。
-- **幂等**：`source_id = <sessionId>:<turn>:<code>:<windowStart>`。
+- **写点**：会话事件 sink 的 journal 追加路径（`structured-agent-session-event-sink` 及其
+  resolved/revise 变体），统一走一个 `notifyJournaledItem` 通知；restore / legacy import /
+  `replaceEpochItems`（fork、rewind）**不**经该通知，历史回填不会重复计数。
+- **高危只能来自结构化证据（M4-C1）**：`permission_denied`（承载 permission / pin / scope /
+  immutable）必须由 provider 结构化拒绝信息或明确结构化 `errorKind` 判定；**自由文本不得触发
+  单次直通**。结构化 `exitCode != 0` 优先判 `non_zero_exit`；文本命中但无结构证据 → 有非零退出码
+  记 `non_zero_exit`，否则 `unknown`，可带已脱敏的低置信 `textHint` 供聚簇，但不写事故。
+- **窗口按 turn 切（M4-C2）**：key = `session + turn + tool + code`，10 分钟内 5 次才写；turn 变化
+  即新窗口；跨 turn 聚簇只作 mining/摘要维度。
+- **覆盖是声明的，不是默认的（M4-C3）**：当前结构化会话路由覆盖 `claude` / `codex`；
+  `incident tool-errors` 明确打印 `Coverage: covered=…` 与 `Coverage gap:` 未覆盖 agent 列表，
+  不得读成"其余 provider 无事故"。
+- **灰度与可见性（M4-C4）**：`INCIDENT_TOOL_ERROR_WRITE=on` 才写，默认 off；off 模式下**仍写 meta
+  快照**（口径是"零 incident 行"，不是"零写入"）。只读面输出 `published/total/evicted` 并在截断或
+  LRU 驱逐时告警；`unknown` / `non_zero_exit` 的噪声限额**未实现**，作为覆盖缺口与"打开写入前的
+  前置条件"记录。
+- **幂等**：`source_id = <sessionId>:<turn>:<code>:<windowStart>`，`windowStart` 是窗口内**首个**
+  事件时间（不是写库时间），因此重试与重复采样只落一条；进程重启后窗口清空，代价是"跨重启的
+  持续失败可能达不到阈值"。
 
 ### 7.4 acceptance_failed（结果不符预期）
 
@@ -326,6 +341,8 @@ v1 只做**单条** `orca incident show <id> --md`（可重建），不做"一 f
 没人读的日志换成没人读的 DB。
 
 1. 定时跑一个**只读**摘要会话（或直接 CLI）：新增数 / 未看数 / 拓扑 fingerprint / 需归档数。
+   `orca incident digest [--since 24h] [--json]` 已实现（M4）。`unseen` 的语义是 effective status
+   = `untriaged`，**不是**按人的已读标记；空库时仍输出 coverage gap，不得读成"没有事故"。
 2. 候选阈值（提议）：7 天内同 fingerprint ≥3 条且来自 ≥2 个不同 `source_id`；`signaled` crash
    与同一 invariant 的 `acceptance_failed` 可 2 条进候选。
 3. 产出落 `incident_decisions`（`actor = 'miner'`），只允许 `watch` / `duplicate` /
@@ -489,7 +506,7 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 16 | `onPtyExit` crash 写入（含 fallback epoch、owner-claim binding） | **已实现（M1）** | §7.1；提交 `640d285f`+`50124307` |
 | 17 | shadow + 启动 reconcile（seq 水位、durable drop、有界可续、状态可见） | **已实现（M2）** | §11.2；提交 `d0004a4c`+`2e36f4a6`+`e1780f8f` |
 | 18 | 停滞判定（语义事件时钟、等待声明、灰度写入） | **已实现（M3，默认不写）** | §7.2；提交 `ca786b41`+`88a3af71`+`a73dcccd`+`deae60ba` |
-| 19 | tool_error 聚簇 | 设计中（M4） | §7.3 |
+| 19 | tool_error 聚簇（结构化高危、按 turn 窗口、provider 覆盖声明） | **已实现（M4，默认不写）** | §7.3；提交 `0d9464e7`+`9dc65c45`+`643ee406` |
 | 20 | 自报入口 `incident report`（含 evidence 上限、统一 sanitize、同键语义） | **已实现（M2）** | §7.5；提交 `65910ea8`+`7b96419c` |
 | 21 | 最小 CLI（list/show/decide/prune，含容量双字段与 prune 可追溯 id） | **已实现（M1）** | §12；提交 `5a04946a`+`4b92269c` |
 | 22 | 读模型/IPC/preload | **已实现（M2）** | §12；提交 `8a85931a` |
@@ -597,6 +614,19 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 修复要点 | 年龄改用语义事件时钟 + `state_fallback` 标记；reason 改 `no_event_for_threshold`；字段改 `wouldWriteIfEnabled`；`status_stall` 走 `buildIncidentKey`（非法 key 计 `stall_key_rejected`）；sampler errors 进 coverage；`--clear` 互斥且整 pane |
 | 测试（外层复跑） | incidents + startup + CLI/IPC/preload：92 files（90 passed / 2 skipped）/ **833 passed / 10 skipped** |
 | 仍未验证 | 真实 60s interval tick、DB busy/磁盘满注入未做；默认 off 的灰度在生产环境没有样本基线 |
+
+## 19.6 M4 实施与评审记录（2026-11-13）
+
+| 项 | 内容 |
+| --- | --- |
+| 提交（首版） | `0d9464e7` tool_error 采集/归一码/灰度窗口、`5443dcc4` 每日摘要 |
+| 提交（评审修复） | `9dc65c45` 高危需结构化证据 + 按 turn 切窗口（C1/C2）、`643ee406` 所有 sink 变体统一通知 + 读模型声明覆盖缺口（C3/C4/C5） |
+| 首轮评审 | **两份均 BLOCK**：自由文本触发高危单次写入、窗口键缺 turn；codex 另指出 resolved-append 旁路与 provider 覆盖被默认宣称 |
+| 共识轮 | 两份 `AGREE`；C1 一致选 (iii)「provider 结构化拒绝码/errorKind + 结构化 exitCode 两者都要」 |
+| 修复要点 | 文本命中不再影响高危；结构化 exitCode 优先 `non_zero_exit`；窗口 key 加 turn；resolved/revise/lifecycle 全部走 `notifyJournaledItem`；`incident tool-errors` 打印 `covered=` 与覆盖缺口；off 口径改"零 incident 行"；`published/total/evicted` 可见 |
+| 测试（外层复跑） | incidents + agent-session-wire + CLI/IPC：**162 files / 1381 tests passed** |
+| 仍未验证 | 未做真实 provider 端到端（需真实 claude/codex 会话）；单次 60s tick 之外的持续灰度未跑；`unknown`/`non_zero_exit` 噪声限额未实现（打开写入的前置条件） |
+| 评审环境缺口 | trae 本轮两次因 provider 网络中断（stream disconnected / capacity queue）失败，第三次以最小范围重试才产出；评审记录里保留该缺口 |
 
 ## 20. 本轮验收口径（设计阶段）
 
