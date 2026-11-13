@@ -76,9 +76,30 @@ class Fixture(unittest.TestCase):
             write(project / "AGENTS.md")
         return project
 
+    def override(self, **overrides):
+        import socket
+        directory = self.temporary()
+        artifacts, cli = self.temporary(), self.temporary() / "orca-server-cli"
+        write(cli, "#!/bin/sh\n")
+        cli.chmod(0o755)
+        data = {
+            "schemaVersion": 1,
+            "label": "test-host",
+            "hostnames": [socket.gethostname()],
+            "verifiedOn": "2026-11-13",
+            "paths": {"worktreeBase": str(directory), "artifactRoot": str(artifacts),
+                      "serverCli": str(cli)},
+            "runtime": {"default": "independent_servers.test", "legacy": "legacy_desktop"},
+            "projectSetups": {"orca_src": "db11c9a3-0000-0000-0000-000000000000"},
+        }
+        data.update(overrides)
+        return write(directory / "override.json", json.dumps(data))
+
     def report(self, **overrides):
         values = {"project": str(self.project()),
                   "expect_config": [],
+                  "host_override": None,
+                  "require_host_override": False,
                   "pointer": str(self.temporary() / "no-pointer"),
                   "control_plane": None,
                   "agent": "agents",
@@ -250,6 +271,79 @@ class ReadinessTests(Fixture):
             readiness.main(["--project", str(self.project()),
                             "--expect-config", "coordinator-model.json"])
         self.assertEqual(caught.exception.code, 2)
+
+    def test_a_valid_host_override_supplies_the_local_paths(self):
+        override = self.override()
+        result = self.report(control_plane=str(self.artifact()), host_override=str(override))
+        self.assertTrue(result["ready"], result["blocking"])
+        self.assertEqual(result["hostOverride"]["state"], "ok")
+        self.assertRegex(result["hostOverride"]["sha256"], r"^[0-9a-f]{64}$")
+        self.assertEqual(result["plan"]["paths"]["artifacts"]["source"], "host-override")
+        self.assertEqual(result["plan"]["paths"]["serverCli"]["source"], "host-override")
+        self.assertEqual(result["plan"]["runtime"],
+                         {"default": "independent_servers.test", "source": "host-override"})
+
+    def test_an_explicit_artifacts_flag_beats_the_override(self):
+        explicit = self.temporary()
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override()),
+                             artifacts=str(explicit))
+        self.assertEqual(result["plan"]["paths"]["artifacts"],
+                         {"value": str(explicit), "source": "explicit"})
+
+    def test_an_explicit_override_that_does_not_exist_blocks(self):
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.temporary() / "absent.json"))
+        self.assertFalse(result["ready"])
+        self.assertTrue(any(item.startswith("host-override-missing")
+                            for item in result["blocking"]))
+
+    def test_no_override_still_plans_a_generic_project(self):
+        result = self.report(control_plane=str(self.artifact()))
+        self.assertTrue(result["ready"], result["blocking"])
+        self.assertEqual(result["hostOverride"]["state"], "missing")
+        self.assertEqual(result["plan"]["paths"]["artifacts"], {"value": None, "source": "unset"})
+
+    def test_requiring_the_override_blocks_when_absent(self):
+        result = self.report(control_plane=str(self.artifact()), require_host_override=True)
+        self.assertFalse(result["ready"])
+        self.assertTrue(any(item.startswith("host-override-missing")
+                            for item in result["blocking"]))
+
+    def test_a_foreign_hostname_blocks(self):
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override(hostnames=["another-host"])))
+        self.assertFalse(result["ready"])
+        self.assertIn("host-override-host-mismatch", " ".join(result["blocking"]))
+
+    def test_an_unknown_key_blocks(self):
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override(extra="not-allowed")))
+        self.assertFalse(result["ready"])
+        self.assertIn("host-override-unknown-key: extra", result["blocking"])
+
+    def test_a_relative_path_blocks(self):
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override(
+                                 paths={"artifactRoot": "relative/path"})))
+        self.assertFalse(result["ready"])
+        self.assertIn("host-override-not-absolute: paths.artifactRoot", result["blocking"])
+
+    def test_a_missing_directory_blocks(self):
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override(
+                                 paths={"worktreeBase": "/nonexistent/worktrees"})))
+        self.assertFalse(result["ready"])
+        self.assertIn("host-override-path-missing: paths.worktreeBase", result["blocking"])
+
+    def test_a_non_executable_server_cli_blocks(self):
+        cli = write(self.temporary() / "cli", "#!/bin/sh\n")
+        cli.chmod(0o644)
+        result = self.report(control_plane=str(self.artifact()),
+                             host_override=str(self.override(
+                                 paths={"serverCli": str(cli)})))
+        self.assertFalse(result["ready"])
+        self.assertIn("host-override-server-cli-not-executable: %s" % cli, result["blocking"])
 
     def test_main_exit_codes(self):
         artifact, skills = self.artifact(), self.skills(*readiness.REQUIRED_SKILLS)

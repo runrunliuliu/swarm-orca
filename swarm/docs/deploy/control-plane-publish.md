@@ -213,7 +213,9 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 | `--pointer <path>` | 指针路径，默认 `/opt/swarm/current` |
 | `--agent <agents\|pi\|claude\|codex\|trae>` | 报告哪个 agent 的技能安装（默认 `agents`） |
 | `--skills-dir <dir>` | 覆盖技能目录，用于审计与测试 |
-| `--artifacts <dir>` | 产物/证据根必须先存在，否则阻断 |
+| `--artifacts <dir>` | 产物/证据根必须先存在，否则阻断；优先于 host override |
+| `--host-override <path>` | 本机值文件；显式给出则缺失/非法即阻断 |
+| `--require-host-override` | 要求本机值存在且有效，否则阻断 |
 | `--expect-config NAME=SHA256` | 要求该配置文件的实际哈希等于给定值；可重复；不符或未出现即阻断 |
 | `--require-pin` | 要求已发布、可核验且源未被修改的控制平面；`dev-checkout`、`dirty`、`unpinned` 均阻断 |
 | `--json` | 机器可读报告 |
@@ -231,6 +233,41 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 - 私有配置放进 `private/`，并在身份文件里记录逐文件 hash；
 - readiness 必须显式给出私有路径与 hash，优先级高于环境变量，且两者不一致即 fail-closed；
 - 不依赖外层 shell `export` 自动传递到新 Agent 或远端。
+
+### 7.1 宿主值解析（per-host override）
+
+产物是机器级的，必须可以在多台主机上逐字节相同；因此**只在本机成立的值不进产物**，由一份按主机
+命名的文件在运行时提供。默认路径 `/opt/swarm/hosts/<hostname>.json`，由 `--host-override <path>`
+指定或 `--require-host-override` 强制要求。它不在产物内，也不进公开仓库。
+
+```json
+{
+  "schemaVersion": 1,
+  "label": "120614",
+  "hostnames": ["<本机 hostname，必填其一等于 gethostname()>"],
+  "verifiedOn": "2026-11-13",
+  "paths": {
+    "worktreeBase": "/abs/new/worktree/base",
+    "artifactRoot": "/abs/artifact/root",
+    "serverCli": "/abs/executable/orca-server-cli"
+  },
+  "runtime": {"default": "<runtime 名字>", "legacy": "<runtime 名字>"},
+  "projectSetups": {"<repo 名>": "<setup id>"}
+}
+```
+
+| 规则 | 行为 |
+| --- | --- |
+| 键白名单 | 顶层只允许 `schemaVersion`/`label`/`hostnames`/`verifiedOn`/`paths`/`runtime`/`projectSetups`；`paths` 只允许三个键；多一个即 `host-override-unknown-key` |
+| 主机匹配 | `hostnames` 必须包含本机 `gethostname()`，否则 `host-override-host-mismatch`（`label` 只是标签，不参与匹配） |
+| 路径 | 必须是绝对路径（`host-override-not-absolute`）；`worktreeBase`/`artifactRoot` 必须是已存在目录（`host-override-path-missing`）；`serverCli` 必须是可执行普通文件（`host-override-server-cli-not-executable`） |
+| 优先级 | 显式参数 > host override > 未设置。**不发明默认路径**；未设置时计划里写 `source: unset` |
+| 缺失 | 隐式（默认路径不存在）只报告、不阻断，通用项目照常出计划；显式给出或 `--require-host-override` 时 fail-closed |
+| 记录 | 报告带 override 的 `sha256`；它与产物 `buildId` 一起固定，改变本机值是一次可见变更 |
+
+边界：override 只承载本机路径与 runtime 归属，**不改模型、Worker 白名单、`max_workers`、授权或归档政策**。
+`runtime` 与 `projectSetups` 目前只记录、不向 Orca 运行时查询（readiness 不依赖运行时），因此它们是
+交接输入而不是已核验事实；需要时由启动方另行核验。
 
 ## 8. 验证与验收
 
@@ -255,8 +292,7 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 
 仍未实现（不因本文而具备）：
 
-- 宿主私有值（归档根、Server CLI、setup ID、工作区基目录）的 per-host override 层；目前由
-  `--artifacts` 与宿主文档核对，不自动填充。
+- 对 `runtime`/`projectSetups` 的运行时核验：host override 只记录，不查询 Orca 运行时。
 - 把 readiness 写进 `swarm-orchestration` 技能的第一步：技能仍是全局共享文件，改动需单独授权与
   逐 agent 验证。
 - 把宿主私有值（归档根、Server CLI、setup ID）并入 per-host override 层。

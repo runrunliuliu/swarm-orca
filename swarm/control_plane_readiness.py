@@ -11,6 +11,8 @@ Exit codes: 0 ready, 2 usage, 78 blocked (the report lists the reasons).
 
 import argparse
 import json
+import os
+import socket
 import sys
 from pathlib import Path
 
@@ -225,6 +227,70 @@ def expected_config_hashes(pairs):
     return expected
 
 
+OVERRIDE_SCHEMA_VERSION = 1
+OVERRIDE_KEYS = frozenset({"schemaVersion", "label", "hostnames", "verifiedOn", "paths",
+                           "runtime", "projectSetups"})
+OVERRIDE_PATH_KEYS = ("worktreeBase", "artifactRoot", "serverCli")
+
+
+def default_override_path():
+    return Path("/opt/swarm/hosts") / ("%s.json" % socket.gethostname())
+
+
+def host_override(path):
+    """Validate the host-local values; never invent, merge silently or search directories."""
+    target = Path(path).expanduser() if path else default_override_path()
+    block = {"state": "missing", "path": str(target), "label": None, "sha256": None,
+             "paths": {}, "runtime": {}, "projectSetups": {}, "explicit": bool(path),
+             "reasons": []}
+    if not target.is_file():
+        block["reasons"].append("host-override-missing: %s" % target)
+        return block
+
+    def refuse(reason):
+        block["state"] = "invalid"
+        block["reasons"].append(reason)
+        return block
+
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return refuse("host-override-invalid-json: %s" % error)
+    if not isinstance(data, dict):
+        return refuse("host-override-invalid-json: not an object")
+    unknown = sorted(set(data) - OVERRIDE_KEYS)
+    if unknown:
+        return refuse("host-override-unknown-key: %s" % ", ".join(unknown))
+    if data.get("schemaVersion") != OVERRIDE_SCHEMA_VERSION:
+        return refuse("host-override-schema-unsupported: %r" % data.get("schemaVersion"))
+    hostnames = data.get("hostnames") or []
+    if socket.gethostname() not in hostnames:
+        return refuse("host-override-host-mismatch: %s not in %s"
+                      % (socket.gethostname(), hostnames))
+    paths = data.get("paths") or {}
+    for name, value in sorted(paths.items()):
+        if name not in OVERRIDE_PATH_KEYS:
+            return refuse("host-override-unknown-key: paths.%s" % name)
+        if not isinstance(value, str) or not value.startswith("/"):
+            return refuse("host-override-not-absolute: paths.%s" % name)
+        resolved = Path(value)
+        if name == "serverCli":
+            if not (resolved.is_file() and os.access(resolved, os.X_OK)):
+                return refuse("host-override-server-cli-not-executable: %s" % value)
+        elif not resolved.is_dir():
+            return refuse("host-override-path-missing: paths.%s" % name)
+    for name, value in sorted((data.get("runtime") or {}).items()):
+        if not isinstance(value, str) or not value:
+            return refuse("host-override-invalid-value: runtime.%s" % name)
+    for name, value in sorted((data.get("projectSetups") or {}).items()):
+        if not isinstance(value, str) or not value:
+            return refuse("host-override-invalid-value: projectSetups.%s" % name)
+    block.update(state="ok", label=data.get("label"), sha256=sha256(target),
+                 paths=dict(paths), runtime=dict(data.get("runtime") or {}),
+                 projectSetups=dict(data.get("projectSetups") or {}))
+    return block
+
+
 def report(args):
     project = Path(args.project).expanduser().resolve()
     plane = control_plane(pointer=args.pointer, directory=args.control_plane)
@@ -233,19 +299,45 @@ def report(args):
     config = config_inputs(plane) if plane["state"] in ("ok", "dev-checkout") else \
         {"codeRoot": None, "configDir": None, "launcher": False, "required": {},
          "adapters": {}, "missing": []}
+    override = host_override(args.host_override)
     reasons = blocking_reasons(plane, skills, project_info, config, args.require_pin,
                                expected_config_hashes(args.expect_config))
-    if args.artifacts:
-        artifacts = Path(args.artifacts).expanduser()
-        if not artifacts.is_dir():
+    # An explicitly requested override is fail-closed; an implicit one is only reported, so a
+    # generic project can still be planned without any host-local values.
+    if args.host_override or args.require_host_override:
+        reasons.extend(override["reasons"])
+    elif override["state"] == "missing":
+        override["reasons"] = []
+    artifacts, artifacts_source = resolve_path(args.artifacts, override, "artifactRoot")
+    if artifacts:
+        if not Path(artifacts).is_dir():
             reasons.append("artifacts-dir-missing: %s" % artifacts)
+    server_cli, server_cli_source = resolve_path(None, override, "serverCli")
+    plan = plan_block(config, project) if not reasons else None
+    if plan is not None:
+        plan["paths"] = {
+            "artifacts": {"value": artifacts, "source": artifacts_source},
+            "serverCli": {"value": server_cli, "source": server_cli_source},
+        }
+        plan["runtime"] = {"default": override["runtime"].get("default"),
+                           "source": "host-override" if override["state"] == "ok" else "unset"}
     return {"ready": not reasons,
             "controlPlane": plane,
             "skills": skills,
             "project": project_info,
             "config": config,
-            "plan": plan_block(config, project) if not reasons else None,
+            "hostOverride": override,
+            "plan": plan,
             "blocking": reasons}
+
+
+def resolve_path(explicit, override, key):
+    """Explicit flag > host override > unset. No default path is invented."""
+    if explicit:
+        return explicit, "explicit"
+    if override["state"] == "ok" and override["paths"].get(key):
+        return override["paths"][key], "host-override"
+    return None, "unset"
 
 
 def main(argv=None):
@@ -258,6 +350,10 @@ def main(argv=None):
                         help="which agent's skill installation to report")
     parser.add_argument("--skills-dir", default=None, help="override the skill directory (tests, audits)")
     parser.add_argument("--artifacts", default=None, help="artifact/evidence root that must exist")
+    parser.add_argument("--host-override", default=None, metavar="PATH",
+                        help="host-local values file (default /opt/swarm/hosts/<hostname>.json)")
+    parser.add_argument("--require-host-override", action="store_true",
+                        help="block when the host-local values are absent or invalid")
     parser.add_argument("--expect-config", action="append", default=[], metavar="NAME=SHA256",
                         help="require this config file's sha256; repeatable")
     parser.add_argument("--require-pin", action="store_true",
@@ -279,6 +375,8 @@ def main(argv=None):
         print("skills: %s/%d missing=%s"
               % (result["skills"]["agent"], len(result["skills"]["required"]),
                  result["skills"]["missing"] or "none"))
+        override = result["hostOverride"]
+        print("host override: %s %s" % (override["state"], override["path"]))
         print("project: AGENTS.md=%s binding=%s roleSkills=%d"
               % (result["project"]["agentsMd"], result["project"]["bindingFile"],
                  len(result["project"]["roleSkills"])))
