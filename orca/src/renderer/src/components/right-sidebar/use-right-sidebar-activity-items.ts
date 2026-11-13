@@ -117,8 +117,8 @@ export function useRightSidebarActivityItems({
         sshOnly: true
       },
       {
-        // M7-A: entry only. Clicking selects the tab; its panel arrives in M7-B, so the count is what
-        // this button communicates today.
+        // M7-A: entry + count. M7-B: the panel below is the same tab, so clicking the badge now opens
+        // the list of exactly the rows that were counted.
         id: 'incidents',
         icon: AlertTriangle,
         title: translate(
