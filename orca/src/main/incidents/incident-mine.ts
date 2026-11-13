@@ -26,6 +26,7 @@ import type {
   IncidentStatus
 } from './incident-types'
 import { parseExitCause } from './incident-store-rows'
+import { sanitizeText } from './incident-sanitize'
 
 /**
  * The candidate rules, in one place so a reviewer can see the whole policy (§10.2).
@@ -87,11 +88,20 @@ export type MineCluster = {
   untriagedCount: number
 }
 
+export type MineCandidateStats = {
+  count: number
+  distinctSourceIds: number
+  firstSeen: number
+  lastSeen: number
+}
+
 export type MineCandidate = {
   incidentId: string
   fingerprint: string
   rule: MineRuleName
   fromStatus: IncidentStatus
+  /** The cluster statistics behind the rule — the reason quotes them, the JSON exposes them. */
+  stats: MineCandidateStats
 }
 
 export type MineExcluded = {
@@ -136,6 +146,8 @@ export type IncidentMine = {
   limits: MineLimits
   clusters: MineCluster[]
   candidates: MineCandidate[]
+  /** Present only when `--apply` ran; dry runs omit it rather than reporting an empty summary. */
+  applied?: MineApplySummary
 }
 
 /** What `--apply` may set. `confirmed` is deliberately absent: that needs R1 (§10.3). */
@@ -367,7 +379,13 @@ export function buildIncidentMine(
         fingerprint: cluster.fingerprint,
         // The first rule that promoted the cluster is the one a human is asked to weigh.
         rule: cluster.rules[0],
-        fromStatus: row.effectiveStatus
+        fromStatus: row.effectiveStatus,
+        stats: {
+          count: cluster.count,
+          distinctSourceIds: cluster.distinctSourceIds,
+          firstSeen: cluster.firstSeen,
+          lastSeen: cluster.lastSeen
+        }
       })
     }
   }
@@ -399,5 +417,162 @@ export function buildIncidentMine(
     limits: { maxGroups, maxCandidates, timeBudgetMs },
     clusters: allClusters.slice(0, maxGroups),
     candidates
+  }
+}
+
+/**
+ * What a miner decision did, one row per candidate (M6-2).
+ *
+ * `skipped_*` is not a failure: it is the idempotency contract. An incident already in the target
+ * state, or already terminal, is left alone so a repeated run cannot append a second decision.
+ */
+export type MineApplyOutcome =
+  | 'applied'
+  | 'skipped_already_target'
+  | 'skipped_terminal'
+  | 'skipped_invalid_transition'
+  | 'skipped_not_found'
+  | 'skipped_read_only'
+
+export type MineApplyResult = {
+  incidentId: string
+  fingerprint: string
+  rule: MineRuleName
+  fromStatus: IncidentStatus
+  toStatus: MinerTarget
+  outcome: MineApplyOutcome
+  decisionId: string | null
+}
+
+export type MineApplySummary = {
+  attempted: number
+  appended: number
+  skipped: number
+  results: MineApplyResult[]
+}
+
+/**
+ * The reason string written on every miner decision.
+ *
+ * It must let a human re-derive the decision: which rule fired, on how much data, over what span. It
+ * never touches a summary, an evidence body or an output text — those are already sanitized at write
+ * time and re-quoting them here would be a second copy of something that may contain anything.
+ */
+export function mineDecisionReason(candidate: MineCandidate): string {
+  const stats = candidate.stats
+  return sanitizeText(
+    `miner rule=${candidate.rule} fingerprint=${candidate.fingerprint.slice(0, 16)} ` +
+      `count=${stats.count} distinct_source_ids=${stats.distinctSourceIds} ` +
+      `first=${new Date(stats.firstSeen).toISOString()} last=${new Date(stats.lastSeen).toISOString()}`,
+    500
+  )
+}
+
+export type ApplyMineOptions = {
+  actor?: string
+  /** Test seam; the CLI uses the store's own clock. */
+  now?: () => number
+}
+
+export type MineStore = {
+  getIncident: (id: string) => { effectiveStatus: IncidentStatus } | null
+  appendDecision: (input: {
+    incidentId: string
+    toStatus: IncidentStatus
+    actor: string
+    reason: string
+    createdAt?: number
+  }) => { outcome: string; decisionId?: string; fromStatus?: IncidentStatus }
+  /** Mirrors `IncidentStore.readOnly`: a store opened for a newer schema refuses every write. */
+  readOnly: boolean
+}
+
+/**
+ * Apply the miner's suggestions — append-only, one decision per candidate, nothing else.
+ *
+ * Deliberately not transaction-wrapped across candidates: each append is its own IMMEDIATE
+ * transaction inside the store, so a failure on candidate 7 leaves the first six applied and visible
+ * rather than rolling back work a human can already read. The count is returned either way.
+ */
+export function applyMineCandidates(
+  store: MineStore,
+  mine: IncidentMine,
+  options: ApplyMineOptions = {}
+): MineApplySummary {
+  const actor = options.actor ?? MINER_ACTOR
+  const now = options.now
+  const results: MineApplyResult[] = []
+  let appended = 0
+  for (const candidate of mine.candidates) {
+    const base = {
+      incidentId: candidate.incidentId,
+      fingerprint: candidate.fingerprint,
+      rule: candidate.rule,
+      fromStatus: candidate.fromStatus,
+      toStatus: mine.target
+    }
+    if (store.readOnly) {
+      results.push({ ...base, outcome: 'skipped_read_only', decisionId: null })
+      continue
+    }
+    const view = store.getIncident(candidate.incidentId)
+    if (view === null) {
+      results.push({ ...base, outcome: 'skipped_not_found', decisionId: null })
+      continue
+    }
+    // §11.5: terminal decisions are never reopened by automated tooling — a miner that could move a
+    // `duplicate` would quietly make prunable rows reappear as candidates.
+    if (MINE_EXCLUDED_STATUSES.includes(view.effectiveStatus)) {
+      results.push({
+        ...base,
+        fromStatus: view.effectiveStatus,
+        outcome: 'skipped_terminal',
+        decisionId: null
+      })
+      continue
+    }
+    if (view.effectiveStatus === mine.target) {
+      results.push({
+        ...base,
+        fromStatus: view.effectiveStatus,
+        outcome: 'skipped_already_target',
+        decisionId: null
+      })
+      continue
+    }
+    const decision = store.appendDecision({
+      incidentId: candidate.incidentId,
+      toStatus: mine.target,
+      actor,
+      reason: mineDecisionReason(candidate),
+      ...(now === undefined ? {} : { createdAt: now() })
+    })
+    if (decision.outcome === 'appended') {
+      appended += 1
+      results.push({
+        ...base,
+        fromStatus: decision.fromStatus ?? view.effectiveStatus,
+        outcome: 'applied',
+        decisionId: decision.decisionId ?? null
+      })
+      continue
+    }
+    results.push({
+      ...base,
+      fromStatus: decision.fromStatus ?? view.effectiveStatus,
+      outcome:
+        decision.outcome === 'status_unchanged'
+          ? 'skipped_already_target'
+          : decision.outcome === 'invalid_transition'
+            ? 'skipped_invalid_transition'
+            : 'skipped_not_found',
+      decisionId: null
+    })
+  }
+  return {
+    attempted: mine.candidates.length,
+    appended,
+    skipped: results.length - appended,
+    results
   }
 }

@@ -19,9 +19,13 @@ import {
   MINE_RULE_ACCEPTANCE_INVARIANT,
   MINE_RULE_CRASH_SIGNALED,
   MINE_RULE_REPEAT_FINGERPRINT,
+  MINER_ACTOR,
+  applyMineCandidates,
   buildIncidentMine,
+  mineDecisionReason,
   mineRulesFor,
-  type MineRuleRow
+  type MineRuleRow,
+  type MineStore
 } from './incident-mine'
 
 const T0 = 1_700_000_000_000
@@ -303,6 +307,25 @@ describe('buildIncidentMine', () => {
     expect(mine.totals.candidates).toBe(0)
   })
 
+  it('promotes nothing when every cluster is already dismissed (terminal rows excluded)', () => {
+    const { db, store } = fixture()
+    const fingerprint = 'fp-all-dismissed'
+    for (let index = 0; index < 4; index += 1) {
+      const record = seed(store, { fingerprint, sourceId: `s${index}` })
+      store.appendDecision({
+        incidentId: record.id,
+        toStatus: index % 2 === 0 ? 'duplicate' : 'invalid',
+        actor: 'alice',
+        reason: 'dismissed'
+      })
+    }
+    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    expect(mine.totals.rowsInWindow).toBe(4)
+    expect(mine.totals.clusters).toBe(0)
+    expect(mine.candidates).toEqual([])
+    expect(mine.excluded).toMatchObject({ total: 4 })
+  })
+
   it('never writes: no decisions and no new rows are added by a mining pass', () => {
     const { db, store } = fixture()
     for (let index = 0; index < 3; index += 1) {
@@ -314,5 +337,117 @@ describe('buildIncidentMine', () => {
     expect(store.listIncidents({ limit: 10 }).incidents.every((row) => row.decisionCount === 0)).toBe(
       true
     )
+  })
+})
+
+describe('applying miner decisions (M6-2)', () => {
+  function seedCluster(
+    store: IncidentStore,
+    fingerprint: string,
+    rows = 3
+  ): string[] {
+    const ids: string[] = []
+    for (let index = 0; index < rows; index += 1) {
+      ids.push(seed(store, { fingerprint, sourceId: `${fingerprint}-${index}` }).id)
+    }
+    return ids
+  }
+
+  function decisionCount(store: IncidentStore): number {
+    return store.listIncidents({ limit: 100 }).incidents.reduce(
+      (sum, row) => sum + row.decisionCount,
+      0
+    )
+  }
+
+  it('appends one decision per candidate with actor=miner and a rule-named reason', () => {
+    const { db, store } = fixture()
+    const ids = seedCluster(store, 'fp-apply')
+    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY, target: 'watch' })
+    const applied = applyMineCandidates(store, mine, { now: () => T0 + 2 * DAY })
+
+    expect(applied).toMatchObject({ attempted: 3, appended: 3, skipped: 0 })
+    expect(decisionCount(store)).toBe(3)
+    const view = store.getIncident(ids[0])!
+    expect(view.effectiveStatus).toBe('watch')
+    expect(view.decisions[0]).toMatchObject({ actor: MINER_ACTOR, toStatus: 'watch' })
+    expect(view.decisions[0].reason).toContain('rule=repeat_fingerprint')
+    expect(view.decisions[0].reason).toContain('count=3')
+    expect(view.decisions[0].reason).toContain('distinct_source_ids=3')
+    expect(view.decisions[0].reason).toContain('first=')
+    expect(view.decisions[0].reason).toContain('last=')
+  })
+
+  it('is idempotent: a second apply appends nothing and the decision log does not grow', () => {
+    const { db, store } = fixture()
+    seedCluster(store, 'fp-idem')
+    const first = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    expect(applyMineCandidates(store, first).appended).toBe(3)
+    const afterFirst = decisionCount(store)
+
+    const second = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    // The rows are now `watch`, so they are no longer untriaged candidates at all.
+    expect(second.totals.candidates).toBe(0)
+    expect(second.candidates).toEqual([])
+    const applied = applyMineCandidates(store, second)
+    expect(applied).toMatchObject({ attempted: 0, appended: 0, skipped: 0 })
+    expect(decisionCount(store)).toBe(afterFirst)
+  })
+
+  it('skips a row that is already in the target state even when it is a candidate', () => {
+    const { db, store } = fixture()
+    const ids = seedCluster(store, 'fp-already')
+    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY, target: 'watch' })
+    // A hand decision arrives between mining and applying.
+    store.appendDecision({ incidentId: ids[0], toStatus: 'watch', actor: 'alice', reason: 'seen' })
+    const applied = applyMineCandidates(store, mine)
+    expect(applied.appended).toBe(2)
+    expect(applied.results.find((result) => result.incidentId === ids[0])?.outcome).toBe(
+      'skipped_already_target'
+    )
+  })
+
+  it('never touches a terminal row', () => {
+    const { db, store } = fixture()
+    const ids = seedCluster(store, 'fp-terminal')
+    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    store.appendDecision({
+      incidentId: ids[0],
+      toStatus: 'duplicate',
+      actor: 'alice',
+      reason: 'same incident'
+    })
+    const applied = applyMineCandidates(store, mine)
+    const duplicate = applied.results.find((result) => result.incidentId === ids[0])
+    expect(duplicate?.outcome).toBe('skipped_terminal')
+    expect(store.getIncident(ids[0])?.effectiveStatus).toBe('duplicate')
+  })
+
+  it('reports a read-only store for every candidate instead of throwing', () => {
+    const { db, store } = fixture()
+    seedCluster(store, 'fp-readonly')
+    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const readOnly: MineStore = {
+      ...store,
+      readOnly: true,
+      appendDecision: () => {
+        throw new Error('a read-only store must not be written')
+      }
+    }
+    const applied = applyMineCandidates(readOnly, mine)
+    expect(applied.appended).toBe(0)
+    expect(applied.results.every((result) => result.outcome === 'skipped_read_only')).toBe(true)
+  })
+
+  it('writes a reason that carries statistics but never an incident body', () => {
+    const { db, store } = fixture()
+    seedCluster(store, 'fp-reason')
+    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const reason = mineDecisionReason(mine.candidates[0])
+    expect(reason).toContain('miner rule=repeat_fingerprint')
+    expect(reason).toContain('fingerprint=fp-reason')
+    // The seeded summary never appears in the decision text.
+    expect(reason).not.toContain('seeded crash')
+    expect(reason.length).toBeLessThanOrEqual(500)
   })
 })

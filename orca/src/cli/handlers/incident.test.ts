@@ -581,6 +581,123 @@ describe('incident mine (M6-1)', () => {
     }
   })
 
+  function seedMineCluster(fingerprint: string, rows = 3): void {
+    const opened2 = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      const writer = createIncidentStore({ db: opened2.db, fileSizeBytes: opened2.fileSizeBytes })
+      for (let index = 0; index < rows; index += 1) {
+        writer.insertIncident({
+          id: `inc_mine_apply_${fingerprint}_${index}`,
+          sourceKind: 'pty_exit',
+          sourceId: `${fingerprint}-${index}`,
+          facet: 'exit',
+          hostId: 'host-a',
+          worktreeId: 'wt-1',
+          runId: null,
+          taskId: null,
+          dispatchId: null,
+          agentSessionId: null,
+          ptyIncarnationId: null,
+          class: 'crash',
+          status: 'untriaged',
+          exitCause: { kind: 'exited', exitCode: 1 },
+          fingerprint,
+          evidence: { pointers: [], unknownBoundaries: [] },
+          summary: 'crash',
+          createdAt: Date.now()
+        })
+      }
+    } finally {
+      opened2.db.close()
+    }
+  }
+
+  function decisionRows(): { actor: string; reason: string; to_status: string }[] {
+    const opened2 = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      return opened2.db
+        .prepare('SELECT actor, reason, to_status FROM incident_decisions ORDER BY rowid')
+        .all() as { actor: string; reason: string; to_status: string }[]
+    } finally {
+      opened2.db.close()
+    }
+  }
+
+  it('--apply writes miner decisions once; a second run appends nothing', async () => {
+    seedMineCluster('fp-cli-apply')
+    const first = context('incident mine', { apply: true }, true)
+    await INCIDENT_HANDLERS['incident mine'](first.ctx)
+    const payload = JSON.parse(first.output.join('\n')) as {
+      apply: boolean
+      applied: { attempted: number; appended: number; skipped: number; results: { outcome: string }[] }
+    }
+    expect(payload.apply).toBe(true)
+    expect(payload.applied).toMatchObject({ attempted: 3, appended: 3, skipped: 0 })
+    const afterFirst = decisionRows()
+    expect(afterFirst).toHaveLength(3)
+    expect(afterFirst.every((row) => row.actor === 'miner')).toBe(true)
+    expect(afterFirst.every((row) => row.to_status === 'watch')).toBe(true)
+    expect(afterFirst[0].reason).toContain('rule=repeat_fingerprint')
+    expect(afterFirst[0].reason).toContain('count=3')
+
+    const second = context('incident mine', { apply: true }, true)
+    await INCIDENT_HANDLERS['incident mine'](second.ctx)
+    const secondPayload = JSON.parse(second.output.join('\n')) as {
+      applied: { attempted: number; appended: number }
+    }
+    expect(secondPayload.applied).toMatchObject({ attempted: 0, appended: 0 })
+    // Idempotent: the decision log did not grow.
+    expect(decisionRows()).toHaveLength(3)
+  })
+
+  it('dry run writes no decision, and says what it would set', async () => {
+    seedMineCluster('fp-cli-dry')
+    const dry = context('incident mine', {})
+    await INCIDENT_HANDLERS['incident mine'](dry.ctx)
+    const text = dry.output.join('\n')
+    expect(text).toContain('dry-run (no writes)')
+    expect(text).toContain('Would set')
+    expect(text).toContain('repeat_fingerprint')
+    expect(decisionRows()).toHaveLength(0)
+  })
+
+  it('refuses --target confirmed and names R1', async () => {
+    const confirmed = context('incident mine', { target: 'confirmed', apply: true })
+    await expect(INCIDENT_HANDLERS['incident mine'](confirmed.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    expect(decisionRows()).toHaveLength(0)
+    const bogus = context('incident mine', { target: 'closed' })
+    await expect(INCIDENT_HANDLERS['incident mine'](bogus.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+  })
+
+  it('makes truncation visible in text and JSON instead of cutting the list quietly', async () => {
+    for (const fingerprint of ['fp-cli-cap-a', 'fp-cli-cap-b']) {
+      seedMineCluster(fingerprint)
+    }
+    const capped = context('incident mine', { 'max-groups': '1', 'max-candidates': '2' }, true)
+    await INCIDENT_HANDLERS['incident mine'](capped.ctx)
+    const payload = JSON.parse(capped.output.join('\n')) as {
+      clusters: unknown[]
+      candidates: unknown[]
+      totals: { clusters: number; candidates: number }
+      truncated: { groups: boolean; candidates: boolean }
+      limits: { maxGroups: number; maxCandidates: number }
+    }
+    expect(payload.clusters).toHaveLength(1)
+    expect(payload.totals.clusters).toBe(2)
+    expect(payload.truncated.groups).toBe(true)
+    expect(payload.candidates).toHaveLength(2)
+    expect(payload.totals.candidates).toBe(6)
+    expect(payload.truncated.candidates).toBe(true)
+
+    const text = context('incident mine', { 'max-groups': '1' })
+    await INCIDENT_HANDLERS['incident mine'](text.ctx)
+    expect(text.output.join('\n')).toContain('TRUNCATED')
+  })
+
   it('rejects an unparseable --since and prints an empty window without creating a store', async () => {
     const bad = context('incident mine', { since: 'yesterday' })
     await expect(INCIDENT_HANDLERS['incident mine'](bad.ctx)).rejects.toMatchObject({

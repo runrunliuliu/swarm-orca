@@ -106,14 +106,31 @@ export function formatIncidentMine(mine: IncidentMine): string {
   if (mine.candidates.length === 0) {
     lines.push('No candidates selected.')
   } else if (mine.apply) {
-    lines.push(`Candidates (target ${mine.target}, actor=miner):`)
-    for (const candidate of mine.candidates) {
-      lines.push(`  ${candidate.incidentId}  ${candidate.rule}  ${candidate.fromStatus} → ${mine.target}`)
+    const applied = mine.applied
+    lines.push(
+      `Applied (target ${mine.target}, actor=miner): ${applied?.appended ?? 0} appended, ` +
+        `${applied?.skipped ?? 0} skipped of ${mine.candidates.length} candidates`
+    )
+    for (const result of applied?.results ?? []) {
+      lines.push(
+        `  ${result.incidentId}  ${result.rule}  ${result.fromStatus} → ${result.toStatus}` +
+          `  ${result.outcome}`
+      )
+    }
+    if ((applied?.skipped ?? 0) > 0) {
+      lines.push(
+        'Skipped rows were already in the target state, already terminal, or no longer present: ' +
+          'the miner never re-opens a decision a human made.'
+      )
     }
   } else {
     lines.push(`Would set (target ${mine.target}, actor=miner) — re-run with --apply to write:`)
     for (const candidate of mine.candidates) {
-      lines.push(`  ${candidate.incidentId}  ${candidate.rule}  ${candidate.fromStatus} → ${mine.target}`)
+      lines.push(
+        `  ${candidate.incidentId}  ${candidate.rule}  ` +
+          `count=${candidate.stats.count} src=${candidate.stats.distinctSourceIds}  ` +
+          `${candidate.fromStatus} → ${mine.target}`
+      )
     }
   }
   lines.push('')
