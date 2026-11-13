@@ -243,16 +243,26 @@ def read_manifest(root):
 PRIVATE_PREFIX = "private"
 PUBLIC_FILE_MODE = 0o644
 PRIVATE_FILE_MODE = 0o640
+PUBLIC_EXEC_MODE = 0o755
+PRIVATE_EXEC_MODE = 0o750
 PUBLIC_DIR_MODE = 0o755
 PRIVATE_DIR_MODE = 0o750
 
 
-def apply_modes(staging, entries):
-    """Fix modes explicitly so the artifact does not inherit the publisher's umask."""
+def apply_modes(staging, copies):
+    """Fix modes explicitly so the artifact does not inherit the publisher's umask.
+
+    Executability is content, not decoration: an artifact whose `deploy/*.sh` lost its +x bit
+    cannot run its own installer. The source's executable bit is preserved, nothing else is.
+    """
     os.chmod(staging, PUBLIC_DIR_MODE)
-    for destination, _ in entries:
+    for destination, source in copies:
         private = destination == PRIVATE_PREFIX or destination.startswith(PRIVATE_PREFIX + "/")
-        os.chmod(staging / destination, PRIVATE_FILE_MODE if private else PUBLIC_FILE_MODE)
+        if os.access(source, os.X_OK):
+            mode = PRIVATE_EXEC_MODE if private else PUBLIC_EXEC_MODE
+        else:
+            mode = PRIVATE_FILE_MODE if private else PUBLIC_FILE_MODE
+        os.chmod(staging / destination, mode)
         parent = (staging / destination).parent
         while parent != staging:
             os.chmod(parent, PRIVATE_DIR_MODE if parent.relative_to(staging).as_posix().split("/")[0]
@@ -282,7 +292,7 @@ def publish(args):
         final = artifact_root / ("%s-%s" % (ARTIFACT, identifier))
         if final.exists():
             raise Failure("artifact-exists: %s" % final)
-        apply_modes(staging, entries)
+        apply_modes(staging, copies)
         write_manifest(staging, entries)
         os.chmod(staging / MANIFEST, PUBLIC_FILE_MODE)
         identity = {

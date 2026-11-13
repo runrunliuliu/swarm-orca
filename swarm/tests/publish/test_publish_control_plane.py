@@ -211,6 +211,16 @@ class PublishTests(Fixture):
                          publisher.EXIT_PRECONDITION)
         self.assertEqual(list(self.artifacts.iterdir()), [])
 
+    def test_the_executable_bit_survives_the_copy(self):
+        source = self.source()
+        script = source / "swarm-orca" / "swarm" / "deploy-script.sh"
+        write(script, "#!/bin/sh\n")
+        script.chmod(0o755)
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        self.assertEqual((artifact / "code" / "deploy-script.sh").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((artifact / "code" / "coordinator_launch.py").stat().st_mode & 0o777, 0o644)
+
     def test_private_files_do_not_inherit_the_umask(self):
         self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
         artifact = self.artifact_directories()[0]
