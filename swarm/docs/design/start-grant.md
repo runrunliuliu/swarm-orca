@@ -726,6 +726,26 @@ grep -rn "strict-bootstrap\|strict-start-prepare\|strict-config-review" swarm/sk
 python3 -B swarm/generate_orientation.py --check
 ```
 
+### 5.1 清查结果（2026-11-13，删任何一行之前跑的一遍）
+
+| 批 | 目标文件 | 行数 | 同 commit 要删的测试 | 测试行数 | 生产侧牵连 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `bootstrap_driver.py`、`bootstrap_actions.py`、`bootstrap_tool.py`（**部分删除**，各有幸存段） | 2300（全部） | `tests/bootstrap/test_bootstrap_flow.py`、`test_bootstrap_submission.py` | 777 | `bootstrap_actions` 被 `bootstrap_control`、`bootstrap_s5`、`bootstrap_admission`、`generate_orientation.py`、`generate_runbook.py` import；`bootstrap_tool` 被 `bootstrap_s5`、`startup_handoff.py`、`coordinator_launch.py` import |
+| 2 | `bootstrap_control.py`、`bootstrap_transport.py`、`bootstrap_admission.py`、`bootstrap_stage_wait.py`（整文件）+ 批 1 幸存段 | 3971 | `test_bootstrap_{control,commit_states,production,isolation,admission,stage_wait}.py` | 2515 | `publish_new`/`fsync_dir`/`directory_lock` 留在 `coordinator_io`，**不能跟着删**；`startup_handoff.py` 还依赖 `bootstrap_tool` |
+| 3 | `coordinator_request_prepare.py`、`coordinator_strict_delivery.py`、`coordinator_strict_start.py`、`operator_startup.py`、`coordinator_strict_request.py` | 1851 | `test_coordinator_strict_{start,delivery}.py`、`test_operator_startup.py` 的 lifecycle 段（`test_operator_startup_identity.py` 有可保留的身份用例） | ≥2031 | `coordinator_launch.py` 的 `strict-start-*` / `strict-config-*` 六个子命令同时下线；`coordinator_strict.py`（`strict-native-plan`）是唯一保留的旧门 |
+
+三处**不能按计划直接删**的实测理由，先写在这里而不是边删边发现：
+
+1. **批 1 不是整文件删除**：`bootstrap_actions` 被两个**生成器**（`generate_orientation.py`、`generate_runbook.py`）
+   import，删 `bootstrap_actions` 会连带改生成物与 `ORIENTATION.md`。计划里没写这一条。
+2. **批 2 会删掉今天唯一能跑通 strict 握手的控制面**：`bootstrap_control`/`bootstrap_transport` 是 S0–S5 的
+   owner/准入实现。start grant 的替代路径**还没有跑过任何一次 live 任务**，删了就没有第二条路。
+3. **批 3 与 `startup_handoff.py` 共存**：它仍依赖 `bootstrap_tool`，而 `bootstrap_tool` 的删除范围由批 1/2 决定
+   ——三批不是彼此独立的三刀，顺序必须 1 → 2 → 3，且每一刀都要重跑本节的清查。
+
+**结论（未执行删除）**：执行前只差两件事——§8 决策 4（批次交付时机）与一次 start grant 的 live 跑通。
+这两件都不是代码能自己回答的；在此之前删掉 8000 行里任何一行，都会把"唯一可执行的启动路径"变成"没有路径"。
+
 ## 6. 文档更新计划
 
 先改路由与弃用声明，再改实现文档；**不允许文档先承诺一个未实现的门**。

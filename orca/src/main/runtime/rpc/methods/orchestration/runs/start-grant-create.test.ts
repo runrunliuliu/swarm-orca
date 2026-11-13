@@ -260,6 +260,42 @@ describe('start grant binding, two connections', () => {
     }
   })
 
+  it('cannot write while another connection holds the write lock, and replays after it commits', () => {
+    // The real contention property: `BEGIN IMMEDIATE` is what makes the count/insert one step, so a
+    // second writer must be refused by the database rather than proceeding on a stale read. No
+    // process is needed to show that — a held write transaction is the same lock a second process
+    // would block on.
+    const file = filePath()
+    const holder = new OrchestrationDb(file)
+    const second = new OrchestrationDb(file)
+    try {
+      const record = grant({ grantId: 'af6f2b0e-3a4c-4b6f-9a9f-1f0f9c3f5d29' })
+      insertStartGrant(holder, record)
+      const create = (db: OrchestrationDb) =>
+        db.createGrantedRun({
+          objective: OBJECTIVE,
+          coordinatorHandle: authority.terminalHandle,
+          coordinatorPaneKey: authority.paneKey,
+          startGrant: { grantId: record.grantId, authority }
+        })
+      // Fail fast instead of waiting out the 5 s driver timeout: the assertion is about the lock,
+      // not about how long the driver waits for it.
+      second.db.pragma('busy_timeout = 100')
+      holder.db.exec('BEGIN IMMEDIATE')
+      expect(() => create(second)).toThrowError(/locked|busy/i)
+      holder.db.exec('COMMIT')
+
+      const created = create(holder)
+      const replay = create(second)
+      expect(created.replayed).toBe(false)
+      expect(replay.replayed).toBe(true)
+      expect(replay.run.id).toBe(created.run.id)
+    } finally {
+      second.close()
+      holder.close()
+    }
+  })
+
   it('cannot bind one Run to two grants', () => {
     const db = open()
     try {

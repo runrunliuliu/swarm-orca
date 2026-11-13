@@ -1,5 +1,13 @@
 # Operator 启动前准备
 
+> **部分弃用（2026-11-13）**：S0 materials / skill-read-evidence / registration 这一段属于
+> [已弃用的 strict bootstrap 协议](strict-bootstrap-protocol.md)，由
+> [start grant](docs/design/start-grant.md) 的 mint 取代——批准不再由"准备阶段产出的证据"承载，而是由
+> 一个不执行它的进程签发。**保留**：本文其余的精确工作区、provider 核验与 native plan 段仍是今天可用的
+> 实现（`operator_prepare.py` 与 `coordinator_launch.py strict-native-plan` 共用同一份 `native_plan`）。
+> 新任务走 `orca orchestration start-grant-mint`，不要照 S0 那套准备证据。
+
+
 `operator_prepare.py` 将机械准备集中到一个入口，复用已有实现，不创建 Agent、Run、
 Worker 或报告仓库，不执行启动 argv，不发审计 gate，不解释或补齐用户授权。
 它与处理已有 Run 的 `coordinator_operator.py` 无关。
