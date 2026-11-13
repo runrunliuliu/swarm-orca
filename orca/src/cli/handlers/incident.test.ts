@@ -519,86 +519,35 @@ describe('incident digest (M4-2)', () => {
   })
 })
 
-describe('incident mine (M6-1)', () => {
-  it('clusters by fingerprint, prints the rule that promoted it, and writes nothing', async () => {
-    const fingerprint = incidentFingerprint({
-      class: 'crash',
-      sourceKind: 'pty_exit',
-      facet: 'exit',
-      signature: ['signaled:9']
-    })
-    const opened2 = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
-    try {
-      for (const [index, sourceId] of ['p1', 'p2', 'p3'].entries()) {
-        createIncidentStore({ db: opened2.db, fileSizeBytes: opened2.fileSizeBytes }).insertIncident({
-          id: `inc_mine_cli_${index}`,
-          sourceKind: 'pty_exit',
-          sourceId,
-          facet: 'exit',
-          hostId: 'host-a',
-          worktreeId: 'wt-1',
-          runId: null,
-          taskId: null,
-          dispatchId: null,
-          agentSessionId: null,
-          ptyIncarnationId: null,
-          class: 'crash',
-          status: 'untriaged',
-          exitCause: { kind: 'signaled', signal: 9 },
-          fingerprint,
-          evidence: { pointers: [], unknownBoundaries: [] },
-          summary: 'crash',
-          createdAt: Date.now()
-        })
-      }
-    } finally {
-      opened2.db.close()
-    }
-
-    const mined = context('incident mine', {}, true)
-    await INCIDENT_HANDLERS['incident mine'](mined.ctx)
-    const payload = JSON.parse(mined.output.join('\n')) as {
-      version: number
-      totals: { clusters: number; candidateClusters: number; candidates: number }
-      clusters: { count: number; distinctSourceIds: number; rules: string[] }[]
-      candidates: { incidentId: string; rule: string }[]
-      truncated: { groups: boolean; candidates: boolean; timeBudget: boolean }
-    }
-    expect(payload.version).toBe(1)
-    expect(payload.totals).toMatchObject({ clusters: 1, candidateClusters: 1, candidates: 3 })
-    expect(payload.clusters[0]).toMatchObject({ count: 3, distinctSourceIds: 3 })
-    expect(payload.clusters[0].rules).toContain('repeat_fingerprint')
-    expect(payload.candidates).toHaveLength(3)
-    // Read-only: the store still has the three rows and no decisions.
-    const after = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
-    try {
-      const decisions = after.db.prepare('SELECT COUNT(*) AS n FROM incident_decisions').get() as {
-        n: number
-      }
-      expect(decisions.n).toBe(0)
-    } finally {
-      after.db.close()
-    }
-  })
-
-  function seedMineCluster(fingerprint: string, rows = 3): void {
+describe('incident mine (M6)', () => {
+  /**
+   * Seed one cluster. Each row needs its own ENTITY (session), because the candidate rules count
+   * stable sources, not epoch-bearing source ids (M6 review C1).
+   */
+  function seedMineCluster(
+    fingerprint: string,
+    rows = 3,
+    options: { class?: string; sourceKind?: string; facet?: string } = {}
+  ): string[] {
     const opened2 = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
     try {
       const writer = createIncidentStore({ db: opened2.db, fileSizeBytes: opened2.fileSizeBytes })
+      const ids: string[] = []
       for (let index = 0; index < rows; index += 1) {
+        const id = `inc_mine_cli_${fingerprint}_${index}`
         writer.insertIncident({
-          id: `inc_mine_apply_${fingerprint}_${index}`,
-          sourceKind: 'pty_exit',
+          id,
+          sourceKind: (options.sourceKind ?? 'pty_exit') as never,
           sourceId: `${fingerprint}-${index}`,
-          facet: 'exit',
+          facet: options.facet ?? 'exit',
           hostId: 'host-a',
           worktreeId: 'wt-1',
           runId: null,
           taskId: null,
           dispatchId: null,
-          agentSessionId: null,
+          agentSessionId: `sess-${fingerprint}-${index}`,
           ptyIncarnationId: null,
-          class: 'crash',
+          class: (options.class ?? 'crash') as never,
           status: 'untriaged',
           exitCause: { kind: 'exited', exitCode: 1 },
           fingerprint,
@@ -606,7 +555,9 @@ describe('incident mine (M6-1)', () => {
           summary: 'crash',
           createdAt: Date.now()
         })
+        ids.push(id)
       }
+      return ids
     } finally {
       opened2.db.close()
     }
@@ -623,24 +574,78 @@ describe('incident mine (M6-1)', () => {
     }
   }
 
+  it('clusters by fingerprint, prints the rule that promoted it, and writes nothing', async () => {
+    seedMineCluster('fp-cli-basic')
+    const mined = context('incident mine', {}, true)
+    await INCIDENT_HANDLERS['incident mine'](mined.ctx)
+    const payload = JSON.parse(mined.output.join('\n')) as {
+      version: number
+      target: string | null
+      scan: { rows: number; truncated: boolean }
+      totals: { clusters: number; candidateClusters: number; candidates: number }
+      clusters: { count: number; epochRows: number; stableSources: number; rules: string[] }[]
+      candidates: { incidentId: string; rule: string }[]
+      truncated: { groups: boolean; candidates: boolean; timeBudget: boolean; scan: boolean }
+    }
+    expect(payload.version).toBe(1)
+    // No default target any more (M6-C6): a dry run without --target reports `null`.
+    expect(payload.target).toBeNull()
+    expect(payload.scan).toMatchObject({ rows: 3, truncated: false })
+    expect(payload.totals).toMatchObject({ clusters: 1, candidateClusters: 1, candidates: 3 })
+    expect(payload.clusters[0]).toMatchObject({
+      count: 3,
+      epochRows: 3,
+      stableSources: 3
+    })
+    expect(payload.clusters[0].rules).toContain('repeat_fingerprint')
+    expect(payload.candidates).toHaveLength(3)
+    // Read-only: no decision was appended.
+    expect(decisionRows()).toHaveLength(0)
+  })
+
+  it('rejects an unparseable --since and prints an empty window without creating a store', async () => {
+    const bad = context('incident mine', { since: 'yesterday' })
+    await expect(INCIDENT_HANDLERS['incident mine'](bad.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const badCap = context('incident mine', { 'max-groups': '0' })
+    await expect(INCIDENT_HANDLERS['incident mine'](badCap.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const empty = context('incident mine')
+    await INCIDENT_HANDLERS['incident mine'](empty.ctx)
+    expect(empty.output.join('\n')).toContain('No clusters in this window.')
+  })
+
+  it('--apply requires an explicit --target (M6-C6)', async () => {
+    seedMineCluster('fp-cli-no-target')
+    const noTarget = context('incident mine', { apply: true })
+    await expect(INCIDENT_HANDLERS['incident mine'](noTarget.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    expect(decisionRows()).toHaveLength(0)
+  })
+
   it('--apply writes miner decisions once; a second run appends nothing', async () => {
     seedMineCluster('fp-cli-apply')
-    const first = context('incident mine', { apply: true }, true)
+    const first = context('incident mine', { apply: true, target: 'watch' }, true)
     await INCIDENT_HANDLERS['incident mine'](first.ctx)
     const payload = JSON.parse(first.output.join('\n')) as {
       apply: boolean
+      target: string | null
       applied: { attempted: number; appended: number; skipped: number; results: { outcome: string }[] }
     }
     expect(payload.apply).toBe(true)
+    expect(payload.target).toBe('watch')
     expect(payload.applied).toMatchObject({ attempted: 3, appended: 3, skipped: 0 })
     const afterFirst = decisionRows()
     expect(afterFirst).toHaveLength(3)
     expect(afterFirst.every((row) => row.actor === 'miner')).toBe(true)
     expect(afterFirst.every((row) => row.to_status === 'watch')).toBe(true)
     expect(afterFirst[0].reason).toContain('rule=repeat_fingerprint')
-    expect(afterFirst[0].reason).toContain('count=3')
+    expect(afterFirst[0].reason).toContain('stable_sources=3')
 
-    const second = context('incident mine', { apply: true }, true)
+    const second = context('incident mine', { apply: true, target: 'watch' }, true)
     await INCIDENT_HANDLERS['incident mine'](second.ctx)
     const secondPayload = JSON.parse(second.output.join('\n')) as {
       applied: { attempted: number; appended: number }
@@ -650,63 +655,51 @@ describe('incident mine (M6-1)', () => {
     expect(decisionRows()).toHaveLength(3)
   })
 
+  it('leaves a row a human already decided alone, even when --apply targets it (M6-C3)', async () => {
+    const ids = seedMineCluster('fp-cli-human')
+    const opened2 = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      createIncidentStore({ db: opened2.db, fileSizeBytes: opened2.fileSizeBytes }).appendDecision({
+        incidentId: ids[0],
+        toStatus: 'confirmed',
+        actor: 'alice',
+        reason: 'root cause known'
+      })
+    } finally {
+      opened2.db.close()
+    }
+    const applied = context('incident mine', { apply: true, target: 'duplicate' }, true)
+    await INCIDENT_HANDLERS['incident mine'](applied.ctx)
+    const payload = JSON.parse(applied.output.join('\n')) as {
+      applied: { appended: number; results: { incidentId: string; outcome: string }[] }
+    }
+    // The confirmed row is not a candidate at all, so nothing is even attempted on it — the miner's
+    // candidate set only ever contains untriaged rows. The in-apply guard for the race between mining
+    // and applying is covered at the engine level (`never replaces a human decision made after mining`).
+    expect(payload.applied.results.some((row) => row.incidentId === ids[0])).toBe(false)
+    expect(payload.applied.appended).toBe(2)
+    // The confirmed decision is still the effective one.
+    const check = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      const view = createIncidentStore({
+        db: check.db,
+        fileSizeBytes: check.fileSizeBytes
+      }).getIncident(ids[0])
+      expect(view?.effectiveStatus).toBe('confirmed')
+    } finally {
+      check.db.close()
+    }
+  })
+
   it('dry run writes no decision, and says what it would set', async () => {
     seedMineCluster('fp-cli-dry')
-    const dry = context('incident mine', {})
+    const dry = context('incident mine', { target: 'watch' })
     await INCIDENT_HANDLERS['incident mine'](dry.ctx)
     const text = dry.output.join('\n')
-    expect(text).toContain('dry-run (no writes)')
+    expect(text).toContain('dry-run (no writes')
     expect(text).toContain('Would set')
     expect(text).toContain('repeat_fingerprint')
     expect(decisionRows()).toHaveLength(0)
-  })
-
-  it('reports the same store numbers as `incident digest` (M6-3)', async () => {
-    seedMineCluster('fp-consistency', 4)
-    recordPtyExitIncidentTo(store(), facts(), { hostId: 'host-a', now: Date.now() })
-
-    const digestShown = context('incident digest', { since: '7d' }, true)
-    await INCIDENT_HANDLERS['incident digest'](digestShown.ctx)
-    const digest = JSON.parse(digestShown.output.join('\n')) as {
-      total: number
-      unseen: number
-      byClass: { class: string; count: number }[]
-      byStatus: { status: string; count: number }[]
-      topFingerprints: { fingerprint: string; count: number }[]
-      capacity: { rows: number }
-      shadowReplay: { incomplete: boolean }
-    }
-
-    const mineShown = context('incident mine', { since: '7d' }, true)
-    await INCIDENT_HANDLERS['incident mine'](mineShown.ctx)
-    const mined = JSON.parse(mineShown.output.join('\n')) as {
-      digest: typeof digest
-      totals: { rowsInWindow: number }
-      clusters: { count: number }[]
-    }
-
-    // Same window, same builder, same numbers: a mine row that disagrees with the digest is a bug in
-    // one of them, and this is where it shows up.
-    expect(mined.digest.total).toBe(digest.total)
-    expect(mined.digest.unseen).toBe(digest.unseen)
-    expect(mined.digest.byClass).toEqual(digest.byClass)
-    expect(mined.digest.byStatus).toEqual(digest.byStatus)
-    expect(mined.digest.topFingerprints).toEqual(digest.topFingerprints)
-    expect(mined.digest.capacity.rows).toBe(digest.capacity.rows)
-    expect(mined.digest.shadowReplay).toEqual(digest.shadowReplay)
-    expect(mined.totals.rowsInWindow).toBe(digest.total)
-    expect(mined.digest.total).toBe(5)
-
-    // The text forms share one coverage block, so an operator reading either sees the same warnings.
-    const mineText = context('incident mine', { since: '7d' })
-    await INCIDENT_HANDLERS['incident mine'](mineText.ctx)
-    const digestText = context('incident digest', { since: '7d' })
-    await INCIDENT_HANDLERS['incident digest'](digestText.ctx)
-    for (const marker of ['Shadow replay:', 'Capacity: rows=', 'Tool-error windows:']) {
-      expect(mineText.output.join('\n')).toContain(marker)
-      expect(digestText.output.join('\n')).toContain(marker)
-    }
-    expect(mineText.output.join('\n')).toContain('identical to')
   })
 
   it('refuses --target confirmed and names R1', async () => {
@@ -746,18 +739,67 @@ describe('incident mine (M6-1)', () => {
     expect(text.output.join('\n')).toContain('TRUNCATED')
   })
 
-  it('rejects an unparseable --since and prints an empty window without creating a store', async () => {
-    const bad = context('incident mine', { since: 'yesterday' })
-    await expect(INCIDENT_HANDLERS['incident mine'](bad.ctx)).rejects.toMatchObject({
-      code: 'invalid_argument'
-    })
-    const badCap = context('incident mine', { 'max-groups': '0' })
-    await expect(INCIDENT_HANDLERS['incident mine'](badCap.ctx)).rejects.toMatchObject({
-      code: 'invalid_argument'
-    })
-    const empty = context('incident mine')
-    await INCIDENT_HANDLERS['incident mine'](empty.ctx)
-    expect(empty.output.join('\n')).toContain('No clusters in this window.')
+  it('reports scan truncation separately from candidate truncation (M6-C4)', async () => {
+    seedMineCluster('fp-cli-scan', 5)
+    const capped = context('incident mine', { 'max-scan-rows': '2' }, true)
+    await INCIDENT_HANDLERS['incident mine'](capped.ctx)
+    const payload = JSON.parse(capped.output.join('\n')) as {
+      scan: { rows: number; limit: number; truncated: boolean }
+      totals: { rowsInWindow: number }
+      truncated: { scan: boolean; candidates: boolean }
+    }
+    expect(payload.scan).toMatchObject({ rows: 2, limit: 2, truncated: true })
+    expect(payload.totals.rowsInWindow).toBe(2)
+    expect(payload.truncated.scan).toBe(true)
+
+    const text = context('incident mine', { 'max-scan-rows': '2' })
+    await INCIDENT_HANDLERS['incident mine'](text.ctx)
+    expect(text.output.join('\n')).toContain('SCAN TRUNCATED')
+  })
+
+  it('reports the same store numbers as `incident digest` (M6-3)', async () => {
+    seedMineCluster('fp-consistency', 4)
+    recordPtyExitIncidentTo(store(), facts(), { hostId: 'host-a', now: Date.now() })
+
+    const digestShown = context('incident digest', { since: '7d' }, true)
+    await INCIDENT_HANDLERS['incident digest'](digestShown.ctx)
+    const digest = JSON.parse(digestShown.output.join('\n')) as {
+      total: number
+      unseen: number
+      byClass: { class: string; count: number }[]
+      byStatus: { status: string; count: number }[]
+      topFingerprints: { fingerprint: string; count: number }[]
+      capacity: { rows: number }
+      shadowReplay: { incomplete: boolean }
+    }
+
+    const mineShown = context('incident mine', { since: '7d' }, true)
+    await INCIDENT_HANDLERS['incident mine'](mineShown.ctx)
+    const mined = JSON.parse(mineShown.output.join('\n')) as {
+      digest: typeof digest
+      totals: { rowsInWindow: number }
+    }
+
+    // Same window, same builder, same numbers.
+    expect(mined.digest.total).toBe(digest.total)
+    expect(mined.digest.unseen).toBe(digest.unseen)
+    expect(mined.digest.byClass).toEqual(digest.byClass)
+    expect(mined.digest.byStatus).toEqual(digest.byStatus)
+    expect(mined.digest.topFingerprints).toEqual(digest.topFingerprints)
+    expect(mined.digest.capacity.rows).toBe(digest.capacity.rows)
+    expect(mined.digest.shadowReplay).toEqual(digest.shadowReplay)
+    expect(mined.totals.rowsInWindow).toBe(digest.total)
+    expect(mined.digest.total).toBe(5)
+
+    const mineText = context('incident mine', { since: '7d' })
+    await INCIDENT_HANDLERS['incident mine'](mineText.ctx)
+    const digestText = context('incident digest', { since: '7d' })
+    await INCIDENT_HANDLERS['incident digest'](digestText.ctx)
+    for (const marker of ['Shadow replay:', 'Capacity: rows=', 'Tool-error windows:']) {
+      expect(mineText.output.join('\n')).toContain(marker)
+      expect(digestText.output.join('\n')).toContain(marker)
+    }
+    expect(mineText.output.join('\n')).toContain('identical to')
   })
 })
 
