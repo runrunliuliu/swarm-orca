@@ -253,6 +253,7 @@ def publish(args):
             raise Failure("artifact-exists: %s" % final)
         apply_modes(staging, entries)
         write_manifest(staging, entries)
+        os.chmod(staging / MANIFEST, PUBLIC_FILE_MODE)
         identity = {
             "schemaVersion": SCHEMA_VERSION,
             "artifact": ARTIFACT,

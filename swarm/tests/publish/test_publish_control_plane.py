@@ -162,6 +162,7 @@ class PublishTests(Fixture):
         self.assertEqual((artifact / "private").stat().st_mode & 0o777, 0o750)
         self.assertEqual((artifact / "code" / "coordinator_launch.py").stat().st_mode & 0o777,
                          0o644)
+        self.assertEqual((artifact / publisher.MANIFEST).stat().st_mode & 0o777, 0o644)
 
 
 class VerifyTests(Fixture):

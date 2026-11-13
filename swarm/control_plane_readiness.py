@@ -217,7 +217,7 @@ def expected_config_hashes(pairs):
     for pair in pairs or []:
         name, _, digest = pair.partition("=")
         if not name or len(digest) != 64:
-            raise SystemExit("expected name=<64 hex sha256>, got %r" % pair)
+            raise ValueError("expected NAME=<64 hex sha256>, got %r" % pair)
         expected[name] = digest
     return expected
 
@@ -262,6 +262,10 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
+    try:
+        expected_config_hashes(args.expect_config)
+    except ValueError as error:
+        parser.error(str(error))
     result = report(args)
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -229,7 +229,7 @@ class ReadinessTests(Fixture):
         with self.assertRaises(SystemExit) as caught:
             readiness.main(["--project", str(self.project()),
                             "--expect-config", "coordinator-model.json"])
-        self.assertNotEqual(caught.exception.code, 0)
+        self.assertEqual(caught.exception.code, 2)
 
     def test_main_exit_codes(self):
         artifact, skills = self.artifact(), self.skills(*readiness.REQUIRED_SKILLS)
