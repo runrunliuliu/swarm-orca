@@ -12,11 +12,10 @@ import type {
   IncidentStatus,
   IncidentView
 } from '../main/incidents/incident-types'
-import { formatStallSampleNote } from '../main/incidents/incident-stall-coverage'
+import { formatPaneClockNote } from '../main/incidents/incident-pane-clocks'
 import { formatBytes, isoTimestamp as iso, pad } from './incident-format-shared'
 
 // Re-exported so callers (and the CLI handler) keep one import site for incident formatting.
-export { formatIncidentStalls } from './incident-stall-format'
 import type {
   IncidentListResult,
   PruneResult
@@ -115,7 +114,7 @@ export function formatIncidentList(result: IncidentListResult): string {
   lines.push('')
   lines.push(formatIncidentCoverage(result.coverage))
   lines.push(formatShadowReplay(result.coverage))
-  lines.push(formatStallSampleNote(result.coverage.stallSample))
+  lines.push(formatPaneClockNote(result.coverage.paneClock))
   if (result.coverage.shadowReplay.incomplete) {
     // Why spelled out: an empty list plus an unfinished replay is the one combination an operator
     // must not read as "no incidents".

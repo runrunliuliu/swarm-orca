@@ -9,7 +9,7 @@ import type { IncidentCoverage } from './incident-types'
 import type { IncidentStoreLimits } from './incident-store-contract'
 import { readShadowReplayCoverage } from './incident-shadow-coverage'
 import { readMeta, writeMeta } from './incident-store-meta'
-import { readStallSampleCoverage } from './incident-stall-coverage'
+import { readPaneClockCoverage } from './incident-pane-clocks'
 
 const CAPACITY_LATCH_KEY = 'capacity_limited'
 
@@ -66,7 +66,7 @@ export function createCapacityGate(options: {
         maxBytes: limits.maxBytes
       },
       shadowReplay: readShadowReplayCoverage(db),
-      stallSample: readStallSampleCoverage(db)
+      paneClock: readPaneClockCoverage(db)
     }
   }
 

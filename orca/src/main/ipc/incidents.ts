@@ -34,7 +34,7 @@ import type {
 } from '../../shared/incident-api-types'
 import { readIncidentCounts as readIncidentCountsFrom } from '../incidents/incident-counts'
 import { startIncidentCountsPush } from './incident-counts-push'
-import { readIncidentStallsView, readIncidentToolErrorsView } from './incident-gray-views'
+import { readIncidentPaneClocksView, readIncidentToolErrorsView } from './incident-gray-views'
 import {
   attachIncidentRemoteMirror,
   attachIncidentRemoteMirrorToCounts
@@ -264,7 +264,7 @@ export function registerIncidentHandlers(): void {
   )
   // Why read-only handlers here: the grayscale tables are diagnostics the panel may only look at
   // (§7.2/§7.3). Nothing on this path can write, so offering it over IPC cannot turn a write switch on.
-  ipcMain.handle('incidents:stalls', () => readIncidentStallsView())
+  ipcMain.handle('incidents:paneClocks', () => readIncidentPaneClocksView())
   ipcMain.handle('incidents:toolErrors', () => readIncidentToolErrorsView())
   // Why here: this is the one place the incident surface is attached to the window, so it is the one
   // place the store's change signal has somewhere to go. Idempotent, so a re-registration replaces

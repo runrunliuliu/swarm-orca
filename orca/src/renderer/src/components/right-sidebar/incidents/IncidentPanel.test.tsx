@@ -16,7 +16,7 @@ import {
   coverageFixture,
   detailFixture,
   listItemFixture,
-  stallsViewFixture,
+  paneClocksViewFixture,
   toolErrorsViewFixture
 } from './incident-panel-fixtures'
 
@@ -46,7 +46,7 @@ const api = {
   decide: vi.fn(),
   counts: vi.fn(),
   onCountsChanged: vi.fn((_callback: () => void) => () => {}),
-  stalls: vi.fn(),
+  paneClocks: vi.fn(),
   toolErrors: vi.fn()
 }
 
@@ -82,7 +82,7 @@ beforeEach(() => {
   )
   api.counts.mockReset().mockResolvedValue(ok(null))
   api.onCountsChanged.mockReset().mockReturnValue(() => {})
-  api.stalls.mockReset().mockResolvedValue(ok(stallsViewFixture()))
+  api.paneClocks.mockReset().mockResolvedValue(ok(paneClocksViewFixture()))
   api.toolErrors.mockReset().mockResolvedValue(ok(toolErrorsViewFixture()))
   ;(window as unknown as { api: unknown }).api = {
     incidents: api,
@@ -245,20 +245,20 @@ describe('IncidentPanel', () => {
 
   it('switches to the grayscale views and reads them only when selected', async () => {
     const container = await renderPanel()
-    expect(api.stalls).not.toHaveBeenCalled()
+    expect(api.paneClocks).not.toHaveBeenCalled()
     expect(api.toolErrors).not.toHaveBeenCalled()
 
-    const stallsTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === 'Stalls'
+    const paneClocksTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Pane clocks'
     )
     await act(async () => {
-      stallsTab?.click()
+      paneClocksTab?.click()
     })
     await act(async () => {
       await Promise.resolve()
     })
-    expect(api.stalls).toHaveBeenCalledTimes(1)
-    expect(container.textContent).toContain('These rows are observations only')
+    expect(api.paneClocks).toHaveBeenCalledTimes(1)
+    expect(container.textContent).toContain('These rows are facts stored by the host process')
     expect(container.querySelector('[data-incident-gray-row="observed"]')).not.toBeNull()
 
     const toolErrorsTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(

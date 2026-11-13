@@ -1,12 +1,12 @@
-// `orca incident wait` and `orca incident stalls` (issue-sedimentation.md v2.4 §7.2, M3-1/M3-3).
+// `orca incident wait` and `orca incident pane-clocks` (issue-sedimentation m8-subtraction.md §4).
 //
-// Both read the sampler's last sample from the incidents database, because the CLI is a different
-// process from the runtime that holds the hook server's rows. `stalls` prints that sample as-is and
-// never writes; `wait` needs the sample only to find the pane's epoch, which is what makes the
-// declaration survive a respawn incorrectly — it cannot, by construction.
+// Both read the pane-clock facts from the incidents database, because the CLI is a different process
+// from the runtime that holds the hook server's rows. `pane-clocks` prints those facts as-is and
+// never writes; `wait` needs a row only to find the pane's epoch, which is what makes a declaration
+// survive a respawn incorrectly — it cannot, by construction.
 //
-// Neither command writes an incident. The grayscale switch (`INCIDENT_STALL_WRITE`) lives in the
-// runtime's sampler, so a CLI invocation can never turn the writer on.
+// Neither command writes an incident, and neither applies a threshold: a declared wait is context a
+// triage reads, not a suppressor of an in-process judgement (M8-2 removed that judgement).
 
 import type { CommandHandler, HandlerContext } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
@@ -17,8 +17,8 @@ import {
   declareWait,
   listActiveWaits
 } from '../../main/incidents/incident-wait'
-import { readStallSamples } from '../../main/incidents/incident-stall-samples'
-import { formatIncidentStalls } from '../incident-format'
+import { readPaneClocks, type PaneClockRow } from '../../main/incidents/incident-pane-clocks'
+import { formatIncidentPaneClocks } from '../incident-stall-format'
 import {
   printIncidentJson,
   refuseNonLocalIncidentSelector,
@@ -48,7 +48,7 @@ function requireTerminal(ctx: HandlerContext): string {
   if (terminal === null) {
     throw new RuntimeClientError(
       'invalid_argument',
-      'Missing --terminal <handle>. Use the terminal handle or the pane key from `orca incident stalls`.'
+      'Missing --terminal <handle>. Use the terminal handle or the pane key from `orca incident pane-clocks`.'
     )
   }
   return terminal
@@ -59,9 +59,9 @@ function requireTerminal(ctx: HandlerContext): string {
  * declaration must bind to an observed epoch, and guessing one is exactly what M3-1 forbids.
  */
 function resolveSampledPane(
-  samples: ReturnType<typeof readStallSamples>,
+  samples: readonly PaneClockRow[],
   terminal: string
-): ReturnType<typeof readStallSamples>[number] {
+): PaneClockRow {
   const match =
     samples.find((sample) => sample.terminalHandle === terminal) ??
     samples.find((sample) => sample.paneKey === terminal)
@@ -69,7 +69,7 @@ function resolveSampledPane(
     throw new RuntimeClientError(
       'invalid_argument',
       `No observed state for "${terminal}". The stall sampler records one sample per minute; run ` +
-        '`orca incident stalls` to see which panes it has seen.'
+        '`orca incident pane-clocks` to see which panes it has seen.'
     )
   }
   return match
@@ -97,7 +97,7 @@ export const waitIncident: CommandHandler = async (ctx) => {
     if (db === null) {
       throw new RuntimeClientError('invalid_argument', 'No incident store on this host yet.')
     }
-    const samples = readStallSamples(db)
+    const samples = readPaneClocks(db, Date.now())
     const pane = resolveSampledPane(samples, terminal)
     if (clear) {
       const removed = clearWait(db, { paneKey: pane.paneKey })
@@ -155,19 +155,19 @@ export const waitIncident: CommandHandler = async (ctx) => {
     console.log(
       `Declared wait for ${declaration.paneKey} (epoch ${declaration.epoch}): "${declaration.reason}"` +
         `${declaration.expiresAt === null ? ' (no deadline)' : ` until ${new Date(declaration.expiresAt).toISOString()}`}` +
-        ` — actor=${declaration.actor} (self-reported). Stalls are suppressed while it applies.`
+        ` — actor=${declaration.actor} (self-reported). Triage sees this declaration as context.`
     )
   } finally {
     opened.close()
   }
 }
 
-export const stallsIncident: CommandHandler = async (ctx) => {
-  refuseNonLocalIncidentSelector(ctx, 'orca incident stalls')
+export const paneClocksIncident: CommandHandler = async (ctx) => {
+  refuseNonLocalIncidentSelector(ctx, 'orca incident pane-clocks')
   const opened = openIncidentStore({ requireExisting: false, readOnly: true })
   try {
     const db = opened.db
-    const rows = db === null ? [] : readStallSamples(db)
+    const rows = db === null ? [] : readPaneClocks(db, Date.now())
     const declarations = db === null ? [] : listActiveWaits(db, { now: Date.now() })
     if (ctx.json) {
       printIncidentJson({
@@ -177,7 +177,7 @@ export const stallsIncident: CommandHandler = async (ctx) => {
       })
       return
     }
-    console.log(formatIncidentStalls(rows, opened.store.coverage()))
+    console.log(formatIncidentPaneClocks(rows, opened.store.coverage()))
   } finally {
     opened.close()
   }

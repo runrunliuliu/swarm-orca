@@ -276,7 +276,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'incident decide',
       'incident report',
       'incident wait',
-      'incident stalls',
+      'incident pane-clocks',
       'incident tool-errors',
       'incident export',
       // M7 merge seam: C exported `mirrorIncident` in INCIDENT_HANDLERS but the eager routing table

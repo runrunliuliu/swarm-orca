@@ -15,7 +15,7 @@ import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../../main/in
 import { createIncidentStore, type IncidentStore } from '../../main/incidents/incident-store'
 import { incidentsDatabaseFileFor } from '../../main/incidents/incidents-paths'
 import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
-import { sampleStallState } from '../../main/incidents/incidents-stall-sampler'
+import { samplePaneClocks } from '../../main/incidents/incidents-stall-sampler'
 import { writeMeta } from '../../main/incidents/incident-store-meta'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
 import {
@@ -320,14 +320,12 @@ describe('incident export (M8-1)', () => {
   })
 })
 
-describe('incident stalls (M3-3)', () => {
-  it('shows the last sample without writing anything', async () => {
-    const writable = store()
+describe('incident pane-clocks (M8-2)', () => {
+  it('shows the stored fact row without a verdict and without writing an incident', async () => {
     const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
     try {
-      sampleStallState({
+      samplePaneClocks({
         db: opened.db,
-        store: writable,
         now: 1_700_000_000_000,
         rows: [
           {
@@ -338,29 +336,27 @@ describe('incident stalls (M3-3)', () => {
             turnStartedAt: null,
             lastSemanticEventAt: 1_700_000_000_000 - 46 * 60_000
           }
-        ],
-        writeEnabled: false,
-        userDataPath: userData
+        ]
       })
     } finally {
       opened.db.close()
     }
 
-    const shown = context('incident stalls')
-    await INCIDENT_HANDLERS['incident stalls'](shown.ctx)
+    const shown = context('incident pane-clocks')
+    await INCIDENT_HANDLERS['incident pane-clocks'](shown.ctx)
     const text = shown.output.join('\n')
     expect(text).toContain('tab-1:leaf-1')
     expect(text).toContain('working')
-    expect(text).toContain('insufficient_cycles')
     expect(text).toContain('event')
-    expect(text).toContain('wouldWriteIfEnabled=yes means')
-    expect(text).toContain('Writing incidents: off')
+    expect(text).toContain('These are facts, not a verdict')
+    expect(text).not.toContain('would write')
+    expect(text).not.toContain('wouldWriteIfEnabled')
     expect(store().countIncidents()).toBe(0)
   })
 
   it('reports an empty sample instead of failing when the store has none yet', async () => {
-    const shown = context('incident stalls')
-    await INCIDENT_HANDLERS['incident stalls'](shown.ctx)
+    const shown = context('incident pane-clocks')
+    await INCIDENT_HANDLERS['incident pane-clocks'](shown.ctx)
     expect(shown.output.join('\n')).toContain('No panes sampled')
   })
 })
@@ -537,9 +533,8 @@ describe('incident wait (M3-1)', () => {
   function seedSample(): void {
     const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
     try {
-      sampleStallState({
+      samplePaneClocks({
         db: opened.db,
-        store: store(),
         now: 1_700_000_000_000,
         rows: [
           {
@@ -550,9 +545,7 @@ describe('incident wait (M3-1)', () => {
             turnStartedAt: null,
             lastSemanticEventAt: 1_699_999_999_000
           }
-        ],
-        writeEnabled: false,
-        userDataPath: userData
+        ]
       })
     } finally {
       opened.db.close()

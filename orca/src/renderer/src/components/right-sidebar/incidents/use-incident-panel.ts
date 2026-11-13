@@ -21,7 +21,7 @@ import type {
   IncidentSnapshotDto
 } from '../../../../../shared/incident-api-types'
 import type {
-  IncidentStallsViewDto,
+  IncidentPaneClocksViewDto,
   IncidentToolErrorsViewDto
 } from '../../../../../shared/incident-gray-types'
 import type { IncidentDecideReply } from './IncidentTriageActions'
@@ -257,10 +257,10 @@ export function useIncidentGrayView<T>(
   return { ...state, reload: load }
 }
 
-export function useIncidentStalls(
+export function useIncidentPaneClocks(
   active: boolean
-): GrayState<IncidentStallsViewDto> & { reload: () => void } {
-  return useIncidentGrayView<IncidentStallsViewDto>(active, (bridge) => bridge.stalls())
+): GrayState<IncidentPaneClocksViewDto> & { reload: () => void } {
+  return useIncidentGrayView<IncidentPaneClocksViewDto>(active, (bridge) => bridge.paneClocks())
 }
 
 export function useIncidentToolErrors(

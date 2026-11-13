@@ -197,28 +197,22 @@ export type IncidentCoverage = {
    */
   shadowReplay: IncidentShadowReplayCoverage
   /**
-   * The stall sampler's last pass (M3-3). This is the grayscale surface: how many panes exist, how
-   * many *would* stall, how many are declared quiet, and whether the writer is even enabled.
+   * The pane-clock sampler's last pass (M8-2): how many panes were observed, how many carry an
+   * operator declaration, and whether the sampler itself failed. It says nothing about whether a pane
+   * is stuck — that judgement lives in the triage skill, not in this process.
    */
-  stallSample: IncidentStallSampleCoverage
+  paneClock: IncidentPaneClockCoverage
 }
 
-export type IncidentStallSampleCoverage = {
+export type IncidentPaneClockCoverage = {
   sampledAt: number | null
   panes: number
-  /** Panes the predicate would write for if the switch were on. Never "confirmed stuck". */
-  wouldWrite: number
-  /** Panes whose age crossed the threshold with no semantic event. */
-  noEvent: number
   declaredWaits: number
-  writeEnabled: boolean
-  writes: number
-  lastWriteAt: number | null
+  /** Observations skipped because the epoch was not a finite number. Counted, never written as 0. */
+  skipped: number
   /** Sampler passes that threw; `lastError` is the most recent one (M3-C3). */
   errors: number
   lastError: string | null
-  /** Stall writes refused because the idempotency key could not be built (M3-C2). */
-  keyRejected: number
 }
 
 export function isIncidentClass(value: unknown): value is IncidentClass {

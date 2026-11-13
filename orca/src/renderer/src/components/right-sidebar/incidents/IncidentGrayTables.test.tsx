@@ -10,8 +10,8 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { IncidentStallsTable, IncidentToolErrorsTable } from './IncidentGrayTables'
-import { stallsViewFixture, toolErrorsViewFixture } from './incident-panel-fixtures'
+import { IncidentPaneClocksTable, IncidentToolErrorsTable } from './IncidentGrayTables'
+import { paneClocksViewFixture, toolErrorsViewFixture } from './incident-panel-fixtures'
 
 vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string, options?: Record<string, unknown>) =>
@@ -44,24 +44,22 @@ async function render(node: React.ReactElement): Promise<HTMLElement> {
   return container
 }
 
-describe('IncidentStallsTable', () => {
-  it('marks every sample as observed and says the write switch is off', async () => {
-    const container = await render(<IncidentStallsTable view={stallsViewFixture()} />)
+describe('IncidentPaneClocksTable', () => {
+  it('marks every row as an observed fact and claims no verdict', async () => {
+    const container = await render(<IncidentPaneClocksTable view={paneClocksViewFixture()} />)
     const section = container.querySelector('section')
     expect(section?.className).toContain('border-dashed')
-    expect(container.textContent).toContain('These rows are observations only')
-    expect(container.textContent).toContain('Nothing below has produced an incident row')
-    // A would-write row is still an observation.
+    expect(container.textContent).toContain('These rows are facts stored by the host process')
     const row = container.querySelector('[data-incident-gray-row]')
     expect(row?.getAttribute('data-incident-gray-row')).toBe('observed')
     expect(row?.className).toContain('border-dashed')
-    expect(container.textContent).toContain('would write (not recorded)')
+    expect(container.textContent).toContain('There is no threshold and no verdict here')
   })
 
   it('shows the age basis warning for a state_fallback row', async () => {
-    const view = stallsViewFixture()
+    const view = paneClocksViewFixture()
     view.rows[0].ageBasis = 'state_fallback'
-    const container = await render(<IncidentStallsTable view={view} />)
+    const container = await render(<IncidentPaneClocksTable view={view} />)
     expect(container.textContent).toContain('state_fallback')
     const hinted = [...container.querySelectorAll('[title]')].map((node) =>
       node.getAttribute('title')
@@ -70,7 +68,7 @@ describe('IncidentStallsTable', () => {
   })
 
   it('says when no pane has been sampled yet', async () => {
-    const container = await render(<IncidentStallsTable view={stallsViewFixture({ rows: [] })} />)
+    const container = await render(<IncidentPaneClocksTable view={paneClocksViewFixture({ rows: [] })} />)
     expect(container.textContent).toContain('No pane has been sampled yet')
   })
 })

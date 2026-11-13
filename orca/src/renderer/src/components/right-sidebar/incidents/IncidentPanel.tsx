@@ -24,7 +24,7 @@ import {
 } from './incident-coverage-banner'
 import { IncidentDetailDrawer } from './IncidentDetailDrawer'
 import { IncidentFilterBar } from './IncidentFilterBar'
-import { IncidentStallsTable, IncidentToolErrorsTable } from './IncidentGrayTables'
+import { IncidentPaneClocksTable, IncidentToolErrorsTable } from './IncidentGrayTables'
 import { IncidentList } from './IncidentList'
 import {
   DEFAULT_INCIDENT_FILTERS,
@@ -38,20 +38,20 @@ import {
   useIncidentDecide,
   useIncidentDetail,
   useIncidentSnapshot,
-  useIncidentStalls,
+  useIncidentPaneClocks,
   useIncidentToolErrors
 } from './use-incident-panel'
 
-type IncidentPanelView = 'list' | 'stalls' | 'toolErrors'
+type IncidentPanelView = 'list' | 'paneClocks' | 'toolErrors'
 
 const VIEW_LABEL: Record<IncidentPanelView, { key: string; fallback: string }> = {
   list: {
     key: 'auto.components.right.sidebar.incidents.IncidentPanel.viewList',
     fallback: 'List'
   },
-  stalls: {
+  paneClocks: {
     key: 'auto.components.right.sidebar.incidents.IncidentPanel.viewStalls',
-    fallback: 'Stalls'
+    fallback: 'Pane clocks'
   },
   toolErrors: {
     key: 'auto.components.right.sidebar.incidents.IncidentPanel.viewToolErrors',
@@ -96,7 +96,7 @@ export default function IncidentPanel(): React.JSX.Element {
   const request = useMemo(() => incidentListRequest(filters), [filters])
   const { snapshot, loading, error, reload } = useIncidentSnapshot(request)
   const detail = useIncidentDetail(selectedId)
-  const stalls = useIncidentStalls(view === 'stalls')
+  const paneClocks = useIncidentPaneClocks(view === 'paneClocks')
   const toolErrors = useIncidentToolErrors(view === 'toolErrors')
 
   const onAppended = useCallback(() => {
@@ -144,16 +144,16 @@ export default function IncidentPanel(): React.JSX.Element {
   }, [])
 
   function renderBody(): React.JSX.Element {
-    if (view === 'stalls') {
+    if (view === 'paneClocks') {
       return (
         <div className="min-h-0 flex-1 overflow-y-auto scrollbar-sleek px-2 py-2">
-          {stalls.error !== null ? (
+          {paneClocks.error !== null ? (
             <p className="rounded border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px]">
-              {stalls.error}
+              {paneClocks.error}
             </p>
-          ) : stalls.view === null ? (
+          ) : paneClocks.view === null ? (
             <p className="text-[11px] text-muted-foreground">
-              {stalls.loading
+              {paneClocks.loading
                 ? translate('auto.components.right.sidebar.incidents.IncidentPanel.da40792d38',
                     'Reading the stall sampler\'s last pass…'
                   )
@@ -162,7 +162,7 @@ export default function IncidentPanel(): React.JSX.Element {
                   )}
             </p>
           ) : (
-            <IncidentStallsTable view={stalls.view} />
+            <IncidentPaneClocksTable view={paneClocks.view} />
           )}
         </div>
       )
@@ -256,8 +256,8 @@ export default function IncidentPanel(): React.JSX.Element {
           )}
           onClick={() => {
             reload()
-            if (view === 'stalls') {
-              stalls.reload()
+            if (view === 'paneClocks') {
+              paneClocks.reload()
             }
             if (view === 'toolErrors') {
               toolErrors.reload()

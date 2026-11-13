@@ -11,7 +11,7 @@ import type {
   IncidentListItemDto
 } from '../../../../../shared/incident-api-types'
 import type {
-  IncidentStallsViewDto,
+  IncidentPaneClocksViewDto,
   IncidentToolErrorsViewDto
 } from '../../../../../shared/incident-gray-types'
 
@@ -33,18 +33,13 @@ export function coverageFixture(overrides: Partial<IncidentCoverageDto> = {}): I
       lastDroppedReason: null,
       lastRun: null
     },
-    stallSample: {
+    paneClock: {
       sampledAt: FIXTURE_NOW,
       panes: 1,
-      wouldWrite: 0,
-      noEvent: 0,
       declaredWaits: 0,
-      writeEnabled: false,
-      writes: 0,
-      lastWriteAt: null,
+      skipped: 0,
       errors: 0,
-      lastError: null,
-      keyRejected: 0
+      lastError: null
     },
     ...overrides
   }
@@ -122,20 +117,21 @@ export function detailFixture(overrides: Partial<IncidentDetailDto> = {}): Incid
   }
 }
 
-export function stallsViewFixture(
-  overrides: Partial<IncidentStallsViewDto> = {}
-): IncidentStallsViewDto {
+export function paneClocksViewFixture(
+  overrides: Partial<IncidentPaneClocksViewDto> = {}
+): IncidentPaneClocksViewDto {
   return {
     rows: [
       {
         paneKey: 'pane-1',
         terminalHandle: 'term-1',
         state: 'working',
+        stateStartedAt: FIXTURE_NOW - 2 * 60 * 60_000,
+        turnStartedAt: FIXTURE_NOW - 2 * 60 * 60_000,
+        lastSemanticEventAt: FIXTURE_NOW - 50 * 60_000,
         ageMs: 50 * 60_000,
         ageBasis: 'event',
-        thresholdMs: 45 * 60_000,
-        wouldWriteIfEnabled: true,
-        reason: 'no_event_for_threshold',
+        observedAt: FIXTURE_NOW,
         declaredWait: null
       }
     ],

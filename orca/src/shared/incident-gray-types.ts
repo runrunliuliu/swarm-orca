@@ -15,22 +15,24 @@
 
 import type { IncidentCoverageDto } from './incident-api-types'
 
-/** One row of the stall sampler's last pass. Never "confirmed stuck". */
-export type IncidentStallRowDto = {
+/** One pane-clock fact. There is deliberately no verdict, threshold or "would write" field. */
+export type IncidentPaneClockRowDto = {
   paneKey: string
   terminalHandle: string | null
   state: string
+  stateStartedAt: number
+  turnStartedAt: number | null
+  lastSemanticEventAt: number | null
   /** Age of the last semantic event (or `stateStartedAt` when `ageBasis` says so). */
   ageMs: number
   ageBasis: 'event' | 'state_fallback'
-  thresholdMs: number
-  wouldWriteIfEnabled: boolean
-  reason: string
+  observedAt: number
+  /** An operator's "expected to be quiet" declaration, shown as context, never as a suppressor. */
   declaredWait: string | null
 }
 
-export type IncidentStallsViewDto = {
-  rows: IncidentStallRowDto[]
+export type IncidentPaneClocksViewDto = {
+  rows: IncidentPaneClockRowDto[]
   coverage: IncidentCoverageDto
 }
 

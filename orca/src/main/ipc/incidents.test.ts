@@ -279,10 +279,10 @@ describe('registerIncidentHandlers', () => {
       'incidents:counts',
       'incidents:decide',
       'incidents:detail',
+      // Read-only diagnostics. They are registered here so the panel has one surface, and they expose
+      // no write path (see incident-gray-views.test.ts).
+      'incidents:paneClocks',
       'incidents:snapshot',
-      // M7-B: read-only diagnostics. They are registered here so the panel has one surface, and they
-      // expose no write path (see incident-gray-views.test.ts).
-      'incidents:stalls',
       'incidents:toolErrors'
     ])
     const store = realStore()

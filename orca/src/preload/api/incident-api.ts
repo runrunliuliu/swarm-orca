@@ -17,7 +17,7 @@ import type {
   IncidentSnapshotDto
 } from '../../shared/incident-api-types'
 import type {
-  IncidentStallsViewDto,
+  IncidentPaneClocksViewDto,
   IncidentToolErrorsViewDto
 } from '../../shared/incident-gray-types'
 
@@ -39,10 +39,10 @@ export type IncidentApi = {
    */
   onCountsChanged: (callback: (counts: IncidentCountsDto) => void) => () => void
   /**
-   * The stall sampler's last pass (§7.2): read-only, and a row marked `wouldWriteIfEnabled` is an
-   * observation the host did *not* record. The renderer only formats it.
+   * Pane event clocks (M8-2): read-only facts the host recorded. There is no verdict and no write
+   * switch on this surface; whether a pane is stuck is a triage question outside Orca.
    */
-  stalls: () => Promise<IncidentIpcResult<IncidentStallsViewDto>>
+  paneClocks: () => Promise<IncidentIpcResult<IncidentPaneClocksViewDto>>
   /**
    * The tool-error windows (§7.3): read-only, with the provider coverage that bounds what silence
    * means, and `written` to tell a recorded incident from an observation.

@@ -47,7 +47,10 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
  *     `UNIQUE(source_kind, source_id, facet)` remains the only thing that decides whether a fact is
  *     already here. Provenance only answers "was this row mirrored, and from where".
  *
- * v7 (M8) adds the read-only triage seam and no column on `incidents`:
+ * v7 (M8) removes the stall judgement cache and adds the read-only triage seam:
+ *   * `incident_pane_clocks` replaces `incident_stall_samples`: the same per-pane observation without
+ *     the threshold, verdict and reason columns. The old table was a derived per-tick cache, so the
+ *     migration drops it rather than rewriting it;
  *   * `incident_triage_rows` — the stable projection `orca incident export` serializes. Judgement
  *     (clustering, thresholds, candidate rules) left the main process; this view is the contract a
  *     triage skill reads, so it carries ids, entity columns, evidence pointers and the effective
@@ -241,24 +244,18 @@ CREATE TABLE IF NOT EXISTS incident_wait_declarations (
 );
 CREATE INDEX IF NOT EXISTS idx_incident_wait_expiry ON incident_wait_declarations(expires_at);
 
--- The last stall sample (M3-3). One row per pane, replaced wholesale on each tick: this is the
--- read model behind the stalls command, and the epoch source a wait declaration binds to.
-CREATE TABLE IF NOT EXISTS incident_stall_samples (
-  pane_key             TEXT PRIMARY KEY,
-  terminal_handle      TEXT,
-  state                TEXT NOT NULL,
-  state_started_at     INTEGER NOT NULL,
-  turn_started_at      INTEGER,
+-- Pane event clocks (M8-2). One row per pane, replaced wholesale on each tick: the facts the main
+-- process can see, with no threshold, verdict or reason column. Age is computed at read time.
+CREATE TABLE IF NOT EXISTS incident_pane_clocks (
+  pane_key               TEXT PRIMARY KEY,
+  terminal_handle        TEXT,
+  state                  TEXT NOT NULL,
+  state_started_at       INTEGER NOT NULL,
+  turn_started_at        INTEGER,
   last_semantic_event_at INTEGER,
-  age_ms               INTEGER NOT NULL,
-  age_basis            TEXT NOT NULL,
-  threshold_ms         INTEGER NOT NULL,
-  would_write_if_enabled INTEGER NOT NULL,
-  reason               TEXT NOT NULL,
-  declared_wait        TEXT
+  age_basis              TEXT NOT NULL,
+  observed_at            INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_incident_stall_would
-  ON incident_stall_samples(would_write_if_enabled);
 
 -- Dispatch acceptance (M5). Declarations live here, not in the orchestration database: they are
 -- business expectations about a dispatch, the orchestration schema is frozen at v44, and an incident is

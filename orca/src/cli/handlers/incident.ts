@@ -7,7 +7,7 @@
 
 import type { CommandHandler } from '../dispatch'
 import { reportIncident } from './incident-report'
-import { stallsIncident, waitIncident } from './incident-stall'
+import { paneClocksIncident, waitIncident } from './incident-stall'
 import { toolErrorsIncident } from './incident-tool-errors'
 import { exportIncident } from './incident-export'
 import {
@@ -24,7 +24,7 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
 
   'incident report': reportIncident,
   'incident wait': waitIncident,
-  'incident stalls': stallsIncident,
+  'incident pane-clocks': paneClocksIncident,
   'incident tool-errors': toolErrorsIncident,
   'incident mirror': mirrorIncident,
   'incident export': exportIncident,

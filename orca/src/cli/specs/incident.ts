@@ -96,16 +96,17 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
-    path: ['incident', 'stalls'],
+    path: ['incident', 'pane-clocks'],
     group: 'diagnostic',
-    summary: 'Show the last stall sample per pane (read-only; never writes an incident)',
-    usage: 'orca incident stalls [--json]',
+    summary: 'Show the stored pane event clocks (facts only; no threshold, no verdict)',
+    usage: 'orca incident pane-clocks [--json]',
     allowedFlags: [...GLOBAL_FLAGS],
-    examples: ['orca incident stalls', 'orca incident stalls --json'],
+    examples: ['orca incident pane-clocks', 'orca incident pane-clocks --json'],
     notes: [
-      'A pane is listed with its state, age, age basis (event or state_fallback), threshold, wait declaration and wouldWriteIfEnabled verdict.',
-      'This is a grayscale judgement, not a recorded accident: the default mode writes no incident, and wouldWriteIfEnabled=yes does not mean one exists.',
-      'Writing no_progress incidents is off by default and controlled by INCIDENT_STALL_WRITE=on in the host process; this command never writes.'
+      'One fact row per pane: state, the age of its last semantic event, which clock the age came from (event or state_fallback), when it was observed, and any operator wait declaration.',
+      'There is no threshold and no would-write verdict: M8 removed the in-process stall judgement. A quiet pane is not an incident until triage says it is; report one with `orca incident report`.',
+      'ageBasis=state_fallback is a weaker signal: the host never reported a semantic event clock, so the age falls back to stateStartedAt.',
+      'This command never writes. A wait declaration is shown as context, not as a suppressor.'
     ]
   },
   {

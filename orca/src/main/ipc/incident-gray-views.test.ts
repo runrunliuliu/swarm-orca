@@ -14,10 +14,11 @@ import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests
 } from '../incidents/incident-writer'
-import { writeStallSamples } from '../incidents/incident-stall-samples'
+import { replacePaneClocks } from '../incidents/incident-pane-clocks'
+import { samplePaneClocks } from '../incidents/incidents-stall-sampler'
 import { writeMeta } from '../incidents/incident-store-meta'
 import { TOOL_ERROR_WINDOWS_META } from '../incidents/incident-tool-error-report'
-import { readIncidentStallsView, readIncidentToolErrorsView } from './incident-gray-views'
+import { readIncidentPaneClocksView, readIncidentToolErrorsView } from './incident-gray-views'
 
 const directories: string[] = []
 const databases: OpenIncidentsDatabase[] = []
@@ -43,27 +44,25 @@ function configuredStore(): { store: IncidentStore; opened: OpenIncidentsDatabas
   return { store, opened }
 }
 
-describe('readIncidentStallsView', () => {
-  it('returns the last sample with the age basis and the write switch', () => {
+describe('readIncidentPaneClocksView', () => {
+  it('returns the stored facts and the coverage, with no verdict field', () => {
     const { opened } = configuredStore()
-    writeStallSamples(opened.db, [
-      {
-        paneKey: 'pane-1',
-        terminalHandle: 'term-1',
-        state: 'working',
-        stateStartedAt: 1_700_000_000_000,
-        turnStartedAt: null,
-        lastSemanticEventAt: null,
-        ageMs: 50 * 60_000,
-        ageBasis: 'state_fallback',
-        thresholdMs: 45 * 60_000,
-        wouldWriteIfEnabled: true,
-        reason: 'no_event_for_threshold',
-        declaredWait: null
-      }
-    ])
+    samplePaneClocks({
+      db: opened.db,
+      now: 1_700_000_000_000,
+      rows: [
+        {
+          paneKey: 'pane-1',
+          terminalHandle: 'term-1',
+          state: 'working',
+          stateStartedAt: 1_700_000_000_000,
+          turnStartedAt: null,
+          lastSemanticEventAt: null
+        }
+      ]
+    })
 
-    const result = readIncidentStallsView()
+    const result = readIncidentPaneClocksView()
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
@@ -71,21 +70,22 @@ describe('readIncidentStallsView', () => {
     expect(result.value.rows).toHaveLength(1)
     expect(result.value.rows[0]).toMatchObject({
       paneKey: 'pane-1',
-      ageMs: 50 * 60_000,
+      state: 'working',
       ageBasis: 'state_fallback',
-      wouldWriteIfEnabled: true
+      observedAt: 1_700_000_000_000
     })
-    // The view carries coverage so the panel can state "grayscale, not recorded" without a second call.
-    expect(result.value.coverage.stallSample.writeEnabled).toBe(false)
+    expect(result.value.rows[0]).not.toHaveProperty('wouldWriteIfEnabled')
+    expect(result.value.coverage.paneClock).toMatchObject({ panes: 1, errors: 0 })
     expect(result.value.coverage.remoteIncidentCapture).toBe('unsupported')
   })
 
-  it('does not write: two reads leave the sample table untouched', () => {
+  it('does not write: two reads leave the fact table untouched', () => {
     const { opened } = configuredStore()
-    const before = opened.db.prepare('SELECT COUNT(*) AS n FROM incident_stall_samples').get()
-    readIncidentStallsView()
-    readIncidentStallsView()
-    const after = opened.db.prepare('SELECT COUNT(*) AS n FROM incident_stall_samples').get()
+    replacePaneClocks(opened.db, [], 1_700_000_000_000)
+    const before = opened.db.prepare('SELECT COUNT(*) AS n FROM incident_pane_clocks').get()
+    readIncidentPaneClocksView()
+    readIncidentPaneClocksView()
+    const after = opened.db.prepare('SELECT COUNT(*) AS n FROM incident_pane_clocks').get()
     expect(after).toEqual(before)
   })
 })
@@ -162,7 +162,7 @@ describe('readIncidentToolErrorsView', () => {
 describe('unavailable store', () => {
   it('returns a closed failure from both views, not a thrown bridge', () => {
     __configureIncidentStoreForTests(null)
-    expect(readIncidentStallsView()).toMatchObject({
+    expect(readIncidentPaneClocksView()).toMatchObject({
       ok: false,
       code: 'incident_store_unavailable'
     })

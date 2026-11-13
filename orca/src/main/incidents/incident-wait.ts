@@ -16,7 +16,7 @@ import { readMeta } from './incident-store-meta'
 import { writeMeta } from './incident-store-meta'
 
 /** Active declarations seen by the last sample, so coverage can say "N panes declared quiet". */
-export const STALL_DECLARED_COUNT_META = 'stall_declared_waits'
+export const PANE_CLOCK_DECLARED_WAITS_META = 'pane_clock_declared_waits'
 
 export type WaitDeclaration = {
   paneKey: string
@@ -161,10 +161,10 @@ export function listActiveWaits(
 
 /** Publish the active-declaration count for coverage (§12's "注记"). */
 export function publishDeclaredWaitCount(db: Database.Database, count: number): void {
-  writeMeta(db, STALL_DECLARED_COUNT_META, String(count))
+  writeMeta(db, PANE_CLOCK_DECLARED_WAITS_META, String(count))
 }
 
 export function readDeclaredWaitCount(db: Database.Database): number {
-  const value = Number(readMeta(db, STALL_DECLARED_COUNT_META) ?? 0)
+  const value = Number(readMeta(db, PANE_CLOCK_DECLARED_WAITS_META) ?? 0)
   return Number.isFinite(value) && value >= 0 ? value : 0
 }

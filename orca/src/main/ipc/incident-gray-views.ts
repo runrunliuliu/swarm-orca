@@ -1,9 +1,9 @@
 // The two grayscale read-only views over IPC (§7.2, §7.3; M7-B).
 //
-// These are projections, not new judgement: `readStallSamples` / `readToolErrorWindows` are the exact
-// functions `orca incident stalls` and `orca incident tool-errors` already call, and the sampling
-// policy, thresholds and the write switch stay where they are (the host process). The panel must be
-// able to say "observed, not recorded" without being able to make anything recorded.
+// These are projections, not new judgement: `readPaneClocks` / `readToolErrorWindows` are the exact
+// functions `orca incident pane-clocks` and `orca incident tool-errors` already call. The pane-clock
+// view carries facts only (M8-2 removed the threshold and the verdict); the tool-error view still
+// reports its collector switch until M8-3. Neither view can make anything recorded.
 //
 // Why a separate module instead of growing `incidents.ts`: the list/detail/counts surface is the
 // triage read model, and these two are diagnostics with their own vocabulary (`wouldWriteIfEnabled`,
@@ -11,7 +11,7 @@
 
 import type { IncidentIpcResult } from './incidents'
 import { incidentRuntimeStore } from '../incidents/incident-writer'
-import { readStallSamples } from '../incidents/incident-stall-samples'
+import { readPaneClocks } from '../incidents/incident-pane-clocks'
 import {
   readToolErrorWindows,
   toolErrorWriteEnabled
@@ -21,7 +21,7 @@ import {
   TOOL_ERROR_UNCOVERED_PROVIDERS
 } from '../incidents/incident-tool-error-coverage'
 import type {
-  IncidentStallsViewDto,
+  IncidentPaneClocksViewDto,
   IncidentToolErrorsViewDto
 } from '../../shared/incident-gray-types'
 
@@ -35,12 +35,12 @@ function unavailable<T>(): IncidentIpcResult<T> {
 }
 
 /**
- * `orca incident stalls` over IPC: the last sample, never a write.
+ * `orca incident pane-clocks` over IPC: the stored pane facts, never a write and never a verdict.
  *
  * The store is opened with the same runtime resolver the writers use, so the panel and the CLI read
  * one connection (including its capacity latch) instead of a second opener that could disagree.
  */
-export function readIncidentStallsView(): IncidentIpcResult<IncidentStallsViewDto> {
+export function readIncidentPaneClocksView(): IncidentIpcResult<IncidentPaneClocksViewDto> {
   const runtime = incidentRuntimeStore()
   if (runtime === null) {
     return unavailable()
@@ -48,7 +48,7 @@ export function readIncidentStallsView(): IncidentIpcResult<IncidentStallsViewDt
   return {
     ok: true,
     value: {
-      rows: readStallSamples(runtime.db),
+      rows: readPaneClocks(runtime.db, Date.now()),
       coverage: runtime.store.coverage()
     }
   }

@@ -1,14 +1,14 @@
 // Observed vs recorded (§7.2, §7.3; M7-B). The requirement has teeth: a default-off collector must not
 // render as a store full of accidents.
 import { describe, expect, it } from 'vitest'
-import { stallRowKind, toolErrorTruncation, toolErrorWindowKind } from './incident-gray-model'
-import { stallsViewFixture, toolErrorsViewFixture } from './incident-panel-fixtures'
+import { paneClockRowKind, toolErrorTruncation, toolErrorWindowKind } from './incident-gray-model'
+import { paneClocksViewFixture, toolErrorsViewFixture } from './incident-panel-fixtures'
 
-describe('stallRowKind', () => {
+describe('paneClockRowKind', () => {
   it('never marks a stall sample as recorded: the sample is the decision input, not an incident', () => {
-    const row = stallsViewFixture().rows[0]
-    expect(stallRowKind(row)).toBe('observed')
-    expect(stallRowKind({ ...row, wouldWriteIfEnabled: true })).toBe('observed')
+    const row = paneClocksViewFixture().rows[0]
+    expect(paneClockRowKind(row)).toBe('observed')
+    expect(paneClockRowKind({ ...row, wouldWriteIfEnabled: true })).toBe('observed')
   })
 })
 

@@ -39,20 +39,15 @@ export type IncidentShadowReplayDto = {
   lastRun: { lines: number; bytes: number; ms: number } | null
 }
 
-/** The stall sampler's last pass (M3-3). */
-export type IncidentStallSampleDto = {
+/** The pane-clock sampler's last pass (M8-2). Facts only: no threshold and no verdict. */
+export type IncidentPaneClockDto = {
   sampledAt: number | null
   panes: number
-  /** Would write if the switch were on; never "confirmed stuck". */
-  wouldWrite: number
-  noEvent: number
   declaredWaits: number
-  writeEnabled: boolean
-  writes: number
-  lastWriteAt: number | null
+  /** Observations skipped because the epoch was not a finite number. Counted, never written as 0. */
+  skipped: number
   errors: number
   lastError: string | null
-  keyRejected: number
 }
 
 /**
@@ -98,7 +93,7 @@ export type IncidentCoverageDto = {
     maxBytes: number
   }
   shadowReplay: IncidentShadowReplayDto
-  stallSample: IncidentStallSampleDto
+  paneClock: IncidentPaneClockDto
   /**
    * Remote-mirror coverage, when the host has a mirror read (M7-C). Absent = not reported by this
    * build; the renderer prints it as a stated fact and does not fold it into `currentlyLimited`.

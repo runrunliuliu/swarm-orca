@@ -12,10 +12,10 @@ import { AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import type {
-  IncidentStallsViewDto,
+  IncidentPaneClocksViewDto,
   IncidentToolErrorsViewDto
 } from '../../../../../shared/incident-gray-types'
-import { stallRowKind, toolErrorTruncation, toolErrorWindowKind } from './incident-gray-model'
+import { paneClockRowKind, toolErrorTruncation, toolErrorWindowKind } from './incident-gray-model'
 
 function Minutes({ ms }: { ms: number }): React.JSX.Element {
   return <span className="tabular-nums">{Math.round(ms / 60_000)}m</span>
@@ -37,7 +37,7 @@ function ObservedChrome({
         <AlertTriangle size={12} aria-hidden="true" className="mt-0.5 shrink-0 text-status-warning" />
         <span>
           {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.0884d2aab1',
-            'These rows are observations only. With the write switch off (the default) no incident is recorded, so a row here is not an accident record.'
+            'These rows are facts stored by the host process, not accident records. A row here does not mean an incident exists.'
           )}
         </span>
       </p>
@@ -60,101 +60,76 @@ function WriteSwitch({ enabled }: { enabled: boolean }): React.JSX.Element {
   )
 }
 
-export function IncidentStallsTable({ view }: { view: IncidentStallsViewDto }): React.JSX.Element {
-  const writeEnabled = view.coverage.stallSample.writeEnabled
+export function IncidentPaneClocksTable({
+  view
+}: {
+  view: IncidentPaneClocksViewDto
+}): React.JSX.Element {
   return (
     <ObservedChrome
       label={translate('auto.components.right.sidebar.incidents.IncidentGrayTables.a67f20e39d',
-        'Observed stalls (not recorded)'
+        'Pane event clocks (facts)'
       )}
     >
       <p className="text-[10px]">
         {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.529c988940',
-          'The sampler\'s last pass. "Would write" means a write-enabled sampler would record this now — never that the pane is confirmed stuck.'
+          'One stored fact row per pane: state, the age of its last semantic event, and which clock the age came from. There is no threshold and no verdict here — whether this is stuck is a triage question.'
         )}
       </p>
-      <WriteSwitch enabled={writeEnabled} />
       {view.rows.length === 0 ? (
         <p className="text-[11px]">
           {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.3cc4f4fee3',
-            'No pane has been sampled yet. The sampler records one sample per minute while the runtime is up.'
+            'No pane has been sampled yet. The sampler records one fact row per minute while the runtime is up.'
           )}
         </p>
       ) : (
         <ul className="space-y-1">
-          {view.rows.map((row) => {
-            const kind = stallRowKind(row)
-            return (
-              <li
-                key={row.paneKey}
-                data-incident-gray-row={kind}
-                className={cn(
-                  'rounded border px-2 py-1 text-[10px]',
-                  kind === 'recorded'
-                    ? 'border-border bg-background text-foreground'
-                    : 'border-dashed border-border/70 text-muted-foreground'
-                )}
-              >
-                <div className="flex flex-wrap items-center gap-x-2">
-                  <span className="truncate font-mono text-foreground">{row.paneKey}</span>
-                  <span>{row.state}</span>
-                  <span>
-                    {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.983f1f4ffd',
-                      'age'
-                    )}{' '}
-                    <Minutes ms={row.ageMs} />
-                  </span>
-                  <span
-                    className={row.ageBasis === 'state_fallback' ? 'text-status-warning' : undefined}
-                    title={
-                      row.ageBasis === 'state_fallback'
-                        ? translate('auto.components.right.sidebar.incidents.IncidentGrayTables.803a17a05a',
-                            'No semantic event clock for this pane, so age falls back to stateStartedAt: a weaker signal.'
-                          )
-                        : undefined
-                    }
-                  >
-                    {row.ageBasis}
-                  </span>
-                  <span>
-                    {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.ae948293e3',
-                      'threshold'
-                    )}{' '}
-                    <Minutes ms={row.thresholdMs} />
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-2">
-                  <span
-                    className={cn(
-                      'rounded border px-1',
-                      row.wouldWriteIfEnabled
-                        ? 'border-status-warning-border text-status-warning'
-                        : 'border-border/60'
-                    )}
-                  >
-                    {row.wouldWriteIfEnabled
-                      ? translate('auto.components.right.sidebar.incidents.IncidentGrayTables.ce2c2f17d2',
-                          'would write (not recorded)'
+          {view.rows.map((row) => (
+            <li
+              key={row.paneKey}
+              data-incident-gray-row={paneClockRowKind(row)}
+              className="rounded border border-dashed border-border/70 px-2 py-1 text-[10px] text-muted-foreground"
+            >
+              <div className="flex flex-wrap items-center gap-x-2">
+                <span className="truncate font-mono text-foreground">{row.paneKey}</span>
+                <span>{row.state}</span>
+                <span>
+                  {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.983f1f4ffd',
+                    'age'
+                  )}{' '}
+                  <Minutes ms={row.ageMs} />
+                </span>
+                <span
+                  className={row.ageBasis === 'state_fallback' ? 'text-status-warning' : undefined}
+                  title={
+                    row.ageBasis === 'state_fallback'
+                      ? translate('auto.components.right.sidebar.incidents.IncidentGrayTables.803a17a05a',
+                          'No semantic event clock for this pane, so age falls back to stateStartedAt: a weaker signal.'
                         )
-                      : translate('auto.components.right.sidebar.incidents.IncidentGrayTables.2988d6f3a2',
-                          'would not write'
-                        )}
+                      : undefined
+                  }
+                >
+                  {row.ageBasis}
+                </span>
+                <span className="truncate">
+                  {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.9d0a503877',
+                    'observed'
+                  )}{' '}
+                  {new Date(row.observedAt).toISOString()}
+                </span>
+              </div>
+              {row.declaredWait !== null && (
+                <div className="flex flex-wrap items-center gap-x-2">
+                  <span className="truncate text-foreground" title={row.declaredWait}>
+                    {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.f3ec97f59d',
+                      'declared wait'
+                    )}
+                    : {row.declaredWait}
                   </span>
-                  <span className="truncate" title={row.reason}>
-                    {row.reason}
-                  </span>
-                  {row.declaredWait !== null && (
-                    <span className="truncate text-foreground" title={row.declaredWait}>
-                      {translate('auto.components.right.sidebar.incidents.IncidentGrayTables.9d0a503877',
-                        'declared wait'
-                      )}
-                      : {row.declaredWait}
-                    </span>
-                  )}
                 </div>
-              </li>
-            )
-          })}
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </ObservedChrome>

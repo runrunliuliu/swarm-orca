@@ -13,7 +13,8 @@ import {
   listActiveWaits,
   pruneExpiredWaits,
   readDeclaredWaitCount,
-  publishDeclaredWaitCount
+  publishDeclaredWaitCount,
+  PANE_CLOCK_DECLARED_WAITS_META
 } from './incident-wait'
 
 const NOW = 1_700_000_000_000
@@ -97,7 +98,7 @@ describe('declared-wait count for coverage', () => {
     expect(readDeclaredWaitCount(database)).toBe(3)
     // A corrupt value reads as zero instead of poisoning the coverage line.
     database.prepare("UPDATE incident_store_meta SET value = 'nope' WHERE key = ?").run(
-      'stall_declared_waits'
+      PANE_CLOCK_DECLARED_WAITS_META
     )
     expect(readDeclaredWaitCount(database)).toBe(0)
   })

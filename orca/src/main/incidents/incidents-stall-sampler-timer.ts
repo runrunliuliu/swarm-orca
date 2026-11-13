@@ -1,39 +1,31 @@
-// The stall sampler's timer lifecycle (M3-3): one interval, its source, and its failure surface.
+// The pane-clock sampler's timer lifecycle (M8-2; formerly the stall sampler timer).
 //
 // Why this is the one new timer in the design, and what was rejected:
-//   * `server-status-application` is event-driven — there is no tick to hang "45 minutes later" on,
-//     and inventing a per-event deadline would mean one timer per status row;
+//   * `server-status-application` is event-driven — there is no tick to hang "has this been quiet for
+//     N minutes" on;
 //   * `server-reaping` is a one-shot startup sweep for restored Claude subagents, not a cadence;
 //   * the hook server's only interval is the OpenCode binder, which is provider-specific.
 // So a single `setInterval(60s)` with `unref()` is the smallest honest mechanism: it does zero work
 // when the store is unavailable, it is never on the PTY or status write path, and it dies with the
 // process.
 //
-// Split from `incidents-stall-sampler.ts` (one sampling pass) so the cadence decision, the store
-// resolution and the error counters live in one readable place. Everything here is process-global by
-// design: exactly one sampler per process, started once at startup.
+// It records FACTS only. The judgement that used to run here (threshold, cycles, would-write) moved
+// out of Orca in M8-2, so this file no longer resolves the incident store or writes incidents.
 
 import type Database from '../sqlite/sync-database'
-import type { IncidentStore } from './incident-store'
 import { incidentRuntimeStore, resetIncidentStoreCache } from './incident-writer'
-import { STALL_SAMPLE_INTERVAL_MS } from './incident-stall-decision'
+import { PANE_CLOCK_SAMPLE_INTERVAL_MS } from './incident-pane-clocks'
 import {
-  STALL_LAST_SAMPLER_ERROR_META,
-  STALL_SAMPLER_ERRORS_META
-} from './incident-stall-coverage'
-import { bumpMetaNumber } from './incident-store-meta'
-import { writeMeta } from './incident-store-meta'
-import {
-  resetStallSamplerCycles,
-  sampleStallState,
-  type StallSampleSourceRow,
-  type StallSampleSummary
+  recordPaneClockSamplerError,
+  samplePaneClocks,
+  type PaneClockSampleSummary,
+  type PaneClockSourceRow
 } from './incidents-stall-sampler'
 
-let source: (() => StallSampleSourceRow[]) | null = null
+let source: (() => PaneClockSourceRow[]) | null = null
 let timer: ReturnType<typeof setInterval> | null = null
 
-export function configureStallSamplerSource(read: (() => StallSampleSourceRow[]) | null): void {
+export function configureStallSamplerSource(read: (() => PaneClockSourceRow[]) | null): void {
   source = read
 }
 
@@ -42,7 +34,7 @@ export function startStallSampler(options: { intervalMs?: number } = {}): boolea
   if (timer !== null) {
     return false
   }
-  const intervalMs = Math.max(1_000, options.intervalMs ?? STALL_SAMPLE_INTERVAL_MS)
+  const intervalMs = Math.max(1_000, options.intervalMs ?? PANE_CLOCK_SAMPLE_INTERVAL_MS)
   timer = setInterval(() => {
     runStallSamplerTick()
   }, intervalMs)
@@ -62,43 +54,24 @@ export function stallSamplerRunning(): boolean {
   return timer !== null
 }
 
-/**
- * Record one sampler failure where the read model can see it (M3-C3).
- *
- * Never throws: this already runs inside the failure path, and a diagnostics surface that can throw
- * while reporting a failure is worse than the failure.
- */
+/** Record one sampler failure where the read model can see it. Never throws (M3-C3). */
 export function recordStallSamplerError(db: Database.Database, error: unknown): void {
-  try {
-    bumpMetaNumber(db, STALL_SAMPLER_ERRORS_META)
-    writeMeta(
-      db,
-      STALL_LAST_SAMPLER_ERROR_META,
-      (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).slice(0, 300)
-    )
-  } catch {
-    // Nothing left to do.
-  }
+  recordPaneClockSamplerError(db, error)
 }
 
 /**
  * One timer tick, exported so a test can inject a failure without waiting a minute.
  *
  * A diagnostics timer must never take the process down, so every throw lands in the meta counter that
- * `stalls`/coverage print.
+ * the CLI and the panel print.
  */
 export function runStallSamplerTick(
-  options: {
-    db?: Database.Database
-    store?: IncidentStore | null
-    now?: number
-  } = {}
-): StallSampleSummary | null {
+  options: { db?: Database.Database; now?: number } = {}
+): PaneClockSampleSummary | null {
   try {
-    if (options.db !== undefined && options.store !== undefined) {
-      return sampleStallState({
+    if (options.db !== undefined) {
+      return samplePaneClocks({
         db: options.db,
-        store: options.store,
         ...(options.now === undefined ? {} : { now: options.now })
       })
     }
@@ -116,7 +89,7 @@ let lastOpenRetryAt = 0
 /** Retry a failed store open at most every 5 minutes: a diagnostics timer must not hammer the disk. */
 const REOPEN_RETRY_MS = 5 * 60 * 1000
 
-function sampleOnce(now: number = Date.now()): StallSampleSummary | null {
+function sampleOnce(now: number = Date.now()): PaneClockSampleSummary | null {
   let runtime = incidentRuntimeStore()
   if (runtime === null && now - lastOpenRetryAt >= REOPEN_RETRY_MS) {
     lastOpenRetryAt = now
@@ -126,9 +99,8 @@ function sampleOnce(now: number = Date.now()): StallSampleSummary | null {
   if (runtime === null) {
     return null
   }
-  return sampleStallState({
+  return samplePaneClocks({
     db: runtime.db,
-    store: runtime.store,
     now,
     ...(source === null ? {} : { rows: source() })
   })
@@ -137,6 +109,5 @@ function sampleOnce(now: number = Date.now()): StallSampleSummary | null {
 export function __resetStallSamplerForTests(): void {
   stopStallSampler()
   source = null
-  resetStallSamplerCycles()
   lastOpenRetryAt = 0
 }

@@ -12,7 +12,7 @@
 // to prevent.
 
 import type {
-  IncidentStallRowDto,
+  IncidentPaneClockRowDto,
   IncidentToolErrorWindowDto,
   IncidentToolErrorsViewDto
 } from '../../../../../shared/incident-gray-types'
@@ -20,11 +20,11 @@ import type {
 export type IncidentGrayRowKind = 'observed' | 'recorded'
 
 /**
- * A stall sample is always an observation: the sampler's stored sample is the decision input, and the
- * incident (if any) is a separate row in the store. There is no `written` flag on a sample, so this
- * function exists to say that out loud rather than leaving the UI to assume symmetry with tool errors.
+ * A pane clock is always an observation: it is a stored fact, and any incident is a separate row in
+ * the store. There is no `written` flag on a fact, so this function says that out loud rather than
+ * leaving the UI to assume symmetry with tool errors.
  */
-export function stallRowKind(_row: IncidentStallRowDto): IncidentGrayRowKind {
+export function paneClockRowKind(_row: IncidentPaneClockRowDto): IncidentGrayRowKind {
   return 'observed'
 }
 

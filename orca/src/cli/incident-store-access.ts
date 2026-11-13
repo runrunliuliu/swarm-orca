@@ -56,18 +56,13 @@ function unavailableStore(): IncidentStore {
       lastDroppedReason: null,
       lastRun: null
     },
-    stallSample: {
+    paneClock: {
       sampledAt: null,
       panes: 0,
-      wouldWrite: 0,
-      noEvent: 0,
       declaredWaits: 0,
-      writeEnabled: false,
-      writes: 0,
-      lastWriteAt: null,
+      skipped: 0,
       errors: 0,
-      lastError: null,
-      keyRejected: 0
+      lastError: null
     }
   }
   return {

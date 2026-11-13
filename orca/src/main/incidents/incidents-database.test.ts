@@ -109,7 +109,7 @@ describe('openIncidentsDatabase', () => {
     // v1 had are exactly the ones createIncidentTablesSql still creates, minus the M3 additions).
     const first = open(path)
     insertSample(first.db)
-    first.db.exec('DROP TABLE incident_wait_declarations; DROP TABLE incident_stall_samples')
+    first.db.exec('DROP TABLE incident_wait_declarations; DROP TABLE IF EXISTS incident_stall_samples')
     first.db.pragma('user_version = 1')
     first.db.close()
     openDatabases.length = 0
@@ -124,7 +124,7 @@ describe('openIncidentsDatabase', () => {
       .all()
       .map((row) => String(row.name))
     expect(tables).toEqual(
-      expect.arrayContaining(['incident_wait_declarations', 'incident_stall_samples'])
+      expect.arrayContaining(['incident_wait_declarations', 'incident_pane_clocks'])
     )
   })
 

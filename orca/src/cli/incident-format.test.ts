@@ -11,9 +11,9 @@ import {
   formatIncidentDecision,
   formatIncidentList,
   formatIncidentPrune,
-  formatIncidentShow,
-  formatIncidentStalls
+  formatIncidentShow
 } from './incident-format'
+import { formatIncidentPaneClocks } from './incident-stall-format'
 
 const coverage = {
   remoteIncidentCapture: 'unsupported' as const,
@@ -30,18 +30,13 @@ const coverage = {
     lastDroppedReason: null,
     lastRun: null
   },
-  stallSample: {
+  paneClock: {
     sampledAt: 1_700_000_000_000,
     panes: 1,
-    wouldWrite: 0,
-    noEvent: 0,
     declaredWaits: 0,
-    writeEnabled: false,
-    writes: 0,
-    lastWriteAt: null,
+    skipped: 0,
     errors: 0,
-    lastError: null,
-    keyRejected: 0
+    lastError: null
   }
 }
 
@@ -240,19 +235,20 @@ describe('formatIncidentPrune', () => {
   })
 })
 
-describe('formatIncidentStalls (M3-3)', () => {
-  it('prints one row per pane with age, threshold, verdict and declaration', () => {
-    const text = formatIncidentStalls(
+describe('formatIncidentPaneClocks (M8-2)', () => {
+  it('prints the fact row, the age basis and the declaration, and claims no verdict', () => {
+    const text = formatIncidentPaneClocks(
       [
         {
           paneKey: 'tab-1:leaf-1',
           terminalHandle: 'term-1',
           state: 'working',
+          stateStartedAt: 1_700_000_000_000 - 3_600_000,
+          turnStartedAt: null,
+          lastSemanticEventAt: 1_700_000_000_000 - 46 * 60_000,
           ageMs: 46 * 60_000,
           ageBasis: 'event' as const,
-          thresholdMs: 45 * 60_000,
-          wouldWriteIfEnabled: true,
-          reason: 'no_event_for_threshold',
+          observedAt: 1_700_000_000_000,
           declaredWait: 'long build'
         }
       ],
@@ -260,20 +256,18 @@ describe('formatIncidentStalls (M3-3)', () => {
     )
     expect(text).toContain('tab-1:leaf-1')
     expect(text).toContain('46m')
-    expect(text).toContain('45m')
-    expect(text).toContain('no_event_for_threshold')
     expect(text).toContain('event')
-    expect(text).toContain('wouldWriteIfEnabled=yes means')
     expect(text).toContain('long build')
-    expect(text).toContain('Stall sampler:')
-    expect(text).toContain('Writing incidents: off')
-    expect(text).toContain('this command never writes')
+    expect(text).toContain('Pane clock:')
+    expect(text).toContain('These are facts, not a verdict')
+    expect(text).not.toContain('wouldWriteIfEnabled')
+    expect(text).not.toContain('would write')
   })
 
   it('says so when no sample exists yet', () => {
-    const text = formatIncidentStalls([], {
+    const text = formatIncidentPaneClocks([], {
       ...coverage,
-      stallSample: { ...coverage.stallSample, sampledAt: null, panes: 0 }
+      paneClock: { ...coverage.paneClock, sampledAt: null, panes: 0 }
     })
     expect(text).toContain('none yet')
     expect(text).toContain('No panes sampled')
