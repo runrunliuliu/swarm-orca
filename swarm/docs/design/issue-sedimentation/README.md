@@ -13,9 +13,12 @@
 
 ## 轮次索引
 
-原始记录（6 份 brief、14 份 review、16 份共识、3 份精简审计，逐字保留）**不随仓库分发**，
-归档在私有产物区 `swarm-artifacts/issue-sedimentation-rounds-20261113/`（带 `INDEX.md` 与逐文件
-sha256，写入后已回读校验）。要读原文时按下表的轮次定位；本仓库只保留结论与索引。
+原始记录**不随仓库分发**，归档在私有产物区，均带 `INDEX.md` 与逐文件 sha256（写入后已回读校验）：
+
+- `swarm-artifacts/issue-sedimentation-rounds-20261113/`：M1–M6 的 39 份（brief / review / 共识 / 精简审计）
+- `swarm-artifacts/issue-sedimentation-rounds-20261113-m7/`：M7 的 12 份（分支级评审 / 角标裁决 / 合并前 / 接缝）
+
+要读原文时按下表的轮次定位；本仓库只保留结论与索引。
 
 | 轮次 | 对象 | 结论 | 关键必改 |
 | --- | --- | --- | --- |
@@ -28,6 +31,8 @@ sha256，写入后已回读校验）。要读原文时按下表的轮次定位�
 | R7 | M5 代码（acceptance 门） | **双方 BLOCK** → AGREE + 二次折中 | 门点不唯一、keep-unread 被 check 消费、fail-open、cwd 无边界、verdict 未绑规则版本 |
 | R8 | M6 代码（mining / triage 候选） | **双方 BLOCK** → AGREE | `source_id` 含 epoch 被当成跨源、apply 可覆盖人工判断、默认 target 稀释队列 |
 | R9 | M7 前精简审计 | 双方一致：只做收敛，不砍语义 | 过程材料下沉、`pad()`×6、meta helper ×2、`incident-mine.ts` 三分、CLI 帮助分组 |
+| R10 | M7 代码（A 打底 / B 面板 / C 远端，三分支并行） | B: APPROVE-WITH-CHANGES（codex）+ ADDITIONS（trae）；C: CHANGES_REQUIRED（codex）+ 反驳 2 条并补 2 条（trae）；A 未单独评审，合并前补审 | B: capacity latch 未点亮主角标、证据路径泄露、零计数静默；C: incident/provenance 非原子、页内 seq 乱序、空页不推进、provenance 无唯一键、`nextSeq` 跳跃无 gap reason | `consensus` 不需要（codex/trae 逐条互证） |
+| R11 | M7 合并接缝 + 角标语义 | 接缝 APPROVE（codex）；trae 唯一残留=stale badge，已修 | 远端只进 `remoteMirror` 不得并 `gap`；`counts=null`（失败/陈旧）不得与"无事故"同形 | 角标 C 方案由 codex/trae **独立同选**，无需共识轮 |
 
 ## 六轮代码评审反复命中的同一类问题
 

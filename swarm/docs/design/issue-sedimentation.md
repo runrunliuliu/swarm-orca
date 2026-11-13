@@ -1,7 +1,7 @@
 # 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.8，M1–M6 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 状态：**设计（v2.9，M1–M7 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
 - 修订历史：v2.1–v2.8 每轮评审后的修正见 §19 与 [轮次索引](issue-sedimentation/README.md)（git log 有逐次提交）。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 过程材料（brief / 双方 review / 共识）**不随仓库分发**，归档在私有产物区；轮次索引与
@@ -376,15 +376,24 @@ v1 只做**单条** `orca incident show <id> --md`（可重建），不做"一 f
 
 ## 11. 硬问题与容量
 
-**11.1 远程执行宿主**
-incident 必须由持有 PTY 的宿主写；客户端只 mirror（对齐既有 host-partitioned 持久化）。
-SSH relay 断线时，不能把服务端事故记到客户端；客户端只允许记录"连接不可用"这类**自身**事实。
-首版只做本机，且必须在读模型里显式输出 `remote_incident_capture: unsupported`，
-否则运维会把"没记录"误认为"没事故"。
+**11.1 远程执行宿主与 mirror（M7 实现）**
+incident 由持有 PTY 的宿主写；客户端只 mirror，且客户端自身只能记录"连接不可用"这类本地事实。
+本机记录的**本地**事实包含由 SSH relay 拥有的 pane（`surface=ssh`），但从不记录远端宿主内部的事实。
 
-准确的边界（M1 实现口径）：本机记录的是**这台宿主观察到的本地 PTY 事实**，包括由 SSH relay 拥有的
-pane（`surface=ssh`）；它**从不**记录远端宿主内部发生的事实。所以 `unsupported` 的含义是“远端宿主
-内的故障不在本机库中”，不是“SSH 会话的退出不记”。
+M7 的 mirror 口径（`incident-mirror-*`）：
+
+- **三态** `remote_incident_capture`：`unsupported`（无 mirror 表/无 link）/ `not_probed`（有 link 但
+  从未成功探测）/ `mirrored`（有成功探测）。UI 与 CLI 消费同一份读模型，不各自解释。
+- **原子性**：mirror 的 incident 行与 provenance 行在**同一事务**内写入，provenance 失败即回滚；
+  provenance 有 `UNIQUE(source_kind, source_id, facet)`，重复拉取是 no-op。
+- **游标**：只推进到已投递的 seq，不直接跳到 `nextSeq`；origin 省略区间必须带 gap reason，否则
+  `unexplained_gap_*` 停止并保持游标——无 gap reason 的跳跃会永久越过事实。
+- **失败可见**：mirror 失败不改 cursor/pending，`unsynced` 保留上一次真实值并暴露给读模型；空页且
+  `nextSeq == cursor` 判 `no_progress_page`，不会被行预算掩盖。
+- **注册接缝**：`registerIncidentMirrorCoverageReader` 在启动路径注册一次；无 feed 时短路，不创建
+  也不迁移 incidents 库。
+- **分级显示**：远端缺口**只**进 `coverage.remoteMirror`，不得并入本地 `coverage.gap`、不改本地
+  tone、不改 untriaged 数字（角标语义由 codex-ark/trae 独立裁决，见轮次 R11）。
 
 **11.2 主进程自己崩**
 
@@ -441,13 +450,18 @@ structured wire、liveness verdict、pty exit）→ 规定**只有 pty exit / di
 | 覆盖缺口 | `list/show` 输出 `remote_incident_capture`、`capacity_latch_set`、`currently_limited`、`shadow_replay`（`lastSeq/incomplete/lastStopReason/failures/lastError/dropped/lastRun`） | **M1 + M2（必须）** | 读模型 |
 | 读模型 | shared 类型 + IPC | M2 | `src/shared/incident-*.ts`、`src/preload/api/incident-api.ts` |
 | 每日摘要 | scheduled automation 只出数字摘要 | M4 | automations |
-| UI | 列表 + 详情 + triage | 最后 | `src/renderer/src/...` |
+| CLI | `incident acceptance declare\|list\|show\|resolve`、`incident mine`、`incident digest` | M5 / M6 / M4 | `src/cli/specs/incident.ts` |
+| CLI | `incident mirror [--json]`（三态 + unsynced，只读） | **M7** | `src/cli/handlers/incident-mirror.ts` |
+| 计数与推送 | `incident-counts.ts` 聚合 + keyed trailing-edge coalescer（100 ms 静默窗 / 500 ms 饥饿上限，emit 时读最新值） | **M7-A** | `src/main/ipc/incident-counts-push.ts` |
+| 角标 | 实心琥珀=本地缺口；描边/次级=远端缺口；`0 + 缺口` 显示"无数字"标记；`counts=null` 分 `unavailable` / `stale` 两态 | **M7-B** | `src/renderer/src/components/right-sidebar/incident-badge.ts` |
+| UI | 活动栏入口 + 抽屉（列表/筛选/覆盖缺口分级/详情/决策时间线/triage），灰度两张表用虚线区分"只观察" | **M7-B** | `src/renderer/src/components/right-sidebar/incidents/` |
+| 远端 mirror | 三态 + 游标 + 原子写入 + 未同步计数（fake host 测试，无真实远端） | **M7-C** | `src/main/incidents/incident-mirror-*.ts` |
 
 M1 的判定标准是：**杀掉一个本机 agent 后，运维能列出事故、看到退出原因与 unknown 边界、标
 watch/invalid/needs_archive，并知道 store 是否有覆盖缺口。** 做不到就不算交付。
 
-M1 明确**不**包含：证据指针（`pointers: []`，md/CLI 显式列出该缺口，M2 补）、shadow/reconcile、
-`no_progress`、`tool_error` 写入、acceptance、自报入口、IPC/UI、远端。
+M1 当时**不**包含（后续里程碑已补：shadow/reconcile、自报入口、IPC、`no_progress` 灰度、`tool_error`、
+acceptance、mining、UI、远端 mirror）：证据指针（crash 路仍为 `pointers: []`，见 §7.1）。
 
 M1 的 CLI 实现口径：直连 SQLite（`list/show` 只读打开、不建 WAL、不迁移；`decide/prune --apply`
 读写），不走 IPC——因为桌面未运行时仍需能 triage；非本机 selector（`--host`）显式拒绝，不静默按
@@ -464,10 +478,14 @@ M1 的 CLI 实现口径：直连 SQLite（`list/show` 只读打开、不建 WAL�
 | M4 | `tool_error` 聚簇 + 每日摘要 automation | 同 code 达阈值 → 一条；摘要计数与 DB 一致 |
 | M5 | acceptance 声明 + 可见停点（`acceptance_pending`） | 不满足 → incident + 可见停点；dispatch 不被静默悬挂 |
 | M6 | automations mining + triage 候选 | 产出决策、无 `confirmed`、有界停止 |
-| M7 | 远端 mirror / 多机聚合 / UI | 每台宿主本地可查；缺口可见 |
+| **M7** | 三分支并行：A 计数/推送/角标入口；B 面板（列表/详情/triage/灰度表）；C 远端 mirror（三态/游标/原子写入）。合并后补接缝与 stale 角标 | 合并零冲突；接缝评审 `APPROVE`；`0 + 缺口` 与 `counts=null` 都不与"无事故"同形 |
 
-每步独立提交、独立测试；不合并成大包。M1 的取舍：**先不做** 影子、停滞、acceptance、UI、远端——
-它们的噪声或复杂度会在首版把系统名声打坏。
+每步独立提交、独立测试；不合并成大包。M1 当时的取舍是**先不做**影子、停滞、acceptance、UI、远端——
+它们的噪声或复杂度会在首版把系统名声打坏；这些在后续里程碑里逐个补上，每一步都过了两轮独立评审。
+
+M7 的并行约束（实际执行过，值得留档）：同一 worktree 不能给两个 agent（共享 git index）；A 必须先落盘，
+B/C 才从它的 HEAD 切分支；两个分支的写入面必须**按文件划分**（B 独占 shared DTO/IPC/preload/renderer，
+C 独占 runtime 与自己的 mirror 类型），否则合并时会在同一批文件上对撞。
 
 ## 14. 上游 patch 卫生（目标，不是验收口径）
 
@@ -539,6 +557,11 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 23 | 定期只读挖掘 + triage 候选（稳定来源、单实体排除、有界扫描、显式 target） | **已实现（M6）** | §10；提交 `6c08ce4f`+`da7adf4f`+`c6097d32`+`16b9a26b`+`b79abde2` |
 | 24 | 远端 mirror / 多机聚合 | 缺口（M7） | §11.1 |
 | 25 | 端到端 live 验收（真实崩溃 → incident → 关闭） | **缺口** | 无 |
+| 26 | 计数聚合 + 合并推送 + 活动栏角标入口 | **已实现（M7-A）** | §12；提交 `569aaaaf`/`36517b8f`/`da866553` |
+| 27 | 面板（列表/筛选/详情/决策时间线/triage/灰度表）+ 角标分级 + stale 三态 | **已实现（M7-B）** | `src/renderer/src/components/right-sidebar/incidents/`；提交 `25f44933`…`4e7298d9` |
+| 28 | 远端 mirror（三态/游标/原子写入/未同步计数/接缝注册） | **已实现（M7-C）**，仅 fake host 验证 | §11.1；提交 `7614be32`…`763a91f2` |
+| 29 | 真实远端跨宿主 mirror（live） | **缺口** | 未连任何真实远端，需单独授权 |
+| 30 | UI 视觉/e2e 验收（截图、真实窗口） | **缺口** | 只有组件测试 |
 
 `已实现` 只描述该能力在源码中存在，不表示已被本设计接通或经过 live 验收；v2 评审已纠正 3/4/5/6/10/11 的过高估计。
 
@@ -624,6 +647,17 @@ M1–M6 每轮都由两个独立评审（codex-ark、trae）先出结论、必�
    `orca/skill-guides`。
 4. **未验证的事**：没有 live 端到端（真实进程被杀 → 重启补回、真实 worker/dispatch 闭环）；
    50k 行规模的 mine 耗时未实测；这些在 §19.2 的未决项里继续跟踪。
+
+### 19.4 M7（UI + 远端）实施与评审记录
+
+| 项 | 内容 |
+| --- | --- |
+| 分支 | A = `issue-sediment`（`da866553`）；B = `issue-sediment-ui`（`5821059a`）；C = `issue-sediment-remote`（`4924a07c`）；合并 `a1353bd5` / `1f0c511e`；接缝 `763a91f2` / `1c0a045a`；stale 角标 `4e7298d9` |
+| 评审 | B: codex `APPROVE-WITH-CHANGES` + trae `ADDITIONS`；C: codex `CHANGES_REQUIRED` + trae 反驳 2 条并补 2 条；A 合并前补审；接缝 codex `APPROVE`；trae 只留 stale badge 一条。明细见轮次索引 R10/R11 |
+| 关键修正 | 远端缺口不得并入 `gap`（接缝注册 `registerIncidentMirrorCoverageReader`）；`0 + 缺口` 必须可见但无数字；`counts=null` 分 `unavailable`/`stale`；C 的 incident+provenance 同事务、provenance UNIQUE、`nextSeq` 无 gap reason 不推进 |
+| 测试（外层复跑） | `right-sidebar` + `src/main/ipc` + `src/main/incidents`：770 files passed / 3 failed，7,428 passed / 4 failed；4 条失败与全检出基线完全一致（环境/flaky），无新增失败 |
+| 过程缺口 | trae 首版预合并评审卡死（约 1 小时无输出），用最小版重发才拿到结论；C 在评审期间改写提交，导致 codex 两条结论过时——此后约定评审先钉 SHA |
+| 仍未验证 | 无 live 崩溃→重启演练；mirror 只有 fake host；UI 只有组件测试，无截图/e2e |
 
 ## 20. 本轮验收口径（设计阶段）
 

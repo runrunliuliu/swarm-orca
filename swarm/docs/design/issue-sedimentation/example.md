@@ -92,7 +92,7 @@ appended watch          inc_example02 · inc_example03
 设计上每条已确认的故障类最终要产出一个 guardrail（测试/检查器/规则条目），目前 `mine` 只出候选，
 不提草案、不开工单。这一步决定 M7 之后是否补。
 
-## 7. 验收门（另一条独立路径）`[已实现，默认无声明]
+## 7. 验收门（另一条独立路径）`[已实现，默认无声明]`
 
 若该 dispatch 声明了 acceptance：
 
@@ -106,7 +106,19 @@ $ orca incident acceptance declare --dispatch disp-example07a --rule tests \
 停点，dispatch 保持 `dispatched`、worker_done 保持未读，`resolve --accept` 后由下一 tick 重新结算。
 operator 若要绕过，必须显式 `--override-acceptance` 并留下 `acceptance_overridden` 证据。
 
-## 8. 灰度中的两条判据（默认不写）`[灰度]`
+## 8. 面包屑与远端视野（M7）`[已实现]`
+
+活动栏的 `Incidents` 角标只消费主进程算好的数字与缺口判定：
+
+- **本地缺口**（shadow replay incomplete / 容量闸 latch / 扫描截断）→ 实心琥珀；
+- **远端缺口**（某台被监控的宿主 `not_probed` 或 `unsynced > 0`）→ 只有次级描边，数字与本地 tone 不变；
+- **`untriaged = 0` 但存在缺口** → 仍显示标记，只是不显示数字（"0"会被读成"没事"）；
+- **计数拉不到** → `unavailable`；超过 10 分钟未更新 → `stale`；两种都画 muted 标记，不与"无事故"同形。
+
+远端 mirror 只做搬运，不做判定：三态 `unsupported` / `not_probed` / `mirrored`，游标只推进到已投递的
+seq，origin 省略区间必须带 gap reason，否则 `unexplained_gap_*` 停下并保留游标。
+
+## 9. 灰度中的两条判据（默认不写）`[灰度]`
 
 ```console
 $ orca incident stalls          # 有语义事件就不再算停滞；ageBasis=state_fallback 时明示退化
@@ -116,8 +128,9 @@ $ orca incident tool-errors     # 结构化高危才单次直通；文本命中�
 两者都默认 off（`INCIDENT_STALL_WRITE` / `INCIDENT_TOOL_ERROR_WRITE` 仅 `on` 生效），所以上面这些
 观察**不会**自动变成 incident —— 打开写入前要先看这两张表在真实负载上的比例。
 
-## 9. 这个示例**不**代表的事
+## 10. 这个示例**不**代表的事
 
 - 不代表已经 live 验收：本项目至今没有"真实桌面进程被杀 → 重启 → 记录仍在"的端到端证据。
-- 不代表远端可捕获：SSH/WSL 宿主内的事实不在本机库里，`list` 会写 `remote_incident_capture=unsupported`。
+- 不代表远端可捕获：mirror 只做到 fake host；没有任何真实远端链路的证据，`list` 的 `remote_incident_capture` 仍可能读到 `unsupported`/`not_probed`。
 - 不代表 evidence 完整：crash 记录当前 `pointers: []`（见 §7.1）。
+- 不代表 UI 已验收：只有组件测试，没有真实窗口截图或 e2e。
