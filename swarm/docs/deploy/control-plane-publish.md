@@ -27,11 +27,15 @@
 
 ```text
 /opt/swarm/swarm-control-plane-<buildId>/
-├── .swarm-build.json      # 身份文件（§4）
-├── MANIFEST.sha256        # 逐文件摘要（§5）
-├── code/                  # = swarm-orca/swarm/（保内部相对结构）
+├── .swarm-build.json      # 身份文件（§3.1）
+├── MANIFEST.sha256        # 逐文件摘要（§3.2）
+├── code/                  # = swarm-orca/swarm/（保内部相对结构），另含 code/AGENTS.md
 ├── private/               # = 私有 swarm/ 的政策、acceptance、配置 JSON
-└── overlay/               # = 私有根 skills/ 的入口材料
+├── overlay/               # = 私有根 skills/ 的入口材料
+├── workspace/             # = 源码根 AGENTS.md、索引与目录策略
+├── NOTICE.md              # = swarm-orca/NOTICE.md（许可证边界，必带）
+├── MIGRATION_STATUS.md
+└── README.md
 /opt/swarm/current -> swarm-control-plane-<buildId>    # 唯一“本机当前控制平面”声明
 ```
 
@@ -121,6 +125,30 @@
 - 发布**不启动**任何 Agent、Run、monitor 或 scheduler，也不修改已有 Run 的 pins。
 - 复制失败或自检失败时保留临时目录供诊断，不切换指针、不清理上一份产物。
 - 指针切换是可回滚的原子动作，但“切换指针”与“部署/重启服务”是两件事，各自授权。
+
+### 4.1 工具接口
+
+实现：`deploy/publish_control_plane.py`（`python3 -B`，仅标准库）。默认模式是只读的。
+
+| 模式 | 作用 | 必需参数 |
+| --- | --- | --- |
+| `plan`（默认） | 打印白名单结果、生效的排除项、文件数与内容寻址的 `buildId` | `--source-root` |
+| `publish` | 在 `--artifact-root` 下新建产物；拒绝已存在的目标、脏源与无法固定的源 | `--source-root`、`--artifact-root` |
+| `verify` | 复算清单并与身份文件比对 | `--artifact` |
+
+| 开关 | 语义 |
+| --- | --- |
+| `--allow-dirty` | 允许发布含未提交修改的源；产物在身份文件里保留脏路径，只可作本地试验 |
+| `--allow-unpinned-source` | 允许 git 无法描述源（非仓库/不可读）时发布；身份记为 `unpinned` |
+| `--switch-pointer <symlink>` | 发布成功后用 `os.replace` 原子切换指针；父目录缺失或指针不是符号链接即拒绝 |
+| `--json` | 输出机器可读报告 |
+
+拒绝语义与退出码：`0` 成功；`2` 用法错误；`78` 前置或完整性检查失败，stderr 只给一行原因
+（`source-dirty`、`source-unpinned`、`artifact-exists`、`destination-collision`、
+`install-dir-mismatch`、`manifest-mismatch`、`pointer-not-a-symlink` 等），不尝试修复、不回退默认值。
+
+只读模式不写任何文件；`publish` 只写 `--artifact-root` 下的临时目录与最终产物，不改源树、
+不清理旧产物。`verify` 拒绝被搬移过的产物：身份文件里的 `installDir` 必须等于实际路径。
 
 ## 5. 指针语义
 
