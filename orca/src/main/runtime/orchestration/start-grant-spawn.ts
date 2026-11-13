@@ -2,13 +2,7 @@ import { z } from 'zod'
 import type { OrchestrationDb } from './db'
 import { OrchestrationError } from './orchestration-error'
 import { strictCoordinatorPolicy } from './strict-coordinator-policy'
-import {
-  invalidGrantRecord,
-  readStartGrant,
-  readStartGrantBinding,
-  readStartGrantRevocation,
-  type StartGrant
-} from './start-grant-policy'
+import { readGrantForRun, readStartGrantRevocation, type StartGrant } from './start-grant-policy'
 
 /**
  * Every decision the spawn path makes under a grant, in one function per insert site.
@@ -49,8 +43,11 @@ export type SpawnScope = {
  * no receipt, no Task, no terminal" true rather than merely intended.
  */
 export function assertSpawnAdmissible(db: GrantDb, scope: SpawnScope): StartGrant | undefined {
-  const binding = readStartGrantBinding(db, { runId: scope.runId })
-  if (!binding) {
+  // One reader for "which grant covers this Run": it returns undefined only when nothing is bound,
+  // and refuses a binding whose grant is missing. Re-reading the binding here would be a second
+  // implementation of that rule, and the two would eventually disagree.
+  const grant = readGrantForRun(db, scope.runId)
+  if (!grant) {
     const required = scope.startGrantRequired ?? START_GRANT_REQUIRED
     if (required && strictCoordinatorPolicy(db, scope.runId)) {
       throw new OrchestrationError(
@@ -60,10 +57,6 @@ export function assertSpawnAdmissible(db: GrantDb, scope: SpawnScope): StartGran
       )
     }
     return undefined
-  }
-  const grant = readStartGrant(db, binding.grantId)
-  if (!grant) {
-    return invalidGrantRecord(binding.grantId, 'binding exists without its grant')
   }
   const revocation = readStartGrantRevocation(db, grant.grantId)
   if (revocation) {
@@ -80,15 +73,16 @@ export function assertSpawnAdmissible(db: GrantDb, scope: SpawnScope): StartGran
       { grantId: grant.grantId, deadline: grant.deadline }
     )
   }
-  assertScopeAdmits(db, grant, scope)
+  // Before the scope check: "a remote Worker cannot be counted" does not depend on a repo id, and a
+  // federation call carries none. Ordering it after the scope would report the wrong reason.
   if (scope.federated) {
-    // The count and the repo scope are local database facts; a remote Worker is invisible to both.
     throw new OrchestrationError(
       'start_grant_remote_unsupported',
       `Start grant ${grant.grantId} covers local Workers only; the worker count cannot see a remote host.`,
       { grantId: grant.grantId }
     )
   }
+  assertScopeAdmits(db, grant, scope)
   const active = activeDispatches(db, grant.grantId)
   if (active.length >= grant.maxWorkers) {
     throw new OrchestrationError(
@@ -155,7 +149,31 @@ function claimedByRun(db: GrantDb, runId: string, worktreeId: string): boolean {
   return row !== undefined
 }
 
-type ActiveDispatch = { dispatchId: string; status: string; observedAt: string | null }
+type ActiveDispatch = { dispatchId: string; status: string; updatedAt: string | null }
+
+/**
+ * The repo a new Worker worktree would actually be created in, resolved the same way the creation
+ * itself resolves it (`params.repo ?? coordinatorWorktree.repoId`).
+ *
+ * The creation happens after the Dispatch row is written, so the grant scope has to be checked
+ * against a repo id that is known *before* it: taking the coordinator's repo and ignoring an
+ * explicit `--repo` would let a caller create a worktree in a repo the grant never covered.
+ * `null` means "could not be resolved", and the scope check refuses that rather than assuming.
+ */
+export async function resolveCreationRepoId(
+  runtime: { listManagedWorktrees: (selector: string, limit?: number) => Promise<{ worktrees: { repoId: string }[] }> },
+  selector: string | null
+): Promise<string | null> {
+  if (!selector) {
+    return null
+  }
+  try {
+    const listed = await runtime.listManagedWorktrees(selector, 1)
+    return listed.worktrees[0]?.repoId ?? null
+  } catch {
+    return null
+  }
+}
 
 /** How many Workers the grant currently counts, for the read-only projection. */
 export function grantActiveWorkers(db: GrantDb, grantId: string): number {
@@ -176,9 +194,10 @@ function activeDispatches(db: GrantDb, grantId: string): ActiveDispatch[] {
       db.db
         .prepare(
           `SELECT d.id AS dispatch_id, d.status AS status,
-                  COALESCE(d.dispatched_at, d.created_at) AS observed_at
+                  COALESCE(w.updated_at, d.dispatched_at, d.created_at) AS observed_at
            FROM dispatch_contexts d
            JOIN start_grant_runs g ON g.run_id = d.run_id
+           LEFT JOIN worker_dispatches w ON w.dispatch_id = d.id
            WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
            ORDER BY observed_at`
         )
@@ -187,7 +206,9 @@ function activeDispatches(db: GrantDb, grantId: string): ActiveDispatch[] {
   return rows.map((row) => ({
     dispatchId: row.dispatch_id,
     status: row.status,
-    observedAt: row.observed_at
+    // Named after the column the contract promises; a context-only Dispatch has no worker row and
+    // falls back to its own timestamps in the query above.
+    updatedAt: row.observed_at
   }))
 }
 

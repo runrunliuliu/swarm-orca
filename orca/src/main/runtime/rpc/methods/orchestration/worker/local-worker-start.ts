@@ -30,6 +30,7 @@ import { requireWorkerAuthority, type WorkerEffect } from './worker-topology'
 import { prepareLocalWorkerStart } from './worker-start-validation'
 import { deliverAndSettleWorkerStartReadiness } from './worker-start-readiness-settlement'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
+import { resolveCreationRepoId } from '../../../../orchestration/start-grant-spawn'
 
 type WorkerStartMutation = {
   callerFingerprint: string
@@ -138,8 +139,12 @@ export async function startLocalWorker(args: {
     taskParentId: params.parent,
     taskRunId: run.id,
     // Read before placement: a new worktree has no id until it is created, and the scope rule refuses
-    // to guess one (only a repo-wide grant authorises creating a worktree).
-    repoId: creationWorktree?.repoId ?? resolvedWorktree?.repoId ?? null,
+    // to guess one (only a repo-wide grant authorises creating a worktree). The repo is resolved from
+    // the same selector the creation will use, because `--repo` can point at a different repo than
+    // the coordinator's — checking the coordinator's repo alone would wave that through.
+    repoId: createsWorktree
+      ? await resolveCreationRepoId(runtime, params.repo ?? creationWorktree?.repoId ?? null)
+      : (resolvedWorktree?.repoId ?? null),
     worktreeId: createsWorktree ? null : (resolvedWorktree?.id ?? null),
     // A handle-less session creates root Tasks: Task lineage is recorded by terminal only.
     taskCreatedByTerminalHandle: coordinator?.terminalHandle ?? undefined,

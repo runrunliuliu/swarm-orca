@@ -24,7 +24,7 @@ const canonicalAbsolutePath = z
     'must be an absolute canonical path below the filesystem root, without a trailing slash'
   )
 
-export const startGrantRefSchema = z.object({
+const startGrantRefSchema = z.object({
   path: z.string().min(1),
   sha256
 })
@@ -107,10 +107,8 @@ export const startGrantBindingSchema = z.object({
 export const startGrantSubmittedSchema = startGrantObjectSchema.omit({ minter: true })
 
 export type StartGrant = z.infer<typeof startGrantSchema>
-export type StartGrantSubmission = z.infer<typeof startGrantSubmittedSchema>
 export type StartGrantRevocation = z.infer<typeof startGrantRevocationSchema>
 export type StartGrantBinding = z.infer<typeof startGrantBindingSchema>
-export type StartGrantRepoScope = z.infer<typeof startGrantRepoScopeSchema>
 
 function assertUnique(ctx: z.RefinementCtx, values: readonly string[], path: (string | number)[]): void {
   if (new Set(values).size !== values.length) {

@@ -26,7 +26,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import uuid
@@ -271,10 +270,6 @@ def _parse(text):
         except ValueError:
             continue
     return payload
-
-
-def _payload(**fields):
-    return dict(fields)
 
 
 def emit(value, as_json):

@@ -265,7 +265,10 @@ M4 的 Python `mint`（`swarm/start_grant.py`）不持有额外的权限：它�
    - 没有绑定：该 Run 是 strict Run 且 grant-required 开关已开 → `start_grant_required`（fail-closed）；
      开关关闭（迁移窗口）→ 按现状放行，并把"未绑定"记进诊断（窗口何时关闭是 §8 决策 4）。
 2. 撤销 → `start_grant_revoked`；`Date.now() > deadline` → `start_grant_expired`。
-3. 仓库范围，按三种情形分别判：
+3. 远端：该事务携带 federation 参数时 → `start_grant_remote_unsupported`。**这一条排在仓库范围之前**：
+   "远端 Worker 无法被本机计数"不依赖 repo id，而 federation 调用根本不带 repo；排在后面会把
+   "不支持远端"误报成"仓库不在批准里"（实现复核 F3）。
+4. 仓库范围，按三种情形分别判：
    - 已解析 worktree（`--worktree current` / `id:…`）：`repoId` ∈ `repos`，且 `worktreeIds` 为 null
      或包含该 worktree id；
    - 新建 worktree（`new-child` / `new-top-level`）：判定时**还没有** worktree id，所以
@@ -274,12 +277,12 @@ M4 的 Python `mint`（`swarm/start_grant.py`）不持有额外的权限：它�
      拒绝——否则"枚举了 worktree 却又能新建"就是白名单漏洞；
    - 本 Run 的一次 dispatch 已经创建的 worktree 视为在范围内（§2.1 第 3 条）。
    不满足 → `start_grant_repo_not_granted`。
-4. 远端：该事务携带 federation 参数时 → `start_grant_remote_unsupported`。**这个码今天不可达**：
-   唯一来源 `--on` 已在更早的 `workers.ts:63` 被 `strict_coordinator_required` 拒绝。保留它的理由不是
-   "现在会命中"，而是"若将来放宽那道门，计数不会跟着静默失效"——这种码必须在表里说明自己是防御性的，
-   否则读者会以为它已经是一条生效的路径（§2.6 有同样的标注）。
+   这个码今天**不可达**：唯一来源 `--on` 已在更早的 `workers.ts:63` 被 `strict_coordinator_required`
+   拒绝。保留它的理由不是"现在会命中"，而是"若将来放宽那道门，计数不会跟着静默失效"——这种码必须在表里
+   说明自己是防御性的，否则读者会以为它已经是一条生效的路径（§2.6 有同样的标注）。
 5. 计数：该 grant 覆盖的活跃 dispatch 数 `< maxWorkers` → 否则 `start_grant_worker_limit`，拒绝体里附
-   被计入的 `dispatch_id` + `status` + `updated_at`（只给 id 无法判断是不是 stale 行）。
+   每个被计入行的 `dispatchId` + `status` + `updatedAt`（`worker_dispatches.updated_at`；context-only
+   dispatch 没有那一行，退回 `dispatched_at`/`created_at`）。只给 id 无法判断是不是 stale。
 6. 只有 1–5 全过，才按既有顺序写：mutation receipt → Task（`--spec` 时）→ dispatch 行 → Task 状态迁移。
 
 `worker-start` 不加 `--grant` 参数：grant 由 Run 推导（§2.10 第 1 条）。判定点在 `:48` 之前，
@@ -372,7 +375,8 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
   strict Run 上 `orchestration.dispatch` 是**允许**的（只拒绝协调者自己的终端），
   所以只做 `worker-start` 会让 cap 被一次收养绕开。
 - 计数是"已记录"，不是"还活着"：worker 进程死了但行仍是 `dispatched` 时计数偏高 → 多拒（安全方向）。
-  所以 `start_grant_worker_limit` 必须附被计入的 `dispatch_id` + `status` + `updated_at`，让 operator 能收敛。
+  所以 `start_grant_worker_limit` 必须附被计入的 `dispatchId` + `status` + `updatedAt`
+  （`worker_dispatches.updated_at`，context-only 行退回 `dispatched_at`/`created_at`），让 operator 能收敛。
 - 一个 Run 只能被一个 grant 覆盖（UNIQUE），因此"这个 dispatch 属于哪个 grant"永远有唯一答案。
 - **数的是 supervised dispatch，不是 worker。** `orchestration.dispatch` 可以产生没有 `worker_dispatches`
   行的 context-only dispatch：它计入 cap，却不对应"有一个 agent 在跑"。所以这个上限既不是 worker 数，
@@ -442,6 +446,26 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
 - `--grant` 参数仍不加到 `worker-start` 上（§2.10 第 1 条，两位评审都没有反对这条推导）。
 - 没有采纳"把 `start_grant_remote_unsupported` 删掉"的另一种解法：它在本节的判据下是**有判定点、
   有后果**的码，只是当前不可达；删掉会让"放宽 `--on` 时不再有人计数"这件事没有任何记录。
+
+### 2.12 实现复核（2026-11-13，代码落地后）
+
+代码写完之后又做了一轮独立复核（同样是 codex-ark / trae 两位、互不可见、只读，判据是本文 §2 与 §4.1）。
+一位给 `ACCEPT_WITH_FIXES`，一位给 `REJECT`（1 个 BLOCKER）。四条是真问题，已改：
+
+| # | 问题 | 改法 |
+| --- | --- | --- |
+| I1 | **BLOCKER**：`--worktree new-child --repo <未批准 repo>`。判定用的是协调者当前 repo，而真实创建用 `params.repo ?? coordinatorWorktree.repoId` → 批准了 A 仓也能在 B 仓建 worker 工作树 | `resolveCreationRepoId(runtime, params.repo ?? creationWorktree.repoId)` 在写入前把**同一个 selector** 解析成 repo id；解析不出来就是 `null`，由范围判定按"无法解析"拒绝。附带 3 例单测 |
+| I2 | 拒绝体的时间字段与 §2.8 不一致（实现给 `observedAt`，契约写 `updated_at`） | 计数查询左联 `worker_dispatches`，优先取 `updated_at`；context-only 行退回 `dispatched_at`/`created_at`，字段与契约统一为 `updatedAt` |
+| I3 | 顺序：federation 判定排在仓库范围之后 → 将来放宽 `--on` 会先报"仓库不在批准里"，而不是那条防御码 | 远端判定提到仓库范围之前（它不依赖 repo id，而 federation 调用不带 repo） |
+| I4 | 测试里 4 处 `expect(fn, 'start_grant_x')` **没有 matcher** —— 断言从不执行，S3/S4/S7/S8 的关键分支坏了也会绿 | 改成 `expectRefusal(fn, 'code')`；其中一条因此暴露了 setup 错误（第二次收养撞的是 Task 状态而不是 cap），改成两个 ready Task 后才真正测到 cap |
+
+两条不改（属于"条件未启用"，不是漏做）：`start_grant_self_minted` 未实现、未进 passthrough
+（§8 决策 5 未定）；`start_grant_remote_unsupported` 当前不可达（`--on` 被更早的门拒绝）。
+
+复核结论：第二轮之后两位都给 **`ACCEPT` / `CONSENSUS: YES`**（I2 的字段名是最后一处，改成 `updatedAt` 后关闭）。
+**仍然没有覆盖的**：`resolveCreationRepoId` 的返回值被送进 `createStartingWorkerDispatch` 的那一行只有结构保证
+——`worker-start` 走到那里要 terminal 创建栈的整套 mock，所以 I1 有 3 例单测覆盖"解析"，没有端到端断言覆盖"接线"。
+这条已知缺口留在文档里，而不是用一句"tested"盖过去。
 
 ## 3. 代码放哪：由"能不能被模型绕过"决定，不是由语言偏好决定
 

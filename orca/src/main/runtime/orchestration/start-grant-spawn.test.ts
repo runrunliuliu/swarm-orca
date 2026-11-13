@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OrchestrationDb } from './db'
-import { assertSpawnAdmissible } from './start-grant-spawn'
+import { assertSpawnAdmissible, resolveCreationRepoId } from './start-grant-spawn'
 import {
   bindStartGrantToRun,
   insertStartGrant,
@@ -156,7 +156,7 @@ describe('spawn admission under a start grant', () => {
           code: 'start_grant_worker_limit',
           data: {
             maxWorkers: 1,
-            active: [{ dispatchId: first.dispatch.id, status: 'pending', observedAt: expect.any(String) }]
+            active: [{ dispatchId: first.dispatch.id, status: 'pending', updatedAt: expect.any(String) }]
           }
         })
       }
@@ -209,7 +209,7 @@ describe('spawn admission under a start grant', () => {
       // new-child/new-top-level: no worktree id exists yet, and an enumerated list cannot authorise it.
       expectRefusal(() => spawn(db, run.id, { worktreeId: null }), 'start_grant_repo_not_granted')
       expect(() => spawn(db, run.id, { worktreeId: 'wt-1' })).not.toThrow()
-      expect(() => spawn(db, run.id, { worktreeId: 'wt-2' }), 'start_grant_repo_not_granted')
+      expectRefusal(() => spawn(db, run.id, { worktreeId: 'wt-2' }), 'start_grant_repo_not_granted')
     } finally {
       db.close()
     }
@@ -233,7 +233,7 @@ describe('spawn admission under a start grant', () => {
     const db = open()
     try {
       const run = grantedRun(db)
-      expect(() => spawn(db, run.id, { federated: true }), 'start_grant_remote_unsupported')
+      expectRefusal(() => spawn(db, run.id, { federated: true }), 'start_grant_remote_unsupported')
       expect(counts(db)).toEqual({ dispatches: 0, workers: 0, tasks: 0 })
     } finally {
       db.close()
@@ -249,7 +249,7 @@ describe('spawn admission under a start grant', () => {
         deadline: new Date(Date.now() - 3_600_000).toISOString()
       })
       const expiredRun = grantedRun(db, expired)
-      expect(() => spawn(db, expiredRun.id), 'start_grant_expired')
+      expectRefusal(() => spawn(db, expiredRun.id), 'start_grant_expired')
 
       const revoked = grant({ grantId: '6f6f2b0e-3a4c-4b6f-9a9f-1f0f9c3f5d25' })
       const revokedRun = grantedRun(db, revoked, 2)
@@ -309,25 +309,61 @@ describe('spawn admission under a start grant', () => {
     const db = open()
     try {
       const run = grantedRun(db, grant({ maxWorkers: 1 }))
-      const task = db.createTask({ runId: run.id, spec: 'adopt' })
-      const adopt = () =>
+      // Two ready Tasks: the cap, not the Task's own status, is what has to refuse the second one.
+      const tasks = ['adopt-1', 'adopt-2'].map((spec) => db.createTask({ runId: run.id, spec }))
+      const adopt = (taskId: string, handle: string, paneKey: string) =>
         db.createDispatchContext({
-          taskId: task.id,
-          assigneeHandle: 'term_worker',
-          assigneePaneKey: 'tab:5aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          taskId,
+          assigneeHandle: handle,
+          assigneePaneKey: paneKey,
           creator: { kind: 'system' },
           maxDepth: Number.MAX_SAFE_INTEGER,
           repoId: REPO,
           worktreeId: 'wt-1'
         })
-      adopt()
-      expect(() => adopt(), 'start_grant_worker_limit')
+      adopt(tasks[0]!.id, 'term_worker', 'tab:5aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+      expectRefusal(
+        () => adopt(tasks[1]!.id, 'term_worker_b', 'tab:6aaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+        'start_grant_worker_limit'
+      )
       expect(
         (db.db.prepare('SELECT COUNT(*) AS n FROM dispatch_contexts').get() as { n: number }).n
       ).toBe(1)
+      expect(db.getTask(tasks[1]!.id)).toMatchObject({ status: 'ready' })
     } finally {
       db.close()
     }
+  })
+
+  it('resolves the repo a new worktree would be created in, and refuses to guess', async () => {
+    // The creation path resolves `params.repo ?? coordinatorWorktree.repoId`; the grant check has to
+    // look at the same selector, or `--repo other-repo` would be checked against the coordinator's.
+    const list = (repoId: string) => async () => ({ worktrees: [{ repoId }] })
+    expect(await resolveCreationRepoId({ listManagedWorktrees: list('repo-other') }, 'other')).toBe(
+      'repo-other'
+    )
+    expect(await resolveCreationRepoId({ listManagedWorktrees: list('repo-1') }, null)).toBeNull()
+    expect(
+      await resolveCreationRepoId({ listManagedWorktrees: list('repo-empty') }, 'repo-without-worktrees')
+    ).toBe('repo-empty')
+    expect(
+      await resolveCreationRepoId(
+        {
+          listManagedWorktrees: async () => ({ worktrees: [] })
+        },
+        'unknown'
+      )
+    ).toBeNull()
+    expect(
+      await resolveCreationRepoId(
+        {
+          listManagedWorktrees: () => {
+            throw new Error('selector_not_found')
+          }
+        },
+        'broken'
+      )
+    ).toBeNull()
   })
 
   it('holds the cap across two connections', () => {

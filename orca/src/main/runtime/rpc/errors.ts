@@ -109,6 +109,8 @@ const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   'start_grant_worker_limit',
   'start_grant_repo_not_granted',
   'start_grant_remote_unsupported',
+  // `start_grant_self_minted` is intentionally absent: the check is gated on an open owner decision,
+  // so there is no code path to forward yet. Add it here in the same change that enables the check.
   'administrative_history_quarantined',
   WORKTREE_CREATE_COLLISION_CODE,
   'worktree_id_requires_full_path',

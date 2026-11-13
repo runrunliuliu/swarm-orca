@@ -6,9 +6,10 @@ import { requiredString } from './rpc-param-primitives'
  * stored and re-validated on read, so accepting it as one document keeps a single schema instead of
  * a param shape that could drift from it.
  *
- * `minter` is inside the record so the caller can see what will be stored, but the server compares it
- * with the live caller's authority and refuses a record that names someone else — a mint is never
- * allowed to attribute itself to another terminal.
+ * The record must **not** contain `minter`. The server writes it from the caller's verified live
+ * authority, because a caller cannot read its own `launchTokenHash`; a record that names a minter is
+ * refused rather than having the field quietly replaced, so a mint can never be attributed to a
+ * terminal that did not call.
  */
 export const StartGrantMintParams = z.object({
   from: requiredString('Missing --from: the terminal minting the grant'),
