@@ -4,6 +4,19 @@ Guidance for agents working in this repository; all paths below are repository-r
 This checkout is self-contained. If embedded in another workspace, also follow its applicable
 instructions and explicit deployment policy; no particular private parent repository is required.
 
+## Fresh host
+
+Installing or cloning this repository changes no host state. Before planning swarm work on a host,
+run the read-only entry point and report its verdict instead of assuming the control plane exists:
+
+```bash
+swarm/deploy/install.sh --source-root <workspace holding swarm-orca/, swarm/, skills/>
+```
+
+`0` converged, `3` changes pending (tell the user the command above with `--apply`), `78` a
+precondition failed (the message names it). Never run it with `--apply` unless the user asked for a
+deployment; publishing, switching the pointer and relinking skills are deploy actions.
+
 ## Two layers, two contracts
 
 | Path | Origin | How to treat it |

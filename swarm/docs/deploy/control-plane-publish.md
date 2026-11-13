@@ -173,6 +173,14 @@
 
 ### 4.2 安装与收敛
 
+**入口**：`deploy/install.sh`——新主机上唯一需要记住的命令。它检查环境（python3 / git / orca 是否存在）、
+按固定规则探测工作区根（父目录同时具备 `swarm-orca/swarm`、`swarm`、`skills`，并打印探测结果），
+然后把参数原样交给 `install-control-plane.sh`。它不增加任何行为：同样的开关、同样的默认只读、
+同样的退出码（`0` 收敛 / `3` 有待执行 / `78` 前置失败）。
+
+安装本仓库本身**不改任何主机状态**；没有钩子会调用这些脚本，`install.sh` 的存在只是为了让第一次使用的人
+知道要做什么（`README.md`、`AGENTS.md` 与 `deploy/README.md` 都指向它）。
+
 `deploy/install-control-plane.sh` 把"发布 + 切指针 + 技能链接 + 自检"合成一个**幂等、默认只读**的动作。
 它不做隐式安装：仓库里没有任何钩子会自动调用它，Orca 的 project setup hook 也不应挂它——那是
 "克隆即改机器状态"，与部署单独授权冲突。
