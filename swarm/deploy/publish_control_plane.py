@@ -273,8 +273,9 @@ def switch_pointer(pointer, target):
     return {"path": str(pointer), "target": os.readlink(pointer)}
 
 
-def verify(args):
-    root = Path(args.artifact).resolve()
+def inspect_artifact(root):
+    """Read-only integrity report for one artifact directory; raises Failure when it is not usable."""
+    root = Path(root).resolve()
     identity_path = root / IDENTITY
     if not identity_path.is_file():
         raise Failure("identity-missing: %s" % IDENTITY)
@@ -305,6 +306,10 @@ def verify(args):
                       % (missing[:5], extra[:5], changed[:5]))
     return {"mode": "verify", "artifact": str(root), "buildId": identity.get("buildId"),
             "fileCount": len(actual), "source": identity.get("source")}
+
+
+def verify(args):
+    return inspect_artifact(Path(args.artifact))
 
 
 def main(argv=None):

@@ -167,18 +167,34 @@
 
 ## 6. 消费者契约：只读 readiness
 
-新增一个只读入口（名称待定，暂称 `readiness`），对任意项目输出四块：
+只读入口：`control_plane_readiness.py`，对任意项目输出四块：
 
 1. **控制平面**：指针状态、`buildId`、两个 commit、配置逐文件 hash；
 2. **能力安装**：本 agent 类型是否装到 `swarm-orchestration` / `worktree-delivery` /
-   `orca-cli` / `orchestration`，以及解析出的真实路径；
+   `orca-cli` / `orchestration`，以及解析出的真实路径与 frontmatter 名称；
 3. **项目材料**：`AGENTS.md`、领域/角色技能、binding 文件是否存在；
-4. **缺失项与计划**：缺失清单 + 将要使用的 argv，`max_workers` 一律标注“待用户确认”。
+4. **缺失项与计划**：缺失清单 + 将要使用的 argv 与环境，`max_workers` 一律标注“待用户确认”。
 
-fail-closed 条件（任一命中即不输出可执行计划）：指针 `dangling`/`invalid`、
+fail-closed 条件（任一命中则不输出可执行计划）：指针 `dangling`/`invalid`、
 身份与清单不符、`dev-checkout` 且请求带 pin、必需配置缺失或 hash 不符。
 
 readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态；它不是启动授权。
+
+### 6.1 工具接口
+
+| 参数 | 语义 |
+| --- | --- |
+| `--project <dir>`（必需） | 报告对象；不搜索父目录，不根据 cwd 猜测 |
+| `--control-plane <dir>` | 显式产物目录或开发源根；给定时跳过指针 |
+| `--pointer <path>` | 指针路径，默认 `/opt/swarm/current` |
+| `--agent <agents\|pi\|claude\|codex\|trae>` | 报告哪个 agent 的技能安装（默认 `agents`） |
+| `--skills-dir <dir>` | 覆盖技能目录，用于审计与测试 |
+| `--artifacts <dir>` | 产物/证据根必须先存在，否则阻断 |
+| `--require-pin` | 要求已发布且可核验的控制平面；`dev-checkout` 即阻断 |
+| `--json` | 机器可读报告 |
+
+退出码：`0` 就绪，`2` 用法错误，`78` 阻断（stderr/stdout 只给原因，不自动修复）。
+报告不写入任何文件，也不修改被测项目的状态。
 
 ## 7. 私有配置与公开基线的隔离
 
