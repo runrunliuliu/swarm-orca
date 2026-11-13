@@ -137,6 +137,9 @@ CREATE TABLE IF NOT EXISTS incident_mirror_links (
   dropped_count        INTEGER NOT NULL DEFAULT 0,
   last_rejected_reason TEXT,
   pruned_count         INTEGER NOT NULL DEFAULT 0,
+  skipped_count        INTEGER NOT NULL DEFAULT 0,
+  skipped_ranges       INTEGER NOT NULL DEFAULT 0,
+  last_skipped_reason  TEXT,
   pending_count        INTEGER,
   pending_at           INTEGER,
   last_run_lines       INTEGER,
@@ -153,7 +156,10 @@ CREATE TABLE IF NOT EXISTS incident_mirror_links (
 -- been pruned locally — a mirror must not resurrect a row an operator deleted.
 --
 -- The key columns are carried so the prune tombstone can be checked before an insert, without
--- touching the immutable incident row.
+-- touching the immutable incident row — and they are UNIQUE (M7-C review C2). The lookup path
+-- decides "was this fact mirrored before", and a table that can hold two provenance rows for one
+-- fact key makes that answer ambiguous. A second dedupe it still is not: the UNIQUE here governs
+-- provenance rows, never whether a fact is inserted (that stays the incident table's key).
 CREATE TABLE IF NOT EXISTS incident_mirror_rows (
   incident_id TEXT PRIMARY KEY,
   source_kind TEXT NOT NULL,
@@ -161,10 +167,9 @@ CREATE TABLE IF NOT EXISTS incident_mirror_rows (
   facet       TEXT NOT NULL,
   host_id     TEXT NOT NULL,
   origin_seq  INTEGER NOT NULL,
-  pulled_at   INTEGER NOT NULL
+  pulled_at   INTEGER NOT NULL,
+  UNIQUE(source_kind, source_id, facet)
 );
-CREATE INDEX IF NOT EXISTS idx_incident_mirror_rows_key
-  ON incident_mirror_rows(source_kind, source_id, facet);
 CREATE INDEX IF NOT EXISTS idx_incident_mirror_rows_host
   ON incident_mirror_rows(host_id, origin_seq);
 

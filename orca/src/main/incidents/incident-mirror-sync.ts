@@ -59,6 +59,14 @@ export type MirrorPage = {
   /** The origin has rows past `nextSeq` that this page did not include. */
   hasMore: boolean
   /**
+   * Why the origin did not export the range `(lastExportedSeq, nextSeq]`, when it chose not to (C3).
+   *
+   * The cursor is never moved past a range nobody explained: an unexplained jump stops the pull with
+   * `page_mismatch` instead, because a skipped range is invisible and permanent. `count` is the
+   * origin's own row count for that range; it is optional and never invented locally.
+   */
+  skipped?: { reason: string; count?: number } | null
+  /**
    * The origin's own count of its rows with `seq > nextSeq`. `null` when it cannot say — the read
    * model reports that as unknown rather than as 0.
    */
@@ -113,6 +121,9 @@ export type MirrorHostSync = {
   pruned: number
   /** Non-crash rows the capacity gate refused; counted on the link, not inserted. */
   dropped: number
+  /** Rows the origin declared it did not export, and how many ranges it declared (C3). */
+  skippedRows: number
+  skippedRanges: number
   /** Origin-stated rows still past the cursor after this pass; NULL = not stated. */
   pending: number | null
   stopped: MirrorStop | null
@@ -130,6 +141,7 @@ export type MirrorSyncSummary = {
   rejected: number
   pruned: number
   dropped: number
+  skippedRows: number
   elapsedMs: number
 }
 
@@ -201,6 +213,22 @@ function validatePage(page: MirrorPage, cursor: number): PageValidation {
   if (page.pending !== null && !isCount(page.pending)) {
     return { ok: false, stop: { reason: 'page_mismatch', detail: 'pending_not_a_count' }, apply: [] }
   }
+  if (page.skipped !== undefined && page.skipped !== null) {
+    if (typeof page.skipped !== 'object' || typeof page.skipped.reason !== 'string' || page.skipped.reason.trim().length === 0) {
+      return {
+        ok: false,
+        stop: { reason: 'page_mismatch', detail: 'skipped_range_without_reason' },
+        apply: []
+      }
+    }
+    if (page.skipped.count !== undefined && !isCount(page.skipped.count)) {
+      return {
+        ok: false,
+        stop: { reason: 'page_mismatch', detail: 'skipped_count_not_a_count' },
+        apply: []
+      }
+    }
+  }
   const seqs: number[] = []
   let previous = cursor
   for (const line of page.lines) {
@@ -252,6 +280,9 @@ type PullState = {
   rejected: number
   pruned: number
   dropped: number
+  skippedRows: number
+  skippedRanges: number
+  lastSkippedReason: string | null
   handled: number
   pagesRead: number
   pending: number | null
@@ -285,6 +316,9 @@ async function pullHost(options: {
     rejected: 0,
     pruned: 0,
     dropped: 0,
+    skippedRows: 0,
+    skippedRanges: 0,
+    lastSkippedReason: null,
     handled: 0,
     pagesRead: 0,
     pending: null,
@@ -416,6 +450,15 @@ async function pullHost(options: {
         case 'read_only':
           state.stop = { reason: 'store_refused', detail: 'read_only' }
           break
+        case 'provenance_conflict':
+          // Two provenance rows for one fact key (C2). The key is UNIQUE in v6, so this is a store
+          // that predates the constraint or was edited outside this code; stop instead of guessing
+          // which provenance row is the fact's.
+          state.stop = {
+            reason: 'store_refused',
+            detail: `provenance_conflict:${result.reason ?? 'unknown'}`
+          }
+          break
         case 'provenance_failed':
           // The incident row landed but its provenance did not. Stopping here (instead of advancing)
           // keeps the line retryable, and the retry recognises the row by its origin host_id and
@@ -436,10 +479,28 @@ async function pullHost(options: {
     if (state.stop !== null) {
       break
     }
-    // The page was consumed. `nextSeq` may be ahead of the last line's seq when the origin chose not
-    // to export a row (e.g. its own capacity drop); it is the origin's progress marker, and the next
-    // request starts strictly after it.
-    state.cursor = Math.max(state.cursor, page.nextSeq)
+    // The page was consumed. The cursor moves to the last seq this page actually delivered — never
+    // to `nextSeq` on its own. `nextSeq` ahead of that range means the origin chose not to export
+    // some rows, and that is only acceptable when it says why (C3): an unexplained gap would skip
+    // facts permanently, so it stops the pull with the cursor where the applied rows end.
+    const lastDelivered = seqs.length > 0 ? seqs[seqs.length - 1] : state.cursor
+    if (page.nextSeq > lastDelivered) {
+      if (page.skipped === undefined || page.skipped === null) {
+        state.stop = {
+          reason: 'page_mismatch',
+          detail: `unexplained_gap_${lastDelivered}_to_${page.nextSeq}`
+        }
+        break
+      }
+      state.skippedRanges += 1
+      if (page.skipped.count !== undefined) {
+        state.skippedRows += page.skipped.count
+      }
+      state.lastSkippedReason = page.skipped.reason.slice(0, MAX_ERROR_CHARS)
+      state.cursor = page.nextSeq
+    } else {
+      state.cursor = Math.max(state.cursor, lastDelivered)
+    }
     state.pending = page.pending
     if (!page.hasMore) {
       break
@@ -465,6 +526,9 @@ async function pullHost(options: {
     rejected: state.rejected,
     dropped: state.dropped,
     pruned: state.pruned,
+    skippedRows: state.skippedRows,
+    skippedRanges: state.skippedRanges,
+    lastSkippedReason: state.lastSkippedReason,
     lastRejectedReason: state.lastRejectedReason,
     lines: state.handled,
     ms
@@ -493,6 +557,8 @@ async function pullHost(options: {
     rejected: state.rejected,
     pruned: state.pruned,
     dropped: state.dropped,
+    skippedRows: state.skippedRows,
+    skippedRanges: state.skippedRanges,
     pending: state.pending,
     stopped: state.stop,
     reachedOrigin,
@@ -546,6 +612,7 @@ export async function syncIncidentMirror(options: {
     rejected: hosts.reduce((total, host) => total + host.rejected, 0),
     pruned: hosts.reduce((total, host) => total + host.pruned, 0),
     dropped: hosts.reduce((total, host) => total + host.dropped, 0),
+    skippedRows: hosts.reduce((total, host) => total + host.skippedRows, 0),
     elapsedMs: Math.max(0, now() - startedAt)
   }
 }

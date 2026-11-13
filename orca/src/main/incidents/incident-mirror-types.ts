@@ -78,6 +78,13 @@ export type MirrorHostCoverage = {
   lastRejectedReason: string | null
   /** Rows currently in this store with provenance from this host. */
   rowsPresent: number
+  /**
+   * Rows the origin declared it did not export, and how many such ranges it declared (C3). A range
+   * the origin did not explain is never skipped: the pull stops instead (`page_mismatch`).
+   */
+  skippedRows: number
+  skippedRanges: number
+  lastSkippedReason: string | null
   lastRun: { lines: number; ms: number } | null
 }
 
@@ -97,6 +104,13 @@ export type MirrorCoverage = {
   lastError: string | null
   /** Rows currently in this store with mirror provenance, any host. */
   mirroredRowsPresent: number
+  /** Rows origins declared they did not export (see the per-host reasons). */
+  skippedRows: number
+  /**
+   * Fact keys with more than one provenance row. Non-zero means the provenance table predates its
+   * UNIQUE constraint or was edited outside this code; writes for such a key fail-stop (C2).
+   */
+  provenanceConflicts: number
 }
 
 /** What one mirrored insert produced. Every outcome is countable and visible; none is a silent skip. */
@@ -119,6 +133,12 @@ export type MirrorInsertOutcome =
    * the provenance (see `insertMirroredIncident`).
    */
   | 'provenance_failed'
+  /**
+   * Two provenance rows already exist for one fact key (C2). That cannot happen on a healthy store —
+   * the key is UNIQUE — so it means the file was written by a build that lacked the constraint or was
+   * edited outside this code. Reported, never guessed at: the pull stops instead of picking a row.
+   */
+  | 'provenance_conflict'
 
 export type MirrorInsertResult = {
   outcome: MirrorInsertOutcome

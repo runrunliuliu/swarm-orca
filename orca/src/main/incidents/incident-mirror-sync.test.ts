@@ -576,6 +576,8 @@ describe('protocol violations stop instead of guessing', () => {
       detail: 'no_progress_page'
     })
     expect(summary.hosts[0].cursorAfter).toBe(0)
+    expect(readIncidentMirrorCoverage(opened.db).hosts[0].lastCursor).toBe(0)
+    expect(store.listIncidents().total).toBe(0)
   })
 
   it('refuses a page whose nextSeq goes backwards, keeping the cursor where it was', async () => {
@@ -651,6 +653,43 @@ describe('the read surface', () => {
     })
   })
 
+  it('prints origin-declared skips and provenance corruption instead of hiding them', async () => {
+    const { store, opened } = openStore()
+    const lines = shadowLines(originRecords('host-a', 1))
+    await pull(store, opened, [
+      {
+        hostId: 'host-a',
+        read: () => ({
+          lines,
+          nextSeq: 5,
+          hasMore: false,
+          pending: 0,
+          skipped: { reason: 'origin_capacity_drop', count: 4 }
+        })
+      }
+    ])
+    // Plant a second provenance row for the same fact key on a table without the UNIQUE constraint.
+    opened.db.exec('ALTER TABLE incident_mirror_rows RENAME TO incident_mirror_rows_old')
+    opened.db.exec(`CREATE TABLE incident_mirror_rows (
+      incident_id TEXT PRIMARY KEY,
+      source_kind TEXT NOT NULL, source_id TEXT NOT NULL, facet TEXT NOT NULL,
+      host_id TEXT NOT NULL, origin_seq INTEGER NOT NULL, pulled_at INTEGER NOT NULL)`)
+    opened.db.exec('DROP TABLE incident_mirror_rows_old')
+    opened.db
+      .prepare(
+        `INSERT INTO incident_mirror_rows
+           (incident_id, source_kind, source_id, facet, host_id, origin_seq, pulled_at)
+         VALUES ('inc_x1','pty_exit','dup','exit','host-a',1,?), ('inc_x2','pty_exit','dup','exit','host-a',1,?)`
+      )
+      .run(NOW, NOW)
+
+    const coverage = readIncidentMirrorCoverage(opened.db)
+    const text = formatIncidentMirrorCoverage(coverage, { path: opened.path, readAt: NOW })
+    expect(text).toContain('skipped=4')
+    expect(text).toContain('origin_capacity_drop')
+    expect(text).toContain('more than one provenance row')
+  })
+
   it('never renders a never-read origin as caught up', async () => {
     const { store, opened } = openStore()
     const host = fakeHost('host-a', originRecords('host-a', 1))
@@ -704,5 +743,160 @@ describe('startup wiring', () => {
     // The startup guard is once-per-process; a reconnect calls `syncIncidentMirror` directly.
     const second = await syncIncidentMirrorAtStartup({ userDataPath: '/tmp/never-read' })
     expect(second).toEqual({ ran: false, reason: 'already_synced' })
+  })
+})
+
+describe('atomic mirrored insert (review C1)', () => {
+  it('rolls the incident row back when the provenance write fails, so no half-write exists to prune', async () => {
+    const { store, opened } = openStore()
+    // Force the provenance insert to fail without touching anything else: a trigger that aborts.
+    opened.db.exec(
+      `CREATE TRIGGER test_block_provenance BEFORE INSERT ON incident_mirror_rows
+       BEGIN SELECT RAISE(ABORT, 'blocked_for_test'); END;`
+    )
+    const host = fakeHost('host-a', originRecords('host-a', 1))
+
+    const failed = await pull(store, opened, [host])
+    expect(failed.hosts[0].inserted).toBe(0)
+    expect(failed.hosts[0].stopped).toMatchObject({ reason: 'store_refused' })
+    expect(failed.hosts[0].stopped?.detail).toContain('provenance_failed')
+    // Atomicity: the incident row was rolled back, so there is nothing unprovenanced to prune and the
+    // prune-before-heal window (trace C1) cannot even open.
+    expect(store.listIncidents().total).toBe(0)
+    expect(readIncidentMirrorCoverage(opened.db).hosts[0].lastCursor).toBe(0)
+    // "Prune before heal" has nothing to delete: the tombstone question is moot, not lost.
+    expect(store.pruneIncidents({ dryRun: false, now: NOW }).deleted).toBe(0)
+
+    // Remove the fault: the same line is retried (cursor never advanced) and lands with provenance.
+    opened.db.exec('DROP TRIGGER test_block_provenance')
+    const retried = await pull(store, opened, [host])
+    expect(retried.hosts[0].inserted).toBe(1)
+    expect(store.listIncidents().total).toBe(1)
+    expect(readMirrorProvenance(opened.db, 'inc_host-a_1')).not.toBeNull()
+  })
+
+  it('still refuses to resurrect a fact pruned after it was mirrored (tombstone holds)', async () => {
+    const { store, opened } = openStore()
+    const old = originRecords('host-a', 1)[0]
+    old.record.createdAt = NOW - 400 * DAY
+    const host = fakeHost('host-a', [old])
+    await pull(store, opened, [host])
+    store.appendDecision({
+      incidentId: 'inc_host-a_1',
+      toStatus: 'invalid',
+      actor: 'operator',
+      reason: 'not a real failure'
+    })
+    expect(store.pruneIncidents({ dryRun: false, now: NOW }).deleted).toBe(1)
+
+    opened.db.prepare('UPDATE incident_mirror_links SET last_cursor = 0').run()
+    const again = await pull(store, opened, [host])
+    expect(again.hosts[0]).toMatchObject({ inserted: 0, pruned: 1 })
+    expect(store.listIncidents().total).toBe(0)
+    expect(readIncidentMirrorCoverage(opened.db).pruned).toBe(1)
+  })
+})
+
+describe('provenance key uniqueness (review C2)', () => {
+  it('fails closed when one fact key has two provenance rows instead of picking one', async () => {
+    const { store, opened } = openStore()
+    const host = fakeHost('host-a', originRecords('host-a', 1))
+    // A store written before the UNIQUE constraint (or edited outside Orca): rebuild the provenance
+    // table without it and plant the ambiguity the constraint now forbids.
+    opened.db.exec('ALTER TABLE incident_mirror_rows RENAME TO incident_mirror_rows_old')
+    opened.db.exec(`CREATE TABLE incident_mirror_rows (
+      incident_id TEXT PRIMARY KEY,
+      source_kind TEXT NOT NULL,
+      source_id   TEXT NOT NULL,
+      facet       TEXT NOT NULL,
+      host_id     TEXT NOT NULL,
+      origin_seq  INTEGER NOT NULL,
+      pulled_at   INTEGER NOT NULL
+    )`)
+    opened.db.exec('DROP TABLE incident_mirror_rows_old')
+    const insert = opened.db.prepare(
+      `INSERT INTO incident_mirror_rows
+         (incident_id, source_kind, source_id, facet, host_id, origin_seq, pulled_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    const origin = originRecords('host-a', 1)[0].record
+    insert.run('inc_dup_1', origin.sourceKind, origin.sourceId, origin.facet, 'host-a', 1, NOW)
+    insert.run('inc_dup_2', origin.sourceKind, origin.sourceId, origin.facet, 'host-a', 1, NOW)
+
+    const summary = await pull(store, opened, [host])
+
+    expect(summary.hosts[0].inserted).toBe(0)
+    expect(summary.hosts[0].stopped).toMatchObject({ reason: 'store_refused' })
+    expect(summary.hosts[0].stopped?.detail).toContain('provenance_conflict')
+    expect(summary.hosts[0].cursorAfter).toBe(0)
+    expect(store.listIncidents().total).toBe(0)
+    // The conflict is part of the read model, not only a log line.
+    expect(readIncidentMirrorCoverage(opened.db).provenanceConflicts).toBe(1)
+  })
+})
+
+describe('nextSeq jumps need an origin-declared reason (review C3)', () => {
+  function gapFeed(options: { skipped?: { reason: string; count?: number } | null }) {
+    const lines = shadowLines(originRecords('host-a', 1))
+    return {
+      hostId: 'host-a',
+      read: (): MirrorPage => ({
+        lines,
+        nextSeq: 5,
+        hasMore: false,
+        pending: 0,
+        skipped: options.skipped ?? null
+      })
+    } satisfies MirrorFeed
+  }
+
+  it('stops instead of skipping an unexplained range', async () => {
+    const { store, opened } = openStore()
+    const summary = await pull(store, opened, [gapFeed({ skipped: null })])
+
+    expect(summary.hosts[0].inserted).toBe(1)
+    expect(summary.hosts[0].stopped).toMatchObject({ reason: 'page_mismatch' })
+    expect(summary.hosts[0].stopped?.detail).toContain('unexplained_gap_1_to_5')
+    // The delivered row is kept; the cursor does NOT jump over the unexplained range.
+    expect(summary.hosts[0].cursorAfter).toBe(1)
+    const coverage = readIncidentMirrorCoverage(opened.db)
+    expect(coverage.hosts[0].lastCursor).toBe(1)
+    expect(coverage.skippedRows).toBe(0)
+    expect(coverage.lastError).toContain('unexplained_gap')
+    expect(store.listIncidents().total).toBe(1)
+  })
+
+  it('accepts the jump when the origin declares it, and counts it durably', async () => {
+    const { store, opened } = openStore()
+    const summary = await pull(
+      store,
+      opened,
+      [gapFeed({ skipped: { reason: 'origin_capacity_drop', count: 4 } })]
+    )
+
+    expect(summary.hosts[0].stopped).toBeNull()
+    expect(summary.hosts[0].cursorAfter).toBe(5)
+    expect(summary.hosts[0]).toMatchObject({ skippedRows: 4, skippedRanges: 1 })
+    const coverage = readIncidentMirrorCoverage(opened.db)
+    expect(coverage.hosts[0].lastCursor).toBe(5)
+    expect(coverage.skippedRows).toBe(4)
+    expect(coverage.hosts[0].skippedRanges).toBe(1)
+    expect(coverage.hosts[0].lastSkippedReason).toBe('origin_capacity_drop')
+  })
+
+  it('rejects a "skipped" explanation with no reason', async () => {
+    const { store, opened } = openStore()
+    const summary = await pull(
+      store,
+      opened,
+      [gapFeed({ skipped: { reason: '   ', count: 4 } })]
+    )
+    expect(summary.hosts[0].stopped).toMatchObject({
+      reason: 'page_mismatch',
+      detail: 'skipped_range_without_reason'
+    })
+    // Nothing from the page lands: an explanation we cannot read is not an explanation.
+    expect(summary.hosts[0].inserted).toBe(0)
+    expect(summary.hosts[0].cursorAfter).toBe(0)
   })
 })

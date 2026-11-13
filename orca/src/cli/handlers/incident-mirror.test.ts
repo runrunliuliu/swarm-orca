@@ -106,6 +106,9 @@ describe('incident mirror', () => {
       rejected: 0,
       dropped: 0,
       pruned: 0,
+      skippedRows: 0,
+      skippedRanges: 0,
+      lastSkippedReason: null,
       lastRejectedReason: null,
       lines: 9,
       ms: 1

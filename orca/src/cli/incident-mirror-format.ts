@@ -31,7 +31,9 @@ function hostLine(host: MirrorCoverage['hosts'][number]): string {
   return (
     `  ${host.hostId}  ${host.state}  cursor=${host.lastCursor}  unsynced=${unsynced}${asOf}  ` +
     `present=${host.rowsPresent}  inserted=${host.mirroredRows}  duplicate=${host.duplicateRows}  ` +
-    `rejected=${host.rejectedRows}  pruned=${host.prunedRows}  dropped=${host.droppedRows}` +
+    `rejected=${host.rejectedRows}  pruned=${host.prunedRows}  dropped=${host.droppedRows}  ` +
+    `skipped=${host.skippedRows}` +
+    (host.lastSkippedReason === null ? '' : ` (${host.lastSkippedReason})`) +
     (host.lastError === null ? '' : `  last_error=${host.lastError}`)
   )
 }
@@ -68,7 +70,7 @@ export function formatIncidentMirrorCoverage(
   lines.push(
     `Capture: ${coverage.capture}  hosts=${coverage.hosts.length}  unsynced=${unsynced}${asOf}  ` +
       `unreachable=${coverage.unreachable}  rejected=${coverage.rejected}  pruned=${coverage.pruned}  ` +
-      `mirrored_rows=${coverage.mirroredRowsPresent}`
+      `skipped=${coverage.skippedRows}  mirrored_rows=${coverage.mirroredRowsPresent}`
   )
   lines.push('')
   for (const host of coverage.hosts) {
@@ -96,6 +98,21 @@ export function formatIncidentMirrorCoverage(
     lines.push(
       'one fact is one row, so the local row was kept and the refusal counted (see the per-host reason).'
     )
+  }
+  if (coverage.skippedRows > 0) {
+    lines.push(
+      `${coverage.skippedRows} row(s) were not exported by the origin but it declared why; they are`
+    )
+    lines.push('counted here and never silently skipped (see the per-host reason).')
+  }
+  if (coverage.provenanceConflicts > 0) {
+    lines.push(
+      `WARNING: ${coverage.provenanceConflicts} fact key(s) have more than one provenance row. This`
+    )
+    lines.push(
+      'store predates the provenance UNIQUE constraint or was edited outside Orca; mirrored writes for'
+    )
+    lines.push('those keys stop instead of guessing which provenance row is real.')
   }
   if (coverage.pruned > 0) {
     lines.push(

@@ -14,6 +14,7 @@
 // `incident list --json` on such a file must keep working, and `unsupported` is the truthful answer.
 
 import type Database from '../sqlite/sync-database'
+import { runIncidentsTransaction } from './incidents-database'
 import type { IncidentRecord } from './incident-types'
 import type { IncidentStore } from './incident-store'
 import type {
@@ -69,7 +70,9 @@ export function emptyMirrorCoverage(): MirrorCoverage {
     rejected: 0,
     pruned: 0,
     lastError: null,
-    mirroredRowsPresent: 0
+    mirroredRowsPresent: 0,
+    skippedRows: 0,
+    provenanceConflicts: 0
   }
 }
 
@@ -96,6 +99,9 @@ function toHostCoverage(row: Row, rowsPresent: number): MirrorHostCoverage {
     droppedRows: numberOrNull(row.dropped_count) ?? 0,
     lastRejectedReason: textOrNull(row.last_rejected_reason),
     rowsPresent,
+    skippedRows: numberOrNull(row.skipped_count) ?? 0,
+    skippedRanges: numberOrNull(row.skipped_ranges) ?? 0,
+    lastSkippedReason: textOrNull(row.last_skipped_reason),
     lastRun: runLines === null && runMs === null ? null : { lines: runLines ?? 0, ms: runMs ?? 0 }
   }
 }
@@ -107,7 +113,20 @@ export function readIncidentMirrorCoverage(db: Database.Database): MirrorCoverag
   }
   let rows: Row[]
   let present: Row[]
+  let conflicts = 0
   try {
+    conflicts = Number(
+      (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM (
+               SELECT 1 FROM ${MIRROR_ROWS_TABLE}
+                GROUP BY source_kind, source_id, facet HAVING COUNT(*) > 1
+             )`
+          )
+          .get() as { n?: unknown } | undefined
+      )?.n ?? 0
+    )
     rows = db.prepare(`SELECT * FROM ${MIRROR_LINKS_TABLE} ORDER BY host_id ASC`).all() as Row[]
     // Joined to `incidents` on purpose: provenance outlives a pruned row (it is the tombstone), so a
     // bare GROUP BY would keep counting facts the store no longer holds. "Rows present" must mean
@@ -158,7 +177,9 @@ export function readIncidentMirrorCoverage(db: Database.Database): MirrorCoverag
     rejected: hosts.reduce((total, host) => total + host.rejectedRows, 0),
     pruned: hosts.reduce((total, host) => total + host.prunedRows, 0),
     lastError: newestError?.lastError ?? null,
-    mirroredRowsPresent: hosts.reduce((total, host) => total + host.rowsPresent, 0)
+    mirroredRowsPresent: hosts.reduce((total, host) => total + host.rowsPresent, 0),
+    skippedRows: hosts.reduce((total, host) => total + host.skippedRows, 0),
+    provenanceConflicts: conflicts
   }
 }
 
@@ -203,6 +224,10 @@ export type MirrorProbeOutcome = {
   rejected: number
   dropped: number
   pruned: number
+  /** Origin-declared rows it chose not to export (C3); unknown counts are not invented. */
+  skippedRows: number
+  skippedRanges: number
+  lastSkippedReason: string | null
   lastRejectedReason: string | null
   lines: number
   ms: number
@@ -222,6 +247,9 @@ export function recordMirrorProbeSuccess(db: Database.Database, outcome: MirrorP
        rejected_count = rejected_count + ?,
        dropped_count = dropped_count + ?,
        pruned_count = pruned_count + ?,
+       skipped_count = skipped_count + ?,
+       skipped_ranges = skipped_ranges + ?,
+       last_skipped_reason = COALESCE(?, last_skipped_reason),
        last_rejected_reason = COALESCE(?, last_rejected_reason),
        pending_count = COALESCE(?, pending_count),
        pending_at = CASE WHEN ? IS NULL THEN pending_at ELSE ? END,
@@ -237,6 +265,9 @@ export function recordMirrorProbeSuccess(db: Database.Database, outcome: MirrorP
     outcome.rejected,
     outcome.dropped,
     outcome.pruned,
+    outcome.skippedRows,
+    outcome.skippedRanges,
+    outcome.lastSkippedReason,
     outcome.lastRejectedReason,
     outcome.pending,
     outcome.pending,
@@ -321,12 +352,17 @@ export function readMirrorProvenance(
  * Order matters, and each step is a rule:
  *   1. `host_mismatch` — a feed may only speak for its own host. Refused before anything is written,
  *      because filing one host's fact under another is worse than a missing row;
- *   2. a provenance row for the fact key means this link saw it before: if the incident row is still
+ *   2. `provenance_conflict` — the fact key has more than one provenance row. The key is UNIQUE in
+ *      schema v6, so this means the file predates that constraint or was edited outside this code;
+ *      the answer is to stop, not to pick a row and continue on a guess (M7-C review C2);
+ *   3. a provenance row for the fact key means this link saw it before: if the incident row is still
  *      here it is a `duplicate` (idempotent re-pull), and if it is gone an operator pruned it, so the
  *      mirror refuses to resurrect it (`pruned_locally`);
- *   3. otherwise the store's own insert decides. `duplicate` with no provenance means a locally
- *      observed row already owns the key — one fact, one row, so the mirror refuses and counts it
- *      (`local_owner_conflict`) instead of adding a second row or overwriting an immutable one.
+ *   4. otherwise the store's own insert decides, and the incident row and its provenance row are
+ *      written in ONE transaction: a provenance failure rolls the incident row back. That is what
+ *      makes "mirrored row without provenance" a state this code cannot produce (review C1). The
+ *      store's capacity latch is the one thing that cannot run inside an outer transaction (it opens
+ *      its own IMMEDIATE), so that path is detected and re-run outside; the refusal stays the store's.
  */
 export function insertMirroredIncident(input: {
   store: IncidentStore
@@ -344,12 +380,20 @@ export function insertMirroredIncident(input: {
   // table set is fixed for the connection's lifetime.
   const tables = mirrorTablesPresent(db)
   if (tables) {
-    const prior = db
+    const priors = db
       .prepare(
         `SELECT incident_id, host_id, origin_seq FROM ${MIRROR_ROWS_TABLE}
           WHERE source_kind = ? AND source_id = ? AND facet = ?`
       )
-      .get(record.sourceKind, record.sourceId, record.facet)
+      .all(record.sourceKind, record.sourceId, record.facet) as Row[]
+    if (priors.length > 1) {
+      return {
+        outcome: 'provenance_conflict',
+        id: null,
+        reason: `${priors.length}_provenance_rows_for_fact_key`
+      }
+    }
+    const prior = priors[0]
     if (prior) {
       const incidentId = String(prior.incident_id)
       const stillHere = db.prepare('SELECT 1 AS n FROM incidents WHERE id = ?').get(incidentId)
@@ -369,20 +413,21 @@ export function insertMirroredIncident(input: {
       }
     }
   }
-  /**
-   * Write (or heal) the provenance row for one incident id.
-   *
-   * Separate from the incident insert because the two statements cannot share a transaction here: the
-   * store's insert may call the capacity latch, which opens its own IMMEDIATE transaction, so wrapping
-   * both would fail exactly on the refused-noise path. Throwing instead of swallowing is deliberate —
-   * the caller turns it into a visible stop and retries the line, and the retry heals (see below).
-   */
+
+  /** A provenance write that failed inside the transaction, tagged so the caller can name it. */
+  class ProvenanceWriteFailure extends Error {
+    constructor(readonly detail: string) {
+      super(detail)
+    }
+  }
+
+  /** The provenance insert itself. `ON CONFLICT DO NOTHING` covers the id and the fact-key UNIQUE. */
   function writeProvenance(incidentId: string): void {
     db.prepare(
       `INSERT INTO ${MIRROR_ROWS_TABLE}
          (incident_id, source_kind, source_id, facet, host_id, origin_seq, pulled_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(incident_id) DO NOTHING`
+       ON CONFLICT DO NOTHING`
     ).run(
       incidentId,
       record.sourceKind,
@@ -394,37 +439,45 @@ export function insertMirroredIncident(input: {
     )
   }
 
-  const result = store.insertIncident(record)
-  if (result.outcome === 'inserted') {
-    if (!tables) {
-      // A writable open always migrates the mirror tables in. Reaching here means the write path and
-      // the schema disagree, and an unprovenanced mirrored row is exactly what the tombstone and the
-      // classification cannot tolerate: report it instead of silently losing the provenance.
-      return {
-        outcome: 'provenance_failed',
-        id: result.id,
-        reason: 'mirror_tables_missing'
+  type StoreInsert = ReturnType<IncidentStore['insertIncident']>
+
+  /**
+   * The fallback for the one path that cannot join our transaction: `insertIncident` refuses a
+   * non-crash row under capacity by writing the latch in its own IMMEDIATE transaction, which SQLite
+   * rejects while ours is open. Re-running it outside gives the store the last word — the latch is
+   * persisted and the outcome is `capacity_limited`, exactly as a local writer sees.
+   */
+  function insertOutsideTransaction(): MirrorInsertResult {
+    const outside = store.insertIncident(record)
+    if (outside.outcome === 'inserted' && tables) {
+      try {
+        writeProvenance(record.id)
+      } catch (error) {
+        return {
+          outcome: 'provenance_failed',
+          id: record.id,
+          reason: `provenance_write_failed:${error instanceof Error ? error.name : 'unknown'}`
+        }
       }
     }
-    try {
-      writeProvenance(record.id)
-    } catch (error) {
-      return {
-        outcome: 'provenance_failed',
-        id: result.id,
-        reason: `provenance_write_failed:${error instanceof Error ? error.name : 'unknown'}`
-      }
+    if (outside.outcome === 'duplicate') {
+      return classifyExistingOwnership(outside.id)
     }
-    return { outcome: 'inserted', id: result.id }
+    return {
+      outcome: outside.outcome,
+      id: outside.id,
+      ...(outside.limitedBy === undefined ? {} : { limitedBy: outside.limitedBy }),
+      ...(outside.reason === undefined ? {} : { reason: outside.reason })
+    }
   }
-  if (result.outcome === 'duplicate') {
-    // A row already holds the key but there is no provenance for it. Two different situations look
-    // identical from the key alone, and the row itself is the only witness:
-    //   * `host_id` is this feed's origin — the previous attempt inserted the incident and then lost
-    //     the provenance write (crash, disk, the two statements above). This is a mirrored row that
-    //     needs healing, NOT a local row; misreporting it as `local_owner_conflict` would hide a real
-    //     mirror row and lose its prune tombstone;
-    //   * `host_id` is anything else — a locally observed row owns the key. One fact, one row.
+
+  /**
+   * A row already owns the fact key and no provenance exists for it: decide by the row's own
+   * `host_id` whether this is a locally observed fact (refuse and count) or a mirrored row from a
+   * build that did not write the two statements atomically (report duplicate; the caller has already
+   * healed the provenance where it could).
+   */
+  function classifyExistingOwnership(incidentId: string | null): MirrorInsertResult {
     const existing = db
       .prepare(
         `SELECT id, host_id FROM incidents WHERE source_kind = ? AND source_id = ? AND facet = ?`
@@ -432,17 +485,6 @@ export function insertMirroredIncident(input: {
       .get(record.sourceKind, record.sourceId, record.facet)
     const existingHostId = existing ? String(existing.host_id) : null
     if (tables && existing !== undefined && existingHostId === originHostId) {
-      // The healed row records this pull's seq: the original one is no longer observable, and
-      // inventing it would be worse than naming the delivery that repaired the provenance.
-      try {
-        writeProvenance(String(existing.id))
-      } catch (error) {
-        return {
-          outcome: 'provenance_failed',
-          id: String(existing.id),
-          reason: `provenance_heal_failed:${error instanceof Error ? error.name : 'unknown'}`
-        }
-      }
       return {
         outcome: 'duplicate',
         id: String(existing.id),
@@ -450,7 +492,67 @@ export function insertMirroredIncident(input: {
         existingOriginSeq: null
       }
     }
-    return { outcome: 'local_owner_conflict', id: result.id, reason: 'key_owned_by_local_row' }
+    return { outcome: 'local_owner_conflict', id: incidentId, reason: 'key_owned_by_local_row' }
+  }
+
+  let result: StoreInsert
+  try {
+    result = runIncidentsTransaction(db, () => {
+      const inserted = store.insertIncident(record)
+      if (inserted.outcome === 'inserted') {
+        if (!tables) {
+          // A writable open always migrates the mirror tables in. Reaching here means the write path
+          // and the schema disagree; roll the incident row back rather than keep it unprovenanced.
+          throw new ProvenanceWriteFailure('mirror_tables_missing')
+        }
+        try {
+          writeProvenance(record.id)
+        } catch (error) {
+          throw new ProvenanceWriteFailure(
+            `provenance_write_failed:${error instanceof Error ? error.name : 'unknown'}`
+          )
+        }
+      }
+      if (inserted.outcome === 'duplicate' && tables) {
+        // A row holds the key but there is no provenance for it. Two situations look identical from
+        // the key alone, and the row itself is the only witness:
+        //   * `host_id` is this feed's origin — a row written by a build that did not write the two
+        //     statements atomically (this branch is unreachable for rows this build writes). Heal the
+        //     provenance so the tombstone and the dedupe classification work from now on;
+        //   * `host_id` is anything else — a locally observed row owns the key. One fact, one row.
+        const existing = db
+          .prepare(
+            `SELECT id, host_id FROM incidents WHERE source_kind = ? AND source_id = ? AND facet = ?`
+          )
+          .get(record.sourceKind, record.sourceId, record.facet)
+        if (existing !== undefined && String(existing.host_id) === originHostId) {
+          try {
+            writeProvenance(String(existing.id))
+          } catch (error) {
+            throw new ProvenanceWriteFailure(
+              `provenance_heal_failed:${error instanceof Error ? error.name : 'unknown'}`
+            )
+          }
+        }
+      }
+      return inserted
+    })
+  } catch (error) {
+    if (error instanceof ProvenanceWriteFailure) {
+      // The transaction rolled back: no incident row, no provenance row. Nothing landed to prune, and
+      // the line stays retryable (the sync stops without advancing the cursor).
+      return { outcome: 'provenance_failed', id: null, reason: error.detail }
+    }
+    if (error instanceof Error && /within a transaction/i.test(error.message)) {
+      return insertOutsideTransaction()
+    }
+    throw error
+  }
+
+  if (result.outcome === 'duplicate') {
+    // The healed row records this pull's seq: the original one is no longer observable, and inventing
+    // it would be worse than naming the delivery that repaired the provenance.
+    return classifyExistingOwnership(result.id)
   }
   return {
     outcome: result.outcome,
