@@ -13,7 +13,7 @@ import {
   formatIncidentPrune,
   formatIncidentShow
 } from './incident-format'
-import { formatIncidentPaneClocks } from './incident-stall-format'
+import { formatIncidentPaneClocks } from './incident-pane-clock-format'
 
 const coverage = {
   remoteIncidentCapture: 'unsupported' as const,

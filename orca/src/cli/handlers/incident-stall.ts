@@ -18,7 +18,7 @@ import {
   listActiveWaits
 } from '../../main/incidents/incident-wait'
 import { readPaneClocks, type PaneClockRow } from '../../main/incidents/incident-pane-clocks'
-import { formatIncidentPaneClocks } from '../incident-stall-format'
+import { formatIncidentPaneClocks } from '../incident-pane-clock-format'
 import {
   printIncidentJson,
   refuseNonLocalIncidentSelector,
