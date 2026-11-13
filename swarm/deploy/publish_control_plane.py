@@ -78,16 +78,27 @@ SKIP_COMPONENTS = frozenset({".git", "__pycache__", ".pytest_cache", ".mypy_cach
 SKIP_SUFFIXES = (".pyc", ".pyo")
 SKIP_NAMES = frozenset({".gitignore"})
 
-# Top-level components that only a source checkout has. A document copied into the artifact that
-# still links into one of them points at a tree the reader does not have.
-ABSENT_COMPONENTS = frozenset({"orca", "swarm"})
+# Documents whose relative links are resolved against THIS artifact: everything under `code/`
+# plus the artifact's own top-level files. The three staged trees below are copies of files that
+# are read where they are authored — `private/` in the deployer's workspace, `overlay/` in the
+# installed skill directory, `workspace/` in a project workspace — so their `../` targets live there
+# and are deliberately absent here. Judging them here would report links that resolve for the reader
+# who actually opens them.
+STAGED_TREES = frozenset({"private", "overlay", "workspace"})
 
-# `workspace/` is staged to be copied into a project workspace and read there, where `swarm/` and
-# `swarm-orca/` do exist: its relative links are resolved against that workspace, not against this
-# artifact, so the in-place check below must not judge them.
-WORKSPACE_PREFIX = "workspace"
+# Paths the artifact excludes on purpose. Developer documents point into them (the test suite, the
+# upstream snapshot) and say so; the reader who follows such a link is in the source checkout. This
+# is a named exemption, not a general tolerance: any other unresolved link is refused. Two spellings
+# of the same tree exist because `code/` is the artifact's root for the swarm layer: `code/tests` is
+# the published layer's own test suite, while `tests` is where a document one level too high lands.
+EXCLUDED_PATHS = frozenset({"code/tests", "tests", "orca"})
 
+# `](target)` and `![alt](target)`, plus the reference form `[id]: target`. Fenced blocks are removed
+# before scanning, so an example of a link is not judged as a link.
 MARKDOWN_LINK = re.compile(r"\]\(\s*<?([^)\s>]+)")
+REFERENCE_LINK = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?\s*$", re.MULTILINE)
+FENCE = re.compile(r"^\s{0,3}(```+|~~~+)")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
 
 
 class Failure(Exception):
@@ -111,33 +122,65 @@ def skipped(rel, excluded_prefixes):
     return any(rel == prefix or rel.startswith(prefix + "/") for prefix in excluded_prefixes)
 
 
-def source_layout_links(destination, path, destinations):
-    """Relative links in a copied document that resolve to nothing the artifact ships.
+def without_code(text):
+    """Drop fenced blocks and inline spans: documentation *about* links must not be judged as links."""
+    kept = []
+    fence = None
+    for line in text.splitlines():
+        match = FENCE.match(line)
+        if fence is None:
+            if match:
+                fence = match.group(1)[0]
+                continue
+            kept.append(line)
+        elif match and match.group(1)[0] == fence:
+            fence = None
+    return INLINE_CODE.sub("", "\n".join(kept))
 
-    Only bare `orca/` or `swarm/` heads are reported. A `../..` reference into the source tree is a
-    different, deliberate case (excluded tests, upstream files) and stays out of scope; a document
-    written for the repository root that lands one level deeper is the mistake this catches, because
-    it is the one that makes a reader search the host for a file that was shipped in an adjacent
-    directory.
+
+def source_layout_links(destination, path, destinations):
+    """Relative links in an in-place document that resolve to nothing this artifact ships.
+
+    Why this is a refusal and not a warning: a dead link is not cosmetic. A session that followed
+    `swarm/docs/entry-paths.md` from the artifact's `code/AGENTS.md` found nothing, then searched the
+    whole host instead (`find / -maxdepth 8`, across two NFS mounts) while the file it wanted sat in
+    the sibling `docs/` directory it had already listed.
+
+    Every local target is resolved against the document's own artifact location first, so `./swarm/`
+    and `../swarm/` are the same mistake as `swarm/`; and a target that climbs out of the artifact
+    root is refused too. A target into a deliberately excluded tree (`tests/`, `orca/`) is allowed,
+    because those documents are developer reading and the reader is in the source checkout.
     """
-    if not destination.endswith(".md") or destination.split("/")[0] == WORKSPACE_PREFIX:
+    top = destination.split("/")[0]
+    if not destination.endswith(".md") or top in STAGED_TREES:
         return []
     try:
         text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return []
+    except UnicodeDecodeError:
+        raise Failure("document-not-utf8: %s (its links cannot be checked)" % destination)
+    text = without_code(path.read_text(encoding="utf-8"))
     found = []
-    for target in MARKDOWN_LINK.findall(text):
+    for target in MARKDOWN_LINK.findall(text) + REFERENCE_LINK.findall(text):
         if target.startswith(("#", "/", "mailto:")) or "://" in target:
             continue
-        written = target.split("#")[0]
-        if written.split("/")[0] not in ABSENT_COMPONENTS:
+        written = target.split("#")[0].split("?")[0]
+        if not written:
             continue
         resolved = posixpath.normpath(posixpath.join(posixpath.dirname(destination), written))
         if resolved in destinations:
             continue
+        # A target that climbs out of the artifact root is still allowed when it lands in a tree the
+        # artifact excludes on purpose: from `code/`, `../../tests/x` is the source checkout's suite.
+        outside = resolved
+        while outside.startswith("../"):
+            outside = outside[3:]
+        if any(outside == path_ or outside.startswith(path_ + "/") for path_ in EXCLUDED_PATHS):
+            continue
+        if resolved.startswith(".."):
+            found.append("%s -> %s (outside the artifact)" % (destination, target))
+            continue
         found.append("%s -> %s" % (destination, target))
-    return found
+    return sorted(set(found))
 
 
 def collect(source_root, exclusions):

@@ -89,12 +89,23 @@ repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个
 `code/docs/entry-paths.md`，就在同目录 `docs/` 下）。会话按提示找不到，改用 `find / -maxdepth 8` 全盘搜索——
 本机 `/mlx_devbox`、`/mnt/bn`（NFS4）都挂在 `/` 下，这一步是纯耗时，而且 `ls docs` 里本来就有那个文件。
 
-因此 `plan` 与 `publish` 都加了一条拒绝（`source-layout-link`）：白名单里的 `.md` 若仍以 `orca/` 或
-`swarm/` 开头做相对引用，而该目标不是产物的某个路径，即 `78`，报告“文件 -> 链接”。`workspace/` 不在检查范围：
-那一类文件要复制到项目工作区里读，其 `swarm/`、`swarm-orca/` 在那边真实存在。
+#### 死链检查（`source-layout-link`）
 
-代价与边界：这条规则只管“裸 `orca/`、`swarm/` 开头”的引用，`../../tests/...` 这类刻意指向源码检出的
-引用（被排除的测试、上游文件）不在内；Gherkin 式或链接以外的裸路径文本也不在内。
+`plan` 与 `publish` 都会对**就地阅读**的文档做相对链接解析，任何落不到产物内路径的目标即 `78`，报告
+“文件 -> 链接”。检查范围按“读者在哪打开它”划分：
+
+| 文档位置 | 判据 |
+| --- | --- |
+| `code/**`、产物根 `*.md` | 就地阅读。每个本地链接按文档在产物里的位置归一化后必须命中产物内路径；`./x`、`../x` 与裸 `x` 同等对待，爬出产物根的同样拒绝 |
+| `code/tests/…`、`orca/…` 下的目标 | 例外放行（`EXCLUDED_PATHS`）：这两处刻意不进产物，指向它们的是源码检出里的开发者文档，文中已说明 |
+| `private/`、`overlay/`、`workspace/` | 不判：这些文件在**作者位置**被读取（部署方工作区、已安装技能目录、项目工作区），`../` 目标在那边存在 |
+
+实现细节：围栏代码块与行内代码先剔除——**讲链接语法的文档不应被当成链接**（本次实测中本节的
+`](target)` 示例就曾被自己的检查判为死链）；同时识别行内链接与参考式 `[id]: target`；正文不是 UTF-8 的
+`.md` 直接拒绝（`document-not-utf8`），不静默跳过。
+
+已知未覆盖：正文里以代码块形式写的路径（不是链接）、行内代码里的路径、HTML `<a href>`。它们不产生
+“点了就 404”的行为，因此不在本规则内。
 
 ## 3. 身份与摘要
 
@@ -112,7 +123,7 @@ repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个
     "dirty": false,
     "dirtyPaths": []
   },
-  "copyRuleVersion": 2,
+  "copyRuleVersion": 4,
   "included": ["..."],
   "excluded": ["..."],
   "host": "<host>",
@@ -188,6 +199,7 @@ repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个
 拒绝语义与退出码：`0` 成功；`2` 用法错误（缺必需参数、无法解析的 `--expect-config`）；
 `78` 前置或完整性检查失败，stderr 只给一行原因（`source-dirty`、`source-unpinned`、
 `source-symlink`、`artifact-exists`、`destination-collision`、`source-layout-link`、
+`document-not-utf8`、
 `build-id-mismatch`、
 `artifact-name-mismatch`、`included-mismatch`、`install-dir-mismatch`、`symlink-in-artifact`、
 `manifest-mismatch`、`pointer-not-a-symlink` 等），不尝试修复、不回退默认值。

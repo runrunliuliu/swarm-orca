@@ -18,10 +18,13 @@
 - 本目录顶层 `*.py` 平铺同级，按裸模块名 import；相邻的 `*.json`（`worker-model-profiles.json`、
   `coordinator-model.json` 等）是运行时输入，不是示例。
 - `docs/` 文档（`entry-paths.md`、`testing/`、`design/`、`measurement/`）；`skills/` 角色技能；
-  `deploy/` 安装与发布；`supervisor/`、`swarm_ledger/`、`release_radar/`、`field-guide/` 是带 `__init__.py` 的子包。
-- 不在本目录、也不在产物里的：上游 `orca/` 快照、`tests/`、私有政策 `swarm/`（产物里对应 `../private/`）。
+  `deploy/` 安装与发布；`supervisor/`、`swarm_ledger/`、`release_radar/` 是带 `__init__.py` 的子包，
+  `field-guide/` 只有 `index.md`（模板，不含代码）。
+- 两个位置不一样的地方，按你现在在哪读：
+  - **源码检出**（`swarm-orca/swarm/`）：`tests/` 就在本目录下；上游 `orca/` 在上一级；私有政策在同级 `swarm/`。
+  - **产物**（`code/`）：**没有** `tests/`、没有 `orca/`；私有政策是同级 `../private/`。
   **找不到就是没有**，不要用 `find /` 兜底。
-- 产物根的 `../private/`、`../overlay/`、`../workspace/`、`../MANIFEST.sha256`、`../.swarm-build.json`
+- 产物根还有 `../private/`、`../overlay/`、`../workspace/`、`../MANIFEST.sha256`、`../.swarm-build.json`，
   由部署方读取；源码检出里没有同名目录。
 
 ## 技能
@@ -42,8 +45,10 @@
 - `deploy/install.sh` 是新主机唯一该记的命令：默认只读，`3` 表示有待执行的变更，`--apply` 才发布并切指针。
   发布、切指针、重连技能、部署与重启服务各自是单独授权动作。
 - `deploy/publish_control_plane.py` 只复制、哈希、记录，从不启动 Agent、Run、monitor 或服务。
-- 本目录的文档按**产物布局**书写；发布工具会拒绝任何仍指向产物中不存在的 `orca/`、`swarm/` 顶层的文档
-  （`source-layout-link`），所以不要写“到源码仓库根才有”的相对链接。
+- 本目录的文档按**产物布局**书写。发布时会检查产物里就地阅读的文档（`code/**` 与产物根文件）：
+  相对链接必须能落到产物内的路径，不能落空的包括指向 `swarm/` 这类只在源码检出才有的目录；
+  指向刻意不随产物发布的 `tests/`、`orca/` 的开发者引用除外（`source-layout-link`）。所以别写
+  “到源码仓库根才有”的相对链接。
 
 ## 索引与搜索
 
@@ -53,7 +58,7 @@
 
 ## 测试（仅源码检出）
 
-`tests/` 只在源码检出里，产物不带测试。源码检出中：
+上节的 `tests/` 只在源码检出里，产物不带测试，运行下面的命令要先回到 `swarm-orca/swarm`：
 
 ```bash
 tests/run_blast.sh --range HEAD~1    # 默认：本 diff 能影响的模块

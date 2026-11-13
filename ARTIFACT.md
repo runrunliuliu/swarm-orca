@@ -1,8 +1,9 @@
 # swarm-control-plane 产物
 
 这是 `swarm/deploy/publish_control_plane.py` 发布的**不可变控制平面产物**，不是一个开发检出。
-身份（来源 commit、`dirty`、`copyRuleVersion`）在 `.swarm-build.json`，逐文件摘要在 `MANIFEST.sha256`；
-`/opt/swarm/current` 是指向当前产物的符号链接。产物只读、可回滚：不要就地修改，重发是新建目录。
+身份（来源 commit、`dirty`、`copyRuleVersion`）在 `.swarm-build.json`，逐文件摘要在 `MANIFEST.sha256`。
+默认部署用 `current` 符号链接指向当前产物（本机是 `/opt/swarm/current`，产物根可配置）；产物只读、
+可回滚：不要就地修改，重发是新建目录。
 
 本文件的链接按**产物布局**书写（源码仓库里对应的文件在 `swarm-orca/` 下，路径少一层 `code/`）。
 

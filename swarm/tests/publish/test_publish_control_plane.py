@@ -102,14 +102,73 @@ class PlanTests(Fixture):
     def test_a_link_that_resolves_inside_the_artifact_is_accepted(self):
         source = self.source()
         write(source / "swarm-orca" / "swarm" / "AGENTS.md",
-              "[entry](docs/entry-paths.md) [up](../AGENTS.md)\n")
+              "[entry](docs/entry-paths.md) [up](../README.md)\n")
         self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
 
-    def test_workspace_files_may_link_into_the_source_layout(self):
+    def test_relative_spellings_of_a_dead_link_are_refused_too(self):
+        for target in ("./swarm/docs/entry-paths.md", "../swarm/docs/entry-paths.md"):
+            with self.subTest(target=target):
+                source = self.source()
+                write(source / "swarm-orca" / "swarm" / "AGENTS.md", "[x](%s)\n" % target)
+                with self.assertRaises(publisher.Failure) as caught:
+                    self.plan_report(source)
+                self.assertIn("source-layout-link", str(caught.exception))
+
+    def test_a_target_that_climbs_out_of_the_artifact_is_refused(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md", "[x](../../README.md)\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("outside the artifact", str(caught.exception))
+
+    def test_a_reference_style_link_is_checked(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[entry][e]\n\n[e]: swarm/docs/entry-paths.md\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("source-layout-link", str(caught.exception))
+
+    def test_a_link_inside_a_fenced_block_is_not_a_link(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "```markdown\n[example](swarm/docs/entry-paths.md)\n```\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_a_link_that_is_only_documented_as_syntax_is_not_judged(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "Use `](swarm/docs/x.md)` inside a span, not a link.\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_the_published_layers_own_test_suite_is_an_excluded_target(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "docs" / "testing" / "reliability.md",
+              "[case](../../tests/core/test_launch.py)\n")
+        self.assertIn("code/docs/testing/reliability.md", self.plan_report(source)["included"])
+
+    def test_a_reference_into_an_excluded_tree_is_allowed(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[test](../../tests/test_launch.py) [upstream](../../orca/docs/x.md)\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_a_document_that_is_not_utf8_is_refused(self):
+        source = self.source()
+        (source / "swarm-orca" / "swarm" / "AGENTS.md").write_bytes(b"[x](docs/\xff.md)\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("document-not-utf8", str(caught.exception))
+
+    def test_each_staged_tree_is_exempt_from_the_in_place_check(self):
         source = self.source()
         write(source / "AGENTS.md", "[ledger](swarm/ledger.md)\n")
+        write(source / "swarm" / "artifact-storage.md", "[ledger](../swarm/ledger.md)\n")
+        write(source / "skills" / "runtime-selection.md", "[policy](../../swarm/x.md)\n")
         report = self.plan_report(source)
-        self.assertIn("workspace/AGENTS.md", report["included"])
+        for name in ("workspace/AGENTS.md", "private/artifact-storage.md",
+                     "overlay/runtime-selection.md"):
+            self.assertIn(name, report["included"])
 
     def test_build_id_is_content_addressed(self):
         source = self.source()
@@ -162,7 +221,7 @@ class PublishTests(Fixture):
         self.assertEqual(identity["artifact"], publisher.ARTIFACT)
         self.assertEqual(identity["installDir"], str(artifact.resolve()))
         self.assertTrue(identity["source"]["unpinned"])
-        self.assertEqual(identity["copyRuleVersion"], publisher.COPY_RULE_VERSION)
+        self.assertEqual(identity["copyRuleVersion"], 4)
         self.assertEqual(len((artifact / publisher.MANIFEST).read_text().splitlines()), 14)
         self.assertFalse((artifact / "code" / "tests").exists())
         self.assertEqual(pointer.resolve(), artifact.resolve())
@@ -227,6 +286,17 @@ class PublishTests(Fixture):
         self.assertEqual(len(after), len(before) + 1)
         self.assertTrue(any(name.startswith(".%s-staging-" % publisher.ARTIFACT)
                             for name in after))
+
+    def test_the_artifact_entry_documents_are_the_staged_originals(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md", "# code layer\nbody\n")
+        write(source / "swarm-orca" / "ARTIFACT.md", "# artifact\nbody\n")
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        self.assertEqual((artifact / "code" / "AGENTS.md").read_text(),
+                         "# code layer\nbody\n")
+        self.assertEqual((artifact / "README.md").read_text(), "# artifact\nbody\n")
+        self.assertFalse((artifact / "AGENTS.md").exists())
 
     def test_publish_writes_nothing_when_a_document_links_into_the_source_layout(self):
         source = self.source()

@@ -346,8 +346,8 @@ step "verify"
 verify_skills="$SKILLS_DIR"
 # With --skip-skills the links are somebody else's business: verify the artifact's own skills.
 [ "$SKIP_SKILLS" = 1 ] && verify_skills="$POINTER/code/skills"
-probe=(--project "$SOURCE_ROOT" --require-host-override --host-override "$HOST_OVERRIDE"
-       --skills-dir "$verify_skills")
+probe=(--project "$SOURCE_ROOT" --pointer "$POINTER" --require-host-override
+       --host-override "$HOST_OVERRIDE" --skills-dir "$verify_skills")
 if [ "$dirty" = "True" ] || [ "$unpinned" = "True" ]; then
   note "pin check skipped: this artifact is not a pin source (dirty=$dirty unpinned=$unpinned)"
 else
