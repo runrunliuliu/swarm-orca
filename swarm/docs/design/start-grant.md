@@ -304,6 +304,7 @@ M4 的 Python `mint`（`swarm/start_grant.py`）不持有额外的权限：它�
 | `start_grant_already_bound` | create | 该 grant 已绑定 Run，且不是同一协调者 + 同一 objective | 一份批准被复制成 N 个 Run，每个各带一份 `maxWorkers`，上限乘以 N；交付期也无法回答哪个 Run 属于这份批准 |
 | `start_grant_worker_limit` | spawn | 本 Run 活跃 dispatch 数 ≥ `maxWorkers` | owner 唯一明确指定的数字无人执行（实测样本：8 个并发 worker，≈363 s 可证明空转、0 条业务结论） |
 | `start_grant_repo_not_granted` | spawn | 已解析的 `repoId`/worktree id 不在 `repos` 内 | worker 写到 owner 没批准过的仓库，交付审计无法把它归到任何批准上 |
+| `start_grant_record_conflict` | mint, revoke | 同一个 id 收到**不同**的第二份内容（批准记录或撤销理由） | 一个 grant_id 下存在两份不同的批准，审计与计数都无法回答"这个 Run 究竟是哪一份批的" |
 | `start_grant_remote_unsupported` | spawn（federation 插入，**防御性、今天不可达**） | 事务携带 federation 参数；唯一来源 `--on` 已被 `workers.ts:63` 更早拒绝 | 一旦那道更早的拒绝被放宽，远端 worker 会让计数与仓库范围同时静默失效；此码保证"放宽那道门不会顺带放宽计数" |
 | `start_grant_self_minted` | create | 协调者活身份 ≡ `minter`（**条件码**，取决于 §8 决策 5） | 执行者给自己签发批准，整套设计的前提当场失效 |
 
@@ -500,9 +501,24 @@ WHERE g.grant_id = ? AND d.status IN ('pending', 'dispatched')
   码进入 RPC 白名单（否则被压成 `runtime_error`）、`start-grant-create.test.ts`（11 例，含双连接幂等/冲突）。
   验证：39 files / 396 tests；`tsc` 与 `oxlint` 对本改动零问题（唯一 tsc 错误是快照内预先存在的
   `cli/build-pointer.test.ts`）。
-- **未做**：`startGrant{mint,show,revoke}` 三个 RPC（今天测试直接用 `insertStartGrant` 造 grant，
-  M4 的 Python `mint` 还无处可调）、自签检查（§8 决策 5 未定）、C7 的"真并发"（现在测的是同一事务语义 +
-  双连接顺序交错，不是两个进程同时争 `BEGIN IMMEDIATE`）。
+  **M1 slice 3 `268ea200`**——`startGrant{mint,show,revoke}` 三个 RPC：mint 只接受**调用者自己**的活身份
+  （记录里写别人的 minter 直接拒绝）、同字节重提幂等、同 id 不同内容 `start_grant_record_conflict`；
+  `show` 在读侧推导 `valid/expired/revoked`（不存"有效"这种过去时判断）并报告它覆盖的 Run；
+  `revoke` 记录撤销者与理由，同意图重放、不同理由冲突。
+  **M2 `start-grant-spawn.ts`**——判定函数落在**两处** dispatch 插入点的同一个事务内、第一条持久写之前：
+  `createStartingWorkerDispatch`（`worker-start`，hook 紧跟 `BEGIN IMMEDIATE`、早于 mutation receipt）与
+  `createDispatchContext`（`orchestration.dispatch` 收养终端，`SAVEPOINT` 之后、`claimDispatchContextRow`
+  之前）。计数口径、仓库范围（含"新建 worktree 只认 repo 级授权"、以及本 Run 已创建工作树仍在范围内）、
+  过期/撤销、federation 拒绝、`start_grant_required` 全部就位。
+  验证：`start-grant-spawn.test.ts` 12 例 + 回归 `orchestration/`、`rpc/methods/orchestration/`、
+  `shared/`、`cli/handlers/` 共 12,821 项（10 失败全部是**预先存在**或**环境**问题，见下）。
+- **`start_grant_required` 的开关是一个具名常量**（`start-grant-spawn.ts` 的
+  `START_GRANT_REQUIRED = false`），放进代码而不是配置项：它现在的唯一作用是"别让这次提交把既有 strict Run
+  在下次 spawn 时打死"，翻成 `true` 就是全部动作，且该路径已有开关打开的测试。**这就是 §8 决策 4 现在要
+  定的东西：什么时候翻。**
+- **未做**：撤销对已在跑 worker 的处理（§8 决策 2 未定，当前 revoke 只拦新 create/spawn）；自签检查
+  （§8 决策 5 未定）；C7 的"两个进程同时争 `BEGIN IMMEDIATE`"（现在测的是同事务语义 + 双连接）；
+  M4 的 Python `mint/state`、M5 的 CLI 入口与文档收口。
 
 ### M2 · spawn 计数 + 仓库范围（Orca，2–3 天）— **价值拐点**
 
@@ -740,7 +756,8 @@ python3 -B swarm/generate_orientation.py --check
    若答 N，`start_grant_runs` 的 PK 改成
    `(grant_id, run_id)`、`start_grant_already_bound` 删除、`max_workers` 变成"每 grant 合计"而不是
    "每 Run"——否则 N 个 Run 各拿一份 cap，上限乘以 N。
-4. **批 1–3 一次合入，还是每批独立交付？以及 `start_grant_required` 开关的默认值与截止条件？**
+4. **`START_GRANT_REQUIRED` 什么时候从 `false` 翻成 `true`？以及批 1–3 一次合入还是分批？**
+   （开关本身已落地为具名常量，不再是待实现项；见 §4 M1 的进展。）
    独立交付的中间态会更弱：M1 之后 `runCreateGranted` 与 `runCreateStrict` 并存，未绑定 grant 的 strict Run
    只有在开关打开后才被拒绝（§2.5 第二点第 1 步），而目前所有 strict Run 都属于这一类。所以这一条现在必须
    一次给出两个值：**默认关还是默认开**（默认关 = 中间期仍可绕过；默认开 = 现有 Run 立刻拒绝派发，需要一次显式

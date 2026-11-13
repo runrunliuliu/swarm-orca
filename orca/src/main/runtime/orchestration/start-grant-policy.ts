@@ -113,7 +113,7 @@ export function objectiveHashOf(objective: string): string {
   return hashCanonical(objective)
 }
 
-function invalidRecord(grantId: string, reason: string): never {
+export function invalidGrantRecord(grantId: string, reason: string): never {
   throw new OrchestrationError(
     'start_grant_invalid_record',
     `Start grant ${grantId} has an unreadable record (${reason}); it cannot be treated as absent.`,
@@ -126,11 +126,11 @@ function parseReceipt<T>(schema: z.ZodType<T>, grantId: string, receipt: string)
   try {
     raw = JSON.parse(receipt)
   } catch {
-    return invalidRecord(grantId, 'not JSON')
+    return invalidGrantRecord(grantId, 'not JSON')
   }
   const parsed = schema.safeParse(raw)
   if (!parsed.success) {
-    return invalidRecord(grantId, parsed.error.issues[0]?.message ?? 'schema mismatch')
+    return invalidGrantRecord(grantId, parsed.error.issues[0]?.message ?? 'schema mismatch')
   }
   return parsed.data
 }
@@ -184,7 +184,7 @@ export function readStartGrantBinding(
   // The columns are the index and the receipt is the record; a disagreement means one of them was
   // written by something that is not this module, so the pair is unusable rather than half-trusted.
   if (binding.grantId !== parsed.grant_id || binding.runId !== parsed.run_id) {
-    return invalidRecord(parsed.grant_id, 'binding columns disagree with its receipt')
+    return invalidGrantRecord(parsed.grant_id, 'binding columns disagree with its receipt')
   }
   return binding
 }
@@ -203,7 +203,7 @@ export function readGrantForRun(db: GrantDb, runId: string): StartGrant | undefi
   }
   const grant = readStartGrant(db, binding.grantId)
   if (!grant) {
-    return invalidRecord(binding.grantId, 'binding exists without its grant')
+    return invalidGrantRecord(binding.grantId, 'binding exists without its grant')
   }
   return grant
 }

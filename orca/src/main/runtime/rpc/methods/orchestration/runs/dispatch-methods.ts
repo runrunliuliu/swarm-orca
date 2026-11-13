@@ -169,6 +169,15 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
       ) {
         strictCoordinatorRefusal(run.id, 'the Coordinator pane cannot also be a Worker')
       }
+      // The adopted terminal's own workspace is what a grant's repo scope has to be checked against;
+      // an unresolvable workspace stays null and the scope check refuses rather than assumes.
+      const adoptedWorktreeId = runtime.getTerminalWorktreeIdForHandle(to)
+      const adoptedRepoId = adoptedWorktreeId
+        ? await runtime
+            .showManagedWorktree(`id:${adoptedWorktreeId}`)
+            .then((worktree) => worktree.repoId)
+            .catch(() => null)
+        : null
       const ctx = db.createDispatchContext({
         taskId: params.task,
         assigneeHandle: to,
@@ -179,7 +188,9 @@ export const ORCHESTRATION_DISPATCH_METHODS = [
           ? { hostScope: JSON.stringify(dispatchAuthority.hostScope) }
           : {}),
         creator: resolveDispatchCreator(runtime, params.from, orchestrationCaller),
-        maxDepth: runtime.getNestedWorkerMaxDepth()
+        maxDepth: runtime.getNestedWorkerMaxDepth(),
+        repoId: adoptedRepoId,
+        worktreeId: adoptedWorktreeId
       })
 
       // Why: built after ctx so dispatchId is the real ctx.id, letting heartbeats attribute liveness to a specific dispatch context, not just a task.

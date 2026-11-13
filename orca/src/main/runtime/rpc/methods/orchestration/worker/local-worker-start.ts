@@ -137,6 +137,10 @@ export async function startLocalWorker(args: {
     taskDeps: parseTaskDeps(params.deps),
     taskParentId: params.parent,
     taskRunId: run.id,
+    // Read before placement: a new worktree has no id until it is created, and the scope rule refuses
+    // to guess one (only a repo-wide grant authorises creating a worktree).
+    repoId: creationWorktree?.repoId ?? resolvedWorktree?.repoId ?? null,
+    worktreeId: createsWorktree ? null : (resolvedWorktree?.id ?? null),
     // A handle-less session creates root Tasks: Task lineage is recorded by terminal only.
     taskCreatedByTerminalHandle: coordinator?.terminalHandle ?? undefined,
     taskCreatedByPaneKey: coordinatorPane ?? undefined,
