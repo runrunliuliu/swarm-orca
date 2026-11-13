@@ -9,6 +9,7 @@ import type {
 import { OrchestrationError } from '../../orchestration-error'
 import { LEGACY_CONTRACT_VERSION } from '../contract-constants'
 import type { OrchestrationDb } from '../orchestration-db'
+import { decideWorkerReportAcceptance } from '../../../../incidents/acceptance-runtime'
 
 export function commitLegacyLifecycleOperation(
   this: OrchestrationDb,
@@ -42,6 +43,20 @@ export function commitLegacyLifecycleOperation(
   settlement?: WorkerReportSettlement
   duplicate: boolean
 } {
+  // §8 C1: gate decision before the transaction, exactly like the local send path. A legacy
+  // worker_report that the gate blocks keeps its principal `committed` (so the client may retry after
+  // a resolve) and leaves the message unread for the coordinator to re-reconcile.
+  const acceptance =
+    params.lifecycle.kind === 'worker_report'
+      ? (() => {
+          // A read outside the transaction, so the gate itself stays outside it. The principal row is
+          // validated again inside; this copy only supplies the dispatch id the gate needs.
+          const principal = this.getLegacyCompatibilityPrincipal(params.principalId)
+          return principal?.dispatch_id === null || principal?.dispatch_id === undefined
+            ? ({ action: 'allow', via: 'no_rules' } as const)
+            : decideWorkerReportAcceptance(principal.dispatch_id)
+        })()
+      : undefined
   this.db.exec('BEGIN IMMEDIATE')
   try {
     const principal = this.getLegacyCompatibilityPrincipal(params.principalId)
@@ -156,10 +171,26 @@ export function commitLegacyLifecycleOperation(
             taskId: params.lifecycle.taskId,
             dispatchId,
             outcome: params.lifecycle.outcome,
-            result: params.lifecycle.result
+            result: params.lifecycle.result,
+            acceptance: acceptance as NonNullable<typeof acceptance>
           })
       if (settlement.action === 'rejected') {
         throw new OrchestrationError(settlement.code, settlement.reason)
+      }
+      if (settlement.action === 'acceptance_pending') {
+        // Not settled and not failed: the receipt records the pending answer verbatim, and the
+        // principal stays committed so the legacy client's retry remains valid.
+        const pendingResponseJson = JSON.stringify({ messageId: message.id, settlement })
+        const pendingReceipt = this.insertLegacyOperationReceipt({
+          principalId: principal.id,
+          operationKey: params.operationKey,
+          method: params.method,
+          payloadHash: params.payloadHash,
+          effectId: message.id,
+          responseJson: pendingResponseJson
+        })
+        this.db.exec('COMMIT')
+        return { receipt: pendingReceipt, message, settlement, duplicate: false }
       }
       this.db
         .prepare(

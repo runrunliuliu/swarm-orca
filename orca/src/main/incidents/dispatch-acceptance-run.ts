@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto'
 import { runProcess } from '../../shared/child-process/run-process'
 import { sanitizeText } from './incident-sanitize'
+import { rejectionForRun } from './acceptance-cwd'
 import {
   DISPATCH_ACCEPTANCE_MAX_OUTPUT_BYTES,
   type AcceptanceExpectation,
@@ -120,6 +121,26 @@ export async function evaluateAcceptanceRules(input: {
   const now = input.now ?? Date.now
   const verdicts: AcceptanceVerdict[] = []
   for (const rule of input.rules) {
+    // §8 C5, run time: the declaration was authorized against a worktree root, and the directory graph
+    // may have changed since. Re-checking here is what makes a replaced symlink `undeterminable`
+    // instead of a run in whatever the link now points at — and it never runs the command.
+    const unauthorized = rejectionForRun({ cwd: rule.cwd, worktreeRoot: rule.worktreeRoot })
+    if (unauthorized !== null) {
+      verdicts.push({
+        dispatchId: rule.dispatchId,
+        ruleId: rule.ruleId,
+        verdict: 'undeterminable',
+        exitCode: null,
+        signal: null,
+        stdoutDigest: null,
+        stdoutBytes: 0,
+        detail: `cwd_not_authorized:${unauthorized}`,
+        evaluatedAt: now(),
+        ruleDigest: rule.digest,
+        ruleDeclaredAt: rule.createdAt
+      })
+      continue
+    }
     const run = await runner({
       program: rule.program,
       args: rule.args,
@@ -139,7 +160,10 @@ export async function evaluateAcceptanceRules(input: {
       stdoutBytes: fingerprint.bytes,
       // Detail is a typed reason built from the declaration and the exit status — never output text.
       detail: sanitizeText(decided.detail, 200),
-      evaluatedAt: now()
+      evaluatedAt: now(),
+      // §8 C7: the revision this answer belongs to. The gate refuses a verdict without it.
+      ruleDigest: rule.digest,
+      ruleDeclaredAt: rule.createdAt
     })
   }
   return verdicts

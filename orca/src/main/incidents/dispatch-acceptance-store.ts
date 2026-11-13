@@ -11,6 +11,7 @@
 
 import { createHash } from 'node:crypto'
 import type Database from '../sqlite/sync-database'
+import { isWithinWorktreeRoot } from './acceptance-cwd'
 
 export const DISPATCH_ACCEPTANCE_TIMEOUT_MS = 60_000
 export const DISPATCH_ACCEPTANCE_MAX_TIMEOUT_MS = 10 * 60_000
@@ -31,6 +32,8 @@ export type AcceptanceRule = {
   expect: AcceptanceExpectation
   timeoutMs: number
   cwd: string
+  /** The worker worktree root `cwd` was authorized against (§8 C5); part of the rule digest. */
+  worktreeRoot: string
   actor: string
   createdAt: number
   digest: string
@@ -48,6 +51,9 @@ export type AcceptanceVerdict = {
   stdoutBytes: number | null
   detail: string | null
   evaluatedAt: number
+  /** Rule revision this verdict belongs to; a re-declared rule invalidates it (§8 C7). */
+  ruleDigest: string
+  ruleDeclaredAt: number
 }
 
 export type DeclareRuleInput = {
@@ -59,6 +65,7 @@ export type DeclareRuleInput = {
   expect: AcceptanceExpectation
   timeoutMs?: number
   cwd: string
+  worktreeRoot: string
   actor: string
   now?: number
 }
@@ -71,6 +78,8 @@ export class AcceptanceDeclarationError extends Error {
       | 'missing_program'
       | 'missing_actor'
       | 'missing_cwd'
+      | 'missing_worktree_root'
+      | 'cwd_outside_worktree'
       | 'missing_expectation'
       | 'invalid_timeout'
   ) {
@@ -94,6 +103,7 @@ export function acceptanceDigest(input: {
   args: readonly string[]
   expect: AcceptanceExpectation
   timeoutMs: number
+  worktreeRoot: string
 }): string {
   return createHash('sha256')
     .update(
@@ -101,7 +111,10 @@ export function acceptanceDigest(input: {
         program: input.program,
         args: [...input.args],
         expect: input.expect,
-        timeoutMs: input.timeoutMs
+        timeoutMs: input.timeoutMs,
+        // Part of the contract on purpose: widening the authorized root changes which directories the
+        // command may run in, so it must invalidate a verdict produced under the narrower scope.
+        worktreeRoot: input.worktreeRoot
       }),
       'utf8'
     )
@@ -118,6 +131,7 @@ function rowToRule(row: Record<string, unknown>): AcceptanceRule {
     expect: JSON.parse(String(row.expect)) as AcceptanceExpectation,
     timeoutMs: Number(row.timeout_ms),
     cwd: String(row.cwd),
+    worktreeRoot: row.worktree_root === null || row.worktree_root === undefined ? '' : String(row.worktree_root),
     actor: String(row.actor),
     createdAt: Number(row.created_at),
     digest: String(row.digest)
@@ -130,6 +144,7 @@ export function declareAcceptanceRule(db: Database.Database, input: DeclareRuleI
   const program = input.program.trim()
   const actor = input.actor.trim()
   const cwd = input.cwd.trim()
+  const worktreeRoot = input.worktreeRoot.trim()
   if (dispatchId.length === 0) {
     throw new AcceptanceDeclarationError('missing_dispatch')
   }
@@ -145,6 +160,15 @@ export function declareAcceptanceRule(db: Database.Database, input: DeclareRuleI
   if (cwd.length === 0) {
     throw new AcceptanceDeclarationError('missing_cwd')
   }
+  if (worktreeRoot.length === 0) {
+    throw new AcceptanceDeclarationError('missing_worktree_root')
+  }
+  // §8 C5: a declaration is scoped to a worker worktree root, and `cwd` must live inside it. The
+  // filesystem half of this check (realpath, `.git`, existence) runs in the CLI so a test fixture can
+  // still declare a path that only exists in its own story; this store enforces the containment.
+  if (!isWithinWorktreeRoot(cwd, worktreeRoot)) {
+    throw new AcceptanceDeclarationError('cwd_outside_worktree')
+  }
   const exitCode = input.expect.exitCode
   const stdoutMatches = input.expect.stdoutMatches
   if (
@@ -157,17 +181,31 @@ export function declareAcceptanceRule(db: Database.Database, input: DeclareRuleI
   const timeoutMs = clampTimeout(input.timeoutMs)
   const args = input.args ?? []
   const now = input.now ?? Date.now()
-  const digest = acceptanceDigest({ program, args, expect: input.expect, timeoutMs })
+  const digest = acceptanceDigest({
+    program,
+    args,
+    expect: input.expect,
+    timeoutMs,
+    worktreeRoot
+  })
+  const previous = db
+    .prepare(
+      `SELECT digest FROM dispatch_acceptance_rules
+       WHERE host_id = ? AND dispatch_id = ? AND rule_id = ?`
+    )
+    .get(input.hostId, dispatchId, ruleId) as { digest: string } | undefined
   db.prepare(
     `INSERT INTO dispatch_acceptance_rules
-       (host_id, dispatch_id, rule_id, program, args, expect, timeout_ms, cwd, actor, created_at, digest)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (host_id, dispatch_id, rule_id, program, args, expect, timeout_ms, cwd, worktree_root, actor,
+        created_at, digest)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(host_id, dispatch_id, rule_id) DO UPDATE SET
        program = excluded.program,
        args = excluded.args,
        expect = excluded.expect,
        timeout_ms = excluded.timeout_ms,
        cwd = excluded.cwd,
+       worktree_root = excluded.worktree_root,
        actor = excluded.actor,
        created_at = excluded.created_at,
        digest = excluded.digest`
@@ -180,10 +218,26 @@ export function declareAcceptanceRule(db: Database.Database, input: DeclareRuleI
     JSON.stringify(input.expect),
     timeoutMs,
     cwd,
+    worktreeRoot,
     actor,
     now,
     digest
   )
+  if (previous !== undefined && previous.digest !== digest) {
+    // §8 C7: the rule means something else now, so the old answer is not evidence about it. Drop the
+    // stored verdict (the gate will then read not_evaluated) and reopen a stop an operator had
+    // already resolved — otherwise `accept` from the previous revision would settle the new one.
+    db.prepare('DELETE FROM dispatch_acceptance_verdicts WHERE dispatch_id = ? AND rule_id = ?').run(
+      dispatchId,
+      ruleId
+    )
+    db.prepare(
+      `UPDATE dispatch_acceptance_stops
+         SET state = 'pending', actor = NULL, reason = NULL, overridden_rules = NULL,
+             gate_seen_count = 0, updated_at = ?
+       WHERE dispatch_id = ? AND state IN ('accepted', 'rejected', 'overridden')`
+    ).run(now, dispatchId)
+  }
   return {
     hostId: input.hostId,
     dispatchId,
@@ -193,6 +247,7 @@ export function declareAcceptanceRule(db: Database.Database, input: DeclareRuleI
     expect: input.expect,
     timeoutMs,
     cwd,
+    worktreeRoot,
     actor,
     createdAt: now,
     digest
@@ -214,8 +269,9 @@ export function listAcceptanceRules(db: Database.Database, dispatchId?: string):
 export function writeAcceptanceVerdict(db: Database.Database, verdict: AcceptanceVerdict): void {
   db.prepare(
     `INSERT INTO dispatch_acceptance_verdicts
-       (dispatch_id, rule_id, verdict, exit_code, signal, stdout_digest, stdout_bytes, detail, evaluated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       (dispatch_id, rule_id, verdict, exit_code, signal, stdout_digest, stdout_bytes, detail,
+        evaluated_at, rule_digest, rule_declared_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(dispatch_id, rule_id) DO UPDATE SET
        verdict = excluded.verdict,
        exit_code = excluded.exit_code,
@@ -223,7 +279,9 @@ export function writeAcceptanceVerdict(db: Database.Database, verdict: Acceptanc
        stdout_digest = excluded.stdout_digest,
        stdout_bytes = excluded.stdout_bytes,
        detail = excluded.detail,
-       evaluated_at = excluded.evaluated_at`
+       evaluated_at = excluded.evaluated_at,
+       rule_digest = excluded.rule_digest,
+       rule_declared_at = excluded.rule_declared_at`
   ).run(
     verdict.dispatchId,
     verdict.ruleId,
@@ -233,7 +291,9 @@ export function writeAcceptanceVerdict(db: Database.Database, verdict: Acceptanc
     verdict.stdoutDigest,
     verdict.stdoutBytes,
     verdict.detail,
-    verdict.evaluatedAt
+    verdict.evaluatedAt,
+    verdict.ruleDigest,
+    verdict.ruleDeclaredAt
   )
 }
 
@@ -250,16 +310,25 @@ export function listAcceptanceVerdicts(db: Database.Database, dispatchId: string
       stdoutDigest: row.stdout_digest === null ? null : String(row.stdout_digest),
       stdoutBytes: row.stdout_bytes === null ? null : Number(row.stdout_bytes),
       detail: row.detail === null ? null : String(row.detail),
-      evaluatedAt: Number(row.evaluated_at)
+      evaluatedAt: Number(row.evaluated_at),
+      ruleDigest: row.rule_digest === null || row.rule_digest === undefined ? '' : String(row.rule_digest),
+      ruleDeclaredAt:
+        row.rule_declared_at === null || row.rule_declared_at === undefined
+          ? 0
+          : Number(row.rule_declared_at)
     }))
 }
 
 export {
   acceptanceGateState,
   getAcceptanceStop,
+  MAX_ACCEPTANCE_COUNTER,
   openAcceptanceStop,
+  recordAcceptanceEvaluation,
+  recordAcceptanceOverride,
   resolveAcceptanceStop,
   type AcceptanceGateState,
+  type AcceptanceOverrideInput,
   type AcceptanceStop,
   type AcceptanceStopState
 } from './dispatch-acceptance-stops'

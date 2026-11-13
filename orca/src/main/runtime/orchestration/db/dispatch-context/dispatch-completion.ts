@@ -1,5 +1,9 @@
 import type { TaskStatus, DispatchContextRow } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
+import {
+  decideMaintenanceAcceptance,
+  type AcceptanceDecision
+} from '../../../../incidents/acceptance-runtime'
 import { DISPATCH_CIRCUIT_BREAK_FAILURES } from './dispatch-circuit-breaker'
 import type { OrchestrationDb } from '../orchestration-db'
 import { getActiveDispatchForTask } from './task-dispatch-reconciliation'
@@ -40,18 +44,47 @@ export function completeDispatch(this: OrchestrationDb, ctxId: string): void {
   }
 }
 
+/**
+ * `--override-acceptance` in API form (M5 review C1): explicit, named, recorded — never implicit.
+ *
+ * Operator maintenance paths (<task terminal>, decision gate, low-level completion) are external
+ * authority, so they may settle a dispatch whose acceptance rule failed. They may not do it silently:
+ * without this field a blocked dispatch is simply left unsettled for its owner.
+ */
+export type AcceptanceOverride = { actor: string; reason: string }
+
 export function settleActiveDispatchesForTask(
   db: OrchestrationDb,
   taskId: string,
   status: 'completed' | 'failed',
-  failure?: string
-): void {
+  failure?: string,
+  options: { acceptanceOverride?: AcceptanceOverride; log?: (message: string) => void } = {}
+): { skipped: string[] } {
   const rows = db.db
     .prepare(
       "SELECT * FROM dispatch_contexts WHERE task_id = ? AND status IN ('pending', 'dispatched')"
     )
     .all(taskId) as DispatchContextRow[]
+  const skipped: string[] = []
   for (const row of rows) {
+    // Why only `completed`: acceptance answers "did the worker's finished work meet the contract".
+    // Force-failing a dispatch is a stop, not a claim of completion, and blocking it would trap the
+    // operator in a dispatch nobody can close.
+    if (status === 'completed') {
+      const decision: AcceptanceDecision = decideMaintenanceAcceptance({
+        dispatchId: row.id,
+        override: options.acceptanceOverride ?? null
+      })
+      if (decision.action === 'blocked') {
+        skipped.push(row.id)
+        options.log?.(
+          decision.reason === 'store_unavailable'
+            ? `Dispatch ${row.id} left unsettled: the incidents store cannot be read (acceptance fail-closed; pass --override-acceptance to record a bypass)`
+            : `Dispatch ${row.id} left unsettled: acceptance rules blocked it (pass --override-acceptance --actor --reason to record a bypass)`
+        )
+        continue
+      }
+    }
     transitionLifecycleWithDb(db.db, {
       entity: 'dispatch',
       id: row.id,
@@ -68,10 +101,15 @@ export function settleActiveDispatchesForTask(
     })
     db.closeQuestionsForDispatch(row.id)
   }
+  return { skipped }
 }
 
-export function completeActiveDispatchesForTask(this: OrchestrationDb, taskId: string): void {
-  settleActiveDispatchesForTask(this, taskId, 'completed')
+export function completeActiveDispatchesForTask(
+  this: OrchestrationDb,
+  taskId: string,
+  options: { acceptanceOverride?: AcceptanceOverride } = {}
+): { skipped: string[] } {
+  return settleActiveDispatchesForTask(this, taskId, 'completed', undefined, options)
 }
 
 export function failActiveDispatchForTask(

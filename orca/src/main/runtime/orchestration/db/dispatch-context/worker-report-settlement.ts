@@ -1,6 +1,10 @@
 import type { WorkerReportOutcome, WorkerReportSettlement } from '../../types'
 import type { OrchestrationDb } from '../orchestration-db'
 import { AGENT_PROMPT_STALLED_ERROR } from '../../../agent-prompt-submission-verification'
+import {
+  decideWorkerReportAcceptance,
+  type AcceptanceDecision
+} from '../../../../incidents/acceptance-runtime'
 import { settleActiveDispatchesForTask } from './dispatch-completion'
 import { getActiveDispatchForTask } from './task-dispatch-reconciliation'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
@@ -24,6 +28,16 @@ type WorkerReportSettlementParams = {
   result: string
   observation?: WorkerReportObservation
 }
+
+/**
+ * The acceptance decision is a REQUIRED parameter of the in-transaction settlement (M5 review C1).
+ *
+ * Making it required is the mechanical part of "the gate point is unique": federation import and the
+ * legacy lifecycle operation used to call `settleWorkerReportInTransaction` directly, so "every path
+ * funnels through the gate" was a comment rather than a constraint. Now a caller that forgets it does
+ * not compile, and every call site computes the decision BEFORE it opens its write transaction.
+ */
+type AcceptanceGateInput = { acceptance: AcceptanceDecision }
 
 const WORKER_REPORT_TRANSACTION_SAVEPOINT = 'worker_report_transaction'
 
@@ -61,14 +75,18 @@ export function settleWorkerReport(
   this: OrchestrationDb,
   params: WorkerReportSettlementParams
 ): WorkerReportSettlement {
+  // Outside the transaction on purpose: the gate may write an incident/stop row (a different database)
+  // and must never extend the lifecycle write transaction. The commands ran earlier still — see
+  // evaluateAcceptanceForDispatch in the send path.
+  const acceptance = decideWorkerReportAcceptance(params.dispatchId)
   return runLifecycleWriteTransaction(this.db, WORKER_REPORT_TRANSACTION_SAVEPOINT, () =>
-    this.settleWorkerReportInTransaction(params)
+    this.settleWorkerReportInTransaction({ ...params, acceptance })
   )
 }
 
 export function settleWorkerReportInTransaction(
   this: OrchestrationDb,
-  params: WorkerReportSettlementParams
+  params: WorkerReportSettlementParams & AcceptanceGateInput
 ): WorkerReportSettlement {
   const task = this.getTask(params.taskId)
   if (!task) {
@@ -168,6 +186,17 @@ export function settleWorkerReportInTransaction(
        WHERE task_id = ? AND id != ? AND status IN ('pending', 'dispatched')`
     )
     .all(params.taskId, params.dispatchId) as { id: string }[]
+
+  // Acceptance gate, after every rejection above and before the first write (§8 C1). A duplicate or a
+  // stale report keeps its own answer: the gate only decides a settlement that would otherwise happen.
+  if (params.acceptance.action === 'blocked') {
+    return {
+      action: 'acceptance_pending',
+      taskId: params.taskId,
+      dispatchId: params.dispatchId,
+      reason: params.acceptance.reason
+    }
+  }
 
   this.db.exec('SAVEPOINT settle_worker_report')
   let dispatchUpdate: { changes: number }

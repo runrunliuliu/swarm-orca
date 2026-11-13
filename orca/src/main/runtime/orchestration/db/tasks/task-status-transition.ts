@@ -1,6 +1,6 @@
 import { OrchestrationError } from '../../orchestration-error'
 import type { TaskRow, TaskStatus } from '../../types'
-import { settleActiveDispatchesForTask } from '../dispatch-context/dispatch-completion'
+import { settleActiveDispatchesForTask, type AcceptanceOverride } from '../dispatch-context/dispatch-completion'
 import type { OrchestrationDb } from '../orchestration-db'
 import {
   beginLifecycleWriteTransaction,
@@ -15,7 +15,9 @@ export function updateTaskStatus(
   this: OrchestrationDb,
   id: string,
   status: TaskStatus,
-  result?: string
+  result?: string,
+  /** §8 C1: operator maintenance bypass; undefined means "blocked dispatches stay open". */
+  acceptanceOverride?: AcceptanceOverride
 ): TaskRow | undefined {
   const terminalStatus = status === 'completed' || status === 'failed'
   const requiresActiveDispatch = status === 'dispatched'
@@ -103,7 +105,10 @@ export function updateTaskStatus(
       return current
     }
     if (terminalStatus) {
-      settleActiveDispatchesForTask(this, id, status, result)
+      settleActiveDispatchesForTask(this, id, status, result, {
+        ...(acceptanceOverride === undefined ? {} : { acceptanceOverride }),
+        log: () => undefined
+      })
     }
     if (status === 'completed') {
       this.promoteReadyTasks(id)

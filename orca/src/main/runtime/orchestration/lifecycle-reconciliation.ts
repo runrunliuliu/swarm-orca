@@ -1,7 +1,7 @@
 import type { OrchestrationDb } from './db'
 import type { MessageRow, WorkerReportOutcome } from './types'
 import { workerReportObservation } from './worker-report-observation'
-import { acceptancePendingResult } from '../../incidents/acceptance-runtime'
+import { logAcceptanceBlocked as acceptanceLogBlocked } from '../../incidents/acceptance-runtime'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 
 // Why: the tab half can change on pane break-out, while opaque legacy keys
@@ -280,12 +280,6 @@ function reconcileWorkerDoneMessage(
     reportPath: typeof payload.reportPath === 'string' ? payload.reportPath : null,
     completedAt: new Date().toISOString()
   })
-  // Why here and not inside the settlement transaction: the gate reads stored verdicts only; the
-  // commands already ran outside any transaction when the worker_done was admitted.
-  const acceptancePending = acceptancePendingResult({ taskId, dispatchId, log: onLog })
-  if (acceptancePending !== null) {
-    return acceptancePending
-  }
   const settlement = db.settleWorkerReport({
     taskId,
     dispatchId,
@@ -293,6 +287,12 @@ function reconcileWorkerDoneMessage(
     result,
     observation: workerReportObservation(msg)
   })
+  if (settlement.action === 'acceptance_pending') {
+    // The gate lives in the settlement path (db/dispatch-context/worker-report-settlement), so this
+    // function no longer needs its own pre-check: one gate, one place, and this stays readable.
+    acceptanceLogBlocked(settlement.dispatchId, settlement.reason, onLog)
+    return { action: 'acceptance_pending', taskId, dispatchId }
+  }
   if (settlement.action === 'rejected') {
     return rejectLifecycleMessage(db, msg, settlement.code, settlement.reason, onLog)
   }

@@ -148,7 +148,11 @@ async function syncFederatedDispatchPages(
     if (
       stored.lifecycle &&
       supportsLifecycleSettlement &&
-      capability?.runtimeEpoch === pulled.runtimeEpoch
+      capability?.runtimeEpoch === pulled.runtimeEpoch &&
+      // §8 M5 C1: an acceptance-blocked report is not a settlement. Publishing "acceptance_pending"
+      // would need a new federated settlement action on the wire; "nothing to report yet" is the same
+      // fact and keeps the remote waiting, exactly as it does for a report that never arrived.
+      stored.lifecycle.action !== 'acceptance_pending'
     ) {
       settlements.push({
         sequence: item.sequence,

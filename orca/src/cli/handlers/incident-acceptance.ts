@@ -18,6 +18,7 @@ import {
   resolveAcceptanceStop
 } from '../../main/incidents/dispatch-acceptance-store'
 import { acceptanceGateState } from '../../main/incidents/dispatch-acceptance-stops'
+import { authorizeCwd } from '../../main/incidents/acceptance-cwd'
 import { resolveLocalHostId } from '../../main/incidents/incidents-paths'
 import {
   formatAcceptanceDeclared,
@@ -73,7 +74,27 @@ export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
   if (cwd === null) {
     throw new RuntimeClientError(
       'invalid_argument',
-      'Missing --cwd <path>: the worker worktree the command runs in.'
+      'Missing --cwd <path>: the directory the command runs in.'
+    )
+  }
+  // §8 C5: a declaration is scoped to a worktree root, and the filesystem check happens HERE (the
+  // CLI is the only surface that can see this host's directories). The store then re-checks
+  // containment structurally, and the runner re-checks the realpath before every spawn.
+  const worktreeRootFlag = stringFlag(ctx, 'worktree-root')
+  if (worktreeRootFlag === null) {
+    throw new RuntimeClientError(
+      'invalid_argument',
+      'Missing --worktree-root <path>: the worker worktree root that --cwd must live in. ' +
+        'Acceptance commands never run outside a declared worktree root.'
+    )
+  }
+  const authorized = authorizeCwd({ cwd, worktreeRoot: worktreeRootFlag })
+  if (!authorized.ok) {
+    throw new RuntimeClientError(
+      'invalid_argument',
+      `Refusing to declare: ${authorized.reason}. ` +
+        '--worktree-root must be an existing git worktree root on this host, and --cwd must be that ' +
+        'root or a directory inside it (both resolved through realpath).'
     )
   }
   const expectExit = intFlag(ctx, 'expect-exit')
@@ -105,7 +126,8 @@ export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
         ...(intFlag(ctx, 'timeout-ms') === null
           ? {}
           : { timeoutMs: intFlag(ctx, 'timeout-ms') as number }),
-        cwd,
+        cwd: authorized.resolved.cwd,
+        worktreeRoot: authorized.resolved.worktreeRoot,
         actor
       })
     } catch (error) {
@@ -126,10 +148,18 @@ export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
 
 function openReadOnlyStore(): {
   db: NonNullable<ReturnType<typeof openIncidentStore>['db']> | null
+  /** The store file exists but could not be opened (corrupt, unreadable, wrong owner). */
+  unavailable: boolean
   close: () => void
 } {
-  const opened = openIncidentStore({ requireExisting: false, readOnly: true })
-  return { db: opened.db, close: () => opened.close() }
+  try {
+    const opened = openIncidentStore({ requireExisting: false, readOnly: true })
+    return { db: opened.db, unavailable: false, close: () => opened.close() }
+  } catch {
+    // C3: reading failure is its own answer. `db: null` without `unavailable` means "no store on this
+    // host yet"; this flag means "there is one and we cannot read it", which must not print as empty.
+    return { db: null, unavailable: true, close: () => undefined }
+  }
 }
 
 export const acceptanceListIncident: CommandHandler = async (ctx) => {
@@ -137,16 +167,36 @@ export const acceptanceListIncident: CommandHandler = async (ctx) => {
   const dispatchFilter = stringFlag(ctx, 'dispatch')
   const opened = openReadOnlyStore()
   try {
-    const rules = opened.db === null ? [] : listAcceptanceRules(opened.db, dispatchFilter ?? undefined)
-    const dispatches = [...new Set(rules.map((rule) => rule.dispatchId))]
+    if (opened.unavailable) {
+      // C3 surface: a host whose incidents store exists but cannot be read is NOT "no trouble".
+      // Settlement on that host is fail-closed, and this is where an operator finds out.
+      const unavailable = {
+        dispatches: [],
+        store: 'unavailable' as const,
+        note:
+          'The incidents store could not be read on this host. Dispatches whose declarations cannot be ' +
+          'checked are NOT settled (fail-closed); repair the store or pass --override-acceptance on the ' +
+          'maintenance command to record a bypass.'
+      }
+      if (ctx.json) {
+        printIncidentJson({ ...unavailable, actorIsSelfReported: true })
+        return
+      }
+      console.log(unavailable.note)
+      return
+    }
+    const allRules = listAcceptanceRules(opened.db, dispatchFilter ?? undefined)
+    const dispatches = [...new Set(allRules.map((rule) => rule.dispatchId))]
+    // C8: each row carries only ITS OWN rules. The M5 build passed the whole list to every row, so a
+    // dispatch with one rule printed three.
     const rows = dispatches.map((dispatchId) => ({
       dispatchId,
-      rules,
-      stop: opened.db === null ? null : getAcceptanceStop(opened.db, dispatchId),
-      gate: opened.db === null ? null : acceptanceGateState(opened.db, dispatchId)
+      rules: allRules.filter((rule) => rule.dispatchId === dispatchId),
+      stop: getAcceptanceStop(opened.db as NonNullable<typeof opened.db>, dispatchId),
+      gate: acceptanceGateState(opened.db as NonNullable<typeof opened.db>, dispatchId)
     }))
     if (ctx.json) {
-      printIncidentJson({ dispatches: rows, actorIsSelfReported: true })
+      printIncidentJson({ dispatches: rows, store: 'ok', actorIsSelfReported: true })
       return
     }
     console.log(formatAcceptanceList(rows))
@@ -160,6 +210,25 @@ export const acceptanceShowIncident: CommandHandler = async (ctx) => {
   const dispatchId = requireDispatch(ctx)
   const opened = openReadOnlyStore()
   try {
+    if (opened.unavailable) {
+      if (ctx.json) {
+        printIncidentJson({
+          dispatchId,
+          store: 'unavailable',
+          rules: [],
+          verdicts: [],
+          stop: null,
+          gate: null,
+          actorIsSelfReported: true
+        })
+        return
+      }
+      console.log(
+        `Cannot read the incidents store on this host, so dispatch ${dispatchId}'s acceptance state is ` +
+          'unknown. Settlement of dispatched work is fail-closed while this lasts.'
+      )
+      return
+    }
     const rules = opened.db === null ? [] : listAcceptanceRules(opened.db, dispatchId)
     const verdicts = opened.db === null ? [] : listAcceptanceVerdicts(opened.db, dispatchId)
     const stop = opened.db === null ? null : getAcceptanceStop(opened.db, dispatchId)
@@ -228,8 +297,10 @@ export const acceptanceResolveIncident: CommandHandler = async (ctx) => {
     }
     console.log(
       accept
-        ? `Accepted ${dispatchId}: settlement may resume through the existing flow (actor=${actor}, self-reported).`
-        : `Rejected ${dispatchId}: it stays unsettled and returns to its owner (actor=${actor}, self-reported).`
+        ? `Accepted ${dispatchId} by ${actor} (self-reported): settlement resumes when the coordinator ` +
+            're-reads the unread worker_done on its next tick. This command does not settle the dispatch itself.'
+        : `Rejected ${dispatchId} by ${actor} (self-reported): the dispatch STAYS UNSETTLED until its owner ` +
+            'repairs the work and reports again. Nothing resumes automatically.'
     )
   } finally {
     opened.close()

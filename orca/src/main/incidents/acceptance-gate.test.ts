@@ -22,9 +22,10 @@ import {
   declareAcceptanceRule,
   getAcceptanceStop,
   resolveAcceptanceStop,
-  writeAcceptanceVerdict
+  writeAcceptanceVerdict,
+  type AcceptanceRule
 } from './dispatch-acceptance-store'
-import { gateSettlement } from './acceptance-runtime'
+import { decideMaintenanceAcceptance, gateSettlement } from './acceptance-runtime'
 
 const T0 = 1_700_000_000_000
 const directories: string[] = []
@@ -58,6 +59,43 @@ function fixture(): {
     payload: JSON.stringify({ taskId: task.id, dispatchId: dispatch.id, outcome: 'succeeded' })
   })
   return { dispatch: { id: dispatch.id, taskId: task.id }, message }
+}
+
+/** Declare one rule and, when a verdict is asked for, bind it to the revision that was declared. */
+function declareRule(
+  db: ReturnType<typeof incidents>['opened']['db'],
+  dispatchId: string,
+  verdict?: 'passed' | 'failed' | 'undeterminable',
+  detail = 'exit_code_expected_0_got_2'
+): AcceptanceRule {
+  const rule = declareAcceptanceRule(db, {
+    hostId: 'host-a',
+    dispatchId,
+    ruleId: 'tests',
+    program: 'npm',
+    args: ['test'],
+    expect: { exitCode: 0 },
+    cwd: '/work/tree',
+    worktreeRoot: '/work',
+    actor: 'alice',
+    now: T0
+  })
+  if (verdict !== undefined) {
+    writeAcceptanceVerdict(db, {
+      dispatchId,
+      ruleId: 'tests',
+      verdict,
+      exitCode: verdict === 'passed' ? 0 : 2,
+      signal: null,
+      stdoutDigest: 'a'.repeat(64),
+      stdoutBytes: 12,
+      detail,
+      evaluatedAt: T0,
+      ruleDigest: rule.digest,
+      ruleDeclaredAt: rule.createdAt
+    })
+  }
+  return rule
 }
 
 afterEach(() => {
@@ -102,28 +140,7 @@ describe('a declared dispatch that fails acceptance', () => {
   it('is NOT settled, is never failed, and leaves a visible pending stop plus an incident', () => {
     const { dispatch, message } = fixture()
     const { opened, store } = incidents()
-    declareAcceptanceRule(opened.db, {
-      hostId: 'host-a',
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      program: 'npm',
-      args: ['test'],
-      expect: { exitCode: 0 },
-      cwd: '/work/tree',
-      actor: 'alice',
-      now: T0
-    })
-    writeAcceptanceVerdict(opened.db, {
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      verdict: 'failed',
-      exitCode: 2,
-      signal: null,
-      stdoutDigest: 'a'.repeat(64),
-      stdoutBytes: 12,
-      detail: 'exit_code_expected_0_got_2',
-      evaluatedAt: T0
-    })
+    declareRule(opened.db, dispatch.id, 'failed')
     __configureIncidentStoreForTests(store, opened.db)
 
     expect(reconcileLifecycleMessage(orchestration as OrchestrationDb, message).action).toBe(
@@ -140,18 +157,9 @@ describe('a declared dispatch that fails acceptance', () => {
   it('blocks when a rule was never evaluated, and says so in the incident', () => {
     const { dispatch, message } = fixture()
     const { opened, store } = incidents()
-    declareAcceptanceRule(opened.db, {
-      hostId: 'host-a',
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      program: 'npm',
-      expect: { exitCode: 0 },
-      cwd: '/work/tree',
-      actor: 'alice',
-      now: T0
-    })
+    declareRule(opened.db, dispatch.id)
     __configureIncidentStoreForTests(store, opened.db)
-    expect(gateSettlement({ dispatchId: dispatch.id })).toBe('blocked')
+    expect(gateSettlement({ dispatchId: dispatch.id }).verdict).toBe('blocked')
     const view = store.getIncident(store.listIncidents().incidents[0].id)!
     expect(view.summary).toContain('not_evaluated')
     expect(reconcileLifecycleMessage(orchestration as OrchestrationDb, message).action).toBe(
@@ -162,27 +170,8 @@ describe('a declared dispatch that fails acceptance', () => {
   it('settles after the operator accepts the stop, and never before', () => {
     const { dispatch, message } = fixture()
     const { opened, store } = incidents()
-    declareAcceptanceRule(opened.db, {
-      hostId: 'host-a',
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      program: 'npm',
-      expect: { exitCode: 0 },
-      cwd: '/work/tree',
-      actor: 'alice',
-      now: T0
-    })
-    writeAcceptanceVerdict(opened.db, {
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      verdict: 'failed',
-      exitCode: 2,
-      signal: null,
-      stdoutDigest: null,
-      stdoutBytes: 0,
-      detail: 'exit_code_expected_0_got_2',
-      evaluatedAt: T0
-    })
+    declareRule(opened.db, dispatch.id, 'failed')
+
     __configureIncidentStoreForTests(store, opened.db)
     reconcileLifecycleMessage(orchestration as OrchestrationDb, message)
     expect(orchestration?.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
@@ -204,27 +193,8 @@ describe('a declared dispatch that fails acceptance', () => {
   it('keeps a rejected dispatch unsettled without failing it', () => {
     const { dispatch, message } = fixture()
     const { opened, store } = incidents()
-    declareAcceptanceRule(opened.db, {
-      hostId: 'host-a',
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      program: 'npm',
-      expect: { exitCode: 0 },
-      cwd: '/work/tree',
-      actor: 'alice',
-      now: T0
-    })
-    writeAcceptanceVerdict(opened.db, {
-      dispatchId: dispatch.id,
-      ruleId: 'tests',
-      verdict: 'failed',
-      exitCode: 2,
-      signal: null,
-      stdoutDigest: null,
-      stdoutBytes: 0,
-      detail: 'exit_code_expected_0_got_2',
-      evaluatedAt: T0
-    })
+    declareRule(opened.db, dispatch.id, 'failed')
+
     __configureIncidentStoreForTests(store, opened.db)
     reconcileLifecycleMessage(orchestration as OrchestrationDb, message)
     resolveAcceptanceStop(opened.db, {
@@ -238,5 +208,80 @@ describe('a declared dispatch that fails acceptance', () => {
       'acceptance_pending'
     )
     expect(orchestration?.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
+  })
+
+  it('marks an operator maintenance bypass as overridden, never as accepted (C1)', () => {
+    const { dispatch, message } = fixture()
+    const { opened, store } = incidents()
+    declareRule(opened.db, dispatch.id, 'failed')
+    __configureIncidentStoreForTests(store, opened.db)
+
+    // The real maintenance entry point: it writes the stop AND the audit incident.
+    const decision = decideMaintenanceAcceptance({
+      dispatchId: dispatch.id,
+      override: { actor: 'alice', reason: 'hotfix deployed by hand' }
+    })
+    expect(decision).toEqual({ action: 'allow', via: 'overridden' })
+
+    // The gate now allows settlement, but reports how it got there.
+    expect(gateSettlement({ dispatchId: dispatch.id })).toMatchObject({
+      verdict: 'passed',
+      via: 'overridden'
+    })
+    expect(getAcceptanceStop(opened.db, dispatch.id)).toMatchObject({
+      state: 'overridden',
+      actor: 'alice',
+      overriddenRules: ['tests']
+    })
+    // The audit row is its own class, so a triage read cannot mistake it for a pass or a failure.
+    const override = store
+      .listIncidents()
+      .incidents.find((incident) => incident.class === 'acceptance_overridden')
+    expect(override).toBeDefined()
+    expect(override?.summary).toContain('hotfix deployed by hand')
+    expect(reconcileLifecycleMessage(orchestration as OrchestrationDb, message).action).toBe(
+      'completed'
+    )
+  })
+
+  it('separates command runs from settlement reads instead of counting one as the other (C6)', () => {
+    const { dispatch } = fixture()
+    const { opened, store } = incidents()
+    declareRule(opened.db, dispatch.id, 'failed')
+    __configureIncidentStoreForTests(store, opened.db)
+
+    for (let tick = 0; tick < 3; tick += 1) {
+      expect(gateSettlement({ dispatchId: dispatch.id, now: T0 + tick }).verdict).toBe('blocked')
+    }
+    const stop = getAcceptanceStop(opened.db, dispatch.id)
+    // Three settlement reads, zero command runs: the M5 build reported "attempts=3", which read as
+    // three retries of a command that was executed once.
+    expect(stop).toMatchObject({ gateSeenCount: 3, evaluationAttempts: 0 })
+    expect(stop?.lastSeenAt).toBe(T0 + 2)
+  })
+
+  it('opens a visible blocked stop and keeps the incident when the rule was never evaluated (C7)', () => {
+    const { dispatch } = fixture()
+    const { opened, store } = incidents()
+    const rule = declareRule(opened.db, dispatch.id, 'passed')
+    __configureIncidentStoreForTests(store, opened.db)
+    expect(gateSettlement({ dispatchId: dispatch.id }).verdict).toBe('passed')
+
+    // Same rule id, different contract: the pass no longer describes this rule.
+    declareAcceptanceRule(opened.db, {
+      hostId: 'host-a',
+      dispatchId: dispatch.id,
+      ruleId: 'tests',
+      program: 'npm',
+      args: ['test'],
+      expect: { exitCode: 7 },
+      cwd: '/work/tree',
+      worktreeRoot: '/work',
+      actor: 'alice',
+      now: T0 + 5
+    })
+    expect(rule.expect).toEqual({ exitCode: 0 })
+    expect(gateSettlement({ dispatchId: dispatch.id }).verdict).toBe('blocked')
+    expect(getAcceptanceStop(opened.db, dispatch.id)).toMatchObject({ state: 'pending' })
   })
 })

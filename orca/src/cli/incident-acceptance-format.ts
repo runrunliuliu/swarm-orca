@@ -25,6 +25,47 @@ function expected(rule: AcceptanceRule): string {
   return parts.join(' ')
 }
 
+/**
+ * The row's own action, stated as what actually happens next (M5 review C8).
+ *
+ * The build under review printed "reviewed; settlement resumes through the existing flow" for a
+ * rejected stop, which is the opposite of the truth: a rejection keeps the dispatch unsettled until its
+ * owner repairs the work and reports again. Wording here is an operational instruction, not a label.
+ */
+function ownerAction(row: ListRow): string {
+  if (row.stop?.state === 'overridden') {
+    const rules = row.stop.overriddenRules.length > 0 ? row.stop.overriddenRules.join(',') : 'rules'
+    return (
+      `overridden by ${row.stop.actor ?? 'unknown'}: settled without acceptance (${rules}); ` +
+      'review the audit incident'
+    )
+  }
+  if (row.stop?.state === 'rejected') {
+    return 'REJECTED: stays unsettled; the owner must repair the work and report again'
+  }
+  if (row.stop?.state === 'accepted') {
+    return 'accepted; the coordinator settles it on its next tick (needs the unread worker_done)'
+  }
+  if (row.gate?.verdict === 'store_unavailable') {
+    return 'UNREADABLE STORE: fail-closed; repair the incidents store or record an override'
+  }
+  if (row.gate?.verdict === 'blocked' || row.gate?.state === 'blocked') {
+    return (
+      `orca incident acceptance resolve --dispatch ${row.dispatchId} --accept|--reject ` +
+      '--actor <name> --reason <text>'
+    )
+  }
+  return '—'
+}
+
+type ListRow = {
+  dispatchId: string
+  rules: AcceptanceRule[]
+  stop: AcceptanceStop | null
+  /** The read model carries the gate verdict OR a legacy `{state}`; both are accepted here. */
+  gate: { state: string; verdict?: string } | null
+}
+
 export function formatAcceptanceDeclared(rule: AcceptanceRule): string {
   return (
     `Declared acceptance rule ${rule.ruleId} for dispatch ${rule.dispatchId}: ` +
@@ -34,34 +75,27 @@ export function formatAcceptanceDeclared(rule: AcceptanceRule): string {
   )
 }
 
-type ListRow = {
-  dispatchId: string
-  rules: AcceptanceRule[]
-  stop: AcceptanceStop | null
-  gate: { state: string } | null
-}
-
 export function formatAcceptanceList(rows: readonly ListRow[]): string {
   if (rows.length === 0) {
     return 'No acceptance rules declared on this host.'
   }
   const lines = [
-    `${pad('DISPATCH', 24)} ${pad('RULES', 6)} ${pad('GATE', 10)} ${pad('STOP', 10)} OWNER ACTION`
+    `${pad('DISPATCH', 24)} ${pad('RULES', 6)} ${pad('GATE', 10)} ${pad('STOP', 12)} OWNER ACTION`
   ]
   for (const row of rows) {
-    const blocked = row.gate?.state === 'blocked'
-    const action =
-      blocked && row.stop?.state === 'pending'
-        ? `orca incident acceptance resolve --dispatch ${row.dispatchId} --accept|--reject --actor <name> --reason <text>`
-        : blocked
-          ? 'reviewed; settlement resumes through the existing flow'
-          : '—'
+    const action = ownerAction(row)
     lines.push(
       `${pad(row.dispatchId, 24)} ${pad(String(row.rules.length), 6)} ${pad(row.gate?.state ?? '—', 10)} ` +
-        `${pad(row.stop?.state ?? '—', 10)} ${action}`
+        `${pad(row.stop?.state ?? '—', 12)} ${action}`
     )
     for (const rule of row.rules) {
-      lines.push(`  ${rule.ruleId}: ${expected(rule)}`)
+      lines.push(`  ${rule.ruleId}: ${expected(rule)} (cwd=${rule.cwd}, root=${rule.worktreeRoot})`)
+    }
+    if (row.stop?.state === 'overridden') {
+      lines.push(
+        `  overridden: actor=${row.stop.actor ?? '—'} reason=${row.stop.reason ?? '—'} ` +
+          `rules=${row.stop.overriddenRules.join(',') || '—'}`
+      )
     }
   }
   lines.push('')
@@ -92,11 +126,20 @@ export function formatAcceptanceShow(input: {
   }
   if (input.stop !== null) {
     lines.push(
-      `  stop: state=${input.stop.state} attempts=${input.stop.attempts} ` +
+      `  stop: state=${input.stop.state} evaluations=${input.stop.evaluationAttempts} ` +
+        `gate_reads=${input.stop.gateSeenCount} ` +
         `opened=${new Date(input.stop.openedAt).toISOString()}` +
+        `${input.stop.lastSeenAt === null ? '' : ` last_seen=${new Date(input.stop.lastSeenAt).toISOString()}`}` +
+        `${input.stop.lastError === null ? '' : ` last_error=${input.stop.lastError}`}` +
         `${input.stop.actor ? ` actor=${input.stop.actor}` : ''}` +
         `${input.stop.reason ? ` reason=${input.stop.reason}` : ''}`
     )
+    if (input.stop.state === 'overridden') {
+      lines.push(
+        `  overridden: skipped ${input.stop.overriddenRules.join(',') || '—'} ` +
+          '(operator bypass with external authority; this is NOT a product pass)'
+      )
+    }
   }
   lines.push('')
   lines.push(

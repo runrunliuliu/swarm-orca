@@ -284,11 +284,24 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
           `Task ${params.id} was not found in Run ${run.id}.`
         )
       }
-      const task = db.updateTaskStatus(params.id, params.status, params.result)
+      const task = db.updateTaskStatus(
+        params.id,
+        params.status,
+        params.result,
+        params.overrideAcceptance
+      )
       if (!task) {
         throw new Error(`Task not found: ${params.id}`)
       }
-      return { task }
+      // §8 C1: name the dispatches a bypass did NOT settle, so an operator who used the override
+      // without a declaration change still learns that something stayed open.
+      const skippedAcceptance = db
+        .db.prepare(
+          "SELECT id FROM dispatch_contexts WHERE task_id = ? AND status IN ('pending', 'dispatched')"
+        )
+        .all(params.id)
+        .map((row) => String(row.id))
+      return skippedAcceptance.length === 0 ? { task } : { task, skippedAcceptance }
     }
   })
 ]

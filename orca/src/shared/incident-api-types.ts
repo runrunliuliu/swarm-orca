@@ -14,6 +14,7 @@ export type IncidentClassDto =
   | 'no_progress'
   | 'tool_error'
   | 'acceptance_failed'
+  | 'acceptance_overridden'
   | 'unknown_state'
 
 export type IncidentStatusDto =

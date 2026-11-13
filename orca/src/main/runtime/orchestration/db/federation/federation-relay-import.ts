@@ -7,6 +7,7 @@ import type {
 } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
+import { decideWorkerReportAcceptance } from '../../../../incidents/acceptance-runtime'
 
 export function importFederatedRelayItem(
   this: OrchestrationDb,
@@ -41,6 +42,14 @@ export function importFederatedRelayItem(
   duplicate: boolean
   lifecycle?: WorkerReportSettlement | { action: 'rejected'; code: string; reason: string }
 } {
+  // §8 C1: the gate decision is taken BEFORE this transaction opens, for the same reason the local send
+  // path runs the commands early — the gate writes incidents rows and must not live inside the
+  // lifecycle write transaction. A federated worker_report that the gate blocks is imported and stays
+  // unread, so the coordinator's next tick re-reads it and settles once the stop is accepted.
+  const acceptance =
+    params.lifecycle.kind === 'worker_report'
+      ? decideWorkerReportAcceptance(params.dispatchId)
+      : undefined
   this.db.exec('BEGIN IMMEDIATE')
   try {
     const federated = this.getFederatedDispatch(params.dispatchId)
@@ -95,7 +104,8 @@ export function importFederatedRelayItem(
         taskId: params.lifecycle.taskId,
         dispatchId: params.dispatchId,
         outcome: params.lifecycle.outcome,
-        result: params.lifecycle.result
+        result: params.lifecycle.result,
+        acceptance: acceptance as NonNullable<typeof acceptance>
       })
       if (lifecycle.action === 'rejected' && !duplicate) {
         message = this.convertLifecycleMessageToRejection(

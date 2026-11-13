@@ -122,7 +122,10 @@ export const ORCHESTRATION_GATE_METHODS = [
       const gate = db.createGate({
         taskId: params.task,
         question: params.question,
-        options
+        options,
+        ...(params.overrideAcceptance === undefined
+          ? {}
+          : { acceptanceOverride: params.overrideAcceptance })
       })
       return { gate }
     }

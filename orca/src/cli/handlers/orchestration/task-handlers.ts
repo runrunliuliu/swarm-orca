@@ -5,6 +5,7 @@ import { RuntimeClientError } from '../../runtime-client'
 import { abbreviateOrchestrationTasks } from '../../../shared/orchestration-task-summary'
 import { callOrchestrationMutation } from './mutation-request'
 import { resolveCoordinatorTerminalHandle, runScopedSessionCaller } from './terminal-identity'
+import { acceptanceOverrideFromFlags } from './acceptance-override'
 
 const TASK_STATUS_VALUES = [
   'pending',
@@ -97,7 +98,11 @@ export const ORCHESTRATION_TASK_HANDLERS: Record<string, CommandHandler> = {
         `invalid status '${status}', expected one of: ${TASK_STATUS_VALUES.join(', ')}`
       )
     }
-    const result = await callOrchestrationMutation<{ task: { id: string; status: string } }>(
+    const override = acceptanceOverrideFromFlags(flags)
+    const result = await callOrchestrationMutation<{
+      task: { id: string; status: string }
+      skippedAcceptance?: string[]
+    }>(
       client,
       flags,
       'orchestration.taskUpdate',
@@ -106,9 +111,18 @@ export const ORCHESTRATION_TASK_HANDLERS: Record<string, CommandHandler> = {
         status,
         result: getOptionalStringFlag(flags, 'result'),
         run: getOptionalStringFlag(flags, 'run'),
+        ...(override === undefined ? {} : { overrideAcceptance: override }),
         callerTerminalHandle: await resolveCoordinatorTerminalHandle(flags, cwd, client)
       }
     )
-    printResult(result, json, (r) => `Updated ${r.task.id} -> ${r.task.status}`)
+    printResult(
+      result,
+      json,
+      (r) =>
+        `Updated ${r.task.id} -> ${r.task.status}` +
+        (r.skippedAcceptance && r.skippedAcceptance.length > 0
+          ? `\nNot settled (acceptance blocked; re-run with --override-acceptance --actor <name> --reason <text> to record a bypass): ${r.skippedAcceptance.join(', ')}`
+          : '')
+    )
   }
 }

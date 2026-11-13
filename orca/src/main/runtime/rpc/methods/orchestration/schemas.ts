@@ -138,6 +138,16 @@ export const TaskUpdateParams = z.object({
     ),
   result: OptionalString,
   run: OptionalString,
+  /**
+   * `--override-acceptance` in wire form (M5 review C1).
+   *
+   * Operator maintenance paths may settle a dispatch whose declared acceptance rule failed; they may
+   * not do it implicitly. Without this field the dispatch is left unsettled and the caller sees
+   * `skippedAcceptance` in the result, which is the visible "someone must decide" signal.
+   */
+  overrideAcceptance: z
+    .object({ actor: requiredString('Missing --actor'), reason: requiredString('Missing --reason') })
+    .optional(),
   callerTerminalHandle: OptionalString
 })
 export type { DispatchMutationMessageType } from '../../../../../shared/rpc-contract/orchestration-params'

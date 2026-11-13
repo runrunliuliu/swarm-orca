@@ -25,8 +25,18 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
  * explicit fallback marker, and the verdict is named `would_write_if_enabled`. The sample table is a
  * derived cache refreshed every tick, so its migration is "drop and recreate" — declarations, incident
  * rows, triggers and decisions are untouched.
+ *
+ * v5 (M5 review) hardens the acceptance surface without touching incident rows or decisions:
+ *   * `worktree_root` on a declaration — the authorized root the `cwd` was proven to be inside (C5);
+ *   * `rule_digest`/`rule_declared_at` on a verdict — a verdict only counts for the rule revision it
+ *     was produced from, so re-declaring a rule cannot inherit the old answer (C7);
+ *   * `evaluation_attempts` (renamed from `attempts`) plus `gate_seen_count`, `last_seen_at` and
+ *     `last_error` on a stop — "how often did we run the command" and "how often did a settlement
+ *     read the gate" are different facts and used to share one unbounded counter (C6);
+ *   * `overridden` stop state with `overridden_rules` — an operator maintenance bypass is evidence,
+ *     not a silent completion (C1).
  */
-export const INCIDENTS_DB_SCHEMA_VERSION = 4
+export const INCIDENTS_DB_SCHEMA_VERSION = 5
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -176,6 +186,7 @@ CREATE TABLE IF NOT EXISTS dispatch_acceptance_rules (
   expect      TEXT NOT NULL,
   timeout_ms  INTEGER NOT NULL,
   cwd         TEXT NOT NULL,
+  worktree_root TEXT NOT NULL DEFAULT '',
   actor       TEXT NOT NULL,
   created_at  INTEGER NOT NULL,
   digest      TEXT NOT NULL,
@@ -195,11 +206,17 @@ CREATE TABLE IF NOT EXISTS dispatch_acceptance_verdicts (
   stdout_bytes  INTEGER,
   detail        TEXT,
   evaluated_at  INTEGER NOT NULL,
+  rule_digest   TEXT,
+  rule_declared_at INTEGER,
   PRIMARY KEY (dispatch_id, rule_id)
 );
 
 -- The visible stop. pending is non-terminal and owned; accepted lets settlement resume through the
--- existing path; rejected keeps the dispatch unsettled and hands it back to its owner.
+-- existing path; rejected keeps the dispatch unsettled and hands it back to its owner; overridden is
+-- an operator maintenance bypass with its own evidence (rules, actor, reason).
+--
+-- evaluation_attempts counts command runs, gate_seen_count counts settlement reads. Both are
+-- capped by the writer so a long-lived pending stop cannot overflow its own observability.
 CREATE TABLE IF NOT EXISTS dispatch_acceptance_stops (
   dispatch_id TEXT PRIMARY KEY,
   state       TEXT NOT NULL,
@@ -208,7 +225,11 @@ CREATE TABLE IF NOT EXISTS dispatch_acceptance_stops (
   updated_at  INTEGER NOT NULL,
   actor       TEXT,
   reason      TEXT,
-  attempts    INTEGER NOT NULL DEFAULT 0
+  evaluation_attempts INTEGER NOT NULL DEFAULT 0,
+  gate_seen_count     INTEGER NOT NULL DEFAULT 0,
+  last_seen_at        INTEGER,
+  last_error          TEXT,
+  overridden_rules    TEXT
 );
 `
 }
@@ -348,9 +369,34 @@ function createIncidentSchema(db: Database.Database, stored: number): void {
       // column-by-column rewrite, and it cannot lose anything an operator would miss.
       db.exec('DROP TABLE IF EXISTS incident_stall_samples')
     }
+    migrateAcceptanceTables(db, stored)
     db.exec(createIncidentTablesSql())
     db.pragma(`user_version = ${INCIDENTS_DB_SCHEMA_VERSION}`)
   })
+}
+
+/**
+ * v4 -> v5: additive columns only, so no operator decision, declaration or verdict is dropped.
+ *
+ * `attempts` is renamed rather than left alone: the old column counted gate reads, and leaving that
+ * name on a value that now counts command runs would keep the exact confusion the review found.
+ * `stored === 4` is the only hop that has the tables at all (a v0-v3 file is created fresh by
+ * `createIncidentTablesSql`).
+ */
+function migrateAcceptanceTables(db: Database.Database, stored: number): void {
+  if (stored !== 4) {
+    return
+  }
+  db.exec('ALTER TABLE dispatch_acceptance_rules ADD COLUMN worktree_root TEXT NOT NULL DEFAULT \'\'')
+  db.exec('ALTER TABLE dispatch_acceptance_verdicts ADD COLUMN rule_digest TEXT')
+  db.exec('ALTER TABLE dispatch_acceptance_verdicts ADD COLUMN rule_declared_at INTEGER')
+  db.exec('ALTER TABLE dispatch_acceptance_stops RENAME COLUMN attempts TO evaluation_attempts')
+  db.exec(
+    'ALTER TABLE dispatch_acceptance_stops ADD COLUMN gate_seen_count INTEGER NOT NULL DEFAULT 0'
+  )
+  db.exec('ALTER TABLE dispatch_acceptance_stops ADD COLUMN last_seen_at INTEGER')
+  db.exec('ALTER TABLE dispatch_acceptance_stops ADD COLUMN last_error TEXT')
+  db.exec('ALTER TABLE dispatch_acceptance_stops ADD COLUMN overridden_rules TEXT')
 }
 
 /**

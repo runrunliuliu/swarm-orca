@@ -137,7 +137,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     path: ['incident', 'acceptance', 'declare'],
     summary: 'Declare an acceptance rule for a dispatch (does not run it)',
     usage:
-      'orca incident acceptance declare --dispatch <id> --rule <id> --cwd <worktree> ' +
+      'orca incident acceptance declare --dispatch <id> --rule <id> --cwd <dir> --worktree-root <root> ' +
       '--command <program> [--command <arg>]... [--expect-exit <n>] [--expect-stdout <substr>] ' +
       '[--timeout-ms <n>] [--actor <name>] [--json]',
     allowedFlags: [
@@ -145,6 +145,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
       'dispatch',
       'rule',
       'cwd',
+      'worktree-root',
       'command',
       'expect-exit',
       'expect-stdout',
@@ -153,11 +154,13 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ],
     repeatableFlags: ['command'],
     examples: [
-      'orca incident acceptance declare --dispatch disp_1 --rule tests --cwd /path/to/worktree --command npm --command test --expect-exit 0',
-      'orca incident acceptance declare --dispatch disp_1 --rule archive --cwd /path/to/worktree --command test --command -f --command out/report.json --expect-stdout "PASS"'
+      'orca incident acceptance declare --dispatch disp_1 --rule tests --worktree-root /path/to/worktree --cwd /path/to/worktree --command npm --command test --expect-exit 0',
+      'orca incident acceptance declare --dispatch disp_1 --rule archive --worktree-root /path/to/worktree --cwd /path/to/worktree/packages/app --command test --command -f --command out/report.json --expect-stdout "PASS"'
     ],
     notes: [
       'argv only: the first --command is the program, each later one is an argument. No shell is involved, so nothing is interpolated.',
+      '--worktree-root is required: it must be an existing git worktree root on this host, and --cwd must be that root or a directory inside it. Both are resolved through realpath before the declaration is stored, so a symlinked or escaping cwd is refused.',
+      'The stored rule is bound to its digest: changing any part of it (including the root) invalidates the previous verdict and reopens a resolved stop.',
       'At least one of --expect-exit / --expect-stdout is required. Multiple rules per dispatch are allowed and judged independently.',
       'Re-declaring the same --rule replaces it; the rule id is the idempotency key.',
       'The actor is self-reported and never verified (§19.1). Declaring does not execute anything.'
@@ -170,6 +173,10 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     allowedFlags: [...GLOBAL_FLAGS, 'dispatch'],
     notes: [
       'A blocked dispatch with a pending stop is the visible stop: it is never settled by acceptance, and it never silently stays running without an owner.',
+      'STOP=rejected means the dispatch STAYS UNSETTLED until its owner repairs the work and reports again — nothing resumes automatically.',
+      'STOP=accepted means settlement resumes on the coordinator\'s next tick, which re-reads the unread worker_done.',
+      'STOP=overridden means an operator settled it with --override-acceptance on a maintenance command; the skipped rules are listed and the audit incident is class acceptance_overridden.',
+      'If the incidents store cannot be read the command says so instead of printing an empty list: settlement on such a host is fail-closed.',
       'actor values are self-reported.'
     ]
   },

@@ -32,6 +32,8 @@ const DAY = 24 * 60 * 60 * 1000
 const NOW = 1_700_000_000_000
 
 let userData: string
+/** The fixture's userData doubles as the authorized worktree root for acceptance declarations (C5). */
+let worktreeRoot: string
 let opened: OpenIncidentsDatabase | null = null
 let previousUserDataPath: string | undefined
 
@@ -82,6 +84,9 @@ function context(
 
 beforeEach(() => {
   userData = mkdtempSync(join(tmpdir(), 'orca-incident-cli-'))
+  // A linked worktree root is a directory with a `.git` ENTRY; the check only requires it to exist.
+  worktreeRoot = mkdtempSync(join(tmpdir(), 'orca-incident-worktree-'))
+  writeFileSync(join(worktreeRoot, '.git'), 'gitdir: /tmp/not-a-real-gitdir\n')
   previousUserDataPath = process.env.ORCA_USER_DATA_PATH
   process.env.ORCA_USER_DATA_PATH = userData
 })
@@ -365,10 +370,13 @@ describe('incident tool-errors (M4-1)', () => {
 
 describe('incident acceptance (M5)', () => {
   it('declares argv rules idempotently and lists them with the gate state', async () => {
+    // C5: a declaration names an existing git worktree root on this host, and cwd must be inside it.
+    // The test's own userData directory plays that role.
     const declared = context('incident acceptance declare', {
       dispatch: 'disp_1',
       rule: 'tests',
-      cwd: '/work/tree',
+      cwd: worktreeRoot,
+      'worktree-root': worktreeRoot,
       command: `npm${REPEATED} test`,
       'expect-exit': '0',
       actor: 'alice'
@@ -381,7 +389,8 @@ describe('incident acceptance (M5)', () => {
     const again = context('incident acceptance declare', {
       dispatch: 'disp_1',
       rule: 'tests',
-      cwd: '/work/tree',
+      cwd: worktreeRoot,
+      'worktree-root': worktreeRoot,
       command: `npm${REPEATED} test`,
       'expect-exit': '1'
     })
@@ -400,14 +409,15 @@ describe('incident acceptance (M5)', () => {
 
   it('shows expected vs actual per rule and never the command output', async () => {
     const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
-    declareAcceptanceRule(opened.db, {
+    const rule = declareAcceptanceRule(opened.db, {
       hostId: 'host-a',
       dispatchId: 'disp_2',
       ruleId: 'tests',
       program: 'npm',
       args: ['test'],
       expect: { exitCode: 0 },
-      cwd: '/work/tree',
+      cwd: worktreeRoot,
+      worktreeRoot,
       actor: 'alice'
     })
     writeAcceptanceVerdict(opened.db, {
@@ -419,7 +429,9 @@ describe('incident acceptance (M5)', () => {
       stdoutDigest: 'b'.repeat(64),
       stdoutBytes: 42,
       detail: 'exit_code_expected_0_got_2',
-      evaluatedAt: 1_700_000_000_000
+      evaluatedAt: 1_700_000_000_000,
+      ruleDigest: rule.digest,
+      ruleDeclaredAt: rule.createdAt
     })
     const shown = context('incident acceptance show', { dispatch: 'disp_2' })
     await INCIDENT_HANDLERS['incident acceptance show'](shown.ctx)

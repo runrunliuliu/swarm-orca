@@ -16,7 +16,11 @@ export const GateCreateParams = z.object({
   question: requiredString('Missing --question'),
   options: OptionalString,
   from: OptionalString,
-  run: OptionalString
+  run: OptionalString,
+  /** §8 C1: opening a gate completes active dispatches; a recorded bypass is the only silent-free way. */
+  overrideAcceptance: z
+    .object({ actor: requiredString('Missing --actor'), reason: requiredString('Missing --reason') })
+    .optional()
 })
 
 export const GateResolveParams = z.object({

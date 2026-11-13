@@ -26,6 +26,20 @@ export type WorkerReportOutcome = 'succeeded' | 'failed'
 
 export type WorkerReportSettlement =
   | { action: 'settled'; outcome: WorkerReportOutcome; duplicate: boolean }
+  /**
+   * The worker says it is done, but a declared acceptance rule does not allow settlement (§8). The
+   * dispatch keeps its status, the report stays unread, and the visible stop owns the next step.
+   *
+   * `reason` separates the two ways to be blocked: `blocked` is a rule result (failed / not evaluated /
+   * operator rejected), `store_unavailable` is "the declarations could not be read at all", which is
+   * fail-closed and not a verdict about the product (M5 review C3).
+   */
+  | {
+      action: 'acceptance_pending'
+      taskId: string
+      dispatchId: string
+      reason: 'blocked' | 'store_unavailable'
+    }
   | {
       action: 'rejected'
       code:

@@ -39,13 +39,24 @@ export async function checkDirectMailbox(args: {
     let visibleMessages = messages
     if (consumeUnread && messages.length > 0) {
       // Why: unread check is an authoritative read path for worker_done/heartbeat, so reconcile lifecycle messages here too.
+      // M5 review C2: a worker_done the acceptance gate blocks must stay unread here as well as in the
+      // coordinator. This path used to mark everything read, so `acceptance resolve --accept` found no
+      // message left to resume and the dispatch stayed unsettled forever.
+      const keepUnread = new Set<string>()
       visibleMessages = messages.map((message) => {
         const reconciled = reconcileLifecycleMessage(db, message)
+        if (reconciled.action === 'acceptance_pending') {
+          keepUnread.add(message.id)
+          return message
+        }
         return reconciled.action === 'rejected'
           ? (db.getMessageById(message.id) ?? message)
           : message
       })
-      db.markAsRead(messages.map((message) => message.id))
+      const read = messages.map((message) => message.id).filter((id) => !keepUnread.has(id))
+      if (read.length > 0) {
+        db.markAsRead(read)
+      }
     }
     if (params.format || params.inject) {
       const formatted = visibleMessages.map(formatMessageBanner).join('\n\n')

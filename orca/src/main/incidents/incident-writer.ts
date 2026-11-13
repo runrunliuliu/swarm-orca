@@ -11,6 +11,7 @@
 // than a local SQLite insert plus one flushed NDJSON line.
 
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import {
   assessPtyExit,
@@ -102,6 +103,41 @@ export function incidentRuntimeStore(): RuntimeIncidentStore | null {
     cached = null
     return null
   }
+  return openAndCache(path)
+}
+
+/**
+ * Resolve the store WITHOUT creating it (M5 review C4).
+ *
+ * The acceptance gate runs on every local `worker_done`, including on a host that never declared a
+ * rule. Going through `incidentRuntimeStore()` there would create `<userData>/incidents/` and run the
+ * schema migration as a side effect of *not* using the feature, which is not a "no declaration is a
+ * no-op" regression path.
+ *
+ * Absence is deliberately NOT cached: the first real incident write may create the store later in the
+ * same process, and a cached "absent" would hide it. A failed open *is* cached, exactly like
+ * `incidentRuntimeStore()`, so a broken directory is not re-probed on every settlement.
+ */
+export function incidentRuntimeStoreIfPresent(): RuntimeIncidentStore | null {
+  if (cached !== undefined) {
+    return cached
+  }
+  const path = resolveMainProcessIncidentsDatabaseFile()
+  if (path === null) {
+    return null
+  }
+  try {
+    if (!existsSync(path)) {
+      return null
+    }
+  } catch {
+    return null
+  }
+  return openAndCache(path)
+}
+
+/** Shared open+construct step; caching is what makes a failed open cheap to re-check. */
+function openAndCache(path: string): RuntimeIncidentStore | null {
   try {
     const opened: OpenIncidentsDatabase = openIncidentsDatabase(path)
     cached = {

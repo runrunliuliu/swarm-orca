@@ -28,9 +28,27 @@ export function stringFlag(ctx: HandlerContext, name: string): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+/**
+ * Self-report accepts only the classes a reporter can honestly claim.
+ *
+ * `acceptance_overridden` is written by the maintenance path with its own evidence (actor, reason,
+ * skipped rules); letting `incident report --class acceptance_overridden` mint one would turn the
+ * audit trail into something anyone can forge with one flag.
+ */
+const SELF_REPORT_CLASSES: readonly IncidentClass[] = [
+  'crash',
+  'no_progress',
+  'tool_error',
+  'acceptance_failed',
+  'unknown_state'
+]
+
 export function parseIncidentClass(value: string): IncidentClass {
-  if (!isIncidentClass(value)) {
-    throw new RuntimeClientError('invalid_argument', `Unsupported --class "${value}".`)
+  if (!isIncidentClass(value) || !SELF_REPORT_CLASSES.includes(value)) {
+    throw new RuntimeClientError(
+      'invalid_argument',
+      `Unsupported --class "${value}". One of: ${SELF_REPORT_CLASSES.join(', ')}.`
+    )
   }
   return value
 }

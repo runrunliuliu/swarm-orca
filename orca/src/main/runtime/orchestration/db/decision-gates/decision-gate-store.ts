@@ -3,6 +3,7 @@ import { OrchestrationError } from '../../orchestration-error'
 import { generateId } from '../generated-id'
 import type { OrchestrationDb } from '../orchestration-db'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
+import type { AcceptanceOverride } from '../dispatch-context/dispatch-completion'
 
 // ── Decision Gates ──
 
@@ -13,6 +14,8 @@ export function createGate(
     question: string
     options?: string[]
     requester?: { handle: string; paneKey?: string | null; dispatchId: string }
+    /** §8 C1: the gate is external authority, so it may bypass acceptance — only when recorded. */
+    acceptanceOverride?: AcceptanceOverride
   }
 ): DecisionGateRow {
   this.db.exec('SAVEPOINT create_gate')
@@ -75,7 +78,11 @@ export function createGate(
         'INSERT INTO decision_gates (id, run_id, task_id, question, options) VALUES (?, ?, ?, ?, ?)'
       )
       .run(id, runId, gate.taskId, gate.question, optionsJson)
-    this.completeActiveDispatchesForTask(gate.taskId)
+    this.completeActiveDispatchesForTask(gate.taskId, {
+      ...(gate.acceptanceOverride === undefined
+        ? {}
+        : { acceptanceOverride: gate.acceptanceOverride })
+    })
     transitionLifecycleWithDb(this.db, {
       entity: 'task',
       id: gate.taskId,

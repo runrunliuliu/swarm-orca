@@ -12,12 +12,18 @@
 import type { TerminalExitCause } from '../../shared/terminal-exit-cause'
 import type { IncidentShadowReplayCoverage } from './incident-shadow-coverage'
 
-/** §6.2 `class`. Five values, closed set: an unknown failure kind is `unknown_state`, not a new word. */
+/** §6.2 `class`. Six values, closed set: an unknown failure kind is `unknown_state`, not a new word. */
 export const INCIDENT_CLASSES = [
   'crash',
   'no_progress',
   'tool_error',
   'acceptance_failed',
+  /**
+   * Not a failure: an operator maintenance settlement bypassed a declared acceptance rule (§8 C1).
+   * It earns its own class because rendering it as `acceptance_failed` would claim the check failed,
+   * and rendering it as a normal completion is the ambiguity the M5 review blocked on.
+   */
+  'acceptance_overridden',
   'unknown_state'
 ] as const
 export type IncidentClass = (typeof INCIDENT_CLASSES)[number]

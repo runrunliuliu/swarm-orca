@@ -3,15 +3,18 @@ import { printResult } from '../../format'
 import { getOptionalJsonFlag, getOptionalStringFlag, getRequiredStringFlag } from '../../flags'
 import { callOrchestrationMutation } from './mutation-request'
 import { resolveCoordinatorTerminalHandle, runScopedSessionCaller } from './terminal-identity'
+import { acceptanceOverrideFromFlags } from './acceptance-override'
 
 export const ORCHESTRATION_GATE_HANDLERS: Record<string, CommandHandler> = {
   'orchestration gate-create': async ({ flags, client, cwd, json }) => {
+    const override = acceptanceOverrideFromFlags(flags)
     const result = await callOrchestrationMutation<{
       gate: { id: string; task_id: string; status: string }
     }>(client, flags, 'orchestration.gateCreate', {
       task: getRequiredStringFlag(flags, 'task'),
       question: getRequiredStringFlag(flags, 'question'),
       options: getOptionalJsonFlag(flags, 'options'),
+      ...(override === undefined ? {} : { overrideAcceptance: override }),
       // Why: gates are Run-scoped, so the coordinator handle is the authorized caller identity.
       from: await resolveCoordinatorTerminalHandle(flags, cwd, client)
     })

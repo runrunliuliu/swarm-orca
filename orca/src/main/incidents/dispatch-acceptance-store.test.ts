@@ -43,6 +43,7 @@ function declare(db: OpenIncidentsDatabase['db'], ruleId: string, overrides: Par
     args: ['test'],
     expect: { exitCode: 0 },
     cwd: '/work/tree',
+    worktreeRoot: '/work',
     actor: 'alice',
     now: T0,
     ...overrides
@@ -95,6 +96,26 @@ describe('declarations', () => {
     expect(listAcceptanceRules(db)).toHaveLength(0)
   })
 
+  it('refuses a cwd outside the declared worktree root (C5)', () => {
+    const { db } = fixture()
+    expect(() => declare(db, 'x', { cwd: '/work/elsewhere', worktreeRoot: '/work/tree' })).toThrow(
+      /cwd_outside_worktree/
+    )
+    expect(() => declare(db, 'x', { worktreeRoot: '' })).toThrow(/missing_worktree_root/)
+    // Sibling with a shared prefix is not "inside": /work/treetop is not under /work/tree.
+    expect(() => declare(db, 'x', { cwd: '/work/treetop', worktreeRoot: '/work/tree' })).toThrow(
+      /cwd_outside_worktree/
+    )
+    // The root itself is always allowed, and a nested directory is allowed.
+    expect(declare(db, 'ok-root', { cwd: '/work/tree', worktreeRoot: '/work/tree' }).ruleId).toBe(
+      'ok-root'
+    )
+    expect(
+      declare(db, 'ok-child', { cwd: '/work/tree/packages/app', worktreeRoot: '/work/tree' }).ruleId
+    ).toBe('ok-child')
+    expect(listAcceptanceRules(db).map((rule) => rule.ruleId)).toEqual(['ok-child', 'ok-root'])
+  })
+
   it('clamps an oversized timeout and rejects a non-positive one', () => {
     const { db } = fixture()
     const rule = declare(db, 'slow', { timeoutMs: 24 * 60 * 60 * 1000 })
@@ -111,28 +132,29 @@ describe('the gate', () => {
 
   it('passes when every rule has a passed verdict', () => {
     const { db } = fixture()
-    declare(db, 'tests')
-    declare(db, 'archive')
-    for (const ruleId of ['tests', 'archive']) {
+    const tests = declare(db, 'tests')
+    const archive = declare(db, 'archive')
+    for (const rule of [tests, archive]) {
       writeAcceptanceVerdict(db, {
         dispatchId: 'disp-1',
-        ruleId,
+        ruleId: rule.ruleId,
         verdict: 'passed',
         exitCode: 0,
         signal: null,
         stdoutDigest: 'a'.repeat(64),
         stdoutBytes: 10,
         detail: 'ok',
-        evaluatedAt: T0
+        evaluatedAt: T0,
+        ruleDigest: rule.digest,
+        ruleDeclaredAt: rule.createdAt
       })
     }
     expect(acceptanceGateState(db, 'disp-1')).toEqual({ state: 'passed', via: 'verdicts' })
   })
 
-  it('blocks on one failing rule while another passes (rules are independent)', () => {
+  it('ignores a verdict produced for a previous revision of the rule (C7)', () => {
     const { db } = fixture()
-    declare(db, 'tests')
-    declare(db, 'archive')
+    const first = declare(db, 'tests')
     writeAcceptanceVerdict(db, {
       dispatchId: 'disp-1',
       ruleId: 'tests',
@@ -142,7 +164,56 @@ describe('the gate', () => {
       stdoutDigest: 'a'.repeat(64),
       stdoutBytes: 10,
       detail: 'ok',
-      evaluatedAt: T0
+      evaluatedAt: T0,
+      ruleDigest: first.digest,
+      ruleDeclaredAt: first.createdAt
+    })
+    expect(acceptanceGateState(db, 'disp-1')).toEqual({ state: 'passed', via: 'verdicts' })
+
+    // Re-declaring the same rule with a different command is a different contract.
+    const second = declare(db, 'tests', { expect: { exitCode: 3 }, now: T0 + 1 })
+    expect(second.digest).not.toBe(first.digest)
+    expect(acceptanceGateState(db, 'disp-1')).toMatchObject({
+      state: 'blocked',
+      notEvaluatedRules: ['tests']
+    })
+    // ... and the stale verdict row is gone rather than left to be re-adopted later.
+    expect(listAcceptanceVerdicts(db, 'disp-1')).toHaveLength(0)
+  })
+
+  it('reopens a resolved stop when its rule changes (C7)', () => {
+    const { db } = fixture()
+    declare(db, 'tests')
+    openAcceptanceStop(db, { dispatchId: 'disp-1', incidentId: null, now: T0 })
+    resolveAcceptanceStop(db, {
+      dispatchId: 'disp-1',
+      decision: 'accept',
+      actor: 'alice',
+      reason: 'by hand',
+      now: T0 + 1
+    })
+    expect(getAcceptanceStop(db, 'disp-1')?.state).toBe('accepted')
+    declare(db, 'tests', { expect: { exitCode: 1 }, now: T0 + 2 })
+    expect(getAcceptanceStop(db, 'disp-1')).toMatchObject({ state: 'pending', actor: null })
+    expect(acceptanceGateState(db, 'disp-1').state).toBe('blocked')
+  })
+
+  it('blocks on one failing rule while another passes (rules are independent)', () => {
+    const { db } = fixture()
+    const tests = declare(db, 'tests')
+    const archive = declare(db, 'archive')
+    writeAcceptanceVerdict(db, {
+      dispatchId: 'disp-1',
+      ruleId: 'tests',
+      verdict: 'passed',
+      exitCode: 0,
+      signal: null,
+      stdoutDigest: 'a'.repeat(64),
+      stdoutBytes: 10,
+      detail: 'ok',
+      evaluatedAt: T0,
+      ruleDigest: tests.digest,
+      ruleDeclaredAt: tests.createdAt
     })
     writeAcceptanceVerdict(db, {
       dispatchId: 'disp-1',
@@ -153,7 +224,9 @@ describe('the gate', () => {
       stdoutDigest: 'b'.repeat(64),
       stdoutBytes: 10,
       detail: 'exit_code_expected_0_got_2',
-      evaluatedAt: T0
+      evaluatedAt: T0,
+      ruleDigest: archive.digest,
+      ruleDeclaredAt: archive.createdAt
     })
     expect(acceptanceGateState(db, 'disp-1')).toMatchObject({
       state: 'blocked',
@@ -165,7 +238,7 @@ describe('the gate', () => {
 
   it('blocks on an unevaluated rule, and on an undeterminable one', () => {
     const { db } = fixture()
-    declare(db, 'tests')
+    const tests = declare(db, 'tests')
     expect(acceptanceGateState(db, 'disp-1')).toMatchObject({
       state: 'blocked',
       notEvaluatedRules: ['tests']
@@ -179,7 +252,9 @@ describe('the gate', () => {
       stdoutDigest: null,
       stdoutBytes: 0,
       detail: 'timeout_after_60000ms',
-      evaluatedAt: T0
+      evaluatedAt: T0,
+      ruleDigest: tests.digest,
+      ruleDeclaredAt: tests.createdAt
     })
     expect(acceptanceGateState(db, 'disp-1')).toMatchObject({
       state: 'blocked',
@@ -194,10 +269,12 @@ describe('the stop', () => {
     declare(db, 'tests')
     openAcceptanceStop(db, { dispatchId: 'disp-1', incidentId: 'inc_1', now: T0 })
     openAcceptanceStop(db, { dispatchId: 'disp-1', incidentId: null, now: T0 + 1 })
+    // C6: two settlement reads are two gate observations, and zero command runs.
     expect(getAcceptanceStop(db, 'disp-1')).toMatchObject({
       state: 'pending',
       incidentId: 'inc_1',
-      attempts: 2
+      gateSeenCount: 2,
+      evaluationAttempts: 0
     })
 
     const accepted = resolveAcceptanceStop(db, {
