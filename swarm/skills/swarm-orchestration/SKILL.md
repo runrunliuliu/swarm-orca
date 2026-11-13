@@ -48,7 +48,7 @@ directories, and never substitute a source checkout that happens to be nearby: a
 reported gap, not a licence to guess which code and configuration are current.
 
 If the pointer is missing or unusable, name the fix instead of improvising one: a host gets its control
-plane from `swarm/deploy/install.sh` in a checkout of this repository (see `swarm/deploy/README.md`).
+plane from the repository's `deploy/install.sh` (see [deploy/README.md](../../deploy/README.md)).
 Show the read-only command first, and never run it with `--apply` unless the user asked for a
 deployment — publishing, switching the pointer and relinking skills are deploy actions, not setup.
 
