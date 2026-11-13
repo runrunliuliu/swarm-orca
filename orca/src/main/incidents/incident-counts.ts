@@ -87,7 +87,13 @@ export function readIncidentCounts(options: {
 
   const totalRow = db.prepare('SELECT COUNT(*) AS n FROM incidents').get()
 
-  const gap = coverage.currentlyLimited || coverage.shadowReplay.incomplete
+  // A *local* gap makes `untriaged` a floor. The capacity latch belongs here even though it is past
+  // tense: a store that once refused a write may already be missing rows, so the count is a lower
+  // bound the same way an unfinished replay does. Keeping it out of this boolean (while the badge
+  // OR'd it in itself) was a split brain — one question, two answers. §11.5 still keeps the two
+  // capacity fields separate for *wording*; this flag is only "is the number complete?".
+  const gap =
+    coverage.currentlyLimited || coverage.shadowReplay.incomplete || coverage.capacityLatchSet
   return {
     untriaged,
     total: totalRow ? Number(totalRow.n ?? 0) : 0,

@@ -21,10 +21,9 @@ export type IncidentBadge = {
   /** `alert` = red count, `caution` = amber count because *local* coverage is currently incomplete. */
   tone: 'alert' | 'caution'
   /**
-   * A *local* hole makes the count a lower bound: a current write refusal, an unfinished replay, or a
-   * capacity latch that already dropped a write. This is what `tone` is derived from — the capacity
-   * latch counts, because "the store once refused a write" is a local completeness fact, not history
-   * that only deserves a footnote (§11.5's two capacity fields describe the same hole at two times).
+   * A *local* hole makes the count a lower bound. Taken from the DTO's `gap`, which the main process
+   * computes (include a live refusal, an unfinished replay and a capacity latch). The badge no longer
+   * re-derives it: one question, one answer.
    */
   localGap: boolean
   /**
@@ -32,6 +31,11 @@ export type IncidentBadge = {
    * exactly what this host recorded, so this draws an outline marker rather than changing the tone.
    */
   remoteGap: boolean
+  /**
+   * False when the count is zero but a gap exists: there is nothing to number, yet silence would read
+   * as "no incidents". The activity bar then draws an indicator with no digits.
+   */
+  showCount: boolean
   /** Accessible/tooltip text: the number never renders without its qualifier. */
   label: string
 }
@@ -40,27 +44,56 @@ export type IncidentBadge = {
 export const INCIDENT_BADGE_MAX_COUNT = 99
 
 /**
- * `null` means "draw no badge": no counts yet (pull in flight or store unavailable) or nothing
- * untriaged. Zero is deliberately invisible — an activity bar that shows "0" is noise.
+ * `null` means "draw no badge": no counts yet (pull in flight or store unavailable), or nothing
+ * untriaged *and* nothing incomplete. Zero-with-a-gap is not null: it returns a badge with
+ * `showCount: false`, because silence there reads as "no incidents" while the truth is "the count is
+ * not complete" (the failure mode this feature exists to prevent). A permanent "0" with no gap stays
+ * invisible — that really is noise.
  */
 export function incidentBadgeFromCounts(
   counts: IncidentCountsDto | null | undefined
 ): IncidentBadge | null {
-  if (!counts || counts.untriaged <= 0) {
+  if (!counts) {
     return null
   }
-  // Split the summary's single `gap` into an explicit local verdict and fold the latch in: a store
-  // that has *ever* refused a write may already be missing rows, so the number is a lower bound and the
-  // amber tone is correct. The two capacity fields still word themselves differently below — "is
-  // refusing now" vs "a past stop may have dropped incidents" — because only the first is a live fault.
-  const localGap = counts.coverage.gap || counts.coverage.capacityLatchSet
+  // The main process owns the verdict; the badge only consumes it. `capacityLatchSet` used to be
+  // OR'd in here as well, which meant the DTO and the UI could disagree about the same fact.
+  const localGap = counts.coverage.gap
+  const remoteGap = incidentRemoteCoverageIsGap(counts.coverage.remoteMirror)
+  if (counts.untriaged <= 0) {
+    if (!localGap && !remoteGap) {
+      // Zero and complete: stay silent, as before. A permanent "0" is noise.
+      return null
+    }
+    // Zero but incomplete: an indicator with no digits, because "0" would be a false claim of
+    // completeness while the label carries the caveat. Exactly the trap this project keeps banning.
+    const qualifiers: string[] = []
+    if (localGap) {
+      qualifiers.push(
+        counts.coverage.capacityLatchSet && !counts.coverage.currentlyLimited
+          ? 'a past capacity stop may have dropped incidents'
+          : 'count may be incomplete'
+      )
+    }
+    if (remoteGap) {
+      qualifiers.push('remote view incomplete')
+    }
+    return {
+      count: 0,
+      tone: localGap ? 'caution' : 'alert',
+      localGap,
+      remoteGap,
+      showCount: false,
+      label: qualifiers.join('; ')
+    }
+  }
   const tone = localGap ? 'caution' : 'alert'
   const capped =
     counts.untriaged > INCIDENT_BADGE_MAX_COUNT
       ? `${INCIDENT_BADGE_MAX_COUNT}+`
       : String(counts.untriaged)
   const qualifiers: string[] = []
-  if (counts.coverage.gap) {
+  if (counts.coverage.currentlyLimited || counts.coverage.shadowReplayIncomplete) {
     qualifiers.push('count may be incomplete')
   } else if (counts.coverage.capacityLatchSet) {
     // Same tone as a current hole, different wording: the latch is a past refusal, so saying "the
@@ -69,7 +102,6 @@ export function incidentBadgeFromCounts(
   }
   // Secondary and additive: a remote hole never changes the local count's trustworthiness, so it is a
   // second qualifier rather than an amber tone (codex-ark/trae arbitration, option C).
-  const remoteGap = incidentRemoteCoverageIsGap(counts.coverage.remoteMirror)
   if (remoteGap) {
     qualifiers.push('remote view incomplete')
   }
@@ -78,6 +110,7 @@ export function incidentBadgeFromCounts(
     tone,
     localGap,
     remoteGap,
+    showCount: true,
     label:
       qualifiers.length === 0
         ? `${capped} untriaged`

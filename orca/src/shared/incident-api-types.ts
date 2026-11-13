@@ -225,9 +225,11 @@ export type IncidentWorktreeCountDto = {
 /**
  * The coverage facts a count depends on, and nothing else (§11.5).
  *
- * `gap` is the one field a badge should branch on: it is true only while the count is *currently*
- * incomplete. `capacityLatchSet` is history and `remoteIncidentCapture` is a permanent scope limit, so
- * folding either into `gap` would leave the badge lit forever and teach everyone to ignore it.
+ * `gap` is the one field a badge should branch on: is the *local* count complete? It includes
+ * `currentlyLimited`, an unfinished shadow replay, and `capacityLatchSet` — a past refusal still means
+ * rows may be missing, so it is a lower-bound fact, not cosmetics. `remoteIncidentCapture` and the
+ * mirror stay out of it: a remote hole is graded separately (secondary) because it says the global
+ * view is incomplete, not that this host's own count is doubtful.
  */
 export type IncidentCoverageSummaryDto = {
   /** A write right now would be refused, so new incidents are not being recorded. */
