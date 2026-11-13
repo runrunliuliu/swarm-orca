@@ -10,7 +10,7 @@ import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-d
 import { createIncidentStore, type IncidentStore } from './incident-store'
 import { buildIncidentDigest, parseDigestWindow } from './incident-digest'
 import type { IncidentRecord } from './incident-types'
-import { writeMeta } from './incident-store-capacity'
+import { writeMeta } from './incident-store-meta'
 import { TOOL_ERROR_WINDOWS_META } from './incident-tool-error-report'
 
 const NOW = 1_700_000_000_000

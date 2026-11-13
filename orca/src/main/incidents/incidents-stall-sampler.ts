@@ -13,8 +13,8 @@ import type Database from '../sqlite/sync-database'
 import type { IncidentStallSampleCoverage } from './incident-types'
 import type { IncidentStore } from './incident-store'
 import { mainProcessUserDataPath } from './incidents-paths'
-import { writeMeta } from './incident-store-capacity'
-import { bumpMetaNumber } from './incident-shadow-coverage'
+import { writeMeta } from './incident-store-meta'
+import { bumpMetaNumber } from './incident-store-meta'
 import {
   normalizeThresholds,
   type StallPaneFacts,

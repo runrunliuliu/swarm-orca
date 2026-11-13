@@ -9,10 +9,7 @@ import type {
   AcceptanceStop,
   AcceptanceVerdict
 } from '../main/incidents/dispatch-acceptance-store'
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
+import { pad } from './incident-format-shared'
 
 function expected(rule: AcceptanceRule): string {
   const parts: string[] = []

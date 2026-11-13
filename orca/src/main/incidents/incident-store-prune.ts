@@ -22,7 +22,7 @@ import {
   type PruneOptions,
   type PruneResult
 } from './incident-store-contract'
-import { writeMeta } from './incident-store-capacity'
+import { writeMeta } from './incident-store-meta'
 import { VERIFIED_PRUNE_FLAG } from './incident-store-prune-flag'
 
 const DAY_MS = 24 * 60 * 60 * 1000

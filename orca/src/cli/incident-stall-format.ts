@@ -6,10 +6,7 @@
 
 import type { IncidentCoverage } from '../main/incidents/incident-types'
 import { formatStallSampleNote } from '../main/incidents/incident-stall-coverage'
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
+import { pad } from './incident-format-shared'
 
 /** `orca incident stalls`: the grayscale view. Prints the last sample, never writes. */
 export function formatIncidentStalls(

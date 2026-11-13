@@ -5,15 +5,8 @@
 // number it truncated.
 
 import type { IncidentMine, MineCluster } from '../main/incidents/incident-mine'
-import { formatDigestCoverage, formatWindowLabel } from './incident-digest-format'
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
-
-function iso(value: number): string {
-  return new Date(value).toISOString()
-}
+import { formatDigestCoverage } from './incident-digest-format'
+import { formatWindowLabel, isoTimestamp as iso, pad } from './incident-format-shared'
 
 function classSummary(cluster: MineCluster): string {
   return cluster.byClass.map((entry) => `${entry.value}:${entry.count}`).join(',')

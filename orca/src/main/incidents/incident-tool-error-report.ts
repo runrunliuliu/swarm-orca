@@ -9,7 +9,7 @@ import type { IncidentRecord } from './incident-types'
 import { buildIncidentKey, incidentFingerprint } from './incident-key'
 import { mintIncidentId } from './incident-writer'
 import { resolveLocalHostId } from './incidents-paths'
-import { writeMeta } from './incident-store-capacity'
+import { writeMeta } from './incident-store-meta'
 import type { ToolErrorClassification, ToolErrorCode } from './incident-tool-error-classifier'
 import type { ToolErrorWindowSnapshot, ToolErrorWindowTracker } from './incident-tool-error-window'
 

@@ -12,8 +12,8 @@
 //   * the actor is self-reported (§19.1): recorded for the audit trail, never verified.
 
 import type Database from '../sqlite/sync-database'
-import { readMeta } from './incident-store-capacity'
-import { writeMeta } from './incident-store-capacity'
+import { readMeta } from './incident-store-meta'
+import { writeMeta } from './incident-store-meta'
 
 /** Active declarations seen by the last sample, so coverage can say "N panes declared quiet". */
 export const STALL_DECLARED_COUNT_META = 'stall_declared_waits'

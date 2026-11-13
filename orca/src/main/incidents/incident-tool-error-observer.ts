@@ -20,7 +20,7 @@ import type { AgentJournalItemBody, AgentJournalTurnScope } from '../../shared/a
 import type { IncidentStore } from './incident-store'
 import { persistIncidentRecord, incidentRuntimeStore } from './incident-writer'
 import { mainProcessUserDataPath } from './incidents-paths'
-import { writeMeta } from './incident-store-capacity'
+import { writeMeta } from './incident-store-meta'
 import {
   TOOL_ERROR_KEY_REJECTED_META,
   TOOL_ERROR_WRITE_FAILURES_META,

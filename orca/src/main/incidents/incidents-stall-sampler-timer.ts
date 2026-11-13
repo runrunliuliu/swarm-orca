@@ -21,8 +21,8 @@ import {
   STALL_LAST_SAMPLER_ERROR_META,
   STALL_SAMPLER_ERRORS_META
 } from './incident-stall-coverage'
-import { bumpMetaNumber } from './incident-shadow-coverage'
-import { writeMeta } from './incident-store-capacity'
+import { bumpMetaNumber } from './incident-store-meta'
+import { writeMeta } from './incident-store-meta'
 import {
   resetStallSamplerCycles,
   sampleStallState,

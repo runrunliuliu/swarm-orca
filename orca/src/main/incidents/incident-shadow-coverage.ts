@@ -6,7 +6,7 @@
 // was incomplete.
 
 import type Database from '../sqlite/sync-database'
-import { readMeta, writeMeta } from './incident-store-capacity'
+import { readMeta, readMetaNumber } from './incident-store-meta'
 
 /** Watermark: the highest seq the DB has accepted or deliberately dropped. */
 export const SHADOW_REPLAYED_SEQ_META = 'shadow_replayed_seq'
@@ -35,17 +35,6 @@ export type IncidentShadowReplayCoverage = {
   dropped: number
   lastDroppedReason: string | null
   lastRun: { lines: number; bytes: number; ms: number } | null
-}
-
-/** Non-negative number from meta; a corrupt value reads as 0 rather than poisoning arithmetic. */
-export function readMetaNumber(db: Database.Database, key: string): number {
-  const value = Number(readMeta(db, key) ?? 0)
-  return Number.isFinite(value) && value >= 0 ? value : 0
-}
-
-/** Add `by` to a counter in meta. Used by the replay for durable drop/failure counts. */
-export function bumpMetaNumber(db: Database.Database, key: string, by = 1): void {
-  writeMeta(db, key, String(readMetaNumber(db, key) + by))
 }
 
 export function readShadowReplayCoverage(db: Database.Database): IncidentShadowReplayCoverage {

@@ -10,10 +10,7 @@ import {
   TOOL_ERROR_UNCOVERED_PROVIDERS,
   TOOL_ERROR_WRITE_PRECONDITION
 } from '../main/incidents/incident-tool-error-coverage'
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
+import { pad } from './incident-format-shared'
 
 function minutes(ms: number): string {
   return `${Math.round(ms / 60_000)}m`

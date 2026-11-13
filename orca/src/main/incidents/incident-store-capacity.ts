@@ -8,9 +8,9 @@ import type Database from '../sqlite/sync-database'
 import type { IncidentCoverage } from './incident-types'
 import type { IncidentStoreLimits } from './incident-store-contract'
 import { readShadowReplayCoverage } from './incident-shadow-coverage'
+import { readMeta, writeMeta } from './incident-store-meta'
 import { readStallSampleCoverage } from './incident-stall-coverage'
 
-const META_TABLE = 'incident_store_meta'
 const CAPACITY_LATCH_KEY = 'capacity_limited'
 
 export type CapacityState = {
@@ -24,18 +24,6 @@ export type CapacityGate = {
   coverage: () => IncidentCoverage
   /** Persist the "we refused a write" latch; called by the insert path, in its own transaction. */
   latch: () => void
-}
-
-export function readMeta(db: Database.Database, key: string): string | null {
-  const row = db.prepare(`SELECT value FROM ${META_TABLE} WHERE key = ?`).get(key)
-  return row ? String(row.value) : null
-}
-
-export function writeMeta(db: Database.Database, key: string, value: string): void {
-  db.prepare(
-    `INSERT INTO ${META_TABLE} (key, value) VALUES (?, ?) ` +
-      'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, value)
 }
 
 export function createCapacityGate(options: {

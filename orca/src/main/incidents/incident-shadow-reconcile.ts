@@ -31,8 +31,6 @@ import {
 } from './incident-shadow-line'
 import { lastSeqInTail } from './incident-shadow-tail'
 import {
-  bumpMetaNumber,
-  readMetaNumber,
   SHADOW_DROPPED_META,
   SHADOW_LAST_DROPPED_REASON_META,
   SHADOW_LAST_RUN_BYTES_META,
@@ -47,7 +45,7 @@ import {
   type IncidentShadowReplayCoverage
 } from './incident-shadow-coverage'
 import type { IncidentStore } from './incident-store'
-import { writeMeta } from './incident-store-capacity'
+import { bumpMetaNumber, readMetaNumber, writeMeta } from './incident-store-meta'
 
 /** Persist progress every N handled lines so a crash mid-run resumes close to where it stopped. */
 const PROGRESS_EVERY_LINES = 500

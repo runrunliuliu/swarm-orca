@@ -22,7 +22,7 @@ import {
   SHADOW_RECONCILE_LAST_ERROR_META,
   readShadowReplayCoverage
 } from './incident-shadow-coverage'
-import { readMeta } from './incident-store-capacity'
+import { readMeta } from './incident-store-meta'
 
 const directories: string[] = []
 const databases: OpenIncidentsDatabase[] = []

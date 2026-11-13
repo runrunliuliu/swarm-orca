@@ -6,7 +6,7 @@
 // process) can read it without the runtime being alive.
 
 import type Database from '../sqlite/sync-database'
-import { readMeta } from './incident-store-capacity'
+import { readMeta } from './incident-store-meta'
 import type { IncidentStallSampleCoverage } from './incident-types'
 import { readDeclaredWaitCount } from './incident-wait'
 

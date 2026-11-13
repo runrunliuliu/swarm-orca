@@ -18,7 +18,7 @@ import { incidentsDatabaseFileFor } from '../../main/incidents/incidents-paths'
 import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
 import { incidentFingerprint } from '../../main/incidents/incident-key'
 import { sampleStallState } from '../../main/incidents/incidents-stall-sampler'
-import { writeMeta } from '../../main/incidents/incident-store-capacity'
+import { writeMeta } from '../../main/incidents/incident-store-meta'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
 import {
   declareAcceptanceRule,

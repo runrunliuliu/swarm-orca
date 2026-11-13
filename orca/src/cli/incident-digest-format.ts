@@ -5,18 +5,7 @@
 // must not read as "nothing happened".
 
 import type { IncidentDigest } from '../main/incidents/incident-digest'
-
-function pad(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
-
-export function formatWindowLabel(windowMs: number): string {
-  return windowMs >= 86_400_000
-    ? `${Math.round(windowMs / 86_400_000)}d`
-    : windowMs >= 3_600_000
-      ? `${Math.round(windowMs / 3_600_000)}h`
-      : `${Math.round(windowMs / 60_000)}m`
-}
+import { formatWindowLabel, pad } from './incident-format-shared'
 
 /**
  * The coverage block both `incident digest` and `incident mine` print (M6-3).

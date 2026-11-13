@@ -13,6 +13,7 @@ import type {
   IncidentView
 } from '../main/incidents/incident-types'
 import { formatStallSampleNote } from '../main/incidents/incident-stall-coverage'
+import { formatBytes, isoTimestamp as iso, pad } from './incident-format-shared'
 
 // Re-exported so callers (and the CLI handler) keep one import site for incident formatting.
 export { formatIncidentStalls } from './incident-stall-format'
@@ -20,10 +21,6 @@ import type {
   IncidentListResult,
   PruneResult
 } from '../main/incidents/incident-store'
-
-function iso(ms: number | null): string {
-  return ms === null ? '—' : new Date(ms).toISOString()
-}
 
 function formatShadowReplay(coverage: IncidentCoverage): string {
   const replay = coverage.shadowReplay
@@ -38,18 +35,6 @@ function formatShadowReplay(coverage: IncidentCoverage): string {
   )
 }
 
-function bytes(value: number): string {
-  if (value < 1024) {
-    return `${value}B`
-  }
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)}KB`
-  }
-  if (value < 1024 * 1024 * 1024) {
-    return `${(value / (1024 * 1024)).toFixed(1)}MB`
-  }
-  return `${(value / (1024 * 1024 * 1024)).toFixed(2)}GB`
-}
 
 function exitCauseLabel(cause: unknown): string {
   if (typeof cause !== 'object' || cause === null || !('kind' in cause)) {
@@ -70,10 +55,6 @@ function exitCauseLabel(cause: unknown): string {
   }
 }
 
-function pad(value: string, width: number): string {
-  return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
-
 /** The coverage line every list/show prints (§11.1, §12). */
 export function formatIncidentCoverage(coverage: IncidentCoverage): string {
   return (
@@ -81,7 +62,7 @@ export function formatIncidentCoverage(coverage: IncidentCoverage): string {
     `capacity_latch_set=${String(coverage.capacityLatchSet)}  ` +
     `currently_limited=${String(coverage.currentlyLimited)}  ` +
     `rows=${coverage.capacity.rows}/${coverage.capacity.maxRows}  ` +
-    `bytes=${bytes(coverage.capacity.bytes)}/${bytes(coverage.capacity.maxBytes)}`
+    `bytes=${formatBytes(coverage.capacity.bytes)}/${formatBytes(coverage.capacity.maxBytes)}`
   )
 }
 
