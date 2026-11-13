@@ -94,8 +94,9 @@ class PublishTests(Fixture):
                 if path.is_dir() and not path.is_symlink()]
 
     def test_publish_requires_an_artifact_root(self):
-        self.assertEqual(publisher.main(["publish", "--source-root", str(self.source())]),
-                         publisher.EXIT_PRECONDITION)
+        with self.assertRaises(SystemExit) as caught:
+            publisher.main(["publish", "--source-root", str(self.source())])
+        self.assertEqual(caught.exception.code, 2)
 
     def test_unpinned_source_is_refused_until_allowed(self):
         source = self.source()
@@ -133,6 +134,35 @@ class PublishTests(Fixture):
         self.assertEqual(self.publish(source, "--allow-unpinned-source"),
                          publisher.EXIT_PRECONDITION)
 
+    def test_a_failure_after_copying_retains_the_staging_tree(self):
+        source = self.source()
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        before = sorted(path.name for path in self.artifacts.iterdir())
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+        after = sorted(path.name for path in self.artifacts.iterdir())
+        self.assertEqual(len(after), len(before) + 1)
+        self.assertTrue(any(name.startswith(".%s-staging-" % publisher.ARTIFACT)
+                            for name in after))
+
+    def test_a_symbolic_link_in_the_source_is_refused(self):
+        source = self.source()
+        outside = self.temporary() / "secret.txt"
+        write(outside)
+        (source / "swarm-orca" / "swarm" / "linked.py").symlink_to(outside)
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+        self.assertEqual(list(self.artifacts.iterdir()), [])
+
+    def test_private_files_do_not_inherit_the_umask(self):
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        self.assertEqual((artifact / "private" / "coordinator-model.json").stat().st_mode & 0o777,
+                         0o640)
+        self.assertEqual((artifact / "private").stat().st_mode & 0o777, 0o750)
+        self.assertEqual((artifact / "code" / "coordinator_launch.py").stat().st_mode & 0o777,
+                         0o644)
+
 
 class VerifyTests(Fixture):
     def setUp(self):
@@ -161,6 +191,29 @@ class VerifyTests(Fixture):
     def test_verify_rejects_an_extra_file(self):
         write(self.artifact / "code" / "injected.py")
         self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_changed_identity_build_id(self):
+        path = self.artifact / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        identity["buildId"] = "000000000000"
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_changed_included_list(self):
+        path = self.artifact / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        identity["included"].append("code/not-copied.py")
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_symbolic_link_inside_the_artifact(self):
+        (self.artifact / "code" / "linked.py").symlink_to("/etc/hostname")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_renamed_artifact_directory(self):
+        renamed = self.artifacts / "renamed"
+        self.artifact.rename(renamed)
+        self.assertEqual(self.verify(renamed), publisher.EXIT_PRECONDITION)
 
     def test_verify_rejects_a_relocated_artifact(self):
         moved = self.temporary() / "elsewhere"

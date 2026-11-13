@@ -173,7 +173,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `reconcile` | `bootstrap_control.py:434-476` | `def reconcile` / `class reconcile` |
 | `reconcile` | `bootstrap_protocol.py:139-140` | `def reconcile` / `class reconcile` |
 | `reconcile` | `operator_authority.py:168-180` | `def reconcile` / `class reconcile` |
-| `report` | `control_plane_readiness.py:195-214` | `def report` / `class report` |
+| `report` | `control_plane_readiness.py:225-245` | `def report` / `class report` |
 | `request` | `coordinator_strict_delivery.py:48-50` | `def request` / `class request` |
 | `require_operator_context` | `coordinator_startup.py:158-162` | `def require_operator_context` / `class require_operator_context` |
 | `resolve` | `coordinator_worker_profiles.py:77-136` | `def resolve` / `class resolve` |
@@ -204,7 +204,7 @@ python3 -B <swarm>/coordinator_launch.py strict-bootstrap inspect-action --owner
 | `session_id` | `pi_transcript.py:31-34` | `def session_id` / `class session_id` |
 | `settle` | `bootstrap_control.py:478-510` | `def settle` / `class settle` |
 | `sha` | `software_development.py:39-40` | `def sha` / `class sha` |
-| `sha256` | `control_plane_readiness.py:160-166` | `def sha256` / `class sha256` |
+| `sha256` | `control_plane_readiness.py:165-171` | `def sha256` / `class sha256` |
 | `snapshot` | `blocking_io.py:52-57` | `def snapshot` / `class snapshot` |
 | `snapshot` | `operator_monitor_recovery.py:42-96` | `def snapshot` / `class snapshot` |
 | `snapshot` | `software_development.py:225-246` | `def snapshot` / `class snapshot` |

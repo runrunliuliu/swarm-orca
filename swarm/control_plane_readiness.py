@@ -113,6 +113,10 @@ def control_plane(*, pointer=None, directory=None):
     try:
         report = inspect_artifact(target)
     except Failure as error:
+        if str(error).startswith("identity-missing"):
+            checkout = dev_checkout(target, "pointer")
+            if checkout["state"] == "dev-checkout":
+                return checkout
         return {"state": "invalid", "path": str(target), "reason": str(error), "source": "pointer"}
     return released(target, report, "pointer")
 
@@ -140,7 +144,9 @@ def config_inputs(plane):
     else:
         code, config_dir = root / "code", root / "private"
     block = {"codeRoot": str(code), "configDir": str(config_dir),
-             "launcher": (code / "coordinator_launch.py").is_file(),
+             "launcher": ((code / "coordinator_launch.py").is_file()
+                          and not (code / "coordinator_launch.py").is_symlink()),
+             "codeSymlink": code.is_symlink(),
              "required": {}, "adapters": {}, "missing": []}
     for name in REQUIRED_CONFIG:
         path = config_dir / name
@@ -155,7 +161,6 @@ def config_inputs(plane):
     if not block["launcher"]:
         block["missing"].append("coordinator_launch.py")
     return block
-
 
 def sha256(path):
     import hashlib
@@ -176,7 +181,7 @@ def plan_block(config, project):
             "note": "plan only: this tool never launches an Agent, a Run or a service"}
 
 
-def blocking_reasons(plane, skills, project, config, require_pin):
+def blocking_reasons(plane, skills, project, config, require_pin, expected=None):
     reasons = []
     if plane["state"] in ("invalid", "dangling"):
         reasons.append("control-plane-%s: %s" % (plane["state"], plane.get("reason")))
@@ -184,12 +189,37 @@ def blocking_reasons(plane, skills, project, config, require_pin):
         reasons.append("control-plane-missing: no pointer and no --control-plane")
     if plane["state"] == "dev-checkout" and require_pin:
         reasons.append("control-plane-dev-checkout: not a pin source")
+    if plane["state"] == "ok" and require_pin:
+        tree = plane.get("sourceTree") or {}
+        if tree.get("dirty"):
+            reasons.append("control-plane-dirty: published from a modified source")
+        if tree.get("unpinned"):
+            reasons.append("control-plane-unpinned: published without a pinned source")
     reasons += ["skills-missing: %s" % name for name in skills["missing"]]
     reasons += ["skills-name-mismatch: %s" % item["name"] for item in skills["mismatched"]]
     if not project["agentsMd"]:
         reasons.append("project-agents-missing: %s" % project["path"])
     reasons += ["config-missing: %s" % name for name in config["missing"]]
+    if config.get("codeSymlink"):
+        reasons.append("config-symlink: %s" % config.get("codeRoot"))
+    for name, digest in (expected or {}).items():
+        entry = config["required"].get(name) or config["adapters"].get(name)
+        if entry is None:
+            reasons.append("config-unexpected: %s" % name)
+        elif (entry.get("sha256") or "").lower() != digest.lower():
+            reasons.append("config-hash-mismatch: %s" % name)
     return reasons
+
+
+def expected_config_hashes(pairs):
+    """Parse `--expect-config name=sha256`; a malformed pair is a usage error, not a pass."""
+    expected = {}
+    for pair in pairs or []:
+        name, _, digest = pair.partition("=")
+        if not name or len(digest) != 64:
+            raise SystemExit("expected name=<64 hex sha256>, got %r" % pair)
+        expected[name] = digest
+    return expected
 
 
 def report(args):
@@ -200,7 +230,8 @@ def report(args):
     config = config_inputs(plane) if plane["state"] in ("ok", "dev-checkout") else \
         {"codeRoot": None, "configDir": None, "launcher": False, "required": {},
          "adapters": {}, "missing": []}
-    reasons = blocking_reasons(plane, skills, project_info, config, args.require_pin)
+    reasons = blocking_reasons(plane, skills, project_info, config, args.require_pin,
+                               expected_config_hashes(args.expect_config))
     if args.artifacts:
         artifacts = Path(args.artifacts).expanduser()
         if not artifacts.is_dir():
@@ -224,6 +255,8 @@ def main(argv=None):
                         help="which agent's skill installation to report")
     parser.add_argument("--skills-dir", default=None, help="override the skill directory (tests, audits)")
     parser.add_argument("--artifacts", default=None, help="artifact/evidence root that must exist")
+    parser.add_argument("--expect-config", action="append", default=[], metavar="NAME=SHA256",
+                        help="require this config file's sha256; repeatable")
     parser.add_argument("--require-pin", action="store_true",
                         help="block a dev checkout; request a pinned, released control plane")
     parser.add_argument("--json", action="store_true")

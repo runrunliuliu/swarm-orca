@@ -1,7 +1,8 @@
 # 控制平面发布：把部署输入做成不可变产物
 
-状态：**设计草案，未实现**。本文只描述契约形状与边界，不含可执行脚本、不改任何现有入口、
-不迁移既有 Run 的 pins。发布产物、切指针、安装技能都需要各自授权；本文不构成其中任何一项。
+状态：**契约 + 已实现（发布工具与只读就绪检查）**，尚未发布产物、未部署、未接入任何现有入口，
+也不迁移既有 Run 的 pins。发布产物、切指针、安装技能都需要各自授权；本文不构成其中任何一项。
+实现范围与未实现项见 §9 与 §10。
 
 配套私有材料：宿主落地（`/opt` 权限、本机路径清单、技能安装缺口）留在私有工作区，
 不写进本目录。
@@ -99,9 +100,13 @@
 
 规则：
 
-- `buildId` 由被复制内容的身份派生并进入目录名，因此**路径即身份**。
-- `dirty: true` 时发布必须显式 `--allow-dirty`，并在产物上标记“不得作为 Run 的 pin 来源”；
-  readiness 读取到该标记即拒绝生成带 pin 的启动计划。
+- `buildId` 由**暂存区实际写入的字节**派生并进入目录名，因此“路径即身份”不是口号：`verify` 会从
+  清单复算 `buildId`，并要求它既等于身份字段、又等于目录名。
+- 身份文件本身不在清单覆盖内（否则清单会自引用），所以它可复算的字段全部被复算：`buildId`、
+  目录名、`included` 与清单路径集合、`installDir` 与实际路径。`deployedAt`/`host`/`source` 这些
+  不可复算的字段是发布声明，不是可验证事实。
+- `dirty: true` 时发布必须显式 `--allow-dirty`，产物仍然产出，但 readiness 在 `--require-pin` 下
+  以 `control-plane-dirty` 拒绝把它当作带 pin 的启动来源；`unpinned` 同理。
 - 不持久化任何一次性的回执字段；`MANIFEST.sha256` 是文件级事实，身份文件是发布级事实。
 
 ### 3.2 `MANIFEST.sha256`
@@ -123,7 +128,10 @@
 边界：
 
 - 发布**不启动**任何 Agent、Run、monitor 或 scheduler，也不修改已有 Run 的 pins。
-- 复制失败或自检失败时保留临时目录供诊断，不切换指针、不清理上一份产物。
+- 清单对**暂存区已写入的字节**计算，`rename` 前必须通过 `inspect_artifact` 自检；不通过则不发布。
+- 失败时保留暂存目录，并把它的路径写进拒绝原因（便于诊断），不切换指针、不清理上一份产物。
+- 发布显式设置权限：产物根/`code`/`overlay`/`workspace` 及公共文件 0755/0644，`private` 与其中文件
+  0750/0640；不依赖发布进程的 umask。
 - 指针切换是可回滚的原子动作，但“切换指针”与“部署/重启服务”是两件事，各自授权。
 
 ### 4.1 工具接口
@@ -143,12 +151,15 @@
 | `--switch-pointer <symlink>` | 发布成功后用 `os.replace` 原子切换指针；父目录缺失或指针不是符号链接即拒绝 |
 | `--json` | 输出机器可读报告 |
 
-拒绝语义与退出码：`0` 成功；`2` 用法错误；`78` 前置或完整性检查失败，stderr 只给一行原因
-（`source-dirty`、`source-unpinned`、`artifact-exists`、`destination-collision`、
-`install-dir-mismatch`、`manifest-mismatch`、`pointer-not-a-symlink` 等），不尝试修复、不回退默认值。
+拒绝语义与退出码：`0` 成功；`2` 用法错误（缺必需参数、无法解析的 `--expect-config`）；
+`78` 前置或完整性检查失败，stderr 只给一行原因（`source-dirty`、`source-unpinned`、
+`source-symlink`、`artifact-exists`、`destination-collision`、`build-id-mismatch`、
+`artifact-name-mismatch`、`included-mismatch`、`install-dir-mismatch`、`symlink-in-artifact`、
+`manifest-mismatch`、`pointer-not-a-symlink` 等），不尝试修复、不回退默认值。
 
-只读模式不写任何文件；`publish` 只写 `--artifact-root` 下的临时目录与最终产物，不改源树、
-不清理旧产物。`verify` 拒绝被搬移过的产物：身份文件里的 `installDir` 必须等于实际路径。
+只读模式不写任何文件；`publish` 只写 `--artifact-root` 下的暂存目录与最终产物，不改源树、
+不清理旧产物。`verify` 拒绝被搬移或改名过的产物：`installDir` 必须等于实际路径，目录名必须等于
+`swarm-control-plane-<buildId>`。
 
 ## 5. 指针语义
 
@@ -172,11 +183,13 @@
 1. **控制平面**：指针状态、`buildId`、两个 commit、配置逐文件 hash；
 2. **能力安装**：本 agent 类型是否装到 `swarm-orchestration` / `worktree-delivery` /
    `orca-cli` / `orchestration`，以及解析出的真实路径与 frontmatter 名称；
-3. **项目材料**：`AGENTS.md`、领域/角色技能、binding 文件是否存在；
+3. **项目材料**：`AGENTS.md`（必需）、领域/角色技能与 binding 文件（**信息项**，只报告存在性）。
+   无领域适配是受支持的形态，因此缺角色技能不阻断启动。
 4. **缺失项与计划**：缺失清单 + 将要使用的 argv 与环境，`max_workers` 一律标注“待用户确认”。
 
 fail-closed 条件（任一命中则不输出可执行计划）：指针 `dangling`/`invalid`、
-身份与清单不符、`dev-checkout` 且请求带 pin、必需配置缺失或 hash 不符。
+身份与清单不符、`dev-checkout` 且请求带 pin、`ok` 但发布源 `dirty`/`unpinned` 且请求带 pin、
+必需配置缺失、`--expect-config` 给出的哈希不符、`code/` 是符号链接、必需技能缺失或名称不符。
 
 readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态；它不是启动授权。
 
@@ -190,7 +203,8 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 | `--agent <agents\|pi\|claude\|codex\|trae>` | 报告哪个 agent 的技能安装（默认 `agents`） |
 | `--skills-dir <dir>` | 覆盖技能目录，用于审计与测试 |
 | `--artifacts <dir>` | 产物/证据根必须先存在，否则阻断 |
-| `--require-pin` | 要求已发布且可核验的控制平面；`dev-checkout` 即阻断 |
+| `--expect-config NAME=SHA256` | 要求该配置文件的实际哈希等于给定值；可重复；不符或未出现即阻断 |
+| `--require-pin` | 要求已发布、可核验且源未被修改的控制平面；`dev-checkout`、`dirty`、`unpinned` 均阻断 |
 | `--json` | 机器可读报告 |
 
 退出码：`0` 就绪，`2` 用法错误，`78` 阻断（stderr/stdout 只给原因，不自动修复）。
@@ -226,6 +240,15 @@ readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态
 - 不代做技能安装（各 agent 的安装矩阵是独立部署动作）。
 - 不迁移、不刷新既有 Run 的 pins 与历史配置。
 - 不改变公开代码“不向父目录搜索私有配置”的规则；指针是唯一且显式的机器级输入。
+
+仍未实现（不因本文而具备）：
+
+- 宿主私有值（归档根、Server CLI、setup ID、工作区基目录）的 per-host override 层；目前由
+  `--artifacts` 与宿主文档核对，不自动填充。
+- 把 readiness 写进 `swarm-orchestration` 技能的第一步：技能仍是全局共享文件，改动需单独授权与
+  逐 agent 验证。
+- 发布后的技能重新指向（`~/.agents/skills` 仍指源码检出）。
+- 在产物上做导入自检：当前只校验清单、名称与符号链接，不 import `code/` 中的模块。
 
 ## 10. 兼容
 

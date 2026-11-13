@@ -73,6 +73,7 @@ class Fixture(unittest.TestCase):
 
     def report(self, **overrides):
         values = {"project": str(self.project()),
+                  "expect_config": [],
                   "pointer": str(self.temporary() / "no-pointer"),
                   "control_plane": None,
                   "agent": "agents",
@@ -170,6 +171,65 @@ class ReadinessTests(Fixture):
         before = snapshot()
         self.report(project=str(project), control_plane=str(artifact))
         self.assertEqual(before, snapshot())
+
+    def test_a_pointer_to_a_dev_checkout_is_reported_as_dev_checkout(self):
+        source, pointer = self.source(), self.temporary() / "current"
+        pointer.symlink_to(source, target_is_directory=True)
+        result = self.report(pointer=str(pointer))
+        self.assertEqual(result["controlPlane"]["state"], "dev-checkout")
+        self.assertTrue(result["ready"], result["blocking"])
+
+    def test_require_pin_refuses_a_released_artifact_built_from_a_dirty_source(self):
+        dirty = {"sourceRoot": "s", "orcaSrcCommit": "a", "orcaSrcBranch": "b",
+                 "swarmOrcaCommit": "c", "swarmOrcaBranch": "d",
+                 "dirty": True, "dirtyPaths": ["M docs/README.md"], "unpinned": False}
+        artifacts = self.temporary()
+        from unittest import mock
+        with mock.patch.object(publisher, "source_state", return_value=dirty):
+            self.assertEqual(publisher.main(["publish", "--source-root", str(self.source()),
+                                             "--artifact-root", str(artifacts),
+                                             "--allow-dirty"]), 0)
+        artifact = next(path for path in artifacts.iterdir()
+                        if path.is_dir() and not path.is_symlink())
+        result = self.report(control_plane=str(artifact), require_pin=True)
+        self.assertFalse(result["ready"])
+        self.assertIn("control-plane-dirty: published from a modified source", result["blocking"])
+
+    def test_require_pin_refuses_an_unpinned_released_artifact(self):
+        result = self.report(control_plane=str(self.artifact()), require_pin=True)
+        self.assertFalse(result["ready"])
+        self.assertIn("control-plane-unpinned: published without a pinned source",
+                      result["blocking"])
+
+    def test_expected_config_hash_is_compared(self):
+        artifact = self.artifact()
+        good = readiness.sha256(artifact / "private" / "coordinator-model.json")
+        ready = self.report(control_plane=str(artifact),
+                            expect_config=["coordinator-model.json=%s" % good])
+        self.assertTrue(ready["ready"], ready["blocking"])
+        wrong = self.report(control_plane=str(artifact),
+                            expect_config=["coordinator-model.json=%s" % ("0" * 64)])
+        self.assertFalse(wrong["ready"])
+        self.assertIn("config-hash-mismatch: coordinator-model.json", wrong["blocking"])
+        unknown = self.report(control_plane=str(artifact),
+                              expect_config=["other.json=%s" % ("0" * 64)])
+        self.assertIn("config-unexpected: other.json", unknown["blocking"])
+
+    def test_a_symlinked_code_directory_blocks(self):
+        source = self.source()
+        code = source / "swarm-orca" / "swarm"
+        moved = source / "moved-code"
+        code.rename(moved)
+        code.symlink_to(moved, target_is_directory=True)
+        result = self.report(control_plane=str(source))
+        self.assertFalse(result["ready"])
+        self.assertIn("config-symlink: %s" % code, result["blocking"])
+
+    def test_a_malformed_expect_config_is_a_usage_error(self):
+        with self.assertRaises(SystemExit) as caught:
+            readiness.main(["--project", str(self.project()),
+                            "--expect-config", "coordinator-model.json"])
+        self.assertNotEqual(caught.exception.code, 0)
 
     def test_main_exit_codes(self):
         artifact, skills = self.artifact(), self.skills(*readiness.REQUIRED_SKILLS)

@@ -89,22 +89,30 @@ def skipped(rel, excluded_prefixes):
 def collect(source_root, exclusions):
     """Return (destination-relative paths, source paths, excluded prefixes) for the rules.
 
-    Read-only: resolve everything before the caller writes anything.
+    Read-only: resolve everything before the caller writes anything. Symbolic links are
+    refused rather than followed: a link inside the source would otherwise be read from
+    outside the tree and stored as a regular file.
     """
     copies = []
     excluded = []
     for destination, source, prefixes in DIR_RULES:
         base = source_root / source
+        if base.is_symlink():
+            raise Failure("source-symlink: %s" % source)
         if not base.is_dir():
             raise Failure("source-directory-missing: %s" % source)
         excluded.extend("%s/%s" % (destination, prefix) for prefix in prefixes)
         for path in sorted(base.rglob("*")):
             rel = path.relative_to(base).as_posix()
+            if path.is_symlink():
+                raise Failure("source-symlink: %s/%s" % (source, rel))
             if not path.is_file() or skipped(rel, prefixes):
                 continue
             copies.append(("%s/%s" % (destination, rel), path))
     for destination, source in FILE_RULES:
         path = source_root / source
+        if path.is_symlink():
+            raise Failure("source-symlink: %s" % source)
         if not path.is_file():
             raise Failure("source-file-missing: %s" % source)
         copies.append((destination, path))
@@ -201,29 +209,49 @@ def read_manifest(root):
     return entries
 
 
+PRIVATE_PREFIX = "private"
+PUBLIC_FILE_MODE = 0o644
+PRIVATE_FILE_MODE = 0o640
+PUBLIC_DIR_MODE = 0o755
+PRIVATE_DIR_MODE = 0o750
+
+
+def apply_modes(staging, entries):
+    """Fix modes explicitly so the artifact does not inherit the publisher's umask."""
+    os.chmod(staging, PUBLIC_DIR_MODE)
+    for destination, _ in entries:
+        private = destination == PRIVATE_PREFIX or destination.startswith(PRIVATE_PREFIX + "/")
+        os.chmod(staging / destination, PRIVATE_FILE_MODE if private else PUBLIC_FILE_MODE)
+        parent = (staging / destination).parent
+        while parent != staging:
+            os.chmod(parent, PRIVATE_DIR_MODE if parent.relative_to(staging).as_posix().split("/")[0]
+                     == PRIVATE_PREFIX else PUBLIC_DIR_MODE)
+            parent = parent.parent
+
+
 def publish(args):
     source_root = Path(args.source_root).resolve()
     state = source_state(source_root)
     require_publishable(state, args.allow_dirty, args.allow_unpinned_source)
-    if not args.artifact_root:
-        raise Failure("artifact-root-required: --artifact-root is mandatory for publish")
     artifact_root = Path(args.artifact_root).resolve()
     if not artifact_root.is_dir():
         raise Failure("artifact-root-missing: %s" % artifact_root)
 
     copies, excluded = collect(source_root, {})
-    entries = [(destination, sha256_file(path)) for destination, path in copies]
-    identifier = build_id(entries)
-    final = artifact_root / ("%s-%s" % (ARTIFACT, identifier))
-    if final.exists():
-        raise Failure("artifact-exists: %s" % final)
-
     staging = Path(tempfile.mkdtemp(prefix=".%s-staging-" % ARTIFACT, dir=str(artifact_root)))
     try:
         for destination, path in copies:
             target = staging / destination
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
+        # Hash what was written, not what was read: a short or changed read must not pass.
+        entries = [(destination, sha256_file(staging / destination))
+                   for destination, _ in copies]
+        identifier = build_id(entries)
+        final = artifact_root / ("%s-%s" % (ARTIFACT, identifier))
+        if final.exists():
+            raise Failure("artifact-exists: %s" % final)
+        apply_modes(staging, entries)
         write_manifest(staging, entries)
         identity = {
             "schemaVersion": SCHEMA_VERSION,
@@ -232,7 +260,7 @@ def publish(args):
             "installDir": str(final),
             "source": state,
             "copyRuleVersion": COPY_RULE_VERSION,
-            "included": sorted(destination for destination, _ in copies),
+            "included": sorted(destination for destination, _ in entries),
             "excluded": excluded,
             "host": socket.gethostname(),
             "deployUser": getpass.getuser(),
@@ -241,16 +269,22 @@ def publish(args):
         }
         (staging / IDENTITY).write_text(json.dumps(identity, indent=2, sort_keys=True) + "\n",
                                         encoding="utf-8")
+        os.chmod(staging / IDENTITY, PUBLIC_FILE_MODE)
         if args.switch_pointer:
             preflight_pointer(Path(args.switch_pointer))
+        # Self-check the staged bytes before the artifact can become current.
+        inspect_artifact(staging, expected_install_dir=final)
         os.rename(staging, final)
         staging = None
         pointer = None
         if args.switch_pointer:
             pointer = switch_pointer(Path(args.switch_pointer), final)
-    finally:
+    except Failure as error:
         if staging is not None:
-            shutil.rmtree(staging, ignore_errors=True)
+            raise Failure("%s (staging retained: %s)" % (error, staging))
+        raise
+    except OSError as error:
+        raise Failure("publish-failed: %s (staging retained: %s)" % (error, staging))
     return {"mode": "publish", "artifact": str(final), "buildId": identifier,
             "fileCount": len(copies), "pointer": pointer, "source": state}
 
@@ -273,10 +307,17 @@ def switch_pointer(pointer, target):
     return {"path": str(pointer), "target": os.readlink(pointer)}
 
 
-def inspect_artifact(root):
-    """Read-only integrity report for one artifact directory; raises Failure when it is not usable."""
+def inspect_artifact(root, expected_install_dir=None):
+    """Read-only integrity report for one artifact directory; raises Failure when it is not usable.
+
+    The identity file is not covered by the manifest, so everything it claims that can be
+    recomputed is recomputed: the buildId against the manifest, the directory name against
+    the buildId, and `included` against the manifest's path set.
+    """
     root = Path(root).resolve()
     identity_path = root / IDENTITY
+    if identity_path.is_symlink():
+        raise Failure("symlink-in-artifact: %s" % IDENTITY)
     if not identity_path.is_file():
         raise Failure("identity-missing: %s" % IDENTITY)
     identity = json.loads(identity_path.read_text(encoding="utf-8"))
@@ -284,12 +325,24 @@ def inspect_artifact(root):
         raise Failure("identity-schema-unsupported: %r" % identity.get("schemaVersion"))
     if identity.get("artifact") != ARTIFACT:
         raise Failure("identity-artifact-mismatch: %r" % identity.get("artifact"))
+    expected_install = Path(expected_install_dir).resolve() if expected_install_dir else root
     recorded = Path(identity.get("installDir", "")).resolve()
-    if recorded != root:
+    if recorded != expected_install:
         raise Failure("install-dir-mismatch: identity says %s" % recorded)
     expected = read_manifest(root)
+    identifier = build_id(expected)
+    if identity.get("buildId") != identifier:
+        raise Failure("build-id-mismatch: identity says %r, content is %s"
+                      % (identity.get("buildId"), identifier))
+    if expected_install.name != "%s-%s" % (ARTIFACT, identifier):
+        raise Failure("artifact-name-mismatch: %s is not %s-%s"
+                      % (expected_install.name, ARTIFACT, identifier))
+    if sorted(identity.get("included") or []) != sorted(name for name, _ in expected):
+        raise Failure("included-mismatch: identity and manifest disagree")
     actual = []
     for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise Failure("symlink-in-artifact: %s" % path.relative_to(root).as_posix())
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
@@ -328,16 +381,16 @@ def main(argv=None):
                         help="symlink to repoint at the new artifact, atomically, after publish")
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
     args = parser.parse_args(argv)
+    if args.mode == "verify" and not args.artifact:
+        parser.error("verify needs --artifact")
+    if args.mode in ("plan", "publish") and not args.source_root:
+        parser.error("%s needs --source-root" % args.mode)
+    if args.mode == "publish" and not args.artifact_root:
+        parser.error("publish needs --artifact-root")
 
     try:
-        if args.mode == "verify":
-            if not args.artifact:
-                raise Failure("artifact-required: verify needs --artifact")
-            report = verify(args)
-        else:
-            if not args.source_root:
-                raise Failure("source-root-required: %s needs --source-root" % args.mode)
-            report = publish(args) if args.mode == "publish" else plan(args)
+        report = verify(args) if args.mode == "verify" else \
+            (publish(args) if args.mode == "publish" else plan(args))
     except Failure as error:
         print("refused: %s" % error, file=sys.stderr)
         return EXIT_PRECONDITION
