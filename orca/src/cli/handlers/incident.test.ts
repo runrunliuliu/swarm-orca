@@ -19,6 +19,12 @@ import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
 import { sampleStallState } from '../../main/incidents/incidents-stall-sampler'
 import { writeMeta } from '../../main/incidents/incident-store-capacity'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
+import {
+  declareAcceptanceRule,
+  openAcceptanceStop,
+  writeAcceptanceVerdict
+} from '../../main/incidents/dispatch-acceptance-store'
+import { REPEATED_FLAG_SEPARATOR as REPEATED } from '../args'
 import type { PtyExitIncidentFacts } from '../../main/incidents/incident-pty-exit'
 import { INCIDENT_HANDLERS } from './incident'
 
@@ -354,6 +360,111 @@ describe('incident tool-errors (M4-1)', () => {
       turn: 'turn-1'
     })
     expect(store().countIncidents()).toBe(0)
+  })
+})
+
+describe('incident acceptance (M5)', () => {
+  it('declares argv rules idempotently and lists them with the gate state', async () => {
+    const declared = context('incident acceptance declare', {
+      dispatch: 'disp_1',
+      rule: 'tests',
+      cwd: '/work/tree',
+      command: `npm${REPEATED} test`,
+      'expect-exit': '0',
+      actor: 'alice'
+    })
+    await INCIDENT_HANDLERS['incident acceptance declare'](declared.ctx)
+    expect(declared.output.join('\n')).toContain('Declared acceptance rule tests')
+    expect(declared.output.join('\n')).toContain('self-reported')
+
+    // Same rule again: still one row.
+    const again = context('incident acceptance declare', {
+      dispatch: 'disp_1',
+      rule: 'tests',
+      cwd: '/work/tree',
+      command: `npm${REPEATED} test`,
+      'expect-exit': '1'
+    })
+    await INCIDENT_HANDLERS['incident acceptance declare'](again.ctx)
+
+    const listed = context('incident acceptance list', {}, true)
+    await INCIDENT_HANDLERS['incident acceptance list'](listed.ctx)
+    const payload = JSON.parse(listed.output.join('\n')) as {
+      dispatches: { dispatchId: string; rules: unknown[]; gate: { state: string } }[]
+    }
+    expect(payload.dispatches).toHaveLength(1)
+    expect(payload.dispatches[0].rules).toHaveLength(1)
+    // No verdict yet: settlement is blocked (fail-closed), visible in the list.
+    expect(payload.dispatches[0].gate.state).toBe('blocked')
+  })
+
+  it('shows expected vs actual per rule and never the command output', async () => {
+    const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    declareAcceptanceRule(opened.db, {
+      hostId: 'host-a',
+      dispatchId: 'disp_2',
+      ruleId: 'tests',
+      program: 'npm',
+      args: ['test'],
+      expect: { exitCode: 0 },
+      cwd: '/work/tree',
+      actor: 'alice'
+    })
+    writeAcceptanceVerdict(opened.db, {
+      dispatchId: 'disp_2',
+      ruleId: 'tests',
+      verdict: 'failed',
+      exitCode: 2,
+      signal: null,
+      stdoutDigest: 'b'.repeat(64),
+      stdoutBytes: 42,
+      detail: 'exit_code_expected_0_got_2',
+      evaluatedAt: 1_700_000_000_000
+    })
+    const shown = context('incident acceptance show', { dispatch: 'disp_2' })
+    await INCIDENT_HANDLERS['incident acceptance show'](shown.ctx)
+    const text = shown.output.join('\n')
+    expect(text).toContain('exit=0')
+    expect(text).toContain('exit=2')
+    expect(text).toContain('stdout_sha256=bbbbbbbbbbbb')
+    expect(text).toContain('not stored')
+    opened.db.close()
+    expect(store().countIncidents()).toBe(0)
+  })
+
+  it('refuses to resolve without a stop, and requires an actor', async () => {
+    const missingStop = context('incident acceptance resolve', {
+      dispatch: 'disp_3',
+      accept: true,
+      actor: 'alice',
+      reason: 'ok'
+    })
+    await expect(
+      INCIDENT_HANDLERS['incident acceptance resolve'](missingStop.ctx)
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+
+    const opened = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    openAcceptanceStop(opened.db, { dispatchId: 'disp_4', incidentId: null, now: Date.now() })
+    opened.db.close()
+
+    const noActor = context('incident acceptance resolve', {
+      dispatch: 'disp_4',
+      accept: true,
+      reason: 'ok'
+    })
+    await expect(INCIDENT_HANDLERS['incident acceptance resolve'](noActor.ctx)).rejects.toMatchObject(
+      { code: 'invalid_argument' }
+    )
+
+    const resolved = context('incident acceptance resolve', {
+      dispatch: 'disp_4',
+      reject: true,
+      actor: 'alice',
+      reason: 'worker must retry'
+    })
+    await INCIDENT_HANDLERS['incident acceptance resolve'](resolved.ctx)
+    expect(resolved.output.join('\n')).toContain('Rejected disp_4')
+    expect(resolved.output.join('\n')).toContain('self-reported')
   })
 })
 

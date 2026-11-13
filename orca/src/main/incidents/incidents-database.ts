@@ -26,7 +26,7 @@ import { PRUNE_FLAG_TABLE, VERIFIED_PRUNE_FLAG } from './incident-store-prune-fl
  * derived cache refreshed every tick, so its migration is "drop and recreate" — declarations, incident
  * rows, triggers and decisions are untouched.
  */
-export const INCIDENTS_DB_SCHEMA_VERSION = 3
+export const INCIDENTS_DB_SCHEMA_VERSION = 4
 
 export const INCIDENTS_BUSY_TIMEOUT_MS = 5000
 
@@ -163,6 +163,53 @@ CREATE TABLE IF NOT EXISTS incident_stall_samples (
 );
 CREATE INDEX IF NOT EXISTS idx_incident_stall_would
   ON incident_stall_samples(would_write_if_enabled);
+
+-- Dispatch acceptance (M5). Declarations live here, not in the orchestration database: they are
+-- business expectations about a dispatch, the orchestration schema is frozen at v44, and an incident is
+-- the durable proof that one failed. Each rule is independent (its own row, its own verdict).
+CREATE TABLE IF NOT EXISTS dispatch_acceptance_rules (
+  host_id     TEXT NOT NULL,
+  dispatch_id TEXT NOT NULL,
+  rule_id     TEXT NOT NULL,
+  program     TEXT NOT NULL,
+  args        TEXT NOT NULL,
+  expect      TEXT NOT NULL,
+  timeout_ms  INTEGER NOT NULL,
+  cwd         TEXT NOT NULL,
+  actor       TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  digest      TEXT NOT NULL,
+  PRIMARY KEY (host_id, dispatch_id, rule_id)
+);
+CREATE INDEX IF NOT EXISTS idx_dispatch_acceptance_rules_dispatch
+  ON dispatch_acceptance_rules(dispatch_id);
+
+-- One verdict per (dispatch, rule): a re-run replaces it, so the gate always reads the latest.
+CREATE TABLE IF NOT EXISTS dispatch_acceptance_verdicts (
+  dispatch_id   TEXT NOT NULL,
+  rule_id       TEXT NOT NULL,
+  verdict       TEXT NOT NULL,
+  exit_code     INTEGER,
+  signal        TEXT,
+  stdout_digest TEXT,
+  stdout_bytes  INTEGER,
+  detail        TEXT,
+  evaluated_at  INTEGER NOT NULL,
+  PRIMARY KEY (dispatch_id, rule_id)
+);
+
+-- The visible stop. pending is non-terminal and owned; accepted lets settlement resume through the
+-- existing path; rejected keeps the dispatch unsettled and hands it back to its owner.
+CREATE TABLE IF NOT EXISTS dispatch_acceptance_stops (
+  dispatch_id TEXT PRIMARY KEY,
+  state       TEXT NOT NULL,
+  incident_id TEXT,
+  opened_at   INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  actor       TEXT,
+  reason      TEXT,
+  attempts    INTEGER NOT NULL DEFAULT 0
+);
 `
 }
 

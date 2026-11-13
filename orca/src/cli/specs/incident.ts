@@ -134,6 +134,69 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['incident', 'acceptance', 'declare'],
+    summary: 'Declare an acceptance rule for a dispatch (does not run it)',
+    usage:
+      'orca incident acceptance declare --dispatch <id> --rule <id> --cwd <worktree> ' +
+      '--command <program> [--command <arg>]... [--expect-exit <n>] [--expect-stdout <substr>] ' +
+      '[--timeout-ms <n>] [--actor <name>] [--json]',
+    allowedFlags: [
+      ...GLOBAL_FLAGS,
+      'dispatch',
+      'rule',
+      'cwd',
+      'command',
+      'expect-exit',
+      'expect-stdout',
+      'timeout-ms',
+      'actor'
+    ],
+    repeatableFlags: ['command'],
+    examples: [
+      'orca incident acceptance declare --dispatch disp_1 --rule tests --cwd /path/to/worktree --command npm --command test --expect-exit 0',
+      'orca incident acceptance declare --dispatch disp_1 --rule archive --cwd /path/to/worktree --command test --command -f --command out/report.json --expect-stdout "PASS"'
+    ],
+    notes: [
+      'argv only: the first --command is the program, each later one is an argument. No shell is involved, so nothing is interpolated.',
+      'At least one of --expect-exit / --expect-stdout is required. Multiple rules per dispatch are allowed and judged independently.',
+      'Re-declaring the same --rule replaces it; the rule id is the idempotency key.',
+      'The actor is self-reported and never verified (§19.1). Declaring does not execute anything.'
+    ]
+  },
+  {
+    path: ['incident', 'acceptance', 'list'],
+    summary: 'List dispatch acceptance rules, gates and stops (read-only)',
+    usage: 'orca incident acceptance list [--dispatch <id>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'dispatch'],
+    notes: [
+      'A blocked dispatch with a pending stop is the visible stop: it is never settled by acceptance, and it never silently stays running without an owner.',
+      'actor values are self-reported.'
+    ]
+  },
+  {
+    path: ['incident', 'acceptance', 'show'],
+    summary: 'Show one dispatch acceptance state, including expected vs actual per rule',
+    usage: 'orca incident acceptance show --dispatch <id> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'dispatch'],
+    notes: [
+      'Shows each rule, its latest verdict, the actual exit code, the stdout sha256 and byte count — never the output text.',
+      'actor values are self-reported.'
+    ]
+  },
+  {
+    path: ['incident', 'acceptance', 'resolve'],
+    summary: 'Resolve a pending acceptance stop (accept or reject)',
+    usage:
+      'orca incident acceptance resolve --dispatch <id> (--accept | --reject) --actor <name> --reason <text> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'dispatch', 'accept', 'reject', 'actor', 'reason'],
+    destructive: true,
+    notes: [
+      '--accept lets settlement resume through the existing flow; --reject records the decision and leaves the dispatch unsettled for its owner.',
+      'This command never fails a dispatch and never settles one itself.',
+      '--actor is required and self-reported (§19.1): the decision names a person, it does not verify one.'
+    ]
+  },
+  {
     path: ['incident', 'prune'],
     destructive: true,
     summary: 'Delete old closed/invalid/duplicate incidents (dry run by default)',

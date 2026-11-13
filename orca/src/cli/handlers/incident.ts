@@ -21,6 +21,12 @@ import { stallsIncident, waitIncident } from './incident-stall'
 import { toolErrorsIncident } from './incident-tool-errors'
 import { digestIncident } from './incident-digest'
 import {
+  acceptanceDeclareIncident,
+  acceptanceListIncident,
+  acceptanceResolveIncident,
+  acceptanceShowIncident
+} from './incident-acceptance'
+import {
   parseIncidentClass,
   printIncidentJson,
   refuseNonLocalIncidentSelector,
@@ -195,6 +201,10 @@ export const INCIDENT_HANDLERS: Record<string, CommandHandler> = {
   'incident stalls': stallsIncident,
   'incident tool-errors': toolErrorsIncident,
   'incident digest': digestIncident,
+  'incident acceptance declare': acceptanceDeclareIncident,
+  'incident acceptance list': acceptanceListIncident,
+  'incident acceptance show': acceptanceShowIncident,
+  'incident acceptance resolve': acceptanceResolveIncident,
 
   'incident prune': async (ctx) => {
     refuseNonLocalIncidentSelector(ctx, 'orca incident prune')

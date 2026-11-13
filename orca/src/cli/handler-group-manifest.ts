@@ -279,6 +279,10 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
       'incident stalls',
       'incident tool-errors',
       'incident digest',
+      'incident acceptance declare',
+      'incident acceptance list',
+      'incident acceptance show',
+      'incident acceptance resolve',
       'incident prune'
     ],
     load: async () => (await import('./handlers/incident.js')).INCIDENT_HANDLERS
