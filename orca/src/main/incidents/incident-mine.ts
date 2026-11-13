@@ -22,9 +22,11 @@
 import type Database from '../sqlite/sync-database'
 import type {
   IncidentClass,
+  IncidentCoverage,
   IncidentSourceKind,
   IncidentStatus
 } from './incident-types'
+import { buildIncidentDigest, type IncidentDigest } from './incident-digest'
 import { parseExitCause } from './incident-store-rows'
 import { sanitizeText } from './incident-sanitize'
 
@@ -146,6 +148,15 @@ export type IncidentMine = {
   limits: MineLimits
   clusters: MineCluster[]
   candidates: MineCandidate[]
+  /**
+   * The SAME object `orca incident digest` returns, built by the same function over the same window.
+   *
+   * M6-3 asks that the two commands never disagree about the store: this is the mechanism, not a
+   * convention. It rides inside `mine` so one automation invocation carries both the counting view
+   * (totals/coverage/capacity/replay) and the triage view (clusters/candidates) and cannot be reading
+   * two different moments.
+   */
+  digest: IncidentDigest
   /** Present only when `--apply` ran; dry runs omit it rather than reporting an empty summary. */
   applied?: MineApplySummary
 }
@@ -289,6 +300,8 @@ function buildCluster(fingerprint: string, rows: MineRow[]): MineCluster {
 
 export type BuildIncidentMineOptions = {
   now: number
+  /** The store's own coverage report; the embedded digest quotes it rather than recomputing it. */
+  coverage: IncidentCoverage
   windowMs?: number
   maxGroups?: number
   maxCandidates?: number
@@ -395,6 +408,7 @@ export function buildIncidentMine(
     now: options.now,
     since,
     windowMs,
+    digest: buildIncidentDigest(db, { now: options.now, windowMs, coverage: options.coverage }),
     apply: options.apply === true,
     target: options.target ?? DEFAULT_MINER_TARGET,
     totals: {

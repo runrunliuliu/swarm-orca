@@ -10,12 +10,47 @@ function pad(value: string, width: number): string {
   return value.length >= width ? value.slice(0, width) : value.padEnd(width)
 }
 
+export function formatWindowLabel(windowMs: number): string {
+  return windowMs >= 86_400_000
+    ? `${Math.round(windowMs / 86_400_000)}d`
+    : windowMs >= 3_600_000
+      ? `${Math.round(windowMs / 3_600_000)}h`
+      : `${Math.round(windowMs / 60_000)}m`
+}
+
+/**
+ * The coverage block both `incident digest` and `incident mine` print (M6-3).
+ *
+ * One function, so the two commands cannot describe the same store two ways. The lines are the ones
+ * that answer "may I trust these numbers": replay state, capacity, and the tool-error window snapshot.
+ */
+export function formatDigestCoverage(digest: IncidentDigest): string[] {
+  const lines: string[] = []
+  lines.push(
+    `Shadow replay: ${digest.shadowReplay.incomplete ? 'INCOMPLETE' : 'complete'}` +
+      `${digest.shadowReplay.lastStopReason ? ` (${digest.shadowReplay.lastStopReason})` : ''}` +
+      `  last_seq=${digest.shadowReplay.lastSeq}  dropped=${digest.dropped}` +
+      `  failures=${digest.shadowReplay.failures}`
+  )
+  if (digest.shadowReplay.incomplete) {
+    lines.push(
+      'WARNING: the replay did not finish, so incidents recorded before the crash may be missing from these counts.'
+    )
+  }
+  lines.push(
+    `Capacity: rows=${digest.capacity.rows}/${digest.capacity.maxRows}  ` +
+      `capacity_latch_set=${String(digest.capacity.capacityLatchSet)}  ` +
+      `currently_limited=${String(digest.capacity.currentlyLimited)}`
+  )
+  lines.push(
+    `Tool-error windows: ${digest.toolError.windows} counted, ${digest.toolError.wouldWrite} would write  ` +
+      `write=${digest.toolError.writeEnabled ? 'on' : 'off'}`
+  )
+  return lines
+}
+
 export function formatIncidentDigest(digest: IncidentDigest): string {
-  const window = digest.windowMs >= 86_400_000
-    ? `${Math.round(digest.windowMs / 86_400_000)}d`
-    : digest.windowMs >= 3_600_000
-      ? `${Math.round(digest.windowMs / 3_600_000)}h`
-      : `${Math.round(digest.windowMs / 60_000)}m`
+  const window = formatWindowLabel(digest.windowMs)
   const lines: string[] = []
   lines.push(`Incident digest (last ${window}, since ${new Date(digest.since).toISOString()})`)
   lines.push('')
@@ -48,25 +83,6 @@ export function formatIncidentDigest(digest: IncidentDigest): string {
     }
   }
   lines.push('')
-  lines.push(
-    `Shadow replay: ${digest.shadowReplay.incomplete ? 'INCOMPLETE' : 'complete'}` +
-      `${digest.shadowReplay.lastStopReason ? ` (${digest.shadowReplay.lastStopReason})` : ''}` +
-      `  last_seq=${digest.shadowReplay.lastSeq}  dropped=${digest.dropped}` +
-      `  failures=${digest.shadowReplay.failures}`
-  )
-  if (digest.shadowReplay.incomplete) {
-    lines.push(
-      'WARNING: the replay did not finish, so incidents recorded before the crash may be missing from these counts.'
-    )
-  }
-  lines.push(
-    `Capacity: rows=${digest.capacity.rows}/${digest.capacity.maxRows}  ` +
-      `capacity_latch_set=${String(digest.capacity.capacityLatchSet)}  ` +
-      `currently_limited=${String(digest.capacity.currentlyLimited)}`
-  )
-  lines.push(
-    `Tool-error windows: ${digest.toolError.windows} counted, ${digest.toolError.wouldWrite} would write  ` +
-      `write=${digest.toolError.writeEnabled ? 'on' : 'off'}`
-  )
+  lines.push(...formatDigestCoverage(digest))
   return lines.join('\n')
 }

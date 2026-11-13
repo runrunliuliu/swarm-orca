@@ -46,6 +46,15 @@ function fixture(): { db: OpenIncidentsDatabase['db']; store: IncidentStore } {
 
 let sequence = 0
 
+/** Every mining pass embeds the digest, which needs the store's own coverage report. */
+function mineWindow(
+  db: OpenIncidentsDatabase['db'],
+  store: IncidentStore,
+  options: Omit<Parameters<typeof buildIncidentMine>[1], 'coverage'>
+) {
+  return buildIncidentMine(db, { ...options, coverage: store.coverage() })
+}
+
 type SeedOptions = {
   fingerprint: string
   sourceId?: string
@@ -188,7 +197,7 @@ describe('buildIncidentMine', () => {
     // Outside the 7d window: must not be counted.
     seed(store, { fingerprint, sourceId: 'pty_old', createdAt: T0 - 1 * DAY, worktreeId: 'wt-c' })
 
-    const mine = buildIncidentMine(db, { now: T0 + 7 * DAY, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now: T0 + 7 * DAY, windowMs: 7 * DAY })
     expect(mine.totals.rowsInWindow).toBe(3)
     expect(mine.totals.clusters).toBe(1)
     expect(mine.clusters[0]).toMatchObject({
@@ -217,7 +226,7 @@ describe('buildIncidentMine', () => {
     const since = now - 7 * DAY
     seed(store, { fingerprint: 'fp-edge-in', sourceId: 's1', createdAt: since })
     seed(store, { fingerprint: 'fp-edge-out', sourceId: 's2', createdAt: since - 1 })
-    const mine = buildIncidentMine(db, { now, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now, windowMs: 7 * DAY })
     expect(mine.totals.rowsInWindow).toBe(1)
     expect(mine.clusters[0].fingerprint).toBe('fp-edge-in')
   })
@@ -232,7 +241,7 @@ describe('buildIncidentMine', () => {
     store.appendDecision({ incidentId: duplicate.id, toStatus: 'duplicate', actor: 'alice', reason: 'same thing' })
     store.appendDecision({ incidentId: invalid.id, toStatus: 'invalid', actor: 'alice', reason: 'not a bug' })
 
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     expect(mine.totals.rowsInWindow).toBe(4)
     // Two live rows cannot satisfy the 3-row rule; the two triaged rows must not push it over.
     expect(mine.clusters[0].count).toBe(2)
@@ -254,7 +263,7 @@ describe('buildIncidentMine', () => {
       seed(store, { fingerprint, sourceId: `${fingerprint}-b` })
       seed(store, { fingerprint, sourceId: `${fingerprint}-c` })
     }
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY, maxGroups: 2 })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY, maxGroups: 2 })
     expect(mine.clusters).toHaveLength(2)
     expect(mine.totals.clusters).toBe(5)
     expect(mine.truncated.groups).toBe(true)
@@ -266,7 +275,7 @@ describe('buildIncidentMine', () => {
     for (let index = 0; index < 4; index += 1) {
       seed(store, { fingerprint: 'fp-cap', sourceId: `s${index}` })
     }
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY, maxCandidates: 2 })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY, maxCandidates: 2 })
     expect(mine.candidates).toHaveLength(2)
     expect(mine.totals.candidates).toBe(4)
     expect(mine.truncated.candidates).toBe(true)
@@ -280,7 +289,7 @@ describe('buildIncidentMine', () => {
       seed(store, { fingerprint: 'fp-budget', sourceId: `s${index}` })
     }
     let tick = 0
-    const mine = buildIncidentMine(db, {
+    const mine = mineWindow(db, store, {
       now: T0 + DAY,
       windowMs: 7 * DAY,
       timeBudgetMs: 1,
@@ -299,7 +308,7 @@ describe('buildIncidentMine', () => {
       const record = seed(store, { fingerprint, sourceId: `s${index}` })
       store.appendDecision({ incidentId: record.id, toStatus: 'watch', actor: 'alice', reason: 'seen' })
     }
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     expect(mine.clusters[0]).toMatchObject({ hasUntriaged: false, untriagedCount: 0 })
     // The rule still applies — the pattern exists — but there is no untriaged row to suggest.
     expect(mine.clusters[0].rules).toContain(MINE_RULE_REPEAT_FINGERPRINT)
@@ -319,7 +328,7 @@ describe('buildIncidentMine', () => {
         reason: 'dismissed'
       })
     }
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     expect(mine.totals.rowsInWindow).toBe(4)
     expect(mine.totals.clusters).toBe(0)
     expect(mine.candidates).toEqual([])
@@ -332,7 +341,7 @@ describe('buildIncidentMine', () => {
       seed(store, { fingerprint: 'fp-read', sourceId: `s${index}` })
     }
     const before = store.countIncidents()
-    buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     expect(store.countIncidents()).toBe(before)
     expect(store.listIncidents({ limit: 10 }).incidents.every((row) => row.decisionCount === 0)).toBe(
       true
@@ -363,7 +372,7 @@ describe('applying miner decisions (M6-2)', () => {
   it('appends one decision per candidate with actor=miner and a rule-named reason', () => {
     const { db, store } = fixture()
     const ids = seedCluster(store, 'fp-apply')
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY, target: 'watch' })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY, target: 'watch' })
     const applied = applyMineCandidates(store, mine, { now: () => T0 + 2 * DAY })
 
     expect(applied).toMatchObject({ attempted: 3, appended: 3, skipped: 0 })
@@ -381,11 +390,11 @@ describe('applying miner decisions (M6-2)', () => {
   it('is idempotent: a second apply appends nothing and the decision log does not grow', () => {
     const { db, store } = fixture()
     seedCluster(store, 'fp-idem')
-    const first = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const first = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     expect(applyMineCandidates(store, first).appended).toBe(3)
     const afterFirst = decisionCount(store)
 
-    const second = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const second = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     // The rows are now `watch`, so they are no longer untriaged candidates at all.
     expect(second.totals.candidates).toBe(0)
     expect(second.candidates).toEqual([])
@@ -397,7 +406,7 @@ describe('applying miner decisions (M6-2)', () => {
   it('skips a row that is already in the target state even when it is a candidate', () => {
     const { db, store } = fixture()
     const ids = seedCluster(store, 'fp-already')
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY, target: 'watch' })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY, target: 'watch' })
     // A hand decision arrives between mining and applying.
     store.appendDecision({ incidentId: ids[0], toStatus: 'watch', actor: 'alice', reason: 'seen' })
     const applied = applyMineCandidates(store, mine)
@@ -410,7 +419,7 @@ describe('applying miner decisions (M6-2)', () => {
   it('never touches a terminal row', () => {
     const { db, store } = fixture()
     const ids = seedCluster(store, 'fp-terminal')
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     store.appendDecision({
       incidentId: ids[0],
       toStatus: 'duplicate',
@@ -426,7 +435,7 @@ describe('applying miner decisions (M6-2)', () => {
   it('reports a read-only store for every candidate instead of throwing', () => {
     const { db, store } = fixture()
     seedCluster(store, 'fp-readonly')
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const mined = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     const readOnly: MineStore = {
       ...store,
       readOnly: true,
@@ -434,7 +443,7 @@ describe('applying miner decisions (M6-2)', () => {
         throw new Error('a read-only store must not be written')
       }
     }
-    const applied = applyMineCandidates(readOnly, mine)
+    const applied = applyMineCandidates(readOnly, mined)
     expect(applied.appended).toBe(0)
     expect(applied.results.every((result) => result.outcome === 'skipped_read_only')).toBe(true)
   })
@@ -442,7 +451,7 @@ describe('applying miner decisions (M6-2)', () => {
   it('writes a reason that carries statistics but never an incident body', () => {
     const { db, store } = fixture()
     seedCluster(store, 'fp-reason')
-    const mine = buildIncidentMine(db, { now: T0 + DAY, windowMs: 7 * DAY })
+    const mine = mineWindow(db, store, { now: T0 + DAY, windowMs: 7 * DAY })
     const reason = mineDecisionReason(mine.candidates[0])
     expect(reason).toContain('miner rule=repeat_fingerprint')
     expect(reason).toContain('fingerprint=fp-reason')

@@ -129,7 +129,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     notes: [
       'Counts by class, effective status and fingerprint (top 5), plus unseen/untriaged, dropped shadow lines, replay state, capacity and tool-error windows.',
       'unseen = effective status is still `untriaged`. It is not a per-person read marker: the store has no such field, and the digest does not invent one.',
-      'Every number is one aggregate over the incidents database, so it cannot drift from the store.',
+      'Every number is one aggregate over the incidents database, so it cannot drift from the store. `orca incident mine --json` embeds this same object, so the triage view and the counting view always agree.',
       'Designed to be run by a scheduled automation: a session runs this command and posts the output. No scheduler is added in code.'
     ]
   },
@@ -162,7 +162,8 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
       'The miner can only set watch, duplicate or needs_archive. `confirmed` is refused by name: that decision needs a human or independent context (R1).',
       'Repeat runs are idempotent: an incident already in the target state, or already duplicate/invalid/closed, is skipped and no decision is appended, so running twice does not grow the decision log.',
       'Bounded: --max-groups and --max-candidates cap the output, and a wall-clock budget caps the pass. Every cap that fires is reported (truncated.*) together with the full totals, so truncation is never silent.',
-      '--json emits a stable shape (version: 1) for automations: totals, excluded, truncated, limits, clusters, candidates. No scheduler and no automation type is added in code.',
+      '--json emits a stable shape (version: 1) for automations: totals, excluded, truncated, limits, clusters, candidates, digest. No scheduler and no automation type is added in code.',
+      'The `digest` field is the very object `orca incident digest` returns for the same window, built by the same function: the two commands cannot report different totals, capacity or replay state. Both text outputs print that coverage block through one formatter.',
       'The miner never changes a dispatch, an orchestration row, or any code: repair work stays a separate authorised task.'
     ]
   },

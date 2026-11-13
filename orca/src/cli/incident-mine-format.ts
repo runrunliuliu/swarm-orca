@@ -5,19 +5,10 @@
 // number it truncated.
 
 import type { IncidentMine, MineCluster } from '../main/incidents/incident-mine'
+import { formatDigestCoverage, formatWindowLabel } from './incident-digest-format'
 
 function pad(value: string, width: number): string {
   return value.length >= width ? value.slice(0, width) : value.padEnd(width)
-}
-
-function windowLabel(windowMs: number): string {
-  if (windowMs >= 86_400_000) {
-    return `${Math.round(windowMs / 86_400_000)}d`
-  }
-  if (windowMs >= 3_600_000) {
-    return `${Math.round(windowMs / 3_600_000)}h`
-  }
-  return `${Math.round(windowMs / 60_000)}m`
 }
 
 function iso(value: number): string {
@@ -32,7 +23,7 @@ export function formatIncidentMine(mine: IncidentMine): string {
   const lines: string[] = []
   const mode = mine.apply ? `APPLY (target ${mine.target})` : 'dry-run (no writes)'
   lines.push(
-    `Incident mine (last ${windowLabel(mine.windowMs)}, since ${iso(mine.since)}) — ${mode}`
+    `Incident mine (last ${formatWindowLabel(mine.windowMs)}, since ${iso(mine.since)}) — ${mode}`
   )
   lines.push('')
   lines.push(
@@ -133,6 +124,14 @@ export function formatIncidentMine(mine: IncidentMine): string {
       )
     }
   }
+  lines.push('')
+  // §M6-3: the same counting view `incident digest` prints, from the same object, so the two commands
+  // cannot report different numbers for the same store and window.
+  lines.push(
+    `Digest in the same window: ${mine.digest.total} incidents, ` +
+      `${mine.digest.unseen} unseen/untriaged (identical to \`orca incident digest --since ${formatWindowLabel(mine.windowMs)}\`)`
+  )
+  lines.push(...formatDigestCoverage(mine.digest))
   lines.push('')
   lines.push(
     'The miner never sets confirmed: that requires a human or independent context (R1). ' +

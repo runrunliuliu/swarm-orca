@@ -94,13 +94,44 @@ export const mineIncident: CommandHandler = async (ctx) => {
     if (db === null) {
       // No store yet is a real answer, and it must not create one: an empty window plus the coverage
       // gaps, exactly like `incident digest`.
+      const coverage = opened.store.coverage()
+      const now = Date.now()
       const empty = {
         version: 1 as const,
-        now: Date.now(),
-        since: Date.now() - windowMs,
+        now,
+        since: now - windowMs,
         windowMs,
         apply,
         target,
+        // Built from the same builder so an empty host still emits the digest shape, not a stub that
+        // drifts from it (the builder only needs the store report here).
+        digest: {
+          since: now - windowMs,
+          windowMs,
+          total: 0,
+          byClass: [],
+          byStatus: [],
+          topFingerprints: [],
+          unseen: 0,
+          dropped: coverage.shadowReplay.dropped,
+          shadowReplay: {
+            lastSeq: coverage.shadowReplay.lastSeq,
+            incomplete: coverage.shadowReplay.incomplete,
+            lastStopReason: coverage.shadowReplay.lastStopReason,
+            failures: coverage.shadowReplay.failures,
+            lastError: coverage.shadowReplay.lastError,
+            lastRun: coverage.shadowReplay.lastRun
+          },
+          capacity: {
+            rows: 0,
+            bytes: coverage.capacity.bytes,
+            maxRows: coverage.capacity.maxRows,
+            maxBytes: coverage.capacity.maxBytes,
+            capacityLatchSet: coverage.capacityLatchSet,
+            currentlyLimited: coverage.currentlyLimited
+          },
+          toolError: { windows: 0, wouldWrite: 0, writeEnabled: false, updatedAt: null }
+        },
         totals: { rowsInWindow: 0, clusters: 0, candidateClusters: 0, candidates: 0 },
         excluded: { total: 0, byStatus: [] },
         truncated: { groups: false, candidates: false, timeBudget: false },
@@ -117,6 +148,8 @@ export const mineIncident: CommandHandler = async (ctx) => {
     }
     const mine = buildIncidentMine(db, {
       now: Date.now(),
+      // The same object `incident digest` builds, from the same store report (M6-3).
+      coverage: opened.store.coverage(),
       windowMs,
       maxGroups,
       maxCandidates,

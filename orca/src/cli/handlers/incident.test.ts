@@ -661,6 +661,54 @@ describe('incident mine (M6-1)', () => {
     expect(decisionRows()).toHaveLength(0)
   })
 
+  it('reports the same store numbers as `incident digest` (M6-3)', async () => {
+    seedMineCluster('fp-consistency', 4)
+    recordPtyExitIncidentTo(store(), facts(), { hostId: 'host-a', now: Date.now() })
+
+    const digestShown = context('incident digest', { since: '7d' }, true)
+    await INCIDENT_HANDLERS['incident digest'](digestShown.ctx)
+    const digest = JSON.parse(digestShown.output.join('\n')) as {
+      total: number
+      unseen: number
+      byClass: { class: string; count: number }[]
+      byStatus: { status: string; count: number }[]
+      topFingerprints: { fingerprint: string; count: number }[]
+      capacity: { rows: number }
+      shadowReplay: { incomplete: boolean }
+    }
+
+    const mineShown = context('incident mine', { since: '7d' }, true)
+    await INCIDENT_HANDLERS['incident mine'](mineShown.ctx)
+    const mined = JSON.parse(mineShown.output.join('\n')) as {
+      digest: typeof digest
+      totals: { rowsInWindow: number }
+      clusters: { count: number }[]
+    }
+
+    // Same window, same builder, same numbers: a mine row that disagrees with the digest is a bug in
+    // one of them, and this is where it shows up.
+    expect(mined.digest.total).toBe(digest.total)
+    expect(mined.digest.unseen).toBe(digest.unseen)
+    expect(mined.digest.byClass).toEqual(digest.byClass)
+    expect(mined.digest.byStatus).toEqual(digest.byStatus)
+    expect(mined.digest.topFingerprints).toEqual(digest.topFingerprints)
+    expect(mined.digest.capacity.rows).toBe(digest.capacity.rows)
+    expect(mined.digest.shadowReplay).toEqual(digest.shadowReplay)
+    expect(mined.totals.rowsInWindow).toBe(digest.total)
+    expect(mined.digest.total).toBe(5)
+
+    // The text forms share one coverage block, so an operator reading either sees the same warnings.
+    const mineText = context('incident mine', { since: '7d' })
+    await INCIDENT_HANDLERS['incident mine'](mineText.ctx)
+    const digestText = context('incident digest', { since: '7d' })
+    await INCIDENT_HANDLERS['incident digest'](digestText.ctx)
+    for (const marker of ['Shadow replay:', 'Capacity: rows=', 'Tool-error windows:']) {
+      expect(mineText.output.join('\n')).toContain(marker)
+      expect(digestText.output.join('\n')).toContain(marker)
+    }
+    expect(mineText.output.join('\n')).toContain('identical to')
+  })
+
   it('refuses --target confirmed and names R1', async () => {
     const confirmed = context('incident mine', { target: 'confirmed', apply: true })
     await expect(INCIDENT_HANDLERS['incident mine'](confirmed.ctx)).rejects.toMatchObject({
