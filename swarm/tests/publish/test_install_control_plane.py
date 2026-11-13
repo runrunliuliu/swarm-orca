@@ -154,6 +154,17 @@ class InstallerTests(unittest.TestCase):
         self.assertIn('"hostnames"', result.stderr)
         self.assertEqual(self.artifact_names(), [])
 
+    def test_the_template_is_asked_for_before_a_missing_artifact_root(self):
+        self.override.unlink()
+        missing = self.root / "not-created"
+        result = subprocess.run(
+            ["bash", str(SCRIPT), "--source-root", str(self.source),
+             "--artifact-root", str(missing), "--pointer", str(missing / "current"),
+             "--skills-dir", str(self.skills), "--host-override", str(missing / "hosts" / "h.json"),
+             "--allow-unpinned-source"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("host override missing", result.stderr)
+
     def test_an_unpinned_source_needs_the_flag(self):
         command = ["bash", str(SCRIPT), "--source-root", str(self.source),
                    "--artifact-root", str(self.artifacts), "--pointer", str(self.pointer),

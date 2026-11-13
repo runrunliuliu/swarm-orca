@@ -22,9 +22,15 @@ fail() { printf 'install: %s\n' "$*" >&2; exit "$EXIT_PRECONDITION"; }
 SOURCE_ROOT=""
 PASSTHROUGH=()
 
+require_value() {
+  local flag="$1" value="${2:-}"
+  [ -n "$value" ] || fail "$flag requires a value"
+  case "$value" in --*) fail "$flag requires a value, got option $value" ;; esac
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --source-root) SOURCE_ROOT="${2:-}"; PASSTHROUGH+=("$1" "${2:-}"); shift 2 ;;
+    --source-root) require_value "$1" "${2:-}"; SOURCE_ROOT="$2"; PASSTHROUGH+=("$1" "$2"); shift 2 ;;
     --help|-h)
       cat <<'USAGE'
 Usage: install.sh [--source-root <dir>] [installer flags...]
@@ -71,12 +77,18 @@ if [ -n "$SOURCE_ROOT" ]; then
     || fail "--source-root must contain swarm-orca/swarm, swarm/ and skills/: $SOURCE_ROOT"
   note "using --source-root: $SOURCE_ROOT"
 else
-  checkout_parent="$(cd "$SCRIPT_DIR/../.." && pwd)/.."
-  checkout_parent="$(cd "$checkout_parent" && pwd)"
-  if looks_like_source_root "$checkout_parent"; then
+  checkout_root="$(cd "$SCRIPT_DIR/../.." && pwd)"
+  checkout_parent="$(cd "$checkout_root/.." && pwd)"
+  # The detected root must own *this* checkout: a sibling or renamed copy with the same layout
+  # would otherwise let the script publish a different tree than the one being run.
+  if looks_like_source_root "$checkout_parent" \
+     && [ "$(readlink -f "$checkout_root")" = "$(readlink -f "$checkout_parent/swarm-orca")" ]; then
     SOURCE_ROOT="$checkout_parent"
     note "detected workspace root: $SOURCE_ROOT"
     note "(it provides swarm-orca/swarm, swarm/ and skills/ for this checkout)"
+  elif looks_like_source_root "$checkout_parent"; then
+    fail "detected workspace $checkout_parent does not own this checkout: $checkout_root
+       (its swarm-orca/ is $(readlink -f "$checkout_parent/swarm-orca")); pass --source-root explicitly"
   else
     cat >&2 <<EOF
 install: cannot find the workspace root that holds swarm-orca/, swarm/ and skills/.

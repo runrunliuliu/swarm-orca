@@ -173,12 +173,6 @@ fi
 if [ "$unpinned" = "True" ] && [ "$ALLOW_UNPINNED" = 0 ]; then
   fail "git cannot describe the source; pass --allow-unpinned-source to publish anyway"
 fi
-if [ ! -d "$ARTIFACT_ROOT" ] && [ "$PROVISION" = 0 ]; then
-  fail "artifact root is missing: $ARTIFACT_ROOT (pass --provision to create it with sudo)"
-fi
-[ -d "$ARTIFACT_ROOT" ] && [ ! -w "$ARTIFACT_ROOT" ] \
-  && fail "artifact root is not writable by $(id -un): $ARTIFACT_ROOT"
-
 if [ ! -f "$HOST_OVERRIDE" ]; then
   cat >&2 <<EOF
 install-control-plane: host override missing: $HOST_OVERRIDE
@@ -212,6 +206,12 @@ if [ -L "$POINTER" ] && [ -d "$(readlink -f "$POINTER" 2>/dev/null)" ]; then
     || fail "pre-flight check failed against the installed control plane (host override, skills or configs): $HOST_OVERRIDE"
   note "host override and installed skills validated before writing"
 fi
+
+if [ ! -d "$ARTIFACT_ROOT" ] && [ "$PROVISION" = 0 ]; then
+  fail "artifact root is missing: $ARTIFACT_ROOT (pass --provision to create it with sudo)"
+fi
+[ -d "$ARTIFACT_ROOT" ] && [ ! -w "$ARTIFACT_ROOT" ] \
+  && fail "artifact root is not writable by $(id -un): $ARTIFACT_ROOT"
 
 # ---------------------------------------------------------------- artifact
 

@@ -34,7 +34,8 @@ once, and for the readiness check that answers "can this project start swarm wor
 ## Integration
 
 Other repositories may consume this project as a Git submodule pinned to a
-specific commit. Deployment instructions will be added with the implementation.
+specific commit. Deploying the control plane on a host is described under
+[First install on a host](#first-install-on-a-host).
 
 ## Agent entry points
 

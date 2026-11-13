@@ -86,6 +86,28 @@ class InstallEntryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 78)
         self.assertIn("must contain swarm-orca/swarm, swarm/ and skills/", result.stderr)
 
+    def test_a_missing_option_value_is_a_usage_error_not_a_hang(self):
+        result = self.run_entry(self.checkout(), "--source-root", timeout=15)
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("requires a value", result.stderr)
+
+    def test_detection_refuses_a_workspace_that_does_not_own_this_checkout(self):
+        workspace = self.temporary() / "workspace"
+        write(workspace / "swarm" / "coordinator-model.json", "{}\n")
+        write(workspace / "skills" / "x.md")
+        write(workspace / "swarm-orca" / "AGENTS.md")
+        write(workspace / "swarm-orca" / "swarm" / "coordinator_launch.py")
+        # A renamed copy of the same scripts, one level away from a workspace it does not own.
+        other = workspace / "swarm-orca-copy"
+        deploy = other / "swarm" / "deploy"
+        deploy.mkdir(parents=True)
+        for name in ("install.sh", "install-control-plane.sh", "publish_control_plane.py"):
+            shutil.copyfile(REPO_SWARM / "deploy" / name, deploy / name)
+        (deploy / "install.sh").chmod(0o755)
+        result = self.run_entry(deploy / "install.sh", "--allow-unpinned-source")
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("does not own this checkout", result.stderr)
+
     def test_help_is_available_before_anything_else(self):
         result = self.run_entry(self.checkout(), "--help")
         self.assertEqual(result.returncode, 0)
