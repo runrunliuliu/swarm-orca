@@ -24,11 +24,19 @@ export const ORCHESTRATION_RUN_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'run-create'],
     summary: 'Create and bind a lightweight orchestration Run',
     usage:
-      'orca orchestration run-create --objective <text> [--strict-coordinator] [--from <handle>] [--retry-request <id>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'objective', 'strict-coordinator', 'from', 'retry-request'],
+      'orca orchestration run-create --objective <text> [--strict-coordinator] [--grant <grant_id>] [--from <handle>] [--retry-request <id>] [--json]',
+    allowedFlags: [
+      ...GLOBAL_FLAGS,
+      'objective',
+      'strict-coordinator',
+      'grant',
+      'from',
+      'retry-request'
+    ],
     identityFlagRoles: { from: 'caller' },
     notes: [
       '--strict-coordinator is experimental and opt-in: pins a live terminal Coordinator, not a scheduler. No rebind/adoption. Only the original Coordinator can retire after reconciliation; history and reset protection remain. Same-runtime terminal Workers only. Unsupported servers fail closed.',
+      '--grant <grant_id> creates the Run under a start grant and requires --strict-coordinator. The objective must equal the one the grant approves, a grant covers one Run, and a repeat from the same live Coordinator returns the existing Run with effectsApplied:false. Refusals are start_grant_* and leave no Run row.',
       '--retry-request is only for exact recovery after an unknown mutation result.'
     ]
   },

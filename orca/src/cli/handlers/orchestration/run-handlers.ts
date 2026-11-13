@@ -49,18 +49,35 @@ export const ORCHESTRATION_RUN_HANDLERS: Record<string, CommandHandler> = {
   },
   'orchestration run-create': async ({ flags, client, cwd, json }) => {
     const from = await resolveCoordinatorTerminalHandle(flags, cwd, client)
+    const objective = getRequiredStringFlag(flags, 'objective')
+    const grant = getOptionalStringFlag(flags, 'grant')
+    if (grant !== undefined && !flags.has('strict-coordinator')) {
+      // Why refuse instead of implying it: a grant only covers a strict Run today, and silently
+      // accepting the flag on the plain path would mint a Run that no grant covers.
+      throw new Error('--grant requires --strict-coordinator; a start grant only covers a strict Run.')
+    }
     const result = await callOrchestrationMutation<{
       run: { id: string; objective: string; consumer_generation: number }
+      effectsApplied?: boolean
     }>(
       client,
       flags,
-      flags.has('strict-coordinator') ? 'orchestration.runCreateStrict' : 'orchestration.runCreate',
+      grant !== undefined
+        ? 'orchestration.runCreateGranted'
+        : flags.has('strict-coordinator')
+          ? 'orchestration.runCreateStrict'
+          : 'orchestration.runCreate',
       {
-        objective: getRequiredStringFlag(flags, 'objective'),
-        from
+        objective,
+        from,
+        ...(grant !== undefined ? { grant } : {})
       }
     )
-    printResult(result, json, (r) => `Run ${r.run.id} created and bound: ${r.run.objective}`)
+    printResult(result, json, (r) =>
+      r.effectsApplied === false
+        ? `Run ${r.run.id} already created by this grant: ${r.run.objective}`
+        : `Run ${r.run.id} created and bound: ${r.run.objective}`
+    )
   },
 
   'orchestration run-use': async ({ flags, client, cwd, json }) => {

@@ -7,6 +7,17 @@ export const RunCreateParams = z.object({
   from: requiredString('Missing coordinator terminal')
 })
 
+/**
+ * Create a Run under a start grant. A distinct method (and a mandatory `grant`) rather than an
+ * optional flag on `runCreateStrict`: an older server that does not know the field would otherwise
+ * strip it and create an uncapped strict Run, which is the exact outcome the grant exists to stop.
+ */
+export const RunCreateGrantedParams = z.object({
+  objective: requiredString('Missing --objective'),
+  from: requiredString('Missing coordinator terminal'),
+  grant: requiredString('Missing --grant: the start grant this Run is created under')
+})
+
 export const RunRetireStrictParams = z.object({
   run: requiredString('Missing --run'),
   from: requiredString('Missing coordinator terminal'),

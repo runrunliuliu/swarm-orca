@@ -95,6 +95,15 @@ const LINEAR_PASSTHROUGH_CODES: ReadonlySet<string> = new Set(LINEAR_ERROR_CODES
 const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   'strict_coordinator_required',
   'strict_continuity_required',
+  // Start-grant refusals are decisions the caller must tell apart — "expired" retries with a new
+  // mint, "revoked" stops, "objective mismatch" means the wrong objective was passed. Flattened to
+  // `runtime_error` a client could only pattern-match the message text.
+  'start_grant_unknown',
+  'start_grant_invalid_record',
+  'start_grant_expired',
+  'start_grant_revoked',
+  'start_grant_objective_mismatch',
+  'start_grant_already_bound',
   'administrative_history_quarantined',
   WORKTREE_CREATE_COLLISION_CODE,
   'worktree_id_requires_full_path',
