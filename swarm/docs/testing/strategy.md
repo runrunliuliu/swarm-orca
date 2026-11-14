@@ -201,7 +201,7 @@ RSI 场景还要目标仓库的业务验收（reliability.md:20）。
 | I-1 | 同一动作的副作用至多一次（含崩溃与丢回执） | `tests/coordinator/test_coordinator_tui_continue.py:180`、`:245`、`:254`；`tests/core/test_supervisor.py:280`、`:374` |
 | I-2 | 未知结果只对账、不重放 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`（旧握手的 `test_bootstrap_failures` 已随代码删除） |
 | I-3 | 身份/owner/generation/incarnation 变化即停止 | `tests/coordinator/test_coordinator_tui_continue.py:274`、`:932`；`tests/core/test_supervisor.py:865`、`:1076` |
-| I-4 | pin 不可被改写、覆盖或降级 | `tests/core/test_authority_bundle.py:319`、`:368`；`tests/coordinator/test_coordinator_strict_delivery.py`（`old_intent_is_not_rewritten`） |
+| I-4 | pin 不可被改写、覆盖或降级 | `tests/core/test_authority_bundle.py:319`、`:368`；start grant 的不可变记录（`start-grant-mint.test.ts`：同 id 同字节幂等、异字节冲突） |
 | I-5 | STOP 不可被自动清除或清除后恢复 | `tests/core/test_monitor_stop_signals.py`（旧 `test_bootstrap_control` 的 STOP 用例已随 owner 删除） |
 | I-6 | 预算预留幂等，未知费用不记 0 | `tests/core/test_supervisor.py:240`、`:270`、`:336` |
 | I-7 | 证据不可变、摘要核验、越界文件拒绝 | `tests/core/test_supervisor.py:836`、`:849`；`tests/core/test_safety.py:158`（ReceiptTests） |

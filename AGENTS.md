@@ -203,12 +203,12 @@ Before deciding *whether* a task should use the task sparse workspace mode, use 
 --sparse-task-dir` triggers it today), and using it for a small repo or a one-line fix buys friction
 rather than safety.
 
-For the strict bootstrap path, the known gaps (exit-classification, progression ownership, gate
-proportionality) are recorded in
-[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md), and the design that
-**replaces** that protocol is [start grant](swarm/docs/design/start-grant.md): its M0 contract is
-final, M1–M5 are not implemented, and it claims no gate that does not exist yet. Both are drafts
-that authorize nothing; the current protocol stays binding until the replacement lands.
+For the retired strict bootstrap path, the historical gaps (exit-classification, progression
+ownership, gate proportionality) are recorded in
+[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md); the design that
+**replaces** that protocol is [start grant](swarm/docs/design/start-grant.md). Implementation status
+and remaining closeout live only in start grant §4 — read it there instead of restating it here.
+These design records authorize no deployment, restart, Agent startup, migration or gate change.
 
 For the Orca-side view of a task (workspaces, agents, spend), read
 [the Tasks workbench design](swarm/docs/design/task-workbench/README.md) and its

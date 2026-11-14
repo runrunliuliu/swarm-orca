@@ -191,21 +191,12 @@ monitor 在原独占锁内核验运行准入和 sender，把接收证据写入�
 
 ### 原生事件验收的预检回执
 
-continuation 发布后，原 Operator 独立审查指定触发源预检，用 `startup_handoff.py
-trigger-ready --actor operator --input ... --input-sha256 ... --execute`，同时传原 plan pins。
-`--input` 是**独立审查文档**，不是下述原始预检，也不是最终 `trigger-ready.json`。
-可先只读获取待填写模板（不查询原生身份、不发布回执、不自动批准）：
-
-```bash
-python3 -B startup_handoff.py trigger-template --actor operator \
-  --plan /approved/bootstrap/lifecycle/lifecycle.json --plan-sha256 REVIEWED_PLAN_SHA256
-```
-
-其 `candidate_template` 的 decision 为 null，需原 Operator 审查后另存候选，再固定原始字节 hash。
-`trigger-template` 有意仅接受 `--actor operator`：它属于原 Operator 独立审查工作流，
-不是通用 schema 自查入口；该参数也不构成原 Operator 身份证明，真正发布仍核验身份。
-Coordinator 可阅读此结构说明；将来若增加其自查入口，应保持只读且不替代 Operator 审查，
-不要通过放宽此入口的 actor 约束来兼任审查角色。
+~~continuation 发布后，原 Operator 独立审查指定触发源预检，用 `startup_handoff.py trigger-ready --actor operator
+--input ... --input-sha256 ... --execute`，同时传原 plan pins；`--input` 是独立审查文档，不是原始预检，
+也不是最终 `trigger-ready.json`。`trigger-template` 可只读生成待填写模板（`candidate_template` 的 decision 为
+null，需原 Operator 审查后另存候选并固定原始字节 hash）；它有意仅接受 `--actor operator`，且该参数不构成身份证明。~~
+**以上流程连同 `startup_handoff.py` 已随旧握手删除**：现行启动授权是一次
+[start grant](design/start-grant.md) 的 mint，不再有 continuation 触发源审查与 `trigger-ready` 回执。
 默认兼容候选字段**恰好**为：
 
 ```json
@@ -376,10 +367,11 @@ lifecycle 保存已知退出码和空 receipt。耗尽后的 lifecycle 重启仍
 
 验证与尚未完成项见 运行期边界开发报告（部署方私有历史材料，不随公开仓库分发）
 及前序生命周期交接报告（部署方私有历史材料，不随公开仓库分发）。
-回归入口为 `tests/core/test_startup_handoff*.py`（gate/prepare/trigger/monitor 四个模块，
-共 40 项，共享夹具在 `tests/startup_handoff_fixture.py`）、`tests/operators/test_operator_startup.py` 和
-`tests/bootstrap/test_bootstrap_production.py`；生产 helpers 的离线纵向测试不替代真实 provider、
-NAS 新链实测、独立审查或 live 验收。
+~~回归入口为 `tests/core/test_startup_handoff*.py`（gate/prepare/trigger/monitor 四个模块，共 40 项，
+共享夹具在 `tests/startup_handoff_fixture.py`）、`tests/operators/test_operator_startup.py` 和
+`tests/bootstrap/test_bootstrap_production.py`。~~
+**这些模块与夹具已随旧握手删除**：现行入口是 start grant 的 `tests/core/test_start_grant.py` 与 Orca 侧
+`start-grant-*` 测试模块；生产 helpers 的离线测试仍不替代真实 provider、独立审查或 live 验收。
 
 ## 等待的唯一形式
 
@@ -421,25 +413,13 @@ python3 swarm/wait_for_file.py --path <log.jsonl> --mode change --timeout-ms 120
 4 = 父目录不可达（立即返回，不会退化成轮询到超时）；2 = 用法/传输失败。返回 0 后仍须用 `file_ref` 与 schema
 复核字节：非原子写入在写完前就可见，`--mode change` 也看不见「同尺寸同时间戳」的改写。
 
-**阶段文件（`events/000N-*.json`）不走上面这条通用形式**：路径只能用现成入口从 attempt bundle 解析，
-调用方不许自己拼相对路径、不许扫目录、不许 glob：
-
-```bash
-python3 swarm/coordinator_launch.py strict-bootstrap-wait-stage \
-  --bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> \
-  --attempt-binding-sha256 <64 hex> --stage 2 --timeout-ms 300000 --json
-```
-
-退出 0 = 验证通过；124 = 超时；4 = attempt/binding 不可达；5 = 路径在但链校验不过（**不重读**）；
-2 = 参数或 pin 不符（含 `file_pin_changed`、`fixed_layout_mismatch`）。
-
-退出 0 时它输出自己读到的 evidence Ref（`{path, sha256}`）：**原样**带进下一次调用，不要自己再算一个 sha，
-也不要因为 `already_satisfied: true` 就跳过携带。0 不是 owner 确认，也不是推进授权。
+**阶段文件等待已随旧握手删除**（`strict-bootstrap-wait-stage`、`events/000N-*.json` 与 attempt bundle
+读取器都不再存在）：现行设计只签发一次 start grant，没有阶段文件需要等待，文件等待只剩上面那条通用形式。
 **`sleep` 小步循环（`for/while` + `sleep`，与单次时长无关）同样是禁用的等待形式**：现规则的 `N>=60`
 只管单次时长，逐次 8 秒的循环同样把「慢」读成「死」。
 
-以上两条是唯一新增的形态。本仓**不**采用 `--for output-change`（PTY 输出是 token 级噪声，不是决策点），
-三条通道也**都不**覆盖人工决策、外部长任务、gate 阶段门与本地进程退出。设计、不变量与各通道不证明什么，见
+本仓**不**采用 `--for output-change`（PTY 输出是 token 级噪声，不是决策点），三条通道也**都不**覆盖人工决策、
+外部长任务、gate 阶段门与本地进程退出。设计、不变量与各通道不证明什么，见
 [对端等待设计](docs/design/pane-handoff-wait.md)。
 
 ### handoff 的通道选择：mailbox 是默认，steering 不是快路

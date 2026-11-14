@@ -1,10 +1,9 @@
 # Run 启动凭据（start grant）：把校验放到特权被行使的地方
 
-状态：**方案草案；M0（契约定稿）已完成，实现未开始**。§2 与 §4.1 是 M0 的产出：记录形状、zod 草案、
-拒绝码、判定顺序与可执行断言。本文只给设计、开发计划、清理计划与文档更新计划，**不构成**实现、部署、重启、
-启动 Agent、迁移既有 attempt/Run 或放宽任何现有 gate 的授权。与
-[strict-bootstrap-protocol.md](../../strict-bootstrap-protocol.md) 冲突时，现行协议仍是规范；
-本文的定位是**替换**它，不是解释它。
+状态：实现状态只在 §4「开发计划」维护（§4.0 是唯一状态表），本文头部不复述。本文记录契约、实现与
+清理计划，**不构成**部署、重启、启动 Agent、迁移既有 attempt/Run 或放宽任何现有 gate 的授权。它
+**替换**的是已退役的 [strict bootstrap 握手](../../strict-bootstrap-protocol.md)（工具已删除、正文已归档），
+不是解释它。
 
 替代关系：[strict bootstrap liveness](strict-bootstrap-liveness.md) 记录了 D1–D3 与 P0–P3。
 P0（失败分类闭合）已完成并保留；**P1–P3 由本文的 M1–M4 取代**。P2 的"门数与权限相称"在本文里
@@ -525,6 +524,21 @@ codex 装了 8 条 managed hook trust 记录（它自己的正常行为），已
 
 依赖顺序 M0 → M1 → M2 是硬序；M3/M4 可与 M2 并行；M5 收口。
 
+### 4.0 实现状态（唯一出处）
+
+| 范围 | 当前状态 |
+| --- | --- |
+| M0 契约 | 已定稿（§2、§4.1） |
+| M1 grant 存储与 create 绑定 | 已实现 |
+| M2 spawn 计数与仓库范围 | 已实现 |
+| M3 deadline 与撤销 | 已实现：服务端时钟在 create 与 spawn 两处判定 expired/revoked |
+| M4 mint 与只读投影 | 已实现 |
+| M5 接入与收口 | **部分完成，未收口** |
+| 强制开关 | `START_GRANT_REQUIRED` 仍为 `false`：未绑定 grant 的 strict Run 在 spawn 时不会仅因缺 grant 被拒 |
+
+`AGENTS.md` 与 `swarm/README.md` 只引用本节，不复述状态。下面各里程碑小节保留当时的实现范围与证据；
+与本表冲突时以本表为准。
+
 ### M0 · 契约定稿（0.5 天，无代码）— **本文部分已完成，2026-11-13**
 
 - 产出：本文 §2（记录形状、zod 草案、字段可强制性、不变量、三个判定点、拒绝码、计数口径、
@@ -771,7 +785,7 @@ builder 不再生产这些字节）、`bootstrap_protocol.py`（layout/常量，
 （gate-role 身份核验，`operator_monitor` 仍在用）、`coordinator_strict.py`（`strict-caller-check` /
 `strict-native-plan`）、`coordinator_io` 的 `publish_new`/`fsync_dir`/`directory_lock`。
 
-**验证**：`tests/run_offline.sh --jobs 4` → **84/84 模块、2366 tests、41.8 s，全绿**；
+**验证**：`tests/run_offline.sh --jobs 4` → **84/84 模块、2363 tests、41.8 s，全绿**；
 `generate_orientation.py --check` 通过（符号索引从 130 项降到生成后的新集合）；
 `tests/run_offline.sh --fast` 的 SLOW 列表按新测得的 wall-time dominators 重写
 （coordinator driver/prepare、install_entry、monitor_stop_signals、background、monitor_recovery、

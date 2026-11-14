@@ -253,50 +253,15 @@ pin、必要会话 ID、有效设置摘要和信任边界，不输出 hook 原�
 [start grant](docs/design/start-grant.md) 的 `start-grant-mint` 签发，审计门随代码消失，
 只保留 `strict-caller-check` 这一道活身份门。
 
-### 3.1 bootstrap registration：从运行时的那两行采集，不手写（含 Pi）
+### 3.1 bootstrap registration（已随旧握手删除）
 
-`bootstrap_identity.py` 校验的是**运行时自己的证据**：`agent-hooks/last-status.json` 里按
-`tabId:leafId` 找 `providerSession{key:'session_id',id,transcriptPath}` 与 `launchTokenHash`，
-再加上 `/proc` 的 `pid`/`start`/`boot`/`uid`。它从来不看 transcript 文件名，也不从 pane 推断
-provider。手写 registration 只能靠猜，猜错的代价是一个裸码 `bootstrap_native_identity_changed`
-（2026-11-12 的 live attempt 就是这样连丢两次）。
-
-采集入口（只准备，不是门）：
-
-```bash
-python3 -B /absolute/swarm/coordinator_launch.py strict-bootstrap-registration \
-  --bootstrap /absolute/private/bootstrap-attempt1 \
-  --expect-attempt ATTEMPT_ID \
-  --attempt-binding-sha256 <64 hex> \
-  --profile /absolute/verified/runtime-profile \
-  --log-root /absolute/verified/pi-sessions \
-  --coordinator <pane handle> --coordinator-provider pi \
-  --operator    <pane handle> --operator-provider    pi \
-  --output /absolute/private/registration.json --json
-```
-
-它固定四个值：`process{pid,start,boot,uid}`（来自该 pane 的真实进程）、`session`（hook 行里的
-`session_id`）、`provider`（**调用方声明**，hook 行必须一致）、以及 pane key；并做两条交叉校验：
-
-- 进程环境里的 `ORCA_AGENT_LAUNCH_TOKEN` 摘要必须等于 hook 行的 `launchTokenHash`——同会话的
-  另一个 pane 过不了这一条；
-- transcript 首行的 `{"type":"session","id":…}` 必须等于 hook 行的 session id——`session_file`
-  与 `session_id` 不自洽就拒绝，不挑一个。
-
-写入用 `publish_new`（一次创建、不覆盖），写完读回比较；已存在且字节相同返回 `created:false`，
-不同返回 `bootstrap_registration_output_conflict`。退出 0 写出、2 拒绝（带 `diagnostics`：
-role / field / expected / observed 前缀 / pane 前缀 / pids 数）、3 已存在且相同。
-
-**时效是这条链唯一的软肋**：`agent-hooks/last-status.json` 是本机**所有 pane 共用**的有界映射，
-条目会被后来的 pane 覆盖或挤掉（实测只剩最近 6 条）。所以：
-
-- 采集与 `serve` 之间不要隔几分钟以上；`receipt.roles[*].observed_at_ms` 是那条 hook 行的观测时间；
-- `serve` 报 `bootstrap_native_identity_changed` 时，先看它现在带的 `observed` 前缀与你 pin 的值，
-  不一致就**重新采集**（新 pane 或新 attempt），不要改 registration 去迁就；
-- 角色 provider 仍然显式声明；这个入口不替任何角色选 provider，也不证明它能被核验。
-
-失败码的定位字段（`role`/`incarnation`/`session`/`pane`/`process_incarnation`/`pane_key`）只给前后缀，
-不给完整标识；它用于路由，不是证据，也不改变任何 gate。
+`strict-bootstrap-registration` 采集入口与 `bootstrap_registration.py` 已删除：现行启动授权是一次
+[start grant](design/start-grant.md) 的 mint，不再有 attempt 级 registration 文件。
+仍保留的是**运行时证据的解析方式**（`bootstrap_identity.py`，供 Operator 观察与 session 绑定使用）：
+它按 `agent-hooks/last-status.json` 里 `tabId:leafId` 的 `providerSession{key:'session_id',id,transcriptPath}`
+与 `launchTokenHash`，叠加 `/proc` 的 `pid`/`start`/`boot`/`uid` 做校验，从不看 transcript 文件名，
+也不从 pane 推断 provider。那张表是本机**所有 pane 共用**的有界映射（实测只剩最近 6 条），条目会被
+后来的 pane 覆盖或挤掉，所以观测要新鲜，且角色 provider 仍由调用方显式声明。
 
 ## 4. 启动前接入任务归档目录
 
@@ -555,29 +520,17 @@ wall-clock 减工具耗时推算模型时间，也不宣称本次覆盖了全部
 本地回归入口：
 
 ```text
-PYTHONPATH=.:tests python3 -B -m unittest test_operator_prepare test_operator_session test_coordinator_strict_prepare test_coordinator_strict test_trae_tui -q
+PYTHONPATH=.:tests python3 -B -m unittest test_operator_prepare test_operator_session test_coordinator_strict test_trae_tui -q
 PYTHONPATH=.:tests RSI_CHECKER_TEST_ROOT=/absolute/verified/target-checkout python3 -B -m unittest test_operator_authority test_operator_archive test_tui_rsi_integration -q
 ```
 
 包含真实临时 Git 仓库与离线 native/hook/log fixture，验证参数完整性、JSON、pin/基线
-漂移、并发发布、防覆盖、权限即停、旧严格握手和观察器兼容。不启动模型，不证明远端
-性能、实际 Agent 文件工具权限或独立外层审计已通过；提速需同类真实任务的授权验收。
+漂移、并发发布、防覆盖、权限即停和观察器兼容（`test_coordinator_strict_prepare` 已随旧握手删除）。
+不启动模型，不证明远端性能、实际 Agent 文件工具权限或独立外层审计已通过；提速需同类真实任务的授权验收。
 
-## fields/final-evidence 的模板提交（`--from-template`）
+## fields/final-evidence 的模板提交（**已随旧握手删除**）
 
-`fields-intent` 的候选**完全由合同决定**，所以允许工具按意图里已固定的模板直接materialize：
-
-```bash
-python3 -B bootstrap_tool.py submit --intent <plan> --intent-sha256 <sha> --actor <role> --from-template --execute
-```
-
-规则（与代码同源，见 `bootstrap_tool.py` 的 `materialize_template`）：
-
-1. **只对 `fields-intent` 开放**。review 阶段的候选带 `decision`/`notes`/`reviewed_at`，属复核者判断，
-   工具拒绝填充（`bootstrap_from_template_not_allowed`）。
-2. **重新生成再比对**：不是"信任模板"，而是用同一组权威重新生成，并与意图里记录的
-   `candidate_template` 逐字比对；不一致即 `bootstrap_template_drift`（记录已过期，不静默升级）。
-3. **不跳过校验**：materialize 只换了产生字节的方式，之后走的仍是原 `validate_candidate` 路径
-   （含 `contract_fields()`）。没有任何"跳过校验"的分支。
-4. **回执必须能分辨**：提交结果里 `materialized_from_template: true` / `authored: false`，
-   两者不会同时为真。审计者只看 `execution_authorized: false` 无法区分"工具写的字节"和"人写的字节"。
+`bootstrap_tool.py`（含 `submit --from-template` 与 `materialize_template`）及其
+`bootstrap_from_template_not_allowed` / `bootstrap_template_drift` 拒绝码已随旧握手一起删除；
+现行写入面只有 start grant 的不可变 mint 记录（同 id 同字节幂等、异字节冲突）。本节只作历史记录，
+不再有可执行入口。

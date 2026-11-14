@@ -17,7 +17,7 @@ python3 -B <swarm>/coordinator_launch.py start-grant-mint --record-file <path> -
 python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --json
 ```
 
-## 符号索引（52 个：协议文档点名的顶层定义与方法）
+## 符号索引（47 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -51,7 +51,6 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `fingerprint` | `wait_for_file.py:55-66` | `def fingerprint` / `class fingerprint` |
 | `identity` | `coordinator_startup.py:55-70` | `def identity` / `class identity` |
 | `invocation` | `coordinator_prepare.py:26-48` | `def invocation` / `class invocation` |
-| `live` | `operator_sender_correct.py:40-55` | `def live` / `class live` |
 | `log` | `publication_wait.py:139-149` | `def log` / `class log` |
 | `mint` | `start_grant.py:152-168` | `def mint` / `class mint` |
 | `native` | `operator_monitor.py:107-128` | `def native` / `class native` |
@@ -63,8 +62,6 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `observe` | `pi_tui.py:173-180` | `def observe` / `class observe` |
 | `observe` | `trae_coordinator.py:364-453` | `def observe` / `class observe` |
 | `observe` | `trae_tui.py:184-193` | `def observe` / `class observe` |
-| `observed` | `blocking_io.py:94-101` | `def observed` / `class observed` |
-| `observed` | `observation_budget.py:113-120` | `def observed` / `class observed` |
 | `original` | `operator_continuity_deployment.py:15-23` | `def original` / `class original` |
 | `original` | `operator_sender_correct.py:21-37` | `def original` / `class original` |
 | `path` | `coordinator_io.py:51-56` | `def path` / `class path` |
@@ -81,7 +78,6 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `prepare` | `operator_sender_correct.py:81-128` | `def prepare` / `class prepare` |
 | `prompt` | `coordinator_driver.py:441-532` | `def prompt` / `class prompt` |
 | `provider` | `tui_adapter.py:35-37` | `def provider` / `class provider` |
-| `publish_new` | `coordinator_io.py:264-276` | `def publish_new` / `class publish_new` |
 | `receipt` | `operator_monitor.py:223-231` | `def receipt` / `class receipt` |
 | `reconcile` | `operator_authority.py:168-180` | `def reconcile` / `class reconcile` |
 | `report` | `control_plane_readiness.py:323-360` | `def report` / `class report` |
@@ -98,7 +94,6 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `scope` | `operator_continuity_route.py:57-74` | `def scope` / `class scope` |
 | `scope` | `startup_cli.py:20-31` | `def scope` / `class scope` |
 | `session_id` | `pi_transcript.py:31-34` | `def session_id` / `class session_id` |
-| `sha` | `software_development.py:39-40` | `def sha` / `class sha` |
 | `sha256` | `control_plane_readiness.py:168-174` | `def sha256` / `class sha256` |
 | `snapshot` | `blocking_io.py:52-57` | `def snapshot` / `class snapshot` |
 | `snapshot` | `operator_monitor_recovery.py:42-96` | `def snapshot` / `class snapshot` |
@@ -109,7 +104,6 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `status` | `coordinator_tui_scheduler.py:33-36` | `def status` / `class status` |
 | `status` | `trae_exec_capture.py:225-235` | `def status` / `class status` |
 | `strict_plan` | `coordinator_strict.py:232-342` | `def strict_plan` / `class strict_plan` |
-| `submit` | `coordinator_tui_workflow.py:369-374` | `def submit` / `class submit` |
 | `text` | `coordinator_worker_plan.py:21-24` | `def text` / `class text` |
 | `text` | `pi_policy.py:25-27` | `def text` / `class text` |
 | `text` | `software_development.py:35-36` | `def text` / `class text` |

@@ -385,7 +385,8 @@ start grant 的断言不写在这里，写在设计文档自己那一节：
 ## 附录：strict bootstrap 定向回归观测点
 
 以下保留原指南的修复复验要求，作为 D-contract 的具体分支和受影响 L-flow 的取证提示，
-不另加一套 live suite，也不授权线上故障注入。运行行为以[bootstrap 协议](../../strict-bootstrap-protocol.md)为准。
+不另加一套 live suite，也不授权线上故障注入。本节只作历史观测点；现行启动授权以
+[start grant](../design/start-grant.md) 为准（旧协议正文已归档）。
 
 ### 心跳与身份租期
 

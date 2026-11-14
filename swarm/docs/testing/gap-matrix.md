@@ -131,7 +131,7 @@ domain-checked checkpoint**（如 `coordinator_loop.py:37`、`coordinator_tui_er
 | --- | --- | --- | --- | --- |
 | S3a 启动参数饱和 | `coordinator_strict.py:23` `MAX_AGENT_ARGS_BYTES = 16 KiB`、`:27` `MAX_PINNED_INPUT_BYTES = 256 KiB`、`:171–179` 拒绝而不截断、`:183` `prompt_delivery = "pinned-files-short-prompt-v1"` | `tests/coordinator/test_coordinator_strict.py:121`（无截断拒绝）、`:136`（10 万字符交接仍保持 argv 有界） | 覆盖 | — |
 | S3b 读取侧容量 | 刻意为**取消**固定字节上限：`log-capacity.md` 的整张表（trae_coordinator 16 MiB→无、native_preflight 4 MiB→无、progress_watch 8 MiB→无、swarm_ledger 128 MiB→无、Supervisor receipt 16 MiB→无） | `tests/core/test_capacity_io.py:33`（17 MiB 证据全文读取）、`tests/core/test_supervisor.py:849`（>10 MB artifact）、`tests/core/test_binding.py:425`、`:433` | 覆盖（“能读得动”） | **C**（已按设计覆盖） |
-| S3c 回合/上下文总量饱和 | 无。`trae_coordinator.ContextFreshnessError`（:40–47）只管新鲜度与“是否未来”，不管大小；`bootstrap_events.py:99` 的 `context_max_age_seconds` 同样是时间 | 无 | 缺失 | **B**（无该机制） |
+| S3c 回合/上下文总量饱和 | 无。`trae_coordinator.ContextFreshnessError`（:40–47）只管新鲜度与“是否未来”，不管大小 | 无 | 缺失 | **B**（无该机制） |
 | S3d 饱和后的降级行为（压缩/交接/拒绝） | 无定义 | 无 | 缺失 | **B**（无该机制） |
 
 **这是本矩阵最明确的缺口.** 仓库主动移除了所有读取字节门槛，`log-capacity.md` 末段自己写明

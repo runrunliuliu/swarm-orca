@@ -349,7 +349,7 @@ readiness、嵌套 TUI 观察和 bootstrap owner 查询。每次 I/O 使用原�
 这表示**合法结束审计未完成**，不是回合已经结束，也不推翻之前已确认的提交、ACK 或释放。
 保留原回执并核查阻塞阶段；不得据此重放业务或 ACK。需再次审计时仍须具备原身份、
 原 pins 和当前合法 checkpoint，不自动重试或跳过最后一次身份/head/journal 复查。
-非只读 owner RPC 仍使用 `bootstrap_tool_timeout_requires_reconciliation` 的未知结果语义：
+非只读 owner RPC 仍按未知结果语义处理（原先那个拒绝码由 `bootstrap_tool.py` 抛出，已随旧握手删除）：
 不能仅凭该错误判断失败或重试同一 mutation，owner 仍可能完成已接纳工作。
 
 预算对文件读取是合作式检查，日志读取在分段边界检查；不能强行取消阻塞中的文件系统

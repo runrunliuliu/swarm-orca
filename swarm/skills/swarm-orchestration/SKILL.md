@@ -107,12 +107,15 @@ unless the task explicitly selects an existing workspace. Continuations retain t
 read-only tasks may share it. Verify full returned IDs and canonical paths, not names or cwd alone.
 Never stash, reset or overwrite unrelated changes. Follow the selected CLI for worktree operations.
 
-Read [Operator preparation](../../operator-prepare.md),
-[strict startup](../../coordinator-strict-start.md) and
-[the two-stage startup gate](../../coordinator-startup.md). Use their supported helpers and pinned
-references, not an ad hoc launch sequence. Verify an independent real Coordinator session before
-it creates the Run; before first dispatch verify owner/generation, then have that Coordinator
-recheck in its own context. Reading a role skill is not proof of identity or actual handoff.
+Read [start grant](../../docs/design/start-grant.md) for how a Run's start authorisation is issued
+(`start-grant-mint` → `run-create --grant` → `worker-start`, with every check inside the server
+transaction) and [Operator preparation](../../operator-prepare.md) for the materials and Operator
+identity. The S0–S5 handshake, its stage waiter and the two-stage startup gate that read its markers
+are retired: [strict startup](../../coordinator-strict-start.md) and
+[the two-stage startup gate](../../coordinator-startup.md) are history, not launch procedures.
+Verify an independent real Coordinator session before it creates the Run; before first dispatch
+verify owner/generation, then have that Coordinator recheck in its own context. Reading a role
+skill is not proof of identity or actual handoff.
 
 Operator owns authorized preparation/recovery and evidence delivery. Coordinator owns decomposition,
 dispatch and adoption of results. Workers act only on their native Dispatch. Do not borrow handles,
