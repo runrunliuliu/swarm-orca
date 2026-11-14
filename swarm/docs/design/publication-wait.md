@@ -1,12 +1,16 @@
 # 发布等待：事件提前唤醒 + 常挂轮询兜底（已实现）
 
+> **注（2026-11-13）**：`swarm/publication_wait.py` 仍在用；旧握手删除后，原先的 strict 调用方证据
+> 已改指仍存在的调用方。
+
+
 状态：**已实现、已过离线门禁与双评审（2026-11-12）**。同主机实测有收益，跨客户端丢事件率**未实测**，
 按"最坏退回兜底"设计。本文只描述已实现行为与验收口径，**不构成**部署、重启、放宽 gate 或改变启动窗口的授权；
 握手协议语义仍以 [strict 启动](../../coordinator-strict-start.md) 与
 [strict bootstrap 协议](../../strict-bootstrap-protocol.md) 为准，冲突时以协议为准。
 
-关联：实现 `swarm/publication_wait.py`；调用点 `swarm/coordinator_strict_start.py`
-（`wait_and_create` 的 `gate-ready.json` 等待）与 `swarm/coordinator_strict_delivery.py`
+关联：实现 `swarm/publication_wait.py`；调用点是仍在用的 `operator_monitor.py` 与
+`coordinator_tui_scheduler.py`（旧握手的 `strict_start` / `strict_delivery` 调用方已删除）
 （`wait_for_config` 的 `strict-config-ready.json` 等待）；测试 `tests/core/test_publication_wait.py`、
 `tests/coordinator/test_coordinator_strict_{start,delivery}.py`、夹具
 `tests/publication_wait_fixture.py`。
@@ -108,11 +112,11 @@
 
 ```bash
 sh tests/run_offline.sh --modules core.test_publication_wait \
-    coordinator.test_coordinator_strict_start coordinator.test_coordinator_strict_delivery \
+    core.test_wait_for_file core.test_startup_cli \
     core.test_offline_baseline      # 4/4 modules, jobs 4, 117 tests, TARGETED OK
 sh tests/run_blast.sh --range <pin> --jobs 4   # 整项 diff：105/105 modules, 2689 tests, 118.7 s, TARGETED OK
 python3 -B generate_orientation.py --check     # exit 0（改了 .py 行号后必须重生成）
-python3 -B generate_runbook.py --check         # exit 0
+python3 -B generate_orientation.py --check    # exit 0（runbook 生成器已随旧握手删除）
 ```
 
 新增测试覆盖的正是上面的不变量：无 inotify 时的节奏（I3）、日志字段与"当前生效周期"一致（I2/I6）、

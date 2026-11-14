@@ -1,5 +1,10 @@
 # 独立 Coordinator 启动门（Operator 负责，本地实现）
 
+> **历史（2026-11-13）**：本文的两阶段启动门读取的是旧握手的 `ready.json` / `gate-ready.json`，这些
+> 生产者已删除。现行路径是 [start grant](docs/design/start-grant.md)（mint → `run-create --grant` →
+> `worker-start`），本文只作历史。
+
+
 适用于外层 Operator 与独立 Coordinator 协作的**新 Run**。不能先由 Operator
 创建 Run/派发研究 Worker，再把名为 Coordinator 的汇总 Worker 当作已完成身份交接。
 Run owner 必须是事先独立核验的 Coordinator，而不是两个都填成 Operator 的相等字段。
@@ -23,18 +28,13 @@ Codex。Codex `native-preflight` 仍是另一条检查路径，**不因此获得
 与当前启动身份一致。此附加检查不改写旧 v1/v2 契约。日志门通过不代表 caller proof
 通过，shell/PTY 存活和 provider UUID 相同也不能替代原生 Agent 的存活身份。
 
-新 strict 启动采用 [确定性启动握手](coordinator-strict-start.md)：先固定 native 启动
-anchor、完成完整规则和工具核验；等最终 readiness 后由 Coordinator 固定 request v5，Operator 用
-request-only `strict-start-prepare` 发布快照/契约/config，最后独占提交完整标记（目录存在不代表 ready），
-并记录独立 `strict-config-review`。旧 request v4 产物仅按原协议读取，不原地迁移或重做。
-approve 后发布配置，再由 Coordinator 启动单次有界 waiter；Operator
-审查/pin 它的 ready 后才发 gate。助手在同一原生工具调用中校验/创建/读回，不用
-自然语言驱动模型在短期 gate 窗口内组织命令。旧手动检查入口保留用于诊断，不自动迁移旧 attempt。
-
-strict-start 交接按阶段文件/事件推进，不以 `tui-idle` 代替协议就绪：Coordinator waiter
-先发布 `ready.json`，Operator 审查后必须使用计划输出的 `operator_publish_argv` 发布
-`operator-gate.json` 与 `gate-ready.json`，waiter 只消费准确的 `gate-ready.json`。
-把 receipt 粘贴进 TUI、等待终端 idle 或临时重猜发布命令，都不构成本阶段完成证据。
+~~新 strict 启动采用 [确定性启动握手](coordinator-strict-start.md)：先固定 native 启动 anchor、完成完整规则和工具核验；
+等最终 readiness 后由 Coordinator 固定 request v5，Operator 用 request-only `strict-start-prepare` 发布
+快照/契约/config，最后独占提交完整标记，并记录独立 `strict-config-review`。approve 后发布配置，再由
+Coordinator 启动单次有界 waiter；Operator 审查/pin 它的 ready 后才发 gate。~~
+**这条链已随旧握手删除**（`strict-start-*` / `strict-config-*` / waiter 与阶段文件都不再存在）：现行启动
+授权是一次 [start grant](docs/design/start-grant.md) 的 mint，`run-create` 与每次 `worker-start` 在服务端事务内
+校验；本文其余部分只作历史与边界说明。
 
 这里的 **v2 是启动契约 schema**，不是原生 Run 的 `coordinatorPolicy` 版本；当前
 严格创建仍要求 `strict-v1`。放宽新契约 TTL 不增加进程退出后的 resume/takeover 能力。
@@ -164,11 +164,10 @@ contract 和原 session receipt 重新执行 `startup-gate --phase first-dispatc
 它不是刷新 gate 就能重放的业务动作。确认首派成功后，后续波次省略 `first_dispatch`，继续
 实时身份/生命周期/容量/预算检查，不再要求空 Worker 清单。已释放的 Worker 也不算从未派发。
 
-新 [lifecycle v2](operator-startup.md) 由 `startup_handoff.py` 管理这一步，不手工改请求：
-inspect 对过期/不足窗口路由原 Operator 的 `refresh-review`，固定不可变的编号 intent、gate
-和 receipt。在没有任何 `dispatch-executing`、原生 dispatch intent 或 admission 时，才可
-为尚未派发的请求使用受控 `first-dispatch-N` 目录；任一执行 intent 后禁止换目录或重派。
-刷新不是自动续租，也不修改已固定的原 contract/session receipt/授权 deadline。
+~~新 [lifecycle v2](operator-startup.md) 由 `startup_handoff.py` 管理这一步，不手工改请求：inspect 对
+过期/不足窗口路由原 Operator 的 `refresh-review`，固定不可变的编号 intent、gate 和 receipt。~~
+**`startup_handoff.py` 已随旧握手删除**，`first-dispatch-N` / `refresh-review` 这类 lifecycle v2 原语不再存在：
+现行做法是 mint 一次 start grant，再按 §“首派” 的原生对账规则确认首派，不再有 gate receipt 需要刷新。
 
 显式 `workers:not-applicable` 的新生命周期使用 `startup-gate --phase run-readiness`：
 仍由 Operator 引用原 session receipt 独立检查，再由 Coordinator 引用该 Operator gate

@@ -40,7 +40,7 @@
 
 | 能力或风险 | 必测层 / 用例 | 主要判据及现有回归入口 |
 | --- | --- | --- |
-| bootstrap 到运行期的责任交接 | D-contract、L-flow | 缺 Operator gate、提前 idle、缺 continuation/monitor 时准确阻断；正常路径有责任接收证据。[handoff](../../tests/core/test_startup_handoff.py)、[bootstrap](../../tests/bootstrap/test_bootstrap_production.py) |
+| bootstrap 到运行期的责任交接 | D-contract、L-flow | **旧握手已删除（2026-11-13）**：现行启动授权是 [start grant](../design/start-grant.md)，交接面只剩 Run 建好后的 continuation（`tests/core/test_startup_cli.py`、`tests/coordinator/test_coordinator_tui_continue.py`） |
 | 身份、授权、模式隔离与首派时效 | D-contract、I-gate-expiry；全部 L 的准入 | 原身份/pins 不变；过期、STOP、错误角色/路径、缺 lifecycle 不产生非法副作用。[native preflight](../../tests/core/test_native_preflight.py) |
 | 并发、依赖汇合、独立审查与集成 | D-control、L-collaboration | 不超上限；乱序完成不提前集成；拒绝后返工、单写入者集成并复测。[worker plan](../../tests/coordinator/test_coordinator_worker_plan.py) |
 | 忙时消息、空闲原生唤醒 | I-pending-history、L-events 的三个子项 | 不丢消息；逐条处理后完整 ACK；两种 idle 唤醒独立归因。 |
@@ -359,12 +359,34 @@ L-flow、L-collaboration、L-events.busy/worker-idle/external-idle、L-safety.wo
 pin 一致才能作为续验输入。缺少匹配原件时报告证据缺口，不用本文或其他 Run 的标准替代。
 上述映射不恢复一份旧规范，也不自动将旧契约升级为 v2。
 
+## 9.1 启动凭据（start grant）的验收位置
+
+start grant 的断言不写在这里，写在设计文档自己那一节：
+[start grant §4.1](../../docs/design/start-grant.md)。原因很简单——矩阵必须和它断言的字段、拒绝码、
+计数口径住在同一份文件里，否则任何一处改动都会让两份文档给出两个答案。
+
+已实现部分的验证口径（M1–M4，全部**离线**，不是 live 验收）：
+
+| 层 | 断言所在 | 已执行 |
+| --- | --- | --- |
+| 存储与记录 | `orca/src/main/runtime/orchestration/{start-grant-policy,db/schema/start-grant-schema}.test.ts` | 20 例 |
+| create 绑定 | `orca/…/rpc/methods/orchestration/runs/start-grant-create.test.ts` | 11 例（含双连接幂等/冲突） |
+| mint/show/revoke | 同目录 `start-grant-mint.test.ts` | 10 例 |
+| spawn 计数与范围 | `orca/src/main/runtime/orchestration/start-grant-spawn.test.ts` | 12 例（两处插入点、含收养路径） |
+| Python mint/hand/state | `swarm/tests/core/test_start_grant.py` | 14 例 |
+
+**未验收**：任何 live Run、任何真实 provider、`START_GRANT_REQUIRED` 打开后的迁移行为。上面每一行都是
+离线信号；"第 9 个 Worker 被拒且没有终端进程"这类断言在离线层只能证明"没有请求创建终端"，真实进程计数
+必须另做 live 观察。本文其它章节的 strict bootstrap 观测点仍然有效，但它们描述的实现路径已被
+[start grant](../../docs/design/start-grant.md) 取代（协议正文的弃用横幅写明了范围）。
+
 <a id="bootstrap-regressions"></a>
 
 ## 附录：strict bootstrap 定向回归观测点
 
 以下保留原指南的修复复验要求，作为 D-contract 的具体分支和受影响 L-flow 的取证提示，
-不另加一套 live suite，也不授权线上故障注入。运行行为以[bootstrap 协议](../../strict-bootstrap-protocol.md)为准。
+不另加一套 live suite，也不授权线上故障注入。本节只作历史观测点；现行启动授权以
+[start grant](../design/start-grant.md) 为准（旧协议正文已归档）。
 
 ### 心跳与身份租期
 

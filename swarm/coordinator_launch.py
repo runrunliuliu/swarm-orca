@@ -212,25 +212,11 @@ def build_plan(*, codex=None, trae=None, pi=None, cwd, archive_dir=None, write_d
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["strict-bootstrap"]:
-        from bootstrap_tool import cli_main
-        return cli_main(argv[1:])
-    if argv[:1] == ["strict-bootstrap-state"]:
-        from bootstrap_events import cli_main
-        return cli_main(argv[1:])
-    if argv[:1] == ["strict-bootstrap-wait-stage"]:
-        # A sibling verb, not a `strict-bootstrap` mode: this one answers "wait" and must not
-        # inherit the owner-RPC client's --owner/--execute contract, which would mix waiting with
-        # progress in one argv face.
-        from bootstrap_stage_wait import cli_main
-        return cli_main(argv[1:])
-    if argv[:1] == ["strict-bootstrap-registration"]:
-        # Prepare-only: it pins the two gate roles from the same rows `serve` will verify.
-        from bootstrap_registration import cli_main
-        return cli_main(argv[1:])
-    if argv[:1] == ["strict-bootstrap-handoff-accept"]:
-        from bootstrap_handoff import cli_main
-        return cli_main(argv[1:])
+    if argv[:1] in (["start-grant-mint"], ["start-grant-hand"], ["start-grant-state"]):
+        # Three sibling verbs, not one `start-grant <action>`: each has its own argument set and its
+        # own answer, and `state` is read-only while the other two write.
+        from start_grant import cli_main as start_grant_main
+        return start_grant_main([argv[0].removeprefix("start-grant-"), *argv[1:]])
     if argv[:1] == ["worker-plan"]:
         from coordinator_worker_plan import cli_main
         return cli_main(argv[1:])
@@ -248,20 +234,8 @@ def main(argv=None):
     if argv[:1] == ["startup-contract"]:
         from coordinator_startup import contract_main
         return contract_main(argv[1:])
-    if argv[:1] in (["strict-start-prepare"], ["strict-config-review"]):
-        from coordinator_request_prepare import cli_main
-        return cli_main(argv[1:], review=argv[0] == "strict-config-review")
-    if argv[:1] == ["strict-config-request"]:
-        from coordinator_strict_request import cli_main
-        return cli_main(argv[1:])
-    if argv[:1] in (["strict-config-plan"], ["strict-config-publish"], ["strict-config-wait"]):
-        from coordinator_strict_delivery import cli_main
-        return cli_main(argv)
     if argv[:1] in (["strict-native-plan"], ["strict-session-check"]):
         from coordinator_strict import cli_main
-        return cli_main(argv)
-    if argv[:1] in (["strict-start-plan"], ["strict-start-wait"], ["strict-start-publish"]):
-        from coordinator_strict_start import cli_main
         return cli_main(argv)
     if argv[:1] == ["native-preflight"]:
         from native_preflight import cli_main

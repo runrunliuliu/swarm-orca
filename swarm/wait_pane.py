@@ -8,10 +8,14 @@ Two phases, and the first one is the whole point:
 
 * A, turn evidence (required): the receipt of `terminal send --wait-submit`, which separates
   `input_accepted` from `turn_started`. `stages` must contain `turn_started`, the receipt must
-  carry a `requestId`, and its `processIncarnation` must equal the *target terminal's* current
-  `ptyId:incarnationId` (read with one `terminal show`, which is an identity lookup, not progress).
-  Anything else - no file, no `turn_started`, another terminal, a replaced process - exits 4
-  `unverifiable`. That is the honest answer, not a degradation: some providers answer
+  carry a `requestId`, and it must bind to the *target terminal*: one `terminal show` (an identity
+  lookup, not a progress probe) supplies `ptyId` and `incarnationId`, and the receipt's
+  `processIncarnation` must name that same live process **in either spelling the runtime uses** -
+  the bare `incarnationId` that `terminal send` receipts carry, or the composed
+  `ptyId:incarnationId` that orchestration records carry. A receipt that names no pane at all and
+  only carries the bare id proves nothing about *which* pane it came from, so that is `unbound`.
+  Anything else - no file, no `turn_started`, another terminal, an unbound or replaced process -
+  exits 4 `unverifiable`. That is the honest answer, not a degradation: some providers answer
   `provider: "unsupported"` and never emit `turn_started`, and treating their `tui-idle` as a
   completed turn is exactly the sleep-then-look false positive this replaces.
 * B, turn end (one call): `terminal wait --for tui-idle`, re-entered by the caller rather than
@@ -90,12 +94,31 @@ def unwrapped(payload):
     return payload
 
 
+def receipt_handle(send, prompt):
+    """The pane handle the receipt itself names, or None.
+
+    Why both places: `terminal send` writes `handle` on the `send` object, while the prompt-delivery
+    shape carries `terminalHandle` inside `prompt` (and older producers put it on `send`). Reading
+    only one of them left this check vacuous against the real receipt, which names the pane on
+    `send.handle` and nowhere else.
+    """
+    for source in (prompt, send):
+        handle = source.get("terminalHandle")
+        if isinstance(handle, str) and handle:
+            return handle
+    handle = send.get("handle")
+    return handle if isinstance(handle, str) and handle else None
+
+
 def prompt_receipt(payload, terminal: str):
-    """(requestId, processIncarnation) of a `--wait-submit` receipt, or Unverifiable.
+    """(requestId, processIncarnation, names_this_pane) of a `--wait-submit` receipt.
 
     Why this shape and not "the pane looks busy": the receipt is the only thing that ties the state
     we are waiting on to *this* input. A stage list without `turn_started`, a receipt without a
     request id, or a receipt naming another terminal proves nothing, so each is its own reason.
+    `names_this_pane` is False when the receipt carries no pane handle at all; the caller decides
+    whether the incarnation spelling alone is enough (a composed `ptyId:incarnationId` is, a bare
+    `incarnationId` is not).
     """
     if not isinstance(payload, dict):
         raise Unverifiable("turn_evidence_unreadable")
@@ -117,18 +140,22 @@ def prompt_receipt(payload, terminal: str):
     request_id = prompt.get("requestId")
     if not isinstance(request_id, str) or not request_id:
         raise Unverifiable("turn_evidence_request_missing")
-    for source in (prompt, send):
-        named = source.get("terminalHandle")
-        if named is not None and named != terminal:
-            raise Unverifiable("turn_evidence_other_terminal")
+    named = receipt_handle(send, prompt)
+    if named is not None and named != terminal:
+        raise Unverifiable("turn_evidence_other_terminal")
     incarnation = prompt.get("processIncarnation", send.get("processIncarnation"))
     if not isinstance(incarnation, str) or not incarnation:
         raise Unverifiable("turn_evidence_incarnation_missing")
-    return request_id, incarnation
+    return request_id, incarnation, named == terminal
 
 
 def terminal_identity(payload, terminal: str):
-    """`ptyId:incarnationId` of the target terminal right now, or Unverifiable."""
+    """(ptyId, incarnationId) of the target terminal right now, or Unverifiable.
+
+    Two parts, not one composed string: the receipt may name the process with either the bare
+    `incarnationId` or `ptyId:incarnationId`, so the comparison has to be able to see both fields
+    instead of rebuilding one canonical spelling and comparing that.
+    """
     body = unwrapped(payload)
     shown = body.get("terminal") if isinstance(body, dict) else None
     if not isinstance(shown, dict):
@@ -139,7 +166,19 @@ def terminal_identity(payload, terminal: str):
     incarnation = shown.get("incarnationId")
     if not all(isinstance(value, str) and value for value in (pty, incarnation)):
         raise Unverifiable("terminal_incarnation_unreadable")
-    return f"{pty}:{incarnation}"
+    return pty, incarnation
+
+
+def incarnation_matches(value: str, pty: str, incarnation: str) -> bool:
+    """Whether a receipt's `processIncarnation` names this pane's live process.
+
+    The runtime produces the same field in two spellings: `terminal send` receipts carry the bare
+    `incarnationId`, orchestration records carry `ptyId:incarnationId`, and a pty without an
+    incarnation id falls back to `runtimeId:ptyId:generation`. Only the first two can be checked
+    against what `terminal show` reports; the degraded form stays unmatched on purpose, because
+    accepting a generation number as an incarnation is the fail-open case this gate exists to stop.
+    """
+    return value == incarnation or value == f"{pty}:{incarnation}"
 
 
 def wait_outcome(returncode: int, stdout: str, terminal: str):
@@ -213,7 +252,9 @@ def main(argv: list[str] | None = None) -> int:
                "This never sends input, never acknowledges and never writes a file.")
     parser.add_argument("--terminal", required=True, help="the peer pane whose turn to wait for")
     parser.add_argument("--turn-evidence",
-                        help="saved receipt of `terminal send --wait-submit` (required to prove the turn)")
+                        help="saved receipt of `terminal send --wait-submit` (required to prove the "
+                             "turn: it must name this pane and its live process, in either the bare "
+                             "incarnationId or the ptyId:incarnationId spelling)")
     parser.add_argument("--idle-timeout", type=int, default=DEFAULT_IDLE_TIMEOUT_SECONDS,
                         help=f"seconds for the one native wait, at most {MAX_IDLE_TIMEOUT_SECONDS}; "
                              "re-enter rather than asking for a longer window")
@@ -234,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
             text = Path(args.turn_evidence).read_text()
         except OSError:
             raise Unverifiable("turn_evidence_unreadable") from None
-        request_id, incarnation = prompt_receipt(parse(text), args.terminal)
+        request_id, incarnation, names_pane = prompt_receipt(parse(text), args.terminal)
         try:
             shown = run(args.cli, ["terminal", "show", "--terminal", args.terminal],
                         min(budget, SHOW_TIMEOUT_SECONDS))
@@ -244,9 +285,13 @@ def main(argv: list[str] | None = None) -> int:
         if shown.returncode != 0:
             print("terminal show failed; the peer cannot be identified", file=sys.stderr)
             return USAGE_OR_TRANSPORT
-        current = terminal_identity(parse(shown.stdout), args.terminal)
-        if current != incarnation:
+        pty, live_incarnation = terminal_identity(parse(shown.stdout), args.terminal)
+        if not incarnation_matches(incarnation, pty, live_incarnation):
             raise Unverifiable("turn_evidence_incarnation_mismatch")
+        # A bare incarnation id is not pane-bound on its own: any pane's receipt could carry one.
+        # The composed spelling embeds the ptyId, so it binds even when the receipt names no handle.
+        if not names_pane and incarnation == live_incarnation:
+            raise Unverifiable("turn_evidence_unbound")
     except Unverifiable as error:
         report = {"outcome": "unverifiable", "reason": error.reason}
         print(f"unverifiable: {error.reason}; do not wait on or act for this pane",

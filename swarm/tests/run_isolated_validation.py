@@ -1,6 +1,9 @@
 """Explicit isolated validation root; no native agents or service operations.
 
-Example: python3 -B tests/run_bootstrap_validation.py --parent <canonical NAS archive>
+Each scope is a `unittest discover` pattern; no module list is pinned here, so a scope cannot point
+at a module that no longer exists.
+
+Example: python3 -B tests/run_isolated_validation.py --parent <canonical NAS archive>
 Test scratch is task-owned and cleaned by unittest fixtures; reports/source hashes
 are immutable and retained in the unique validation directory.
 """
@@ -21,11 +24,11 @@ from coordinator_io import file_ref, path, publish_new, pinned
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parent", required=True)
-    parser.add_argument("--scope", choices=("all", "phase4", "coordinator"), default="all",
-                        help="phase4 reruns production tools, prompt and NAS-compatible v5 bundle tests")
+    parser.add_argument("--scope", choices=("all", "coordinator"), default="all",
+                        help="unittest discover pattern set; no individual module is pinned")
     args = parser.parse_args()
     parent = path(args.parent, directory=True)
-    root = Path(tempfile.mkdtemp(prefix="strict-bootstrap-phase4-20261102-", dir=parent))
+    root = Path(tempfile.mkdtemp(prefix="offline-isolated-validation-", dir=parent))
     scratch = root / "scratch"
     scratch.mkdir(mode=0o700)
     source = Path(__file__).resolve().parents[1]
@@ -36,9 +39,6 @@ def main():
                            check=True, stdout=subprocess.PIPE, timeout=10)
     results = []
     patterns = {"all": ("test_bootstrap*.py", "test_coordinator*.py"),
-                "phase4": ("test_bootstrap_production.py", "test_bootstrap_submission.py", "test_bootstrap_workflow.py", "test_coordinator_strict.py",
-                           "test_coordinator_strict_request.py", "test_coordinator_strict_start.py",
-                           "test_coordinator_strict_delivery.py"),
                 "coordinator": ("test_coordinator*.py",)}[args.scope]
     for pattern in patterns:
         started = time.monotonic()
@@ -52,7 +52,7 @@ def main():
                             seconds=time.monotonic() - started, log=file_ref(root / name)))
     for ref in sources:
         pinned(ref)
-    report = dict(schema_version=1, kind="strict_bootstrap_isolated_validation", root=str(root),
+    report = dict(schema_version=1, kind="offline_isolated_validation", root=str(root),
                   python=sys.version, source_root=str(source), results=results, sources=sources,
                   mount=json.loads(mount.stdout),
                   scope=args.scope,

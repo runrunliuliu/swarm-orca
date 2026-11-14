@@ -2,7 +2,6 @@
 
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
-import errno
 import os
 from pathlib import Path
 import tempfile
@@ -14,7 +13,6 @@ from unittest.mock import Mock, patch
 import blocking_io as blocking
 import coordinator_io as io
 import startup_execution as execution
-import startup_runtime
 
 
 class IsolationTests(unittest.TestCase):
@@ -150,26 +148,6 @@ class IsolationTests(unittest.TestCase):
                     self.acquire(root)
             self.assertTrue(self.acquire(root))
 
-    def test_trigger_first_read_is_inside_budget(self):
-        release, exited = threading.Event(), threading.Event()
-        def stuck(*args):
-            try:
-                release.wait(3)
-            finally:
-                exited.set()
-            blocking.check()
-        original = blocking.run
-        def short(function, **kwargs):
-            return original(function, **(kwargs | {"seconds": .05}))
-        with patch.object(execution, "trigger_candidate", side_effect=stuck), \
-                patch.object(blocking, "run", side_effect=short), patch("operator_startup.load") as load:
-            try:
-                with self.assertRaises(blocking.BlockingIOTimeout):
-                    execution.attest_trigger({}, {})
-                load.assert_not_called()
-            finally:
-                release.set()
-                self.assertTrue(exited.wait(2))
 
 
 class WindowTests(unittest.TestCase):
@@ -217,29 +195,6 @@ class WindowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 execution.trigger_window(item, publishing=True)
 
-    def test_owner_final_context_expiry_prevents_publication(self):
-        owner = Mock()
-        owner.identity.authenticate.return_value = "operator"
-        plan = dict(execution=dict(trigger=dict(readiness="/fixture/trigger-ready.json")))
-        owner.runtime_context.return_value = (plan, {}, {})
-        value = self.value()
-        checks, published = [], []
-        def local(*args, **kwargs):
-            checks.append(True)
-            if len(checks) == 2:
-                self.now += timedelta(seconds=600)
-            return plan, {}, {}
-        def publish(target, value, recheck):
-            recheck()
-            published.append(target)
-        owner.runtime_local.side_effect = local
-        owner.runtime_publish.side_effect = publish
-        with patch("bootstrap_identity.unchanged"), patch.object(execution, "trigger_review", return_value=value):
-            with self.assertRaisesRegex(ValueError, "readiness_expired"):
-                startup_runtime.operator_action(owner, {}, "runtime-attest-trigger",
-                    dict(lifecycle={}, continuation={}, candidate={}), Mock())
-        self.assertEqual(len(checks), 2)
-        self.assertEqual(published, [])
 
 
 if __name__ == "__main__":

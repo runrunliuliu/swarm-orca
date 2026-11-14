@@ -21,6 +21,9 @@ export const ORCHESTRATION_UNBOUND_RUN_ID = 'run_unbound'
 const ORCHESTRATION_MUTATION_METHODS = new Set([
   'orchestration.runCreate',
   'orchestration.runCreateStrict',
+  'orchestration.runCreateGranted',
+  'orchestration.startGrantMint',
+  'orchestration.startGrantRevoke',
   'orchestration.runRetireStrict',
   'orchestration.runUse',
   'orchestration.send',

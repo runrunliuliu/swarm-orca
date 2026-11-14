@@ -227,10 +227,6 @@ def pinned(ref, *, json_pin=False):
     raw, sha256 = _verified(ref["path"])
     if (digest(canonical(parse(raw))) if json_pin else sha256) != ref["sha256"]:
         raise FilePinChanged()
-    from bootstrap_s5 import current
-    guard = current.get()
-    if guard is not None:
-        guard.verify_read(ref)
     return raw
 
 
@@ -268,12 +264,6 @@ def write_new(target, value):
 @blocking_io.observed("publish_new", lambda target, value: str(target))
 def publish_new(target, value):
     """Atomically expose one immutable receipt; never replace another claimant's file."""
-    # Scoped to the actual protected strict-start entry, never a global monkey
-    # patch; imports of this function retain the same production guard.
-    from bootstrap_s5 import current
-    guard = current.get()
-    if guard is not None and guard.publication(target, value):
-        return
     fd, temporary = tempfile.mkstemp(prefix="." + target.name + ".", dir=target.parent)
     try:
         with os.fdopen(fd, "wb") as stream:

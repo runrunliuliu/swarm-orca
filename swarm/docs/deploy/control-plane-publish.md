@@ -69,8 +69,9 @@
 
 1. `code/` 顶层约 100 个 `.py` **平铺同级**，互相按裸模块名 import；`supervisor/`、
    `swarm_ledger/`、`release_radar/` 带 `__init__.py`。扁平化会直接 import 失败。
-2. 多个模块用 `__file__` 相对定位拼下一步 argv（例如 `coordinator_strict_start.py` 取
-   `with_name("coordinator_launch.py")`，`startup_handoff.py` 同理）。兄弟文件必须原地相邻。
+2. 多个模块用 `__file__` 相对定位拼下一步 argv（例如 `bootstrap_events.py` 取
+   `with_name("coordinator_launch.py")`，`start_grant.py` 同理）。兄弟文件必须原地相邻。
+   2026-11-13 旧握手的 `coordinator_strict_start.py` / `startup_handoff.py` 删除后，这条规则不变。
 3. 相邻数据文件是运行时输入：`coordinator_worker_profiles.py` 读同级
    `worker-model-profiles.json`；`evidence_policy.py` 收集同级文件清单；
    `operator_monitor_deploy.py` 以自身目录为 `SOURCE_ROOT` 部署 monitor。

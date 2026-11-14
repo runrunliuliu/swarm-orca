@@ -28,9 +28,23 @@ def require(condition, code):
     strict_require(condition, code)
 
 
+def unique_refs(refs):
+    """Same shape rule the strict request used to import from the delivery module."""
+    from coordinator_io import require, validate_ref
+    from pathlib import Path
+
+    require(isinstance(refs, list) and refs, "strict_config_evidence_required")
+    result = []
+    for ref in refs:
+        validate_ref(ref)
+        require(Path(ref["path"]).is_absolute(), "strict_config_evidence_path_invalid")
+        if ref not in result:
+            result.append(ref)
+    return result
+
+
 def _validated_task(value, *, pin_authority):
     from coordinator_io import parse, pinned
-    from coordinator_strict_delivery import unique_refs
 
     task = parse(pinned(value["task_source"]))
     require(isinstance(task, dict) and set(task) == {

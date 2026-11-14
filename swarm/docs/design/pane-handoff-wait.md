@@ -1,5 +1,11 @@
 # 对端等待（pane handoff / peer wait）：用原生阻塞取代 sleep 轮询（实施方案）
 
+> **注（2026-11-13）**：本文描述的四个等待工具（`wait_pane.py`、`wait_for_file.py`、
+> `terminal_idle_wait.py`、`wait_for_events.py`）都还在用；旧握手删除后，文中原先作为调用方证据的
+> `bootstrap_tool` / `startup_handoff` 引用已改指仍存在的调用方。启动授权见
+> [start grant](../../docs/design/start-grant.md)。
+
+
 状态：**P1–P5 已实现并过离线回归（§7 第 1–4 条）；P6 与 live 对照（§7 第 5–6 条）未执行**。本文只给诊断、
 设计、实现包与验收判据，**不构成**部署、重启、启动 Agent、修改运行中 attempt/Run 或放宽任何 gate 的授权；
 也不授权在主检出落地。等待的授权语义仍以
@@ -55,7 +61,7 @@
 | 11:24:57 | 30 | 同上 | 无 |
 | 11:36:46 | 20 | `/proc` 里找本 pane pid | 无（自身启动，非对端） |
 | 11:37:22 | **90** | `bootstrap-attempt1/coordinator/` 发布 | 有（inotify 未暴露） |
-| 11:41:06 | 6 | 后台 `bootstrap_tool.py serve` 起没起来 | 有（文件发布） |
+| 11:41:06 | 6 | 后台 serve 进程起没起来 | 有（文件发布） |
 | 11:41:25 | 8 | 同上（`/tmp/slp-a1/owner.sock`） | 有（文件/套接字发布） |
 | 11:41:54 | **75** | 另一 pane 屏幕（S2 observation） | 有（tui-idle 长等待） |
 | 11:43:22 | **120** | 另一 pane 屏幕 + `events/` 目录 | 有（两者都有） |
@@ -100,7 +106,7 @@
 `_idle_wait()`/`idle_wait_target()` 的结构化识别）。调用点：
 
 - `coordinator_tui_scheduler.py:55`：调度器每 tick 一次 1 s 探测；它本身就是轮询者，不在本文范围；
-- `startup_handoff.py:256`：`call(idle_wait_args(...), runtime, 20)` —— native 等待 1 s、RPC 预算 20 s；
+- `coordinator_tui_scheduler.py:55`：`call(idle_wait_args(...), runtime, 20)` —— native 等待 1 s、RPC 预算 20 s；
 - `operator_monitor.py` 的 `native()` 内 `idle_wait_target(args)`（当前 116 行）：**反向识别** CLI 的命令行，命中才走
   `decode_idle_wait()`；不命中退到通用 `decode_response()`（**不是静默**：两个要求
   `IdleWaitResult` 的调用方会以 `tui_idle_state_unavailable` fail-closed，见 R5）；
@@ -153,7 +159,7 @@ T1/T2 只能覆盖 marker、mailbox 一类等待，覆盖不了"让对端执行�
 | 层 | 用途 | 唯一允许形态 | 覆盖 live attempt 的哪些 sleep | 用于 handoff 交付？ |
 | --- | --- | --- | --- | --- |
 | **T1 mailbox** | agent ↔ agent 的消息与结果回传（含未绑 Run 的 `run_unbound`） | `orchestration send` 发出；接收方 `check --wait --timeout-ms ≤300000` 单片阻塞，`--types` 只决定唤醒 | 110 s 那次（marker/结果回传） | **是，且是默认**：`--type handoff` + 接收侧 `check --peek --wait`（不消费） |
-| **T2 文件发布** | 非 agent 进程（`bootstrap_tool.py serve`、gate 发布者）与命令结果落盘 | `swarm/wait_for_file.py --path <p> --timeout-ms N`：inotify 提前唤醒，deadline 兜底 | 90 / 6 / 8 / 100 / 120 中的文件部分，以及 3.3 改造后的命令结果 | 否（阶段文件走 `strict-bootstrap-wait-stage`，路径只能来自 layout） |
+| **T2 文件发布** | 非 agent 进程（后台 serve、gate 发布者）与命令结果落盘 | `swarm/wait_for_file.py --path <p> --timeout-ms N`：inotify 提前唤醒，deadline 兜底 | 90 / 6 / 8 / 100 / 120 中的文件部分，以及 3.3 改造后的命令结果 | 否（阶段文件走 `strict-bootstrap-wait-stage`，路径只能来自 layout） |
 | **T3 pane 回合边界** | 必须经 TUI 的交互（人工 prompt、trust/update/approval 提示） | `terminal send --wait-submit N` 取得 `turn_started`，再 `terminal wait --for tui-idle --timeout-ms N` | 12 / 8 / 75 / 120 / 100 的屏幕读 | 否：只剩原生启动 prompt 与人工交互；provider 报 `unsupported` 时拿不到 `turn_started` |
 
 **「投递者身份」不属于三层通道**：三层回答「怎么等」，「这份 handoff 是谁发的」是第四个维度，由接收侧
@@ -223,7 +229,7 @@ T1/T2 只能覆盖 marker、mailbox 一类等待，覆盖不了"让对端执行�
   纪律（当前 66–70 行）是 P3 的参照。
 - 测试：`tests/operators/test_operator_monitor*.py`（1000/30000/300000、非法值、参数顺序、额外 flag）、
   `tests/coordinator/test_coordinator_tui*.py`（调度器仍用 1 s 默认值，行为不变）。
-- 回退：`startup_handoff.py:256`、`coordinator_tui_scheduler.py:55` 均不传参 → 行为与今天逐字节一致。
+- 回退：`coordinator_tui_scheduler.py:55` 不传参 → 行为与今天逐字节一致。
 
 ### P3 `swarm/wait_pane.py`（新，agent 直接可调）
 
@@ -234,7 +240,15 @@ wait_pane.py --terminal H [--turn-evidence F] [--idle-timeout 300] [--json]
 ```
 
 - 阶段 A（turn 证据，**必须是强证据**）：接受 `terminal send --wait-submit` 的 receipt（`--turn-evidence`），
-  要求 `stages` 含 `turn_started`、`requestId`/`processIncarnation` 与目标 terminal 一致；
+  要求 `stages` 含 `turn_started`、`requestId`，且回执必须**绑定到目标 terminal**：一次 `terminal show`
+  （身份读取，不是进度探测）给出 `ptyId`/`incarnationId`，回执的 `processIncarnation` 必须指向同一个
+  活进程。**两种拼法都认**：`terminal send` 回执今天写的是裸 `incarnationId`
+  （`getTerminalPromptRequestBinding().processIncarnation`），编排侧记录写的是 `ptyId:incarnationId`
+  （`getTerminalProcessIncarnation`）——同名字段两种形状，只认一种会让这个通道对真实 pane 永久
+  不可用（2026-11-13 实测：组合式比较 vs 裸 id，每次 `exit 4 turn_evidence_incarnation_mismatch`）。
+  回执没有点名 pane（`send.handle`/`prompt.terminalHandle` 都为空）而只带裸 id → `turn_evidence_unbound`，
+  因为裸 id 单独不能证明它来自我们要等的那个 pane；组合式自带 `ptyId`，可以单独绑定。
+  `runtimeId:ptyId:generation` 这种降级形**永不接受**（generation 不是 incarnation）。
   没有这个文件 → 退出码 4 `unverifiable`。**不把“轮询 `terminal show` 看到工作中”当成 turn 证据**
   （那是旁观者的猜测；两评审均指出这一点）。对齐仓内先例 `supervisor/watchdog.py` 的 `tick()` 内
   `--wait-submit` + `turn_started` 判定（当前 66–70 行）。
@@ -242,7 +256,9 @@ wait_pane.py --terminal H [--turn-evidence F] [--idle-timeout 300] [--json]
   出现 `blockedReason`（现成的 `BLOCKED_REASONS`）→ 5 并**只**输出 reason 枚举，不输出屏幕内容。
 - 不变量：无论返回什么，调用方仍须复核产物（I1）。工具不发送输入、不 `ack`、不写文件。
 - 测试：`tests/core/test_wait_pane.py`（假 CLI 夹具）：turn_started→idle；**无 evidence → 4**；
-  evidence 但 incarnation 不符 → 4；blocked → 5；timeout → 124。
+  evidence 但 incarnation 不符 → 4；blocked → 5；timeout → 124。夹具的回执默认必须是**真实形状**
+  （`send.handle` + 裸 `incarnationId`），否则“夹具两侧自己拼成一致”会把这个分歧藏起来——这正是
+  2026-11-13 修的那条缺陷的成因。
 - 回退：新文件，删除即无影响。
 
 ### P4 `swarm/wait_for_file.py`（新，T2 出口）
@@ -283,7 +299,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
 
 - **阈值与现有纪律的关系**（评审要求写清）：仓内文档的禁用线是 `N>=60`，本包取 30 是**更严**的运行侧选择，
   理由是把“又快又没用的唤醒”也算进去；因此它**必须**：只作用在 agent 交接场景（交互式 pane 会话），
-  不影响脚本内 backoff、`service_finish.py`、`bootstrap_s5.py` 等进程内轮询，并提供显式 allowlist。
+  不影响脚本内 backoff、`service_finish.py` 等进程内轮询，并提供显式 allowlist。
 - 实现位置属 agent 运行侧（`~/.pi/agent/extensions/`），**不进本仓**；本仓只记录“该门禁存在时，禁用清单与
   文档一致”的对应关系。
 
@@ -304,7 +320,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
 1. `bash swarm/tests/run_offline.sh` 全量；
 2. 新增 `tests/core/test_wait_pane.py`、`test_wait_for_file.py`，扩 `test_wait_for_events.py`；
 3. `operator_monitor` argv 识别：1000/30000/300000 三档都识别，非法 argv 一律 `None`；
-4. `coordinator_tui_scheduler` 与 `startup_handoff` 的调用参数**未变**（用现有夹具断言 argv 逐字节相同）。
+4. `coordinator_tui_scheduler` 的调用参数**未变**（用现有夹具断言 argv 逐字节相同）。
 
 **live（另获授权后）**
 
@@ -344,7 +360,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
   人工介入。
 - **R5 `operator_monitor` 的耦合**。它靠 CLI 命令行反向识别调度命令，P2 放宽 argv 后若识别写错，
   后果**不是“静默丢目标”**（评审分歧已裁决）：`monitor` 自身会退到通用 `decode_response()`，而两个
-  要求 `IdleWaitResult` 的调用方（`coordinator_tui_scheduler.py:55`、`startup_handoff.py:256`）会以
+  要求 `IdleWaitResult` 的调用方（`coordinator_tui_scheduler.py:55`）会以
   `tui_idle_state_unavailable` **fail-closed**；真正的损失是“专用解码不再执行”，属于可观察的行为变化
   而非静默。`supervisor/watchdog.py` 另有独立 reader，不受影响。缓解：P2 单测必须覆盖
   “识别不出 → `None`”与既有分支的等价性。
@@ -364,9 +380,9 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
 - 不改 orca runtime，不加 `terminal wait --for output-change`；
 - 不修改、不重启、不迁移任何运行中的 attempt/Run/pane；本文的实测只做只读 RPC（`wait`/`check --peek`/
   `--wait` 不 `ack`）；
-- 不改 scheduler 的 1 s 默认值与 `startup_handoff` 的 20 s RPC 预算；
+- 不改 scheduler 的 1 s 默认值与调用方给的 20 s RPC 预算；
 - 不把 `sleep` 从既有 helper 里删除（`coordinator_driver.py:689/698` 的 `wait_poll_seconds ≤ 60`、
-  `service_finish.py`、`bootstrap_s5.py` 属于**进程内**轮询，不是 agent 回合等待，另立任务）；
+  `service_finish.py` 属于**进程内**轮询，不是 agent 回合等待，另立任务）；
 - 不部署、不重启、不更新远端副本。
 
 ## 10. 顺序、体量与依赖

@@ -8,6 +8,7 @@ import { insertStartingDispatchContextRow } from '../dispatch-row-writer'
 import { recordedCreatorIdentity, type DispatchCreator } from '../dispatch-depth'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
 import { taskNotFoundError, taskNotStartableError } from '../../task-dispatch-refusal'
+import { assertSpawnAdmissible, START_GRANT_REQUIRED } from '../../start-grant-spawn'
 
 export function createStartingWorkerDispatch(
   this: OrchestrationDb,
@@ -41,10 +42,28 @@ export function createStartingWorkerDispatch(
     /** Who is dispatching, for nesting depth. Required so a new caller must decide. */
     creator: DispatchCreator
     maxDepth: number
+    /** The repo/worktree this Worker would run in; see start-grant-policy.SpawnScope. */
+    repoId?: string | null
+    worktreeId?: string | null
+    federated?: boolean
   }
 ): { dispatch: DispatchContextRow; worker: WorkerDispatchRow; task: TaskRow } {
   this.db.exec('BEGIN IMMEDIATE')
   try {
+    // Before the mutation receipt: it is this transaction's first persistent write, so a refusal that
+    // landed after it would leave a "this was accepted" row behind for a Worker that never started.
+    // The Run is read, not guessed: a legacy dispatch with no Run has no grant to be governed by.
+    const runId =
+      params.taskRunId ?? (params.taskId ? this.getTask(params.taskId)?.run_id : undefined)
+    if (runId) {
+      assertSpawnAdmissible(this, {
+        runId,
+        repoId: params.repoId ?? null,
+        worktreeId: params.worktreeId ?? null,
+        federated: params.federated ?? false,
+        startGrantRequired: START_GRANT_REQUIRED
+      })
+    }
     if (params.mutationReceipt) {
       const receipt = params.mutationReceipt
       const existing = this.getMutationReceipt(receipt.callerFingerprint, receipt.requestId)

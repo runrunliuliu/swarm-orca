@@ -107,12 +107,15 @@ unless the task explicitly selects an existing workspace. Continuations retain t
 read-only tasks may share it. Verify full returned IDs and canonical paths, not names or cwd alone.
 Never stash, reset or overwrite unrelated changes. Follow the selected CLI for worktree operations.
 
-Read [Operator preparation](../../operator-prepare.md),
-[strict startup](../../coordinator-strict-start.md) and
-[the two-stage startup gate](../../coordinator-startup.md). Use their supported helpers and pinned
-references, not an ad hoc launch sequence. Verify an independent real Coordinator session before
-it creates the Run; before first dispatch verify owner/generation, then have that Coordinator
-recheck in its own context. Reading a role skill is not proof of identity or actual handoff.
+Read [start grant](../../docs/design/start-grant.md) for how a Run's start authorisation is issued
+(`start-grant-mint` → `run-create --grant` → `worker-start`, with every check inside the server
+transaction) and [Operator preparation](../../operator-prepare.md) for the materials and Operator
+identity. The S0–S5 handshake, its stage waiter and the two-stage startup gate that read its markers
+are retired: [strict startup](../../coordinator-strict-start.md) and
+[the two-stage startup gate](../../coordinator-startup.md) are history, not launch procedures.
+Verify an independent real Coordinator session before it creates the Run; before first dispatch
+verify owner/generation, then have that Coordinator recheck in its own context. Reading a role
+skill is not proof of identity or actual handoff.
 
 Operator owns authorized preparation/recovery and evidence delivery. Coordinator owns decomposition,
 dispatch and adoption of results. Workers act only on their native Dispatch. Do not borrow handles,
@@ -208,20 +211,10 @@ immediately and never retried into a timeout; 2 = usage or transport. After 0, r
 with `file_ref` and the schema: a non-atomic writer is visible here before it is complete, and
 `--mode change` cannot see a rewrite that keeps both size and timestamp.
 
-Stage files (`events/000N-*.json`) do **not** use the generic file form: the path comes from the
-attempt bundle through the fixed entry, never from a hand-assembled relative path, a directory scan
-or a glob.
-
-```bash
-python3 swarm/coordinator_launch.py strict-bootstrap-wait-stage \
-  --bootstrap <BOOTSTRAP> --expect-attempt <attempt-id> \
-  --attempt-binding-sha256 <64 hex> --stage 2 --timeout-ms 300000 --json
-```
-
-Exit 0 validated, 124 timeout, 4 attempt/binding unreachable, 5 the path is there but the chain does
-not validate (no re-read), 2 usage or a pin mismatch. At 0 it prints the evidence Ref it read: carry
-that exact `{path, sha256}` forward, do not compute your own, and do not skip it because
-`already_satisfied` is true — 0 is neither confirmation nor permission to advance.
+The strict-bootstrap stage waiter (`strict-bootstrap-wait-stage`), its stage slots **and the
+read-only attempt reader** were removed with the protocol they served: the current design issues
+**one** start grant instead of a chain of evidence markers, so there is no stage file to wait for and
+no archived attempt to read. Start a new Run with `start-grant-mint` → `run-create --grant`.
 A `sleep` micro-loop (`for`/`while` plus `sleep`, whatever the single duration) is a forbidden
 waiting form too: the `N >= 60` rule only ever covered one call, and a loop of 8 s sleeps still
 reads "slow" as "dead".

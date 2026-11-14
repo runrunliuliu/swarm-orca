@@ -199,6 +199,7 @@ def select(range_spec: str) -> tuple[dict[str, dict[str, str]], list[str], list[
     radius = Radius()
     selection: dict[str, dict[str, str]] = {}
     skipped: list[str] = []
+    removed: list[str] = []
     unmapped: list[str] = []
     for change in changed_paths(range_spec):
         path = Path(change)
@@ -222,11 +223,16 @@ def select(range_spec: str) -> tuple[dict[str, dict[str, str]], list[str], list[
             continue
         if reasons:
             selection[change] = reasons
+        elif not Path(change).exists():
+            # A deleted file has no module left to run: the removal *is* the change, and the modules
+            # that used it are selected by their own diffs. Reporting it as unmapped would make every
+            # deletion pass look like a broken selector.
+            removed.append(change)
         elif name in UNTESTED:
             skipped.append(change)
         else:
             unmapped.append(change)
-    return selection, skipped, unmapped
+    return selection, skipped, removed, unmapped
 
 
 def describe(reasons: dict[str, str], total: int) -> str:
@@ -250,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     if not changed_paths(args.range_spec):
         print(f"selection: 0/0 modules — nothing changed in {args.range_spec}", file=sys.stderr)
         return 2
-    selection, skipped, unmapped = select(args.range_spec)
+    selection, skipped, removed, unmapped = select(args.range_spec)
     modules = sorted({module for reasons in selection.values() for module in reasons})
     total = len(module_names())
     if args.json:
@@ -261,8 +267,11 @@ def main(argv: list[str] | None = None) -> int:
         for change in skipped:
             print(f"selection: {change} -> skipped (not a scanned source or test module)",
                   file=sys.stderr)
+        for change in removed:
+            print(f"selection: {change} -> removed (nothing left to run)", file=sys.stderr)
         print(f"selection: {len(modules)}/{total} modules", file=sys.stderr)
-        print(json.dumps({"modules": modules, "unmapped": unmapped, "skipped": skipped}))
+        print(json.dumps({"modules": modules, "unmapped": unmapped, "skipped": skipped,
+                          "removed": removed}))
         if unmapped:
             for change in unmapped:
                 print(f"run_blast.sh: no test module reaches {change}; add one, or record it in "

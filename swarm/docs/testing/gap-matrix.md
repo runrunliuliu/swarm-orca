@@ -48,11 +48,11 @@
 
 | reliability.md 要求 | 现有回归入口 | 覆盖度 | 缺口性质 | 备注 |
 | --- | --- | --- | --- | --- |
-| D-contract：身份/授权/角色/路径/hash/generation 拒绝 | `tests/bootstrap/test_bootstrap_production.py:393`、`:464`、`:555`；`tests/core/test_native_preflight.py`（24 项）；`tests/core/test_authority_bundle.py:128`、`:156` | 覆盖（离线） | — | 拒绝码逐条断言，符合“不能只给整目录退出码” |
-| D-contract：candidate/final 只由 owner 发布、六动作 complete_argv | `tests/bootstrap/test_bootstrap_submission.py:47`、`:62`、`:87`、`:104`、`:158`；`tests/bootstrap/test_bootstrap_workflow.py:39`、`:114` | 覆盖 | — | 含 symlink/hardlink 与发布前复检 |
-| D-contract：过期身份重验与心跳边界（不续租） | `tests/bootstrap/test_bootstrap_production.py:193`、`:209`、`:231`、`:282`、`:302` | 覆盖 | — | 与附录“心跳与身份租期”一致 |
-| D-contract：Operator gate 缺失/Coordinator 提前 idle/continuation 缺失 | `tests/core/test_startup_handoff*.py`（40 项，gate/prepare/trigger/monitor 四个模块）、`tests/operators/test_operator_startup.py`（33 项） | 部分 | **A** | 有 gate/continuation 拒绝，但“Coordinator 提前 idle 后 IPC 是否准确指向 Operator”未见直接断言 |
-| D-contract：无 Worker 分支、autonomous 缺 lifecycle 失败、native-event/manual 不发送 | `tests/operators/test_operator_startup.py`；`tests/coordinator/test_coordinator_tui_scheduler.py:980` | 部分 | **A** | `native-event` 窗口过期不转自主有断言（scheduler:980 区段），独立“无 Worker 显式分支”的负面用例未单列 |
+| D-contract：身份/授权/角色/路径/hash/generation 拒绝 | `tests/core/test_native_preflight.py`（24 项）；`tests/core/test_authority_bundle.py:128`、`:156`；`start grant` 侧见 `start-grant-create/-mint/-spawn` 三个 Orca 测试模块 | 覆盖（离线） | — | 旧握手的 `test_bootstrap_production` 已随代码删除；拒绝码逐条断言的要求不变 |
+| D-contract：candidate/final 只由 owner 发布、六动作 complete_argv | **已删除**：动作表与 owner 提交面（`test_bootstrap_submission`/`_workflow`）随旧握手移除 | 无 | **A** | 现行替代：`start grant` 的不可变记录（同 id 同字节幂等、异字节冲突），断言在 `start-grant-mint.test.ts` |
+| D-contract：过期身份重验与心跳边界（不续租） | `tests/core/test_startup_cli.py`、`tests/operators/test_operator_monitor*.py`（身份时效仍在这些活路径上断言） | 部分 | **A** | 旧 owner 租期用例随代码删除；`start grant` 的 deadline/撤销由服务端时钟判定（`start-grant-create/-spawn`） |
+| D-contract：Operator gate 缺失/Coordinator 提前 idle/continuation 缺失 | **已删除**：`test_startup_handoff*` 与 `test_operator_startup` 随 lifecycle v2 移除 | 无 | **A** | 现行路径不再有 S5 gate；Run 建好后的 continuation 断言仍在 `test_coordinator_tui_*` 与 `test_startup_cli` |
+| D-contract：无 Worker 分支、autonomous 缺 lifecycle 失败、native-event/manual 不发送 | `tests/coordinator/test_coordinator_tui_scheduler.py:980` | 部分 | **A** | lifecycle 侧用例随 v2 删除；`native-event` 窗口过期不转自主仍有断言，独立“无 Worker 显式分支”的负面用例未单列 |
 | D-control：并发上限 | `coordinator_driver.py:310` + `tests/coordinator/test_coordinator_driver.py:783`；`supervisor/engine.py:339–352` + `tests/core/test_supervisor.py:531`、`:908` | 覆盖 | — | 含 unknown/owned/nested 计入 |
 | D-control：依赖未满足 / 乱序完成不提前集成 | `supervisor/engine.py:345`、`:371–378`；`tests/core/test_supervisor.py:531`、`:556`、`:962` | 覆盖（Supervisor） | **B**（strict 侧） | strict 路径无声明 DAG，见 S2 |
 | D-control：审查拒绝/返工/单写入者 | `supervisor/config.py:142–161`；`tests/core/test_supervisor.py:209`、`:556` | 部分 | **C** | 只校验“契约层”不变量；返工循环本身在 Supervisor MVP 中不支持（`docs/supervisor.md:6` 明确“不支持任务重试”）|
@@ -107,7 +107,7 @@ domain-checked checkpoint**（如 `coordinator_loop.py:37`、`coordinator_tui_er
 | --- | --- | --- | --- | --- |
 | S1a 越域升级路由（Supervisor） | `supervisor/engine.py:260–285`：`question`/`escalation` 只允许 `action=reply` + `within_scope is True`；否则写 `human:<id>` 与 `human_messages` 并在 ACK 前提交；注释明确“acknowledgment 与 human authorization 是两个状态”（:233–235） | `tests/core/test_supervisor.py:611`（人工门持久化、不绕过权限）、`:623`（一个人工问题不阻塞后续独立问题）、`:639`（重启后仍需授权）、`:661`（ACK 前持久化）、`:701`（不重复/不部分解决）、`:741`（不连带 ACK 同批未知消息）、`:755`（未解决人工问题阻止整体完成）、`:953`（已解决记录） | 覆盖（Supervisor） | — |
 | S1a 越域升级（strict 原生路径） | `coordinator_loop.py:22` 仅在提示文本里声明“Operator owns … escalation”；`coordinator_tui_scheduler.py` / `coordinator_tui_continue.py` 中检索无 `question`/`escalation` 处理分支 | 无 | 缺失 | **B**（代码未实现） |
-| S1b 域不匹配拒绝 | `tests/bootstrap/test_bootstrap_production.py:393`（错误角色与路径）、`:555`（只读域阻止写入并恢复截止期）；`tests/coordinator/test_coordinator_handoff.py:226`（outside_scope 先拒绝再读内容） | 同上 | 覆盖（离线） | — |
+| S1b 域不匹配拒绝 | `tests/coordinator/test_coordinator_handoff.py:226`（outside_scope 先拒绝再读内容）；`tests/core/test_authority_bundle.py:128`、`:156`（角色/路径不匹配）（旧 `test_bootstrap_production` 的同名用例已随代码删除） | 同上 | 部分 | **A**：旧握手的角色/只读域断言没有了，现行替代是 authority bundle 与 start grant 的 objective/仓库范围断言 |
 
 **缺口.** strict 路径没有把 Worker 的 `question`/`escalation` 与 `within_scope` 判定
 落成代码或测试；该路径完全依赖模型与 Operator 自觉（`coordinator_loop.py:22` 只是提示文本），
@@ -131,7 +131,7 @@ domain-checked checkpoint**（如 `coordinator_loop.py:37`、`coordinator_tui_er
 | --- | --- | --- | --- | --- |
 | S3a 启动参数饱和 | `coordinator_strict.py:23` `MAX_AGENT_ARGS_BYTES = 16 KiB`、`:27` `MAX_PINNED_INPUT_BYTES = 256 KiB`、`:171–179` 拒绝而不截断、`:183` `prompt_delivery = "pinned-files-short-prompt-v1"` | `tests/coordinator/test_coordinator_strict.py:121`（无截断拒绝）、`:136`（10 万字符交接仍保持 argv 有界） | 覆盖 | — |
 | S3b 读取侧容量 | 刻意为**取消**固定字节上限：`log-capacity.md` 的整张表（trae_coordinator 16 MiB→无、native_preflight 4 MiB→无、progress_watch 8 MiB→无、swarm_ledger 128 MiB→无、Supervisor receipt 16 MiB→无） | `tests/core/test_capacity_io.py:33`（17 MiB 证据全文读取）、`tests/core/test_supervisor.py:849`（>10 MB artifact）、`tests/core/test_binding.py:425`、`:433` | 覆盖（“能读得动”） | **C**（已按设计覆盖） |
-| S3c 回合/上下文总量饱和 | 无。`trae_coordinator.ContextFreshnessError`（:40–47）只管新鲜度与“是否未来”，不管大小；`bootstrap_events.py:99` 的 `context_max_age_seconds` 同样是时间 | 无 | 缺失 | **B**（无该机制） |
+| S3c 回合/上下文总量饱和 | 无。`trae_coordinator.ContextFreshnessError`（:40–47）只管新鲜度与“是否未来”，不管大小 | 无 | 缺失 | **B**（无该机制） |
 | S3d 饱和后的降级行为（压缩/交接/拒绝） | 无定义 | 无 | 缺失 | **B**（无该机制） |
 
 **这是本矩阵最明确的缺口.** 仓库主动移除了所有读取字节门槛，`log-capacity.md` 末段自己写明
@@ -142,7 +142,7 @@ domain-checked checkpoint**（如 `coordinator_loop.py:37`、`coordinator_tui_er
 
 | 子项 | 代码机制 | 现有证据 | 状态 | 缺口性质 |
 | --- | --- | --- | --- | --- |
-| S4a 单写入者文件锁 / CAS | `coordinator_io.py`（`exclusive`/`pinned`/`publish_new`）；`bootstrap_control` 的 owner 锁 | `tests/coordinator/test_coordinator_io.py:38`、`:43`、`:52`、`:72`、`:81`、`:95`；`tests/bootstrap/test_bootstrap_control.py:192`（固定 owner 锁排除第二 authority）、`:96`、`:127` | 覆盖 | — |
+| S4a 单写入者文件锁 / CAS | `coordinator_io.py`（`exclusive`/`pinned`/`publish_new`）；start grant 的 `BEGIN IMMEDIATE` + 不可变记录 | `tests/coordinator/test_coordinator_io.py:38`、`:43`、`:52`、`:72`、`:81`、`:95`；`start-grant-create.test.ts` 的“持锁期间另一连接被拒、释放后重放”（旧 `test_bootstrap_control` 的 owner 锁用例已删除） | 覆盖 | — |
 | S4b 并发认领/单实例 | `tests/core/test_authority_bundle.py:282`（并发认领失败者不发布失败）、`tests/core/test_supervisor.py:299`（单实例锁）、`:1069`（锁争用跳过不算失败） | 同上 | 覆盖 | — |
 | S4c monitor/scheduler 多写者 | `tests/operators/test_operator_monitor.py:395`（配置变更与多写者拒绝）、`:404`（第二 monitor 拒绝）；`tests/coordinator/test_coordinator_tui_scheduler.py:263`（真实锁忙 + 重启） | 同上 | 覆盖 | — |
 | S4d 计划层所有权不重叠 | `supervisor/config.py:157–161`（共享 exact 工作区必须有序；并行任务路径必须不重叠） | `tests/core/test_supervisor.py:209`；`tests/coordinator/test_coordinator_worker_plan.py:160`、`:178` | 覆盖 | — |
@@ -205,7 +205,7 @@ L 层人工观察，或事后由 `do_not_touch` 证据校验发现（Supervisor 
 | --- | --- | --- | --- |
 | L1 | `coordinator_io` 11、`worker_plan` 19、`write_roots` 4、`creation_time` 3、`log_io` 3、`capacity_io` 2、`observation_budget` 12、`worker_profiles_external` 5、`safety` 29、`runtime_binding` 24、`worker_usage_preserve` 7 | 119 | 覆盖 |
 | L2 | `tui_continue` 55、`tui_scheduler` 55、`operator_monitor` 27、`coordinator_driver` 89、`progress_watch` 72、`operator_startup` 33、`monitor_recovery` 20、`monitor_upgrade` 24、`monitor_deploy` 27 | 402 | 覆盖 |
-| L3 | `strict_start` 42、`strict_request` 31、`strict_delivery` 24、`strict_prepare` 18、`strict` 23、`startup_handoff` 38、`coordinator_handoff` 22、`authority_bundle` 19、`native_preflight` 24、`bootstrap_*` 157、`operator_prepare` 21、`operator_materials` 6 | 445 | 覆盖 |
+| L3 | `strict` 23、`coordinator_handoff` 22、`authority_bundle` 19、`native_preflight` 24、`operator_prepare` 21、`operator_materials` 6；**旧握手的 `strict_start`/`strict_request`/`strict_delivery`/`strict_prepare`/`startup_handoff`/`bootstrap_*` 共约 310 项已随代码删除** | 115 | 部分 | L3 现在只覆盖仍存在的 strict 门（caller-check / native-plan）与身份/材料链路 |
 | L4-offline | `supervisor` 103、`coordinator_loop` 20、`coordinator_background` 16、`monitor_stop_signals` 9、`evidence_archive` 9 | 157 | 部分（缺原生侧与真实协作） |
 | L4-native | 无自动化 | 0 | 缺失 |
 | L5 | 无自动化；`tui_rsi_integration` 3 项被 `RSI_CHECKER_TEST_ROOT` 门控且非 L 层 | 0 | 缺失 |
