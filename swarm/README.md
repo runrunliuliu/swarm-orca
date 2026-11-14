@@ -42,11 +42,8 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
    `operator_prepare.py native-plan` 与 `coordinator_launch.py strict-native-plan` 复用同一个 `native_plan`：
    检查材料及 plan/workspace 绑定、Operator 身份、runtime 能力、工作区和可执行文件，全部通过才返回原生启动 argv；不自行启动。
    材料可以提前准备，真实 Operator 身份不能由静态材料替代。Coordinator 模型和权限按[显式部署配置](configuration.md)核验，不套给 Operator 会话。
-3. ~~**由真实角色完成 strict 握手。**~~ **已删除**（见上方提示）。原文保留如下，只作历史：Coordinator 先完整读取固定提示和[启动协议](coordinator-strict-start.md)，再执行 caller-check；
-   原始回执放在 `BOOTSTRAP/initial-caller.json`，`strict-start/` 必须保持不存在，由 `strict-start-prepare` 独占创建。
-   `strict-config-request` 的 `--check` 只校验输入，不写文件或固定正式 deadline；`--execute` 在发布前核验真实 Coordinator caller。
-   契约绑定的 Operator 在自身会话执行计划输出的 `operator_check_argv` / `operator_publish_argv`，外层普通 Shell 不代发。
-   按协议阶段等待 `ready.json` / `gate-ready.json`，不用 TUI idle 代替所有阶段的就绪条件。
+3. ~~**由真实角色完成 strict 握手。**~~ **已删除**：启动授权现在由 [start grant](docs/design/start-grant.md) 的
+   `start-grant-mint` → `run-create --grant` 承担，本步骤没有可执行内容。
 4. **启动门后创建 Run、首派。** Coordinator 在自身上下文验证 session gate 后创建 Run；首批 Worker 前仍须通过
    [Operator 与 Coordinator 两侧检查](coordinator-startup.md)，核对 Run owner / consumer generation，并用[Worker planner](coordinator-worker-plan.md)生成参数。
    预检不是授权，也不是直接调用原生 `terminal create` 时的全局拦截器。

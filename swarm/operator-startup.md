@@ -191,12 +191,8 @@ monitor 在原独占锁内核验运行准入和 sender，把接收证据写入�
 
 ### 原生事件验收的预检回执
 
-~~continuation 发布后，原 Operator 独立审查指定触发源预检，用 `startup_handoff.py trigger-ready --actor operator
---input ... --input-sha256 ... --execute`，同时传原 plan pins；`--input` 是独立审查文档，不是原始预检，
-也不是最终 `trigger-ready.json`。`trigger-template` 可只读生成待填写模板（`candidate_template` 的 decision 为
-null，需原 Operator 审查后另存候选并固定原始字节 hash）；它有意仅接受 `--actor operator`，且该参数不构成身份证明。~~
-**以上流程连同 `startup_handoff.py` 已随旧握手删除**：现行启动授权是一次
-[start grant](docs/design/start-grant.md) 的 mint，不再有 continuation 触发源审查与 `trigger-ready` 回执。
+continuation 的触发源预检与 `trigger-ready` 回执已随旧握手删除（`startup_handoff.py` 不再存在）：现行
+启动授权是一次 [start grant](docs/design/start-grant.md) 的 mint，没有要审查或发布的触发源回执。
 默认兼容候选字段**恰好**为：
 
 ```json
@@ -367,11 +363,9 @@ lifecycle 保存已知退出码和空 receipt。耗尽后的 lifecycle 重启仍
 
 验证与尚未完成项见 运行期边界开发报告（部署方私有历史材料，不随公开仓库分发）
 及前序生命周期交接报告（部署方私有历史材料，不随公开仓库分发）。
-~~回归入口为 `tests/core/test_startup_handoff*.py`（gate/prepare/trigger/monitor 四个模块，共 40 项，
-共享夹具在 `tests/startup_handoff_fixture.py`）、`tests/operators/test_operator_startup.py` 和
-`tests/bootstrap/test_bootstrap_production.py`。~~
-**这些模块与夹具已随旧握手删除**：现行入口是 start grant 的 `tests/core/test_start_grant.py` 与 Orca 侧
-`start-grant-*` 测试模块；生产 helpers 的离线测试仍不替代真实 provider、独立审查或 live 验收。
+回归入口是 start grant 的 `tests/core/test_start_grant.py` 与 Orca 侧 `start-grant-*` 测试模块（旧的
+`test_startup_handoff*`、`test_operator_startup.py`、`test_bootstrap_production.py` 已随握手删除）；
+生产 helpers 的离线测试仍不替代真实 provider、独立审查或 live 验收。
 
 ## 等待的唯一形式
 
