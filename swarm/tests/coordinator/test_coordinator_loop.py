@@ -10,10 +10,17 @@ class LoopTests(unittest.TestCase):
         for phase in ("strict-bootstrap", "strict-tui-bootstrap"):
             text = phase_contract(phase)
             self.assertNotIn("input schema v3", text)
-            for rule in ("input schema v4", "task_source pin", "contract_fields pin", "separate recovery_note",
+            for rule in ("start grant", "start-grant-mint", "start-grant-hand",
+                         "run-create --grant", "START_GRANT_REQUIRED",
                          "never replace the business objective with a recovery substep"):
                 with self.subTest(phase=phase, rule=rule):
                     self.assertIn(rule, text)
+            # Retired tools may only appear as retired: no instruction may send a
+            # reader back to the config-delivery or lifecycle chain.
+            for gone in ("strict-config-request", "strict-config-plan --request", "strict-start-wait",
+                         "S0 skill-read evidence", "startup_handoff.py trigger-ready"):
+                with self.subTest(phase=phase, retired=gone):
+                    self.assertNotIn(gone, text)
 
     def test_tui_turns_yield_before_expiry_without_inline_self_consumption(self):
         text = phase_contract("strict-tui-bootstrap")
@@ -200,13 +207,17 @@ class LoopTests(unittest.TestCase):
 
     def test_strict_phase_routes_later_waves_without_replaying_startup(self):
         text = phase_contract("strict-bootstrap")
-        self.assertIn("one-time phase boundaries, not per-wave checks", text)
+        self.assertIn("First dispatch is a one-time boundary, not a per-wave check", text)
         self.assertIn("Never replay a started attempt", text)
         self.assertIn("identity/owner/generation and progress checks", text)
         self.assertIn("strict-v1 has no supported shell resume", text)
-        self.assertIn("strict-config-plan / strict-config-wait", text)
-        self.assertIn("source-to-snapshot mappings", text)
-        self.assertIn("not a supported follow-up channel", text)
+        # The authorisation path is the grant; the retired chain is named only so a
+        # reader stops looking for it.
+        self.assertIn("Create the Run under the grant", text)
+        self.assertIn("legacy artefacts", text)
+        self.assertIn("do not reconstruct that sequence", text)
+        self.assertNotIn("strict-config-plan / strict-config-wait", text)
+        self.assertNotIn("source-to-snapshot mappings", text)
 
     def test_dispatch_phases_use_the_fixed_worker_plan_entry(self):
         from pathlib import Path

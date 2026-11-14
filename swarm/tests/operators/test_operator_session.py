@@ -489,7 +489,8 @@ class OperatorSessionTests(unittest.TestCase):
         self.assertIn("Strict Coordinator bootstrap", short_prompt)
         self.assertIn(plan["input_contract"]["stdin_sha256"], short_prompt)
         self.assertIn("coordinator_tui_continue.py", short_prompt)
-        self.assertIn("strict-config-request", short_prompt)
+        self.assertIn("Startup authorisation is ONE start grant", short_prompt)
+        self.assertIn("run-create --grant", short_prompt)
         self.assertEqual([args[0:2] for args in self.tui.calls], [["status"], ["worktree", "show"]])
 
     def test_native_plan_tamper_rejected_before_native_queries(self):

@@ -32,15 +32,6 @@ class StrictCheckError(ValueError):
     """Fixed local diagnostics only; native/provider messages remain private."""
 
 
-def _strict_request_version_text(*, independently_reviewed=False, null_note=False):
-    qualifier = "independently reviewed " if independently_reviewed else "reviewed "
-    note = " and separate recovery_note"
-    if null_note:
-        note += " (null if absent)"
-    return (f"Use input schema v4 with {qualifier}contract_fields pin and task_source pin{note}; "
-            "it generates request schema v5.")
-
-
 def require(condition, code):
     if not condition:
         raise StrictCheckError(code)
@@ -92,7 +83,7 @@ def caller_result(value, runtime):
     return value
 
 
-HELPER_FILES = ("coordinator_launch.py", "coordinator-strict-start.md",
+HELPER_FILES = ("coordinator_launch.py",
                 "coordinator-worker-plan.md", "coordinator_tui_continue.py")
 
 
@@ -126,32 +117,17 @@ def strict_bootstrap_prompt(plan, root=None):
     """
     root = Path(root) if root is not None else Path(__file__).resolve().parent
     helper = str(root / "coordinator_launch.py")
-    protocol = str(root / "coordinator-strict-start.md")
     worker_protocol = str(root / "coordinator-worker-plan.md")
     continuation = str(root / "coordinator_tui_continue.py")
     contract = plan["input_contract"]
     directory = Path(plan["startup_delivery"]["directory"])
     caller_receipt = directory.parent / "initial-caller.json"
-    delivery = json.dumps(plan["startup_delivery"], ensure_ascii=False, sort_keys=True)
-    # A registered attempt owns that exact caller path; offering the historical
-    # direct write made a live attempt self-write the S1 slot before its binding
-    # existed, which left it unconfirmed forever.
-    if plan.get("registered_bootstrap"):
-        caller_line = (
-            "REGISTERED ATTEMPT: the historical direct-write path is FORBIDDEN here. Do not run "
-            "strict-caller-check to persist a caller receipt and never write " + str(caller_receipt) +
-            " yourself; that exact path is the S1 slot owned by commit_owner. Pull returns "
-            "caller-intent, and its complete argv makes the owner produce and commit the receipt. "
-            "Every later fixed slot follows the same rule.")
-    else:
-        caller_line = (
-            "HISTORICAL PATH, only when this attempt has neither attempt-binding.json nor "
-            "control/owner.json: run orchestration strict-caller-check in this live Coordinator "
-            "context and preserve the raw receipt at: " + str(caller_receipt) + ". Once an "
-            "attempt-binding or control/owner.json exists, that same path is the registered caller "
-            "slot owned by commit_owner: never write or replace it yourself, take the "
-            "caller-intent/complete actions instead, because a self-written slot stays unconfirmed "
-            "forever.")
+    # The S0-S5 attempt chain and its owner/commit actions are retired, so there is no
+    # registered variant left to describe: one caller receipt per live Coordinator.
+    caller_line = (
+        "Run orchestration strict-caller-check in this live Coordinator context and preserve the "
+        "raw receipt at: " + str(caller_receipt) + ". Do not write or replace an existing receipt "
+        "there; a self-written slot stays unconfirmed forever.")
     lines = [
         "Strict Coordinator bootstrap: this is a short native prompt; use pinned files, not inline stdin.",
         "Do not treat this short prompt as the full task or authority.",
@@ -160,7 +136,6 @@ def strict_bootstrap_prompt(plan, root=None):
         "Brief sha256: " + contract["brief_sha256"],
         "Phase fragment sha256: " + contract["fragment_sha256"],
         "Helper: " + helper,
-        "Strict startup protocol: " + protocol,
         # Generated from the action table, so a stage cannot be missing from the page an Operator
         # reads while the code still expects it (see swarm/generate_runbook.py --check).
         # The generated runbook went with the handshake; the start grant's own document is the
@@ -171,42 +146,28 @@ def strict_bootstrap_prompt(plan, root=None):
         # searches by a third. Still not required reading: it is an index of line ranges, and
         # adding it to the required reading would grow the reading this change exists to shrink.
         "Symbol orientation (generated; look a name up here before searching): "
-        + str(Path(protocol).with_name("ORIENTATION.md")),
-        "Startup delivery layout: " + delivery,
-        "First, read the prompt file, the strict startup protocol and the operator runbook in "
-        "full; verify the supplied pins before caller-check or any filesystem writes.",
+        + str(root / "ORIENTATION.md"),
+        "First, read the prompt file in full and verify the supplied pins before caller-check or "
+        "any filesystem writes.",
         "Protocol-owned directory (not an evidence directory): " + str(directory) +
-        ". Leave it absent for Operator's strict-start-prepare; "
-        "do not create it or write caller/status/raw evidence there.",
+        ". Leave it absent: its config/ready/transfer slots belonged to the retired chain, so "
+        "do not create it and do not write caller/status/raw evidence there.",
         caller_line,
-        "For that historical path, use strict-config-request with pinned session observation, caller, runtime/workspace, task_deadline and final readiness.",
-        "For an explicitly registered strict-bootstrap attempt, publish your own S0 skill-read evidence at the "
-        "fixed S0 path first: the plan needs the Operator's independently pinned S0 handoff, and the Operator only "
-        "provisions after that evidence exists. strict-bootstrap plan before S0 is expected to fail with "
-        "bootstrap_operation_unverifiable; that failure is the pre-S0 state, not a reason to skip S0 or to stop. "
-        "Then use coordinator_launch.py strict-bootstrap plan "
-        "with the independently pinned --owner and --owner-sha256 from the S0 handoff. Follow its original-role "
-        "bounded pull/submit stages: caller, observation, fields and independent review, contract wait return, "
-        "real final readiness, independent readiness review, second wait return, controlled build, then S5. "
-        "Do not bypass that path with direct strict-config-request; retain the same owner pin on every S5 command. "
-        "pending returns to this original tool context; reconciliation_required never permits reproducing unknown work. "
-        "owner.json only registers the owner: pending/awaiting_arm waits for the original Operator's explicit arm, "
-        "not Coordinator recovery. Read-only poll expiry is pending with unverified current liveness; "
-        "a last verified heartbeat never confirms a commit or extends the attempt deadline. "
-        "Do not end the model turn while awaiting a bootstrap action or inject TUI input to resume either role.",
-        _strict_request_version_text(independently_reviewed=True, null_note=True),
-        "Wait/review only through strict-config-plan and its exact strict-config-wait command; do not scan or derive delivery paths.",
-        "Do not create a Run before the session gate; do not dispatch Workers before both first-dispatch gates.",
-        "Run the strict-start wait command as ONE uninterrupted foreground call: that waiter consumes gate-ready.json "
-        "and creates the Run itself. Never stop, interrupt or restart the waiter at the ready boundary to wait for the "
-        "Operator gate outside it; the Operator publishes that gate independently while the waiter is live. If the "
-        "waiter returns without creating a Run, reconcile the attempt instead of replaying it.",
-        "For a new registered attempt, Operator must prepare lifecycle v2 with an explicit execution mode before "
-        "strict-config-publish. Use the delivered activation config. created.json is not startup completion: "
-        "immediately follow the returned lifecycle pull/accept/complete actions for materials, original Operator "
-        "review, dispatch (or independently reviewed no-Worker readiness), and continuation. Publish continuation "
-        "before long Worker waiting; require current mode-specific runtime_ready before yielding. "
-        "The non-Agent sender observes and runs the existing monitor, never performs role review.",
+        "Startup authorisation is ONE start grant minted by the Operator (start-grant-mint) and handed "
+        "down once (start-grant-hand) with the objective, max_workers, repository scope and deadline. "
+        "The config-delivery and lifecycle chain (strict-config-*, strict-start-prepare/-plan/-wait/"
+        "-publish, the S0-S5 handshake and startup_handoff) is retired and its tools are deleted: do "
+        "not publish readiness_evidence, read a gate file or reconstruct that sequence, and do not "
+        "follow the lifecycle/registration steps this plan's legacy fields imply. Create the Run "
+        "under the grant with run-create --grant <grant_id> --strict-coordinator: the objective must "
+        "equal the approved one, one grant covers one Run, and a repeat from this same live "
+        "Coordinator returns the existing Run instead of a second one. Keep the grant Ref and the "
+        "original caller receipt with the Run evidence. The grant is recorded, not yet enforced "
+        "(START_GRANT_REQUIRED is false), so it authorises the Run without proving anything it does "
+        "not approve.",
+        "Do not create a Run before the Operator hands down the grant, and do not dispatch Workers "
+        "before the Run exists. An uncertain create result is reconciled against the grant and the "
+        "Run list, never replayed.",
         "Worker planning must use coordinator_launch.py worker-plan --request <absolute JSON> --request-sha256 <sha256>; protocol: " + worker_protocol + ".",
         "Keep objective/authority/max_workers/deadline/writable roots from the reviewed task_source and gates; do not reinterpret recovery notes.",
     ]
@@ -281,27 +242,17 @@ def strict_plan(plan, *, registered_bootstrap=False, reviewed_inputs=None, helpe
     plan["prompt_fragment"] += (
         " Verified helper entry (use this absolute path, not the target repository's cwd): "
         + shlex.join([sys.executable, "-B", str(root / "coordinator_launch.py")])
-        + ". Request schema and delivery protocol: "
-        + str(root / "coordinator-strict-start.md")
-        + ". Fixed startup delivery layout: " + json.dumps(delivery) + ". After final readiness, "
-        "use strict-config-request --input <reviewed-input> --input-sha256 <pin> --execute "
-        "to publish request_path from pinned session_observation, caller, runtime/workspace, "
-        "task_deadline and final readiness. "
-        + _strict_request_version_text(independently_reviewed=True, null_note=True) + " "
-        "Leave strict-start absent. Operator runs strict-start-prepare with only your request pin, "
-        "then strict-config-review approve/reject; never copy/edit/expand readiness_evidence. "
+        + ". Startup authorisation is one start grant minted by the Operator and handed down once; "
+        "create the Run with run-create --grant <grant_id> --strict-coordinator from this live "
+        "Coordinator. The request/publication/transfer slots this plan still names are legacy "
+        "artefacts of the retired chain: leave them absent, do not publish a request for them and "
+        "do not wait on a gate file. "
         "Run objective comes verbatim from the business task_source, never a recovery substep. "
         "Do not infer authorization from that task file. Never handwrite coordinator identity: provider session "
         "is not caller.paneKey, and terminal incarnation is not the full processIncarnation. "
-        "Use task_deadline=null when no whole-task deadline was authorized. The independent "
-        "handshake_timeout_seconds defaults to 900 seconds capped by any explicit task_deadline; "
-        "Worker timeout_ms=90000 means 90 seconds for Worker startup only, not this handshake. "
-        "Review and pin the generated request; never extend an old request's deadline. "
-        "Use strict-config-plan --request <request_path> --request-sha256 <your pinned hash>, "
-        "then its exact wait_command; do not discover start.json by scanning directories or "
-        "requiring original evidence paths to equal snapshot paths. Review the returned config "
-        "and strict-start plan before any gate is issued; use its full wait_command without "
-        "deriving paths during the gate TTL. " + (
+        "Use task_deadline=null when no whole-task deadline was authorized. "
+        "Worker timeout_ms=90000 means 90 seconds for Worker startup only, not a startup deadline. "
+        " " + (
         "After startup, end model turns only with the TUI still alive and the continuation or "
         "dependency wakeup durably recorded. Continuation helper: " +
         str(root / "coordinator_tui_continue.py") + "."
