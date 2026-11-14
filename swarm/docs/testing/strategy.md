@@ -122,7 +122,7 @@ symlink/hardlink、时间戳伪造、schema 降级、跨 owner 复用回执、�
 **跑法.** 同 L2。
 
 **门禁 G3.** 任何契约字段集变化，必须同时改动（a）实现（b）L3 用例（c）对应
-`.md` 契约文档（如 `coordinator-strict-start.md`、`strict-bootstrap-protocol.md`）。
+`.md` 契约文档（如 `docs/design/start-grant.md`、`coordinator-worker-plan.md`）。
 只改实现的提交视为未通过门禁。
 
 ### L4 · 编排

@@ -58,27 +58,27 @@ UTF-8 `agent_args` 超过原生 RPC 的 **16 KiB** 上限时，两个规划入�
    保存完整 CLI JSON 为初始 caller 回执，Operator 独立固定原始 hash；历史 result-only
    仍可读取，但新回执无需手工提取 `result`。没有 proof 即停止，
    不用 `--from`、环境变量复制或旧日志补证。
-2. 大段规则输出前，Operator 用观察器 `--save-startup-anchor` 固定原生启动证据；
-   新 v2 契约可在 observation 引用其 path/hash，后续仍重查实时身份和实际配置。
-   完成 bootstrap 规则、原生 thread.started/实际配置和工具核验后发布 readiness；
-   **保持同一个 exec 进程运行**，按授权期限有界等待 Operator 的 session gate，不结束进程。
-3. 新启动按 [确定性启动握手](coordinator-strict-start.md) 准备固定配置与完整绝对命令：
-   Coordinator 固定自己的期望请求，用 `strict-config-plan` / `strict-config-wait`
-   在原 exec 进程内等待。Operator 只传 request pin 执行 `strict-start-prepare`，
-   独立审查产物并记录 `strict-config-review` approve 后用
-   `strict-config-publish --execute` 原子发布准确配置 pin。接收器验证源→快照映射和
-   原请求绑定，返回配置和计划供 Coordinator 审查；不要求源路径等于快照路径，不创建 Run。
+2. 大段规则输出前，Operator 用观察器 `--save-startup-anchor` 固定原生启动证据，后续观察可引用其
+   path/hash，仍须重查实时身份和实际配置。完成规则读取、原生 thread.started/实际配置和工具核验后，
+   **保持同一个 exec 进程运行**，等待 Operator 投递启动授权，不结束进程。
+3. 启动授权是 Operator 签发一次的 start grant（`start-grant-mint`），并由 `start-grant-hand` 把
+   `grant_id` 与记录 Ref 向下投递一次。协调者在同一 exec 进程内执行
+   `orca orchestration run-create --objective <批准值> --grant <grant_id> --strict-coordinator`：
+   服务端在同一事务内校验该 grant（objective 必须等于批准值、一个 grant 只覆盖一个 Run），
+   同一 live Coordinator 重复提交返回既有 Run 而不是第二个，结果未知时按 grant 与 Run 清单对账、不重放。
+   **没有** 需要等待的 config 投递、ready 门或 `strict-start-*` waiter：`strict-config-*`、
+   `strict-start-prepare/-plan/-wait/-publish`、S0–S5 握手与 `startup_handoff` 已随旧握手删除，
+   不要重建那条链，也不要凭空找 gate 文件。`START_GRANT_REQUIRED` 仍为 false，这条 grant 是
+   **被记录的授权**而不是被强制执行的 gate；不得据它声称任何它未批准的内容。
    不自写目录扫描器，也不结束 exec 回合等待终端输入；终端文本不是可靠 follow-up 通道。
-   Coordinator 审查后进入 `strict-start-wait --execute`，Operator 审查并固定其 ready 后才
-   `strict-start-publish --execute`。新契约默认 v2/1800s/180s，旧契约不改写；waiter 连续校验/创建/读回，
-   不在 gate TTL 内插入模型轮次。以下只读诊断命令保留，不再作为模型分步创建的推荐路径：
+   以下只读诊断命令保留，不再作为模型分步创建的推荐路径：
 
    ```text
    python3 -B coordinator_launch.py strict-session-check --contract /absolute/contract.json --contract-sha256 <hash> --receipt /absolute/operator-session.json --receipt-sha256 <hash> --caller-receipt /absolute/initial-caller.json --caller-sha256 <hash>
    ```
 
    此检查比较初始与当前启动身份，前后两次实时校验 caller，并检查 Operator 回执仍有效；
-   不创建 Run，不是可转移凭据。新握手由同一个 Coordinator 的助手直接调用 strict run-create。
+   不创建 Run，不是可转移凭据。创建 Run 走 `run-create --grant <grant_id> --strict-coordinator`；
    runtime 在创建时仍重新校验真实 caller，不能复用检查结果替代 proof。
 4. 使用已授权写根中的精确 Run 归档。原进程不能靠 resume 增加写根；需要其他写根就
    停止并报告，不能扩大权限。首派发前仍完成既有 Operator/Coordinator 两道归属门，
