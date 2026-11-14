@@ -61,12 +61,14 @@ UTF-8 `agent_args` 超过原生 RPC 的 **16 KiB** 上限时，两个规划入�
 2. 大段规则输出前，Operator 用观察器 `--save-startup-anchor` 固定原生启动证据，后续观察可引用其
    path/hash，仍须重查实时身份和实际配置。完成规则读取、原生 thread.started/实际配置和工具核验后，
    **保持同一个 exec 进程运行**，等待 Operator 投递启动授权，不结束进程。
-3. 启动授权是 Operator 签发一次的 start grant（`start-grant-mint`），并由 `start-grant-hand` 把
-   `grant_id` 与记录 Ref 向下投递一次。协调者在同一 exec 进程内执行
+3. 启动授权是 Operator 签发一次的 start grant（`orca orchestration start-grant-mint`），并由**助手**
+   `coordinator_launch.py start-grant-hand --record <record> --to <handle>` 把 `grant_id` 与记录 Ref
+   向下投递一次（`start-grant-hand` 是 `coordinator_launch.py` 的子命令，不是 Orca CLI 动词）。
+   协调者在同一 exec 进程内执行
    `orca orchestration run-create --objective <批准值> --grant <grant_id> --strict-coordinator`：
    服务端在同一事务内校验该 grant（objective 必须等于批准值、一个 grant 只覆盖一个 Run），
    同一 live Coordinator 重复提交返回既有 Run 而不是第二个，结果未知时按 grant 与 Run 清单对账、不重放。
-   **没有** 需要等待的 config 投递、ready 门或 `strict-start-*` waiter：`strict-config-*`、
+   **没有** 需要等待的 startup config 投递、startup ready 门或 `strict-start-*` waiter（首派归属门不在此列，见第 4 步）：`strict-config-*`、
    `strict-start-prepare/-plan/-wait/-publish`、S0–S5 握手与 `startup_handoff` 已随旧握手删除，
    不要重建那条链，也不要凭空找 gate 文件。`START_GRANT_REQUIRED` 仍为 false，这条 grant 是
    **被记录的授权**而不是被强制执行的 gate；不得据它声称任何它未批准的内容。

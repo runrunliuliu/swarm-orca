@@ -103,7 +103,8 @@ Operator 生命周期阶段、bootstrap 单侧准入。
 
 **测什么.** 跨进程/跨角色的**文件与回执契约**：schema 版本与字段集、候选/最终发布的
 双 pin、原子发布与 `fsync` 语义、authority bundle 的版本与不可变、
-strict-config request/ready/review 顺序、continuation-ref 与 checkpoint head 的
+start grant 的记录形状与不可变发布（mint/show/revoke、helper hand/state）、
+grant 绑定的 run-create 重放/拒绝、continuation-ref 与 checkpoint head 的
 归属、以及“不得静默升级/回退”的拒绝面。
 
 - 代表实现（截至 2026-11-13，旧握手的 `bootstrap_submission` / `coordinator_strict_*` 已删除）：

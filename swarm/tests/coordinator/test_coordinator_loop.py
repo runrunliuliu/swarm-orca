@@ -10,8 +10,9 @@ class LoopTests(unittest.TestCase):
         for phase in ("strict-bootstrap", "strict-tui-bootstrap"):
             text = phase_contract(phase)
             self.assertNotIn("input schema v3", text)
-            for rule in ("start grant", "start-grant-mint", "start-grant-hand",
-                         "run-create --grant", "START_GRANT_REQUIRED",
+            for rule in ("start grant", "orca orchestration start-grant-mint",
+                         "coordinator_launch.py start-grant-hand", "run-create --grant",
+                         "START_GRANT_REQUIRED",
                          "never replace the business objective with a recovery substep"):
                 with self.subTest(phase=phase, rule=rule):
                     self.assertIn(rule, text)

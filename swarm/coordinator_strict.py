@@ -153,8 +153,10 @@ def strict_bootstrap_prompt(plan, root=None):
         ". Leave it absent: its config/ready/transfer slots belonged to the retired chain, so "
         "do not create it and do not write caller/status/raw evidence there.",
         caller_line,
-        "Startup authorisation is ONE start grant minted by the Operator (start-grant-mint) and handed "
-        "down once (start-grant-hand) with the objective, max_workers, repository scope and deadline. "
+        "Startup authorisation is ONE start grant minted by the Operator (orca orchestration "
+        "start-grant-mint) and handed down once by the helper (coordinator_launch.py start-grant-hand "
+        "--record <record> --to <handle>) with the objective, max_workers, repository scope and "
+        "deadline. "
         "The config-delivery and lifecycle chain (strict-config-*, strict-start-prepare/-plan/-wait/"
         "-publish, the S0-S5 handshake and startup_handoff) is retired and its tools are deleted: do "
         "not publish readiness_evidence, read a gate file or reconstruct that sequence, and do not "
