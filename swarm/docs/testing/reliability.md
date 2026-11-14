@@ -375,9 +375,15 @@ start grant 的断言不写在这里，写在设计文档自己那一节：
 | spawn 计数与范围 | `orca/src/main/runtime/orchestration/start-grant-spawn.test.ts` | 12 例（两处插入点、含收养路径） |
 | Python mint/hand/state | `swarm/tests/core/test_start_grant.py` | 14 例 |
 
-**未验收**：任何 live Run、任何真实 provider、`START_GRANT_REQUIRED` 打开后的迁移行为。上面每一行都是
-离线信号；"第 9 个 Worker 被拒且没有终端进程"这类断言在离线层只能证明"没有请求创建终端"，真实进程计数
-必须另做 live 观察。本文其它章节的 strict bootstrap 观测点仍然有效，但它们描述的实现路径已被
+**live 进展（2026-11-14，定向）**：在 `orcad buildId dc15becfaf9c` 上跑过一次 grant 切片——mint、
+hand、`strict-caller-check`、grant 绑定 `run-create`、同 grant 重放（`effectsApplied:false`、同一 Run）、
+一个 Worker spawn（grant 投影 `workers{active:0,max:4}`）、撤销后再 spawn 被 `start_grant_revoked` 拒绝。
+报告与原始读数在部署方归档，**不是** §2 的完整核心 suite。
+
+**仍未验收**：`START_GRANT_REQUIRED` 打开后的迁移行为、deadline 自然过期、
+`phantom{intent-without-output}` 投影、上限打满时的真实进程计数。上面每一行仍是离线信号；"第 9 个
+Worker 被拒且没有终端进程"这类断言在离线层只能证明"没有请求创建终端"，真实进程计数必须另做 live 观察。
+本文其它章节的 strict bootstrap 观测点仍然有效，但它们描述的实现路径已被
 [start grant](../../docs/design/start-grant.md) 取代（协议正文的弃用横幅写明了范围）。
 
 <a id="bootstrap-regressions"></a>
