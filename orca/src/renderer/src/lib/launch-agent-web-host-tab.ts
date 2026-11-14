@@ -11,6 +11,7 @@ import type { Tab } from '../../../shared/tab-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { AgentPromptDelivery } from '../../../shared/agent-session-host-authority'
 import { translate } from '@/i18n/i18n'
+import { replaceWorktreeSelectorNotFoundCode } from '@/lib/worktree-selector-not-found-notice'
 import { toAgentLaunchPreferences } from '../../../shared/agent-launch-preferences'
 
 function removeStaleLocalAgentTabsForWebHostLaunch(worktreeId: string): void {
@@ -109,12 +110,14 @@ export function launchAgentInWebHostTab(args: {
     removeStaleLocalAgentTabsForWebHostLaunch(worktreeId)
     if (outcome.status === 'failed') {
       toast.error(
-        outcome.message ||
-          translate(
-            'auto.lib.launch.agent.in.new.tab.11cce5cc77',
-            'Could not launch {{value0}} in a new terminal.',
-            { value0: agent }
-          )
+        replaceWorktreeSelectorNotFoundCode(
+          outcome.message ||
+            translate(
+              'auto.lib.launch.agent.in.new.tab.11cce5cc77',
+              'Could not launch {{value0}} in a new terminal.',
+              { value0: agent }
+            )
+        )
       )
       return { delivered: false, failureNotified: true }
     }
