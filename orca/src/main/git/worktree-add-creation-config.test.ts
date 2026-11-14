@@ -76,7 +76,7 @@ describe('addWorktree', () => {
           '/repo-feature',
           'refs/remotes/origin/main'
         ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ],
       [
         [
@@ -103,7 +103,7 @@ describe('addWorktree', () => {
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [
         ['worktree', 'add', '/repo-feature', 'feature/test'],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ]
     ])
   })
@@ -124,7 +124,7 @@ describe('addWorktree', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
       ['-c', 'core.longpaths=true', 'worktree', 'add', 'C:\\repo-feature', 'feature/test'],
-      { cwd: 'C:\\repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+      { cwd: 'C:\\repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
     )
   })
 
@@ -146,7 +146,12 @@ describe('addWorktree', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
       ['-c', 'core.longpaths=true', 'worktree', 'add', 'C:\\repo-feature', 'feature/test'],
-      { cwd: 'C:\\repo', wslDistro: 'Ubuntu', timeout: WORKTREE_ADD_TIMEOUT_MS }
+      {
+        cwd: 'C:\\repo',
+        wslDistro: 'Ubuntu',
+        timeout: WORKTREE_ADD_TIMEOUT_MS,
+        keepRunningOnTimeout: true
+      }
     )
   })
 
@@ -167,7 +172,12 @@ describe('addWorktree', () => {
 
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
       ['worktree', 'add', '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo-feature', 'feature/test'],
-      { cwd: repoPath, wslDistro: 'Ubuntu', timeout: WORKTREE_ADD_TIMEOUT_MS }
+      {
+        cwd: repoPath,
+        wslDistro: 'Ubuntu',
+        timeout: WORKTREE_ADD_TIMEOUT_MS,
+        keepRunningOnTimeout: true
+      }
     )
   })
 
@@ -183,7 +193,7 @@ describe('addWorktree', () => {
 
       expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['worktree', 'add', '/repo-feature', 'feature/test'],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       )
     }
   )
@@ -201,7 +211,10 @@ describe('addWorktree', () => {
     const worktreeAddCall = gitExecFileAsyncMock.mock.calls.find(
       ([argv]) => Array.isArray(argv) && argv.includes('worktree') && argv.includes('add')
     )
-    expect(worktreeAddCall?.[1]).toMatchObject({ timeout: WORKTREE_ADD_TIMEOUT_MS })
+    expect(worktreeAddCall?.[1]).toMatchObject({
+      timeout: WORKTREE_ADD_TIMEOUT_MS,
+      keepRunningOnTimeout: true
+    })
     expect(WORKTREE_ADD_TIMEOUT_MS).toBeGreaterThan(0)
   })
 
@@ -228,7 +241,7 @@ describe('addWorktree', () => {
     expect(gitExecFileAsyncMock.mock.calls).toEqual([
       [
         ['worktree', 'add', '--no-track', '-b', 'feature/no-base', '/repo-feature'],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ],
       [['config', '--get', 'push.autoSetupRemote'], { cwd: '/repo-feature' }]
     ])
@@ -310,7 +323,7 @@ describe('addWorktree', () => {
           '/repo-feature',
           'refs/remotes/origin/main'
         ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ],
       [
         [
@@ -348,7 +361,7 @@ describe('addWorktree', () => {
           '/repo-feature',
           'refs/remotes/origin/main'
         ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ],
       [
         [
@@ -387,7 +400,7 @@ describe('addWorktree', () => {
           '/repo-feature',
           'refs/remotes/origin/main'
         ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ],
       [
         [
@@ -427,8 +440,11 @@ describe('addWorktree', () => {
           '/repo-feature',
           'refs/remotes/origin/main'
         ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
-      ]
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
+      ],
+      // Why: a real failure settles the branch Git may have left; neither probe reaches a config write.
+      [['rev-parse', '--verify', 'refs/heads/feature/test'], { cwd: '/repo' }],
+      [['rev-parse', '--verify', 'refs/remotes/origin/main^{commit}'], { cwd: '/repo' }]
     ])
   })
 
@@ -458,7 +474,7 @@ describe('addWorktree', () => {
         '/repo-feature',
         'refs/heads/main'
       ],
-      { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+      { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
     ])
   })
 

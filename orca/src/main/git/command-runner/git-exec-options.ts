@@ -21,6 +21,11 @@ export type GitExecOptions = {
   useConfiguredSshCommandForNetwork?: boolean
   terminationBarrier?: boolean
   captureWslLoginShellOutput?: boolean
+  /** Stop waiting at the deadline without killing the child.
+   *  Why: a killed mutation can delete what it was still writing (`git worktree add`), so the one
+   *  caller that owns a slow checkout asks for the deadline to end the wait alone. The
+   *  termination-barrier path (WSL) keeps killing: its barrier owns process-group teardown. */
+  keepRunningOnTimeout?: boolean
   /** Scheduler priority for this child; status is the safe default. */
   admissionTier?: GitAdmissionTier
 }

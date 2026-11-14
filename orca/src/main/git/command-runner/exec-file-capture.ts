@@ -15,6 +15,8 @@ type ExecFileCaptureOptions = Omit<ExecFileOptions, 'timeout'> & {
   onChildTerminated?: () => void
   admissionTier?: GitAdmissionTier
   createTimeoutError?: () => Error
+  /** Leave the child running once the deadline ends the wait; see GitExecOptions. */
+  keepRunningOnTimeout?: boolean
   /** Called once when the deadline — not an abort — is what ended the process. */
   onDeadlineKill?: () => void
 }
@@ -217,8 +219,15 @@ export function execFileCapture(
         if (settled || terminating) {
           return
         }
-        terminating = true
         const timeoutError = options.createTimeoutError?.() ?? new Error(`${command} timed out.`)
+        if (options.keepRunningOnTimeout && child) {
+          // Why: killing a mutation's child destroys what it is still writing — stop waiting only.
+          // The pipes stay attached on purpose: closing them would fail the child's next write.
+          child.unref()
+          finish(timeoutError)
+          return
+        }
+        terminating = true
         if (!child) {
           terminating = false
           finish(timeoutError)

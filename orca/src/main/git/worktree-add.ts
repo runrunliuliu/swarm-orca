@@ -4,10 +4,13 @@ import type {
   LocalBaseRefUpdateSuggestion
 } from '../../shared/worktree/base-ref-drift-types'
 import { windowsLongPathGitArgs } from '../../shared/windows-long-path-git-args'
+import { GitCommandTimeoutError } from './command-runner/git-command-timeout'
 import { withRepoRefMaintenancePaused } from './local-repo-ref-maintenance'
 import { gitExecFileAsync } from './runner'
 import { runWithGitReadCacheInvalidation } from './status'
 import { invalidateWslLinkedWorktreeGitRouting } from './wsl-linked-worktree-git-routing'
+import { deleteBranchLeftByFailedWorktreeAdd } from './worktree-add-failed-branch-cleanup'
+import { readWorktreeAddCompletedAfterDeadline } from './worktree-add-timeout-reconciliation'
 import {
   getLocalBaseRefUpdateSuggestionForWorktreeCreate,
   refreshLocalBaseRefForWorktreeCreate
@@ -224,6 +227,7 @@ async function performAddWorktree(
   // Why: enable long paths for this Windows checkout without changing user Git config.
   const args = [...windowsLongPathGitArgs(repoPath), 'worktree', 'add']
   let effectiveBase: string | undefined
+  let startPoint: string | undefined = options.pinnedBaseOid
   if (noCheckout) {
     args.push('--no-checkout')
   }
@@ -245,14 +249,29 @@ async function performAddWorktree(
       localBaseRefUpdateSuggestion = baseContext.localBaseRefUpdateSuggestion
       // Why: a pinned caller already resolved this ref; creating at the pin keeps a moved ref from
       // retargeting the checkout, while the persisted base metadata below stays a ref.
-      args.push(options.pinnedBaseOid ?? effectiveBase)
+      const resolvedStart = options.pinnedBaseOid ?? effectiveBase
+      startPoint = resolvedStart
+      args.push(resolvedStart)
     }
   }
+  const addTimeoutMs = resolveWorktreeAddTimeoutMs()
   try {
     await gitExecFileAsync(args, {
       ...gitExecOptions(repoPath, options),
       // Why: resolve per call — hoisting this to a module const would freeze the override at import.
-      timeout: resolveWorktreeAddTimeoutMs()
+      timeout: addTimeoutMs,
+      // Why: killing a deadlined add makes Git delete the checkout it is still writing, so the
+      // deadline must end the wait alone and leave the process to finish.
+      keepRunningOnTimeout: true
+    })
+  } catch (error) {
+    await settleFailedWorktreeAdd(error, {
+      repoPath,
+      worktreePath,
+      branch,
+      startPoint,
+      timeoutMs: addTimeoutMs,
+      options
     })
   } finally {
     // Git may have written the target's `.git` marker even when it reports a late
@@ -278,4 +297,42 @@ async function performAddWorktree(
     ...(localBaseRefRefresh ? { localBaseRefRefresh } : {}),
     ...(localBaseRefUpdateSuggestion ? { localBaseRefUpdateSuggestion } : {})
   }
+}
+
+type FailedWorktreeAddContext = {
+  repoPath: string
+  worktreePath: string
+  branch: string
+  /** The commit this create asked Git to start from; a branch that moved off it holds work. */
+  startPoint: string | undefined
+  timeoutMs: number
+  options: AddWorktreeOptions
+}
+
+/**
+ * Decide what a failed `git worktree add` left behind: rethrow, adopt, or clear its branch.
+ *
+ * Why a timeout is not a failure: the deadline only ended our wait, so Git is still filling the
+ * checkout and deleting it here would destroy the very workspace the user asked for. It is reported
+ * unresolved instead, and the next list/create reconciles it.
+ */
+async function settleFailedWorktreeAdd(
+  error: unknown,
+  context: FailedWorktreeAddContext
+): Promise<void> {
+  const { repoPath, worktreePath, branch, startPoint, timeoutMs, options } = context
+  if (!(error instanceof GitCommandTimeoutError)) {
+    if (!options.checkoutExistingBranch) {
+      await deleteBranchLeftByFailedWorktreeAdd(repoPath, branch, startPoint, error, options)
+    }
+    throw error
+  }
+  console.warn(
+    `[git/worktree] git worktree add exceeded ${timeoutMs}ms for "${worktreePath}"; it may still complete. ` +
+      'Set ORCA_WORKTREE_ADD_TIMEOUT_MS on the host that runs Git for a slower checkout.'
+  )
+  if (await readWorktreeAddCompletedAfterDeadline(repoPath, worktreePath, branch, options)) {
+    return
+  }
+  throw error
 }
