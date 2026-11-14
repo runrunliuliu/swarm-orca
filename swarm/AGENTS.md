@@ -8,7 +8,7 @@
 | 要解决什么 | 读哪 |
 | --- | --- |
 | 任务身份、工作区隔离、何时不召集 Agent、三条互斥执行路径 | [entry paths](docs/entry-paths.md) |
-| strict 启动、握手、阶段与 owner、槽位 | [protocol](strict-bootstrap-protocol.md)、[strict start](coordinator-strict-start.md)、[operator prepare](operator-prepare.md)、[runbook](operator-runbook.md) |
+| strict 启动授权、阶段与 owner、槽位 | [start grant](docs/design/start-grant.md)：现行授权是一次 mint，`run-create --grant` 与每次 `worker-start` 在服务端事务内校验（实现状态只见该文 §4）；[operator prepare](operator-prepare.md) 只负责材料、Operator 身份与 native plan。旧握手的 [protocol](strict-bootstrap-protocol.md) 与 [strict start](coordinator-strict-start.md) 已归档、工具已删除；`operator-runbook.md` 已删除 |
 | 符号在哪一行 | [ORIENTATION.md](ORIENTATION.md)：符号 → 文件 + 行区间，`generate_orientation.py --check` 与代码不一致即失败 |
 | 能力与入口总表、边界 | [README.md](README.md) |
 | 测试与验收口径 | [reliability](docs/testing/reliability.md)、[strategy](docs/testing/strategy.md) |

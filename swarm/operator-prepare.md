@@ -256,7 +256,7 @@ pin、必要会话 ID、有效设置摘要和信任边界，不输出 hook 原�
 ### 3.1 bootstrap registration（已随旧握手删除）
 
 `strict-bootstrap-registration` 采集入口与 `bootstrap_registration.py` 已删除：现行启动授权是一次
-[start grant](design/start-grant.md) 的 mint，不再有 attempt 级 registration 文件。
+[start grant](docs/design/start-grant.md) 的 mint，不再有 attempt 级 registration 文件。
 仍保留的是**运行时证据的解析方式**（`bootstrap_identity.py`，供 Operator 观察与 session 绑定使用）：
 它按 `agent-hooks/last-status.json` 里 `tabId:leafId` 的 `providerSession{key:'session_id',id,transcriptPath}`
 与 `launchTokenHash`，叠加 `/proc` 的 `pid`/`start`/`boot`/`uid` 做校验，从不看 transcript 文件名，
