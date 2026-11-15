@@ -468,7 +468,7 @@ structured wire、liveness verdict、pty exit）→ 规定**只有 pty exit / di
 | CLI | `incident acceptance declare\|list\|show\|resolve` | M5 | `src/cli/specs/incident.ts` |
 | CLI | `incident export [--since] [--limit] [--json]`（NDJSON：`meta/incident/pane_clock/tool_failure/end`；判断的机器输入） | **M8-1** | `src/cli/handlers/incident-export.ts`、`src/main/incidents/incident-export.ts` |
 | CLI | `incident tool-failures`（事实只读：provider 覆盖 + `dropped`；无码表/窗口/写开关） | **M8-3** | `src/main/incidents/incident-tool-failures.ts` |
-| CLI | `incident archive [--drain]`（证据 excerpt 的 staging/归档状态；无归档根明示 NOT CONFIGURED） | **M8-4** | `src/cli/handlers/incident-archive.ts`、`src/main/incidents/incident-archive.ts` |
+| CLI | `incident archive [--drain] [--retry-incomplete <id> [--pointer <n>]]`（证据 excerpt 的 staging/归档状态；无归档根明示 NOT CONFIGURED；`--retry-incomplete` 是 `archive_incomplete` 的显式追加式修复，可与 `--drain` 同调） | **M8-4 / G5** | `src/cli/handlers/incident-archive.ts`、`src/main/incidents/incident-archive.ts` |
 | 判断 | `incident-triage` skill（读 export、按稳定实体聚类、出报告与 `decide` 命令建议，从不产出 `confirmed`） | **M8** | `swarm/skills/incident-triage/` |
 | CLI | `incident mirror [--json]`（三态 + unsynced，只读） | **M7** | `src/cli/handlers/incident-mirror.ts` |
 | 计数与推送 | `incident-counts.ts` 聚合 + keyed trailing-edge coalescer（100 ms 静默窗 / 500 ms 饥饿上限，emit 时读最新值） | **M7-A** | `src/main/ipc/incident-counts-push.ts` |
@@ -591,7 +591,7 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 30 | UI 视觉/e2e 验收（截图、真实窗口） | **缺口** | 只有组件测试 |
 | 31 | `incident export`（NDJSON 五种记录；`meta` 带 coverage/`toolProviders`/mirror 三态，截断在 `end` 显式） | **已实现（M8-1）** | §12；提交 `7be087bc`（覆盖块补齐 `c01cfae9`） |
 | 32 | 事实表 `incident_pane_clocks`（M8-2）/ `incident_tool_failures`（M8-3，7 天 + 20k 行上限、拒收计 `dropped`） | **已实现（M8-2/M8-3）** | 提交 `7472ebb0`、`1428767b`；incidents `user_version 6 → 8` |
-| 33 | 证据 excerpt 本地 staging → 归档状态机（`staged/archive_pending/archived/archive_incomplete`，回读 sha256 相符才算 `archived`） | **已实现（M8-4）**，仅注入写者验证 | 提交 `c679133e`；归档根 `ORCA_INCIDENT_ARCHIVE_ROOT` |
+| 33 | 证据 excerpt 本地 staging → 归档状态机（`staged/archive_pending/archived/archive_incomplete`，回读 sha256 相符才算 `archived`；`archive_incomplete` 可经 `incident archive --retry-incomplete` 追加一条 `archive_pending` 回到 drain，无 UPDATE/DELETE） | **已实现（M8-4 + G5）**，仅注入写者验证 | 提交 `c679133e`、`8578a51e`；归档根 `ORCA_INCIDENT_ARCHIVE_ROOT` |
 | 34 | `incident-triage` skill + 输入契约/report 模板（判断在 agent 侧，`confirmed` 仍只由 R1 `decide` 产生） | **已实现（M8）** | `swarm/skills/incident-triage/`；提交 `6c06a669`；契约测试 `swarm/tests/core/test_incident_triage_skill.py` |
 
 `已实现` 只描述该能力在源码中存在，不表示已被本设计接通或经过 live 验收；v2 评审已纠正 3/4/5/6/10/11 的过高估计。

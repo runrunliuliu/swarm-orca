@@ -26,6 +26,7 @@ import type { IncidentRecord } from './incident-types'
 import {
   drainEvidenceArchive,
   readEvidenceArchiveState,
+  retryIncompleteArchive,
   stageIncidentEvidence,
   summarizeArchive
 } from './incident-archive'
@@ -199,5 +200,274 @@ describe('failure state is a distinction, not a delay', () => {
       archived: 1,
       durable: true
     })
+  })
+})
+
+/** Event-log rows for one incident, oldest first: the audit trail the retry path must only append to. */
+function eventStates(db: OpenIncidentsDatabase, incidentId = 'inc_1'): string[] {
+  return (
+    db.db
+      .prepare(
+        `SELECT state FROM incident_evidence_archive_events WHERE incident_id = ? ORDER BY id ASC`
+      )
+      .all(incidentId) as { state: string }[]
+  ).map((row) => row.state)
+}
+
+describe('explicit retry for an incomplete pointer (G5)', () => {
+  /** Stage one excerpt, then make the drain record a `sha256_mismatch`. */
+  function mismatched(): { db: OpenIncidentsDatabase; userData: string; root: string; id: string } {
+    const { opened: database, userData } = pair()
+    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
+      record('inc_1')
+    )
+    const path = join(userData, 'transcript.jsonl')
+    writeFileSync(path, 'evidence body\n')
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [{ kind: 'transcript', path }],
+      userDataPath: userData,
+      now: NOW
+    })
+    const root = join(userData, 'archive')
+    const drained = drainEvidenceArchive({
+      db: database.db,
+      root,
+      now: NOW,
+      write: (target) => writeFileSync(target, 'tampered')
+    })
+    expect(drained).toMatchObject({ archived: 0, incomplete: 1 })
+    expect(readEvidenceArchiveState(database.db, 'inc_1')[0]).toMatchObject({
+      state: 'archive_incomplete',
+      error: 'sha256_mismatch'
+    })
+    return { db: database, userData, root, id: 'inc_1' }
+  }
+
+  it('appends one archive_pending event for a mismatch, and the next drain then archives it', () => {
+    const { db, root } = mismatched()
+    const before = eventStates(db)
+    expect(before).toEqual(['staged', 'archive_pending', 'archive_incomplete'])
+
+    const result = retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 1_000 })
+    expect(result).toMatchObject({ retried: 1, refused: 0 })
+    expect(result.pointers).toHaveLength(1)
+    expect(result.pointers[0]).toMatchObject({ pointerIndex: 0, code: 'retried', state: 'archive_pending' })
+
+    // Append-only: exactly one new event, carrying the same staging path/sha256/bytes with no error.
+    expect(eventStates(db)).toEqual([
+      'staged',
+      'archive_pending',
+      'archive_incomplete',
+      'archive_pending'
+    ])
+    const latest = readEvidenceArchiveState(db.db, 'inc_1')[0]
+    expect(latest).toMatchObject({ state: 'archive_pending', error: null, archivePath: null })
+    expect(latest.stagingPath).toBe(result.pointers[0].stagingPath)
+    expect(latest.sha256).toBe(result.pointers[0].sha256)
+    expect(latest.bytes).toBe(result.pointers[0].bytes)
+
+    // The ordinary drain publishes it: the retry only re-queues, it never archives by itself.
+    expect(drainEvidenceArchive({ db: db.db, root, now: NOW + 2_000 })).toMatchObject({
+      archived: 1,
+      remaining: 0
+    })
+    expect(readEvidenceArchiveState(db.db, 'inc_1')[0]).toMatchObject({
+      state: 'archived',
+      error: null
+    })
+  })
+
+  it('refuses a second retry after the first succeeded, appending nothing', () => {
+    const { db } = mismatched()
+    expect(retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 1 }).retried).toBe(1)
+    const afterFirst = eventStates(db)
+
+    const again = retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 2 })
+    expect(again).toMatchObject({ code: 'no_incomplete_pointer', retried: 0, refused: 1 })
+    expect(again.pointers[0]).toMatchObject({ code: 'already_pending', state: 'archive_pending' })
+    expect(eventStates(db)).toEqual(afterFirst)
+  })
+
+  it('refuses a retry on an archived pointer', () => {
+    const { opened: database, userData } = pair()
+    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
+      record('inc_1')
+    )
+    const path = join(userData, 'transcript.jsonl')
+    writeFileSync(path, 'evidence body\n')
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [{ kind: 'transcript', path }],
+      userDataPath: userData,
+      now: NOW
+    })
+    expect(
+      drainEvidenceArchive({ db: database.db, root: join(userData, 'archive'), now: NOW })
+    ).toMatchObject({ archived: 1 })
+    const before = eventStates(database)
+
+    const result = retryIncompleteArchive({ db: database.db, incidentId: 'inc_1', now: NOW + 1 })
+    expect(result).toMatchObject({ code: 'no_incomplete_pointer', retried: 0, refused: 1 })
+    expect(result.pointers[0]).toMatchObject({ code: 'already_archived', state: 'archived' })
+    expect(eventStates(database)).toEqual(before)
+  })
+
+  it('refuses a retry on a pointer that is only pending, and on one never staged', () => {
+    const { opened: database, userData } = pair()
+    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
+      record('inc_1')
+    )
+    const path = join(userData, 'transcript.jsonl')
+    writeFileSync(path, 'evidence body\n')
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [{ kind: 'transcript', path }],
+      userDataPath: userData,
+      now: NOW
+    })
+    const before = eventStates(database)
+
+    const pending = retryIncompleteArchive({ db: database.db, incidentId: 'inc_1', now: NOW + 1 })
+    expect(pending.pointers[0]).toMatchObject({ code: 'already_pending', state: 'archive_pending' })
+    expect(eventStates(database)).toEqual(before)
+
+    // An index that exists but is not incomplete, and one that does not exist at all, are different
+    // answers: `no_incomplete_pointer` vs `unknown_pointer`.
+    const wrongState = retryIncompleteArchive({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointerIndex: 0,
+      now: NOW + 2
+    })
+    expect(wrongState.pointers[0]).toMatchObject({ code: 'already_pending' })
+    const missingIndex = retryIncompleteArchive({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointerIndex: 7,
+      now: NOW + 3
+    })
+    expect(missingIndex).toMatchObject({ code: 'unknown_pointer', retried: 0, refused: 1 })
+    expect(missingIndex.pointers).toEqual([
+      {
+        incidentId: 'inc_1',
+        pointerIndex: 7,
+        code: 'unknown_pointer',
+        state: null,
+        stagingPath: null,
+        sha256: null,
+        bytes: null
+      }
+    ])
+    expect(eventStates(database)).toEqual(before)
+  })
+
+  it('refuses with staging_missing when the staged excerpt is gone, leaving the state untouched', () => {
+    const { db, userData } = mismatched()
+    const [latest] = readEvidenceArchiveState(db.db, 'inc_1')
+    rmSync(latest.stagingPath as string, { force: true })
+    const before = eventStates(db)
+
+    const result = retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 1 })
+    expect(result).toMatchObject({ retried: 0, refused: 1 })
+    expect(result.pointers[0]).toMatchObject({
+      code: 'staging_missing',
+      state: 'archive_incomplete'
+    })
+    expect(eventStates(db)).toEqual(before)
+    expect(readEvidenceArchiveState(db.db, 'inc_1')[0]).toMatchObject({
+      state: 'archive_incomplete',
+      error: 'sha256_mismatch'
+    })
+    void userData
+  })
+
+  it('retries every incomplete pointer by default, and only the named one with pointerIndex', () => {
+    const { opened: database, userData } = pair()
+    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
+      record('inc_1')
+    )
+    const first = join(userData, 'first.jsonl')
+    const second = join(userData, 'second.jsonl')
+    writeFileSync(first, 'first excerpt\n')
+    writeFileSync(second, 'second excerpt\n')
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [
+        { kind: 'transcript', path: first },
+        { kind: 'transcript', path: second }
+      ],
+      userDataPath: userData,
+      now: NOW
+    })
+    const mismatchBoth = () =>
+      drainEvidenceArchive({
+        db: database.db,
+        root: join(userData, 'archive'),
+        now: NOW,
+        write: (target) => writeFileSync(target, 'tampered')
+      })
+    mismatchBoth()
+    expect(readEvidenceArchiveState(database.db, 'inc_1').map((state) => state.state)).toEqual([
+      'archive_incomplete',
+      'archive_incomplete'
+    ])
+
+    const one = retryIncompleteArchive({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointerIndex: 1,
+      now: NOW + 1
+    })
+    expect(one).toMatchObject({ retried: 1, refused: 0 })
+    expect(one.pointers.map((entry) => [entry.pointerIndex, entry.code])).toEqual([[1, 'retried']])
+    expect(readEvidenceArchiveState(database.db, 'inc_1').map((state) => state.state)).toEqual([
+      'archive_incomplete',
+      'archive_pending'
+    ])
+
+    const all = retryIncompleteArchive({ db: database.db, incidentId: 'inc_1', now: NOW + 2 })
+    expect(all).toMatchObject({ retried: 1, refused: 1 })
+    expect(all.pointers.map((entry) => [entry.pointerIndex, entry.code])).toEqual([
+      [0, 'retried'],
+      [1, 'already_pending']
+    ])
+  })
+
+  it('refuses when nothing is incomplete at all, and appends nothing', () => {
+    const { opened: database, userData } = pair()
+    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
+      record('inc_1')
+    )
+    const before = eventStates(database)
+    const result = retryIncompleteArchive({ db: database.db, incidentId: 'inc_1', now: NOW })
+    expect(result).toMatchObject({ retried: 0, refused: 0, pointers: [] })
+    expect(eventStates(database)).toEqual(before)
+    void userData
+  })
+
+  it('is visible to a second connection only after the append commits (IMMEDIATE transaction)', () => {
+    const { db } = mismatched()
+    const second = openIncidentsDatabase(join(directories[0], 'incidents', 'incidents.db'))
+    opened.push(second)
+    expect(retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 1 }).retried).toBe(1)
+    // The other connection sees the committed pending event and therefore refuses — a second
+    // concurrent caller cannot append a duplicate.
+    const fromOther = retryIncompleteArchive({
+      db: second.db,
+      incidentId: 'inc_1',
+      now: NOW + 2
+    })
+    expect(fromOther.pointers[0]).toMatchObject({ code: 'already_pending' })
+    expect(eventStates(second)).toEqual([
+      'staged',
+      'archive_pending',
+      'archive_incomplete',
+      'archive_pending'
+    ])
   })
 })

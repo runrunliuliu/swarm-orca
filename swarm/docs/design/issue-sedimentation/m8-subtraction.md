@@ -232,12 +232,18 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 `incident archive --drain` 兜底。实现见 `c679133e`（M8-4）；目录 0700（自有目录链逐个校验）与
 temp + fsync + rename 的发布屏障见 `8578a51e`。
 
+**已定并已实现**：`archive_incomplete` 有一条显式修复路径——
+`orca incident archive --retry-incomplete <incident-id> [--pointer <n>]`（可与 `--drain` 同一次调用）。
+范围就是字面意思：只对**latest state 为 `archive_incomplete`** 的 pointer 生效（`staged` / `archive_pending` /
+`archived` 一律拒绝并给 code）；只有本地 staging excerpt 仍**读得到**时才受理（真读一次文件，不是 exists
+猜测）；受理后**追加**一条 `archive_pending` 事件（携带同一个 staging 路径 / `sha256` / `bytes`，`error` 为 null），
+**不改任何既有行**、不改状态词汇——追加的事件本身就是审计记录。剩下的限制照实写：staging 文件丢了
+就修不了（只能重新上报一条 incident）；坏掉的归档目标文件不删，下一次 drain 用
+0600 temp + fsync + rename 直接覆盖它（发布失败就仍然停在 `archive_pending`）。不重新基准 hash：
+staging 内容若在失败后被改过，下一次 drain 会再次记 `sha256_mismatch`，不会默认接受新字节。
+
 仍待拍板：
 
-1. **`sha256_mismatch` 的修复路径**：现在它是终态——append-only 记 `archive_incomplete`，之后的 drain
-   不再重试。产品层**没有**修复命令，本里程碑也没加（评审建议过的形态是带校验的
-   `incident archive --retry-incomplete`，但未实现）。要不要加一条显式修复路径，还是接受“人工清掉
-   坏文件后重新上报”，是产品决定。
 3. **decision 的报告指针**：是否加可空 `report_pointer` 列，还是只把 `report:<sha256>` 写进 `--reason`。
 4. **`incident wait` 保留为事实**（已实现）；**triage 不直接 `decide`**（只出报告 + 命令建议，`watch`/`duplicate` 也不自动 apply）。
 6. **工具失败保留期**（已实现 7 天 + 20k 行上限）与 `dropped` 预算；是否接受 `--min-age` 查询过滤。

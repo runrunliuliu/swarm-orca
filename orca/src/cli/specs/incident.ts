@@ -141,16 +141,25 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
   {
     path: ['incident', 'archive'],
     group: 'diagnostic',
-    summary: 'Show evidence-archive state (and optionally drain staged excerpts)',
-    usage: 'orca incident archive [--drain] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'drain'],
-    examples: ['orca incident archive', 'orca incident archive --drain --json'],
+    summary: 'Show evidence-archive state (optionally drain staged excerpts, or re-queue a failed one)',
+    usage:
+      'orca incident archive [--drain] [--retry-incomplete <incident-id> [--pointer <n>]] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'drain', 'retry-incomplete', 'pointer'],
+    examples: [
+      'orca incident archive',
+      'orca incident archive --drain --json',
+      'orca incident archive --retry-incomplete inc_abc123 --pointer 0 --drain'
+    ],
     notes: [
       'The incident row stores pointers only. A bounded excerpt is written to local staging and moved to the archive by an asynchronous runtime drain.',
       'durable is never inferred: a pointer is archived only after the read-back sha256 matches. Until then it is archive_pending and must not be described as archived.',
       'The archive root is deployment input (ORCA_INCIDENT_ARCHIVE_ROOT). Unset means this host has no archive: excerpts stay pending and the command says NOT CONFIGURED.',
       'Crash rows carry no transcript pointer by design; their unknown boundary stays empty rather than being filled with a fabricated excerpt.',
-      '--drain performs one synchronous pass for a host whose desktop app is not running. It is a maintenance aid, not the normal path.'
+      '--drain performs one synchronous pass for a host whose desktop app is not running. It is a maintenance aid, not the normal path.',
+      '--retry-incomplete <incident-id> is the explicit repair: it APPENDS a new archive_pending event for a pointer whose latest state is archive_incomplete, and nothing else. No row is updated or deleted — the appended event is the audit trail — and the state vocabulary is unchanged. Omitted --pointer retries every incomplete pointer of that incident; --pointer <n> narrows it to one index.',
+      'A retry is refused, with a code you can read in the output, when the pointer is not incomplete (already pending / already archived / not staged), when the index does not exist, or when the local staging excerpt can no longer be read. A missing staging file is not repairable this way: re-queueing it would promise a publish no drain can perform.',
+      'The bad archive file is not deleted: the drain publishes through a 0600 temp file, fsync and rename, so the next pass overwrites the target. If that publication fails, the pointer stays archive_pending.',
+      '--retry-incomplete opens the store read-write; combine it with --drain to re-queue and republish in one command. --pointer without --retry-incomplete is a usage error.'
     ]
   },
   {

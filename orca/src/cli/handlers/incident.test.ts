@@ -18,6 +18,7 @@ import { recordPtyExitIncidentTo } from '../../main/incidents/incident-writer'
 import { samplePaneClocks } from '../../main/incidents/incidents-stall-sampler'
 import { recordToolFailure } from '../../main/incidents/incident-tool-failures'
 import { listActiveWaits } from '../../main/incidents/incident-wait'
+import { drainEvidenceArchive } from '../../main/incidents/incident-archive'
 import {
   declareAcceptanceRule,
   openAcceptanceStop,
@@ -680,6 +681,119 @@ describe('incident archive (M8-4)', () => {
       }
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  /** Report one excerpt, then let a tampering drain record the `sha256_mismatch` state. */
+  async function mismatchedExcerpt(): Promise<{ incidentId: string; root: string }> {
+    const evidence = join(userData, 'agent.log')
+    writeFileSync(evidence, 'boom\n')
+    const reported = context(
+      'incident report',
+      { class: 'tool_error', code: 'x', evidence },
+      true
+    )
+    await INCIDENT_HANDLERS['incident report'](reported.ctx)
+    const { incidentId } = JSON.parse(reported.output.join('\n')) as { incidentId: string }
+    const root = mkdtempSync(join(tmpdir(), 'orca-incident-retry-root-'))
+    const database = openIncidentsDatabase(incidentsDatabaseFileFor(userData))
+    try {
+      const drained = drainEvidenceArchive({
+        db: database.db,
+        root,
+        now: Date.now(),
+        write: (target) => writeFileSync(target, 'tampered')
+      })
+      expect(drained).toMatchObject({ archived: 0, incomplete: 1 })
+    } finally {
+      database.db.close()
+    }
+    return { incidentId, root }
+  }
+
+  it('re-queues an incomplete pointer and publishes it in the same command', async () => {
+    const { incidentId, root } = await mismatchedExcerpt()
+    const previous = process.env.ORCA_INCIDENT_ARCHIVE_ROOT
+    process.env.ORCA_INCIDENT_ARCHIVE_ROOT = root
+    try {
+      const retried = context(
+        'incident archive',
+        { 'retry-incomplete': incidentId, drain: true },
+        true
+      )
+      await INCIDENT_HANDLERS['incident archive'](retried.ctx)
+      const payload = JSON.parse(retried.output.join('\n')) as {
+        counts: { archived: number; archive_incomplete: number }
+        drain: { archived: number; remaining: number }
+        retry: {
+          incidentId: string
+          code: string
+          retried: number
+          refused: number
+          pointers: { pointerIndex: number; code: string; state: string }[]
+        }
+      }
+      expect(payload.retry).toMatchObject({
+        incidentId,
+        code: 'retried',
+        retried: 1,
+        refused: 0
+      })
+      expect(payload.retry.pointers[0]).toMatchObject({
+        pointerIndex: 0,
+        code: 'retried',
+        state: 'archive_pending'
+      })
+      // Composed in one command: the appended pending row was drained by the same pass.
+      expect(payload.drain).toMatchObject({ archived: 1, remaining: 0 })
+      expect(payload.counts).toMatchObject({ archived: 1, archive_incomplete: 0 })
+
+      // A second retry is a no-op refusal: the pointer is archived now.
+      const again = context('incident archive', { 'retry-incomplete': incidentId }, true)
+      await INCIDENT_HANDLERS['incident archive'](again.ctx)
+      const againPayload = JSON.parse(again.output.join('\n')) as {
+        retry: { code: string; retried: number; refused: number; pointers: { code: string }[] }
+      }
+      expect(againPayload.retry).toMatchObject({
+        code: 'no_incomplete_pointer',
+        retried: 0,
+        refused: 1
+      })
+      expect(againPayload.retry.pointers[0].code).toBe('already_archived')
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ORCA_INCIDENT_ARCHIVE_ROOT
+      } else {
+        process.env.ORCA_INCIDENT_ARCHIVE_ROOT = previous
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('prints every refusal with its code, and says plainly that nothing was appended', async () => {
+    const evidence = join(userData, 'agent.log')
+    writeFileSync(evidence, 'boom\n')
+    const reported = context('incident report', { class: 'tool_error', code: 'x', evidence }, true)
+    await INCIDENT_HANDLERS['incident report'](reported.ctx)
+    const { incidentId } = JSON.parse(reported.output.join('\n')) as { incidentId: string }
+
+    // No archive root: the pointer is still archive_pending, so nothing may be appended.
+    const text = context('incident archive', { 'retry-incomplete': incidentId })
+    await INCIDENT_HANDLERS['incident archive'](text.ctx)
+    const output = text.output.join('\n')
+    expect(output).toContain(`Retry ${incidentId}: retried=0 refused=1`)
+    expect(output).toContain('already_pending')
+    expect(output).toContain('Nothing was appended')
+  })
+
+  it('rejects --pointer on its own and a non-numeric pointer as usage errors', async () => {
+    const alone = context('incident archive', { pointer: '0' })
+    await expect(INCIDENT_HANDLERS['incident archive'](alone.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
+    const bad = context('incident archive', { 'retry-incomplete': 'inc_missing', pointer: 'x' })
+    await expect(INCIDENT_HANDLERS['incident archive'](bad.ctx)).rejects.toMatchObject({
+      code: 'invalid_argument'
+    })
   })
 })
 

@@ -11,6 +11,11 @@
 //     is written only after a read-back hash matches. Until then the row reads `archive_pending` and
 //     `durable=false`.
 //
+// The drain only selects `archive_pending`, so an `archive_incomplete` row (mismatch, missing staging)
+// is terminal for it. `retryIncompleteArchive` is the one explicit way back: it appends a new
+// `archive_pending` event for a still-readable staging excerpt and lets the drain republish. It never
+// updates or deletes a row — the appended event is the audit trail.
+//
 // The archive root is deployment input (`ORCA_INCIDENT_ARCHIVE_ROOT`). Unset means "this host has no
 // archive": staging still happens, state stays pending, and the CLI says so — it never pretends.
 
@@ -520,6 +525,215 @@ export function readEvidenceArchiveState(db: Database.Database, incidentId?: str
     error: row.error === null ? null : String(row.error),
     createdAt: Number(row.created_at)
   }))
+}
+
+/**
+ * Why an explicit retry of an `archive_incomplete` pointer was accepted or refused.
+ *
+ * `retried` is the only code that appends anything; every other code is a refusal that leaves the
+ * event log and the latest state exactly as they were. The codes are machine-readable on purpose:
+ * the CLI prints them and `--json` emits them, so a script can tell "nothing to repair" from
+ * "cannot be repaired".
+ */
+export type ArchiveRetryCode =
+  | 'retried'
+  | 'no_incomplete_pointer'
+  | 'unknown_pointer'
+  | 'already_pending'
+  | 'already_archived'
+  | 'not_staged'
+  | 'staging_missing'
+
+export type ArchiveRetryEntry = {
+  incidentId: string
+  pointerIndex: number
+  code: ArchiveRetryCode
+  /** The latest state this call saw; null when the pointer has no archive event yet. */
+  state: EvidenceArchiveState | null
+  stagingPath: string | null
+  sha256: string | null
+  bytes: number | null
+}
+
+export type ArchiveRetryResult = {
+  incidentId: string
+  /** The batch verdict: `retried` if anything was appended, else the no-op reason. */
+  code: 'retried' | 'no_incomplete_pointer' | 'unknown_pointer'
+  retried: number
+  refused: number
+  pointers: ArchiveRetryEntry[]
+}
+
+/**
+ * One IMMEDIATE transaction whose COMMIT sits inside the failure boundary, the same shape as
+ * `incident-store.ts`'s `runImmediate`: a shared connection can be left mid-transaction by a failed
+ * COMMIT, and a throw must not leave half a batch written.
+ */
+function runArchiveImmediate<T>(db: Database.Database, run: () => T): T {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const result = run()
+    db.exec('COMMIT')
+    return result
+  } catch (error) {
+    if (db.isTransaction) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        // The original error is what the caller needs.
+      }
+    }
+    throw error
+  }
+}
+
+function retryEntry(
+  row: Pick<EvidenceArchiveRow, 'incidentId' | 'pointerIndex' | 'stagingPath' | 'sha256' | 'bytes'>,
+  state: EvidenceArchiveState | null,
+  code: ArchiveRetryCode
+): ArchiveRetryEntry {
+  return {
+    incidentId: row.incidentId,
+    pointerIndex: row.pointerIndex,
+    code,
+    state,
+    stagingPath: row.stagingPath,
+    sha256: row.sha256,
+    bytes: row.bytes
+  }
+}
+
+/**
+ * Classify one latest state, and append the re-queueing event only for `archive_incomplete` whose
+ * staging excerpt is still readable. The one write this function can perform is the append.
+ */
+function retryOnePointer(options: {
+  db: Database.Database
+  row: EvidenceArchiveRow
+  now: number
+  readStaging: (path: string) => Buffer
+  append: boolean
+}): ArchiveRetryEntry {
+  const { db, row, now, readStaging, append } = options
+  if (row.state !== 'archive_incomplete') {
+    const code: ArchiveRetryCode =
+      row.state === 'archived'
+        ? 'already_archived'
+        : row.state === 'archive_pending'
+          ? 'already_pending'
+          : 'not_staged'
+    return retryEntry(row, row.state, code)
+  }
+  if (row.stagingPath === null) {
+    return retryEntry(row, row.state, 'staging_missing')
+  }
+  try {
+    // A real read, not an exists() guess: an unreadable excerpt cannot be published, so re-queueing it
+    // would promise a publish no drain can perform.
+    readStaging(row.stagingPath)
+  } catch {
+    return retryEntry(row, row.state, 'staging_missing')
+  }
+  if (append) {
+    appendEvent(db, {
+      incidentId: row.incidentId,
+      pointerIndex: row.pointerIndex,
+      state: 'archive_pending',
+      stagingPath: row.stagingPath,
+      archivePath: null,
+      sha256: row.sha256,
+      bytes: row.bytes,
+      error: null,
+      createdAt: now
+    })
+  }
+  return retryEntry(row, 'archive_pending', 'retried')
+}
+
+/**
+ * Explicit, append-only repair for a pointer whose latest state is `archive_incomplete`.
+ *
+ * Why this exists: the drain only selects latest-state `archive_pending`, so a `sha256_mismatch` (or a
+ * `staging_missing`) is terminal — no amount of draining retries it. The review's option A was to give
+ * an operator one explicit way back instead of a silent re-drain, so this appends a NEW
+ * `archive_pending` event and lets the ordinary drain republish. Nothing is ever UPDATEd or DELETEd:
+ * the appended event IS the audit trail, and the state vocabulary is unchanged.
+ *
+ * Deliberately narrow:
+ * * only `archive_incomplete` may be retried (`staged`/`archive_pending`/`archived` are refused with
+ *   their own code, so a second call after a successful retry cannot double-append);
+ * * the local staging excerpt must still be readable — a real `readFileSync`, not an exists() guess —
+ *   because a missing staging file cannot be repaired by any drain;
+ * * the appended event carries the same `staging_path`, `sha256` and `bytes` as the event it replaces,
+ *   with `error: null`. It does not re-baseline the hash: if the staging bytes changed since the failed
+ *   attempt, the next drain records a fresh `sha256_mismatch` rather than silently accepting new bytes.
+ *
+ * No target cleanup is needed: the drain publishes through a 0600 temp file, fsync and rename, so it
+ * overwrites the bad file. If that publication fails the row stays `archive_pending`, as before.
+ */
+export function retryIncompleteArchive(options: {
+  db: Database.Database
+  incidentId: string
+  /** Retry only this pointer index; omitted means every latest `archive_incomplete` pointer. */
+  pointerIndex?: number
+  now: number
+  /** Test seam: replace the staging read, so an unreadable excerpt can be injected. */
+  readStaging?: (path: string) => Buffer
+}): ArchiveRetryResult {
+  const { db, incidentId, now } = options
+  const pointerIndex = options.pointerIndex
+  const readStaging =
+    options.readStaging === undefined ? (path: string) => readFileSync(path) : options.readStaging
+  const considered = (rows: EvidenceArchiveRow[], append: boolean): ArchiveRetryEntry[] =>
+    rows.map((row) => retryOnePointer({ db, row, now, readStaging, append }))
+  const summarise = (entries: ArchiveRetryEntry[]): ArchiveRetryResult => {
+    const retried = entries.filter((entry) => entry.code === 'retried').length
+    return {
+      incidentId,
+      code: retried > 0 ? 'retried' : 'no_incomplete_pointer',
+      retried,
+      refused: entries.length - retried,
+      pointers: entries
+    }
+  }
+
+  const latest = readEvidenceArchiveState(db, incidentId).filter(
+    (row) => pointerIndex === undefined || row.pointerIndex === pointerIndex
+  )
+  if (pointerIndex !== undefined && latest.length === 0) {
+    // An index the incident never had is a different answer from "it exists and is not incomplete".
+    return {
+      incidentId,
+      code: 'unknown_pointer',
+      retried: 0,
+      refused: 1,
+      pointers: [
+        {
+          incidentId,
+          pointerIndex,
+          code: 'unknown_pointer',
+          state: null,
+          stagingPath: null,
+          sha256: null,
+          bytes: null
+        }
+      ]
+    }
+  }
+  if (!latest.some((row) => row.state === 'archive_incomplete')) {
+    // Nothing can be appended, so no write transaction is opened — and the per-pointer reasons are
+    // still reported (pending / archived / never staged) instead of a single opaque no-op.
+    return summarise(considered(latest, false))
+  }
+
+  return runArchiveImmediate(db, () => {
+    // Re-read INSIDE the transaction: `BEGIN IMMEDIATE` serialises writers, so a second call sees the
+    // first call's committed `archive_pending` instead of the stale `archive_incomplete` it queued on.
+    const rechecked = readEvidenceArchiveState(db, incidentId).filter(
+      (row) => pointerIndex === undefined || row.pointerIndex === pointerIndex
+    )
+    return summarise(considered(rechecked, true))
+  })
 }
 
 export type ArchiveSummary = {
