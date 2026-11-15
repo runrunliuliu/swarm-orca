@@ -59,7 +59,7 @@
 | D-control：pending/ACK 顺序与历史分页 | `tests/core/test_supervisor.py:601`、`:915`；`tests/coordinator/test_coordinator_tui_scheduler.py:442` | 覆盖 | — | |
 | D-control：wait 超时与 pre-send 竞争 | `tests/coordinator/test_coordinator_tui_scheduler.py:463`、`:475`、`:488`、`:509`、`:529`；`tests/operators/test_operator_monitor.py:22`、`:45` | 覆盖（离线类比） | **B**（缺 I 层取证） | 真实 native 边界属 I 项，见 2.2 |
 | D-control：已确认/未发生/仍未知三分支与防重 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`、`:322`；`tests/coordinator/test_coordinator_tui_continue.py:245`、`:254` | 覆盖 | — | |
-| D-control：Worker 失败/失联/卡住、STOP、截止期、预算耗尽 | `tests/core/test_supervisor.py:270`、`:871`、`:996`；`tests/core/test_monitor_stop_signals.py`（9 项）；`tests/core/test_observation_budget.py:30` | 覆盖（离线） | — | |
+| D-control：Worker 失败/失联/卡住、STOP、截止期、预算耗尽 | `tests/core/test_supervisor.py:270`（overrun 超限即暂停）、`:929`（预算阻止新启动但释放清理）、`:966`（预算中途耗尽即暂停）、`:996`（lost release 收据不重放）、`:1054`（stalled round 人工恢复后暂停、不重启）；`tests/core/test_monitor_stop_signals.py`（9 项：SIGINT/SIGTERM 不锁存、deadline kill/reap） | 覆盖（离线） | — | 原 `:871` 为陈旧行号（该处是 checkpoint 拒绝未处理投递，与失败/预算无关），已改指 `:929`；观测预算（观测超时即停）侧的唯一测试文件已随旧握手删除，该子项不再由本行覆盖，其现状见 S5b 的“部分” |
 | D-control：monitor 重启/锁冲突/损坏状态不盲恢复 | `tests/coordinator/test_coordinator_tui_scheduler.py:263`、`:475`；`tests/operators/test_operator_monitor_recovery.py`（20 项） | 覆盖 | — | |
 | D-control：无新事件/无进展时有界停止 | `tests/coordinator/test_coordinator_tui_scheduler.py:597`、`:952`；`coordinator_driver.py:678` | 覆盖 | — | 见 S5 |
 | D-control：平台预算硬上限 | 无 | 缺失 | **C** | 仓库自述不可能由本地测试推出（reliability.md:214、`docs/supervisor.md:139`） |
@@ -118,7 +118,7 @@ domain-checked checkpoint**（如 `coordinator_loop.py:37`、`coordinator_tui_er
 | 子项 | 代码机制 | 现有证据 | 状态 | 缺口性质 |
 | --- | --- | --- | --- | --- |
 | S2a 声明式依赖环（Supervisor DAG） | `supervisor/config.py:110–113`：要求拓扑序，错误串含 `missing dependency or cycle` | `tests/core/test_supervisor.py:209`（`depends_on=["b"]` 反向依赖被拒，:217） | 覆盖 | — |
-| S2b 运行期“空转环”（换名字/换 id 反复委派同一工作） | `coordinator_tui_scheduler.py` 的 `consecutive_without_acceptance_advance`；`coordinator_driver.py:678` `no_progress_recovery_exhausted` | `tests/coordinator/test_coordinator_tui_scheduler.py:597`（3 次后 `tui_scheduler_no_acceptance_progress`，且要求人工 `scheduler_review_clear`）、`:952`（复用执行证据停止）、`:911`（重新声明不重置计数）；`tests/coordinator/test_coordinator_driver.py:852`、`:913`、`:1056`、`:1064` | 覆盖（离线） | — |
+| S2b 运行期“空转环”（换名字/换 id 反复委派同一工作） | `coordinator_tui_scheduler.py` 的 `consecutive_without_acceptance_advance`；`coordinator_driver.py:678` `no_progress_recovery_exhausted` | `tests/coordinator/test_coordinator_tui_scheduler.py:618`（3 次后 `tui_scheduler_no_acceptance_progress`，且要求人工 `scheduler_review_clear`）、`:973`（复用执行证据停止）、`:932`（重新声明不重置计数）；`tests/coordinator/test_coordinator_driver.py:852`、`:913`、`:1056`、`:1064` | 覆盖（离线） | — |
 | S2c 嵌套/自派发（Worker 再启动 Worker 形成委派链） | `coordinator_driver.py:310` 上限、`:489` 文本“Workers (including unknown/remote/nested) share max_workers” | `tests/coordinator/test_coordinator_driver.py:783`（17 个未知 owned worker 触发 `worker_limit_exceeded`） | 部分 | **A** |
 | S2d 语义环的事前拒绝 | 无。strict 路径没有声明的委派图 | 无 | 缺失 | **B**（无该机制） |
 
@@ -156,11 +156,11 @@ L 层人工观察，或事后由 `do_not_touch` 证据校验发现（Supervisor 
 
 | 子项 | 代码机制 | 现有证据 | 状态 | 缺口性质 |
 | --- | --- | --- | --- | --- |
-| S5a 准入式预算（每次启动预留） | `supervisor/store.py:127–160`：`admission` + `_reserve`，run/service/period 三个上限，micro-USD 预留，幂等 | `tests/core/test_supervisor.py:240`、`:261`、`:270`、`:336`、`:871`、`:908`、`:1103`、`:1215` | 覆盖 | — |
-| S5b 截止期与有界等待 | `coordinator_driver.py:93`（`max_no_progress_turns` 等）、`supervisor/engine.py:422`（`max_round_seconds`）、`observation_budget.py:21`（`TURN_END_SECONDS = 60`） | `tests/core/test_observation_budget.py:30`、`:59`、`:155`；`tests/coordinator/test_coordinator_tui_continue.py:466` | 覆盖 | — |
-| S5c 无进展停止 | 见 S2b | 同上 | 覆盖 | — |
+| S5a 准入式预算（每次启动预留） | `supervisor/store.py:127–160`：`admission` + `_reserve`，run/service/period 三个上限，micro-USD 预留，幂等 | `tests/core/test_supervisor.py:240`、`:261`、`:270`、`:336`、`:908`、`:1103`、`:1215` | 覆盖 | — |
+| S5b 截止期与有界等待 | `coordinator_driver.py:93`（`max_no_progress_turns` 等）、`supervisor/engine.py:422`（`max_round_seconds`）、`observation_budget.py:21`（`TURN_END_SECONDS = 60`） | `tests/coordinator/test_coordinator_tui_continue.py:466` | 部分 | **A** | 观测预算侧断言（原 `tests/core/` 观测预算测试文件，已随该文件删除）不再存在，只剩“截止期”一条有自动化证据；`observation_budget.py` 仍存在，补用例即变绿 |
+| S5c 无进展停止 | 见 S2b | 同 S2b 所列证据（S5b 降为部分不影响本项） | 覆盖 | — |
 | S5d 单回合内 token 暴涨的硬停止 | 无。`docs/supervisor.md:139`：“当前没有 provider 每请求 token 上限、硬账单截断或自动中止运行中模型……预留并不能保证真实花费不超额”；`reliability.md:214`：平台预算硬上限“不能由本地计数测试推出已生效” | 无 | 缺失 | **C**（已自述边界） |
-| S5e 预算暂停对在途 Worker 的语义 | `docs/supervisor.md:139`：“预算暂停不取消/释放正在运行的 Worker” | `tests/core/test_supervisor.py:871`（预算阻止新启动但允许清理） | 覆盖（语义）／缺失（真实在途） | **C**（缺失侧） |
+| S5e 预算暂停对在途 Worker 的语义 | `docs/supervisor.md:139`：“预算暂停不取消/释放正在运行的 Worker” | `tests/core/test_supervisor.py:929`（预算阻止新启动但允许清理；原 `:871` 为陈旧行号） | 覆盖（语义）／缺失（真实在途） | **C**（缺失侧） |
 
 **缺口.** 本仓库的“防失控”是**准入式**的：每次启动前预留、超限不启动。它对
 “一次启动内跑爆”没有防线，且这一点是文档自述的设计边界，不是实现缺陷。
@@ -203,8 +203,8 @@ L 层人工观察，或事后由 `do_not_touch` 证据校验发现（Supervisor 
 
 | 层 | 代表模块与用例数 | 小计 | 该层判定 |
 | --- | --- | --- | --- |
-| L1 | `coordinator_io` 11、`worker_plan` 19、`write_roots` 4、`creation_time` 3、`log_io` 3、`capacity_io` 2、`observation_budget` 12、`worker_profiles_external` 5、`safety` 29、`runtime_binding` 24、`worker_usage_preserve` 7 | 119 | 覆盖 |
-| L2 | `tui_continue` 55、`tui_scheduler` 55、`operator_monitor` 27、`coordinator_driver` 89、`progress_watch` 72、`operator_startup` 33、`monitor_recovery` 20、`monitor_upgrade` 24、`monitor_deploy` 27 | 402 | 覆盖 |
+| L1 | `coordinator_io` 11、`worker_plan` 19、`write_roots` 4、`creation_time` 3、`log_io` 3、`capacity_io` 2、`worker_profiles_external` 5、`safety` 29、`runtime_binding` 24、`worker_usage_preserve` 7 | 107 | 覆盖 |
+| L2 | `tui_continue` 55、`tui_scheduler` 55、`operator_monitor` 27、`coordinator_driver` 89、`progress_watch` 72、`monitor_recovery` 20、`monitor_upgrade` 24、`monitor_deploy` 27 | 369 | 覆盖 |
 | L3 | `strict` 23、`coordinator_handoff` 22、`authority_bundle` 19、`native_preflight` 24、`operator_prepare` 21、`operator_materials` 6；**旧握手的 `strict_start`/`strict_request`/`strict_delivery`/`strict_prepare`/`startup_handoff`/`bootstrap_*` 共约 310 项已随代码删除** | 115 | 部分 | L3 现在只覆盖仍存在的 strict 门（caller-check / native-plan）与身份/材料链路 |
 | L4-offline | `supervisor` 103、`coordinator_loop` 20、`coordinator_background` 16、`monitor_stop_signals` 9、`evidence_archive` 9 | 157 | 部分（缺原生侧与真实协作） |
 | L4-native | 无自动化 | 0 | 缺失 |
