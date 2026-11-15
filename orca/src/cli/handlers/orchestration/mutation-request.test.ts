@@ -109,6 +109,11 @@ describe('callOrchestrationMutation runtime_unavailable retry', () => {
     expect(requestIds).toHaveLength(1)
   })
 
+  // Property lock, not the regression proof: only runtime_unavailable is retryable today, so this
+  // case already passed before the fix. The reported hang needs the classification too, and is
+  // covered end to end by
+  // runtime-access-denied.test.ts > 'surfaces a sandboxed worker_done once instead of using its
+  // retry window'. This one keeps a future widening of the retry predicate honest.
   it('does not retry a deterministic runtime_access_denied', async () => {
     const { client, requestIds } = fakeClient(() => {
       throw new RuntimeClientError(

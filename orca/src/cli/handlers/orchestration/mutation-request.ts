@@ -34,9 +34,10 @@ export async function callOrchestrationMutation<TResult>(
       if (carriesRequestId(error)) {
         sentError = error
       }
-      // Why: a sandbox or OS permission denial is deterministic — every attempt hits the same
-      // fence — so retrying only turns an instant, actionable refusal into a silent hang for the
-      // whole retry window (worker_done waits 120 s, long past the agent's patience).
+      // Why: only runtime_unavailable is retryable today, so this refusal already leaves the
+      // loop below on its own. It is stated explicitly as belt-and-braces: widening the retry
+      // predicate must not turn a deterministic sandbox/OS denial into a silent 120 s hang for a
+      // worker whose one report then never arrives.
       const refused = error instanceof RuntimeClientError && error.code === 'runtime_access_denied'
       if (refused || !unavailable || Date.now() + delayMs > deadline) {
         // Why: a later attempt can fail before its request id is attached, though an earlier one may have landed.
