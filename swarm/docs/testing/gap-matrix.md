@@ -203,8 +203,8 @@ L 层人工观察，或事后由 `do_not_touch` 证据校验发现（Supervisor 
 
 | 层 | 代表模块与用例数 | 小计 | 该层判定 |
 | --- | --- | --- | --- |
-| L1 | `coordinator_io` 11、`worker_plan` 19、`write_roots` 4、`creation_time` 3、`log_io` 3、`capacity_io` 2、`observation_budget` 12、`worker_profiles_external` 5、`safety` 29、`runtime_binding` 24、`worker_usage_preserve` 7 | 119 | 覆盖 |
-| L2 | `tui_continue` 55、`tui_scheduler` 55、`operator_monitor` 27、`coordinator_driver` 89、`progress_watch` 72、`operator_startup` 33、`monitor_recovery` 20、`monitor_upgrade` 24、`monitor_deploy` 27 | 402 | 覆盖 |
+| L1 | `coordinator_io` 11、`worker_plan` 19、`write_roots` 4、`creation_time` 3、`log_io` 3、`capacity_io` 2、`worker_profiles_external` 5、`safety` 29、`runtime_binding` 24、`worker_usage_preserve` 7 | 107 | 覆盖 |
+| L2 | `tui_continue` 55、`tui_scheduler` 55、`operator_monitor` 27、`coordinator_driver` 89、`progress_watch` 72、`monitor_recovery` 20、`monitor_upgrade` 24、`monitor_deploy` 27 | 369 | 覆盖 |
 | L3 | `strict` 23、`coordinator_handoff` 22、`authority_bundle` 19、`native_preflight` 24、`operator_prepare` 21、`operator_materials` 6；**旧握手的 `strict_start`/`strict_request`/`strict_delivery`/`strict_prepare`/`startup_handoff`/`bootstrap_*` 共约 310 项已随代码删除** | 115 | 部分 | L3 现在只覆盖仍存在的 strict 门（caller-check / native-plan）与身份/材料链路 |
 | L4-offline | `supervisor` 103、`coordinator_loop` 20、`coordinator_background` 16、`monitor_stop_signals` 9、`evidence_archive` 9 | 157 | 部分（缺原生侧与真实协作） |
 | L4-native | 无自动化 | 0 | 缺失 |
