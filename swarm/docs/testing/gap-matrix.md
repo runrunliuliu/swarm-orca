@@ -59,7 +59,7 @@
 | D-control：pending/ACK 顺序与历史分页 | `tests/core/test_supervisor.py:601`、`:915`；`tests/coordinator/test_coordinator_tui_scheduler.py:442` | 覆盖 | — | |
 | D-control：wait 超时与 pre-send 竞争 | `tests/coordinator/test_coordinator_tui_scheduler.py:463`、`:475`、`:488`、`:509`、`:529`；`tests/operators/test_operator_monitor.py:22`、`:45` | 覆盖（离线类比） | **B**（缺 I 层取证） | 真实 native 边界属 I 项，见 2.2 |
 | D-control：已确认/未发生/仍未知三分支与防重 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`、`:322`；`tests/coordinator/test_coordinator_tui_continue.py:245`、`:254` | 覆盖 | — | |
-| D-control：Worker 失败/失联/卡住、STOP、截止期、预算耗尽 | `tests/core/test_supervisor.py:270`、`:871`、`:996`；`tests/core/test_monitor_stop_signals.py`（9 项）；`tests/core/test_observation_budget.py:30` | 覆盖（离线） | — | |
+| D-control：Worker 失败/失联/卡住、STOP、截止期、预算耗尽 | `tests/core/test_supervisor.py:270`（overrun 超限即暂停）、`:929`（预算阻止新启动但释放清理）、`:966`（预算中途耗尽即暂停）、`:996`（lost release 收据不重放）、`:1054`（stalled round 人工恢复后暂停、不重启）；`tests/core/test_monitor_stop_signals.py`（9 项：SIGINT/SIGTERM 不锁存、deadline kill/reap） | 覆盖（离线） | — | 原 `:871` 为陈旧行号（该处是 checkpoint 拒绝未处理投递，与失败/预算无关），已改指 `:929`；观测预算（观测超时即停）侧的唯一测试文件已随旧握手删除，该子项不再由本行覆盖，其现状见 S5b 的“部分” |
 | D-control：monitor 重启/锁冲突/损坏状态不盲恢复 | `tests/coordinator/test_coordinator_tui_scheduler.py:263`、`:475`；`tests/operators/test_operator_monitor_recovery.py`（20 项） | 覆盖 | — | |
 | D-control：无新事件/无进展时有界停止 | `tests/coordinator/test_coordinator_tui_scheduler.py:597`、`:952`；`coordinator_driver.py:678` | 覆盖 | — | 见 S5 |
 | D-control：平台预算硬上限 | 无 | 缺失 | **C** | 仓库自述不可能由本地测试推出（reliability.md:214、`docs/supervisor.md:139`） |
@@ -157,8 +157,8 @@ L 层人工观察，或事后由 `do_not_touch` 证据校验发现（Supervisor 
 | 子项 | 代码机制 | 现有证据 | 状态 | 缺口性质 |
 | --- | --- | --- | --- | --- |
 | S5a 准入式预算（每次启动预留） | `supervisor/store.py:127–160`：`admission` + `_reserve`，run/service/period 三个上限，micro-USD 预留，幂等 | `tests/core/test_supervisor.py:240`、`:261`、`:270`、`:336`、`:871`、`:908`、`:1103`、`:1215` | 覆盖 | — |
-| S5b 截止期与有界等待 | `coordinator_driver.py:93`（`max_no_progress_turns` 等）、`supervisor/engine.py:422`（`max_round_seconds`）、`observation_budget.py:21`（`TURN_END_SECONDS = 60`） | `tests/core/test_observation_budget.py:30`、`:59`、`:155`；`tests/coordinator/test_coordinator_tui_continue.py:466` | 覆盖 | — |
-| S5c 无进展停止 | 见 S2b | 同上 | 覆盖 | — |
+| S5b 截止期与有界等待 | `coordinator_driver.py:93`（`max_no_progress_turns` 等）、`supervisor/engine.py:422`（`max_round_seconds`）、`observation_budget.py:21`（`TURN_END_SECONDS = 60`） | `tests/coordinator/test_coordinator_tui_continue.py:466` | 部分 | **A** | 观测预算侧断言（原 `tests/core/` 观测预算测试文件，已随该文件删除）不再存在，只剩“截止期”一条有自动化证据；`observation_budget.py` 仍存在，补用例即变绿 |
+| S5c 无进展停止 | 见 S2b | 同 S2b 所列证据（S5b 降为部分不影响本项） | 覆盖 | — |
 | S5d 单回合内 token 暴涨的硬停止 | 无。`docs/supervisor.md:139`：“当前没有 provider 每请求 token 上限、硬账单截断或自动中止运行中模型……预留并不能保证真实花费不超额”；`reliability.md:214`：平台预算硬上限“不能由本地计数测试推出已生效” | 无 | 缺失 | **C**（已自述边界） |
 | S5e 预算暂停对在途 Worker 的语义 | `docs/supervisor.md:139`：“预算暂停不取消/释放正在运行的 Worker” | `tests/core/test_supervisor.py:871`（预算阻止新启动但允许清理） | 覆盖（语义）／缺失（真实在途） | **C**（缺失侧） |
 
