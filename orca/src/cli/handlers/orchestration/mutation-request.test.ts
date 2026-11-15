@@ -25,6 +25,18 @@ const RuntimeRequest = z.object({
 const servers = new Set<Server>()
 const tempDirs = new Set<string>()
 
+const SANDBOX_FIXTURE_CODES = new Set(['EPERM', 'EACCES', 'EROFS'])
+
+// Why: a codex sandbox refuses listen() on a unix socket with EPERM and may make the temp dir
+// read-only. A real-socket fixture that cannot be built must skip its case with that reason
+// instead of hanging on an 'error' event nobody handles.
+async function listenOrExplain(server: Server, endpoint: string): Promise<string | null> {
+  return await new Promise((resolve) => {
+    server.once('error', (error: NodeJS.ErrnoException) => resolve(String(error.code)))
+    server.listen(endpoint, () => resolve(null))
+  })
+}
+
 afterEach(async () => {
   vi.useRealTimers()
   await Promise.all([...servers].map((server) => new Promise((resolve) => server.close(resolve))))
@@ -204,8 +216,18 @@ describe('callOrchestrationMutation runtime_unavailable retry', () => {
   // Why: the fake runtime listens on a Unix socket path, which Windows does not accept.
   it.skipIf(process.platform === 'win32')(
     'reaches a runtime that comes back after the first attempt found it down',
-    async () => {
-      const userDataPath = mkdtempSync(join(tmpdir(), 'orca-worker-done-retry-'))
+    async (ctx) => {
+      let userDataPath: string
+      try {
+        userDataPath = mkdtempSync(join(tmpdir(), 'orca-worker-done-retry-'))
+      } catch (error) {
+        const code = String((error as NodeJS.ErrnoException).code)
+        if (!SANDBOX_FIXTURE_CODES.has(code)) {
+          throw error
+        }
+        ctx.skip(`no writable temp dir for a unix socket fixture (${code})`)
+        return
+      }
       tempDirs.add(userDataPath)
       const endpoint = join(userDataPath, 'runtime.sock')
       const sendRequestIds: string[] = []
@@ -235,6 +257,15 @@ describe('callOrchestrationMutation runtime_unavailable retry', () => {
         })
       })
       servers.add(server)
+      // The runtime is down for the first attempt: no metadata, so even the contract probe fails.
+      const listenFailure = await listenOrExplain(server, endpoint)
+      if (listenFailure !== null) {
+        if (!SANDBOX_FIXTURE_CODES.has(listenFailure)) {
+          throw new Error(`unix socket fixture failed to listen (${listenFailure})`)
+        }
+        ctx.skip(`sandbox denies unix socket listen (${listenFailure})`)
+        return
+      }
       const client = new RuntimeClient(userDataPath, 5_000, null, null, 'orca')
       const call = callOrchestrationMutation(
         client,
@@ -244,8 +275,6 @@ describe('callOrchestrationMutation runtime_unavailable retry', () => {
         undefined,
         RETRY_MS
       )
-      // The runtime is down for the first attempt: no metadata, so even the contract probe fails.
-      await new Promise<void>((resolve) => server.listen(endpoint, resolve))
       writeFileSync(
         join(userDataPath, 'orca-runtime.json'),
         JSON.stringify({

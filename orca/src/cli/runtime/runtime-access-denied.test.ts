@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -62,6 +62,7 @@ beforeEach(() => {
   mockKill()
 })
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   vi.clearAllMocks()
@@ -108,32 +109,46 @@ async function deniedRequestAt(
   return pending.catch((failure: unknown) => failure)
 }
 
-// A real unix socket is the shape EPERM actually arrives on; a plain file would prove nothing
-// about a listener that was denied.
-async function listenUnixSocket(
-  prefix: string
-): Promise<{ endpoint: string; stop: () => Promise<void> }> {
-  const dir = mkdtempSync(join(tmpdir(), prefix))
+// A real unix socket is the shape EPERM actually arrives on. A codex sandbox refuses listen()
+// with EPERM and may make the temp dir read-only, so a fixture that cannot be built reports why
+// and the case skips instead of hanging on an 'error' event nobody handles.
+type UnixSocketFixture =
+  | { kind: 'listening'; endpoint: string }
+  | { kind: 'unavailable'; reason: string }
+
+async function listenUnixSocket(prefix: string): Promise<UnixSocketFixture> {
+  let dir: string
+  try {
+    dir = mkdtempSync(join(tmpdir(), prefix))
+  } catch (error) {
+    return {
+      kind: 'unavailable',
+      reason: `temp dir: ${String((error as NodeJS.ErrnoException).code)}`
+    }
+  }
   tempDirs.add(dir)
   const endpoint = join(dir, 'runtime.sock')
   const server = createServer((client) => client.end())
   servers.add(server)
-  await new Promise<void>((resolve) => server.listen(endpoint, resolve))
-  return {
-    endpoint,
-    stop: async () => {
-      servers.delete(server)
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-    }
-  }
+  const failure = await new Promise<string | null>((resolve) => {
+    server.once('error', (error: NodeJS.ErrnoException) => resolve(String(error.code)))
+    server.listen(endpoint, () => resolve(null))
+  })
+  return failure === null
+    ? { kind: 'listening', endpoint }
+    : { kind: 'unavailable', reason: `listen: ${failure}` }
 }
 
-async function waitForConnectAttempt(): Promise<void> {
-  for (let attempt = 0; attempt < 400 && connect.mock.calls.length === 0; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
-  if (connect.mock.calls.length === 0) {
-    throw new Error('the client never opened a socket')
+// Why: the classifier's only endpoint test is existsSync, so any existing path exercises the same
+// branch; this one needs no temp dir and no write access, which keeps the case runnable inside a
+// read-only sandbox. The realistic socket shape is covered by the separately skipped live case.
+const existingPath = process.execPath
+
+async function flushMicrotasks(until: () => boolean): Promise<void> {
+  // Why: advance 0 ms at a time — this drains the promise chain without ever letting a retry
+  // delay elapse, which is what makes the assertion below deterministic.
+  for (let turn = 0; turn < 50 && !until(); turn++) {
+    await vi.advanceTimersByTimeAsync(0)
   }
 }
 
@@ -204,7 +219,7 @@ describe('runtime access denied', () => {
       const human = formatCliError(error)
       expect(human).toContain('The Codex sandbox blocked this command from connecting to Orca')
       expect(human).toContain('escalated permissions, outside the Codex sandbox')
-      expect(human).toContain('does not prove Orca stopped')
+      expect(human).toContain('not evidence that Orca stopped')
       expect(human).not.toMatch(RESTART_OR_ABSENT_ADVICE)
 
       // Why: status is what a worker runs first; it must not report a healthy sandboxed runtime as dead.
@@ -218,16 +233,22 @@ describe('runtime access denied', () => {
   // With no marker and a pid the probe cannot see, the classifier must claim no state at all.
   it.skipIf(process.platform === 'win32')(
     'keeps a denial for a live socket even when the pid probe says gone',
-    async () => {
+    async (ctx) => {
+      const fixture = await listenUnixSocket('orca-denied-live-')
+      if (fixture.kind === 'unavailable') {
+        ctx.skip(
+          `sandbox cannot provide a unix socket fixture (${fixture.reason}); the existing-path case covers the same branch`
+        )
+        return
+      }
       mockKill('ESRCH')
-      const { endpoint } = await listenUnixSocket('orca-denied-live-')
 
-      const error = await deniedRequestAt('EPERM', { kind: 'unix', endpoint })
+      const error = await deniedRequestAt('EPERM', { kind: 'unix', endpoint: fixture.endpoint })
 
       expect(error).toMatchObject({ code: 'runtime_access_denied', data: { systemCode: 'EPERM' } })
       const human = formatCliError(error)
       expect(human).toContain(
-        'Permission denied connecting to Orca (EPERM) on a socket that exists'
+        "Permission denied connecting to Orca (EPERM) on a path that exists where Orca's Unix socket should be"
       )
       expect(human).toContain('cannot tell which')
       expect(human).not.toContain('Do not restart')
@@ -237,44 +258,43 @@ describe('runtime access denied', () => {
 
   // Accepted tradeoff, pinned here: any path that exists at the endpoint is enough to suppress
   // not-running advice, so a socket left behind by another user's gone Orca reads as a denial.
-  // The fixture is a plain file, not a listener: the classifier cannot tell the two apart, which
-  // is exactly the risk (the alternative — not-running advice for a live but fenced Orca — is
-  // what told sandboxed workers to restart a healthy app).
+  // existsSync is the whole test, so a non-socket path is the equivalent fixture (and the only one
+  // a read-only sandbox can offer); the alternative — not-running advice for a live but fenced
+  // Orca — is what told sandboxed workers to restart a healthy app.
   it('keeps a denial for any path that exists where the socket should be', async () => {
     mockKill('ESRCH')
-    const dir = mkdtempSync(join(tmpdir(), 'orca-denied-path-'))
-    tempDirs.add(dir)
-    const endpoint = join(dir, 'runtime.sock')
-    writeFileSync(endpoint, '')
+    expect(existsSync(existingPath)).toBe(true)
 
-    expect(await deniedRequestAt('EACCES', { kind: 'unix', endpoint })).toMatchObject({
-      code: 'runtime_access_denied',
-      data: { systemCode: 'EACCES' }
-    })
+    expect(await deniedRequestAt('EACCES', { kind: 'unix', endpoint: existingPath })).toMatchObject(
+      {
+        code: 'runtime_access_denied',
+        data: { systemCode: 'EACCES' }
+      }
+    )
   })
 
   // Why: a named pipe has no filesystem existence check, so the endpoint must only vote for a
   // unix transport; `existsSync("\\\\.\\pipe\\...")` measures nothing about a live runtime.
-  it.skipIf(process.platform === 'win32')(
-    'ignores a present endpoint on a non-unix transport',
-    async () => {
-      mockKill('ESRCH')
-      const { endpoint } = await listenUnixSocket('orca-denied-pipe-')
+  it('ignores an existing path on a non-unix transport', async () => {
+    mockKill('ESRCH')
 
-      expect(await deniedRequestAt('EPERM', { kind: 'named-pipe', endpoint })).toMatchObject({
-        code: 'runtime_unavailable'
-      })
-    }
-  )
+    expect(
+      await deniedRequestAt('EPERM', { kind: 'named-pipe', endpoint: existingPath })
+    ).toMatchObject({ code: 'runtime_unavailable' })
+  })
 
   // Why: the reported defect. Inside the Codex sandbox connect() answers EPERM while
   // process.kill(pid, 0) answers ESRCH, so worker_done spent its whole 120 s retry window on the
   // generic runtime_unavailable branch, printing nothing; the agent Ctrl-C'd and the Dispatch
-  // never settled. One attempt, one actionable refusal, no waiting.
+  // never settled. Asserted without advancing a single millisecond of the retry clock: one
+  // connect attempt, the denial surfaced, and no retry sleep left pending.
   it('surfaces a sandboxed worker_done once instead of using its retry window', async () => {
+    vi.useFakeTimers()
     mockKill('ESRCH')
     vi.stubEnv('CODEX_SANDBOX_NETWORK_DISABLED', '1')
     const client = new RuntimeClient('/test', 1000, null, null)
+    let settled = false
+    let outcome: unknown
     const call = callOrchestrationMutation(
       client,
       new Map(),
@@ -282,25 +302,32 @@ describe('runtime access denied', () => {
       { from: 'term_worker', subject: 'done', type: 'worker_done' },
       undefined,
       WORKER_DONE_RETRY_MS
-    ).catch((error: unknown) => error)
-
-    await waitForConnectAttempt()
-    failConnect('EPERM')
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const outcome = await Promise.race([
-      call,
-      new Promise<'still-pending'>((resolve) => {
-        timer = setTimeout(() => resolve('still-pending'), 2_000)
-      })
-    ])
-    clearTimeout(timer)
-
-    expect(outcome, 'worker_done kept waiting instead of reporting the refusal').not.toBe(
-      'still-pending'
+    ).then(
+      (value) => {
+        settled = true
+        return value
+      },
+      (error: unknown) => {
+        settled = true
+        outcome = error
+      }
     )
+
+    await flushMicrotasks(() => connect.mock.calls.length > 0)
+    expect(connect).toHaveBeenCalledTimes(1)
+    failConnect('EPERM')
+    await flushMicrotasks(() => settled)
+
+    // Assertions run before awaiting the call: before the fix this promise only settles after the
+    // retry window, so awaiting it first would turn the proof into a timeout instead of a
+    // statement about the refusal.
+    expect(settled, 'the denial did not surface before any retry delay elapsed').toBe(true)
     expect(outcome).toMatchObject({ code: 'runtime_access_denied' })
     expect((outcome as Error).message).toContain('Codex sandbox')
     expect(connect).toHaveBeenCalledTimes(1)
+    // Why: a pending timer here is the retry sleep that used to hide the refusal for 120 s.
+    expect(vi.getTimerCount()).toBe(0)
+    await call
   })
 
   // Why: a dead pid with no sandbox marker and no socket at the endpoint is the one shape that
