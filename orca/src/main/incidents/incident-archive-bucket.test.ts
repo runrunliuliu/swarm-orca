@@ -16,10 +16,11 @@
  * Nothing here duplicates the existing file: it covers staging bounds, `root = null`, the happy
  * read-back path and the immediate shape of both failure states, all of which stay there.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import Database from '../sqlite/sync-database'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import { createIncidentStore } from './incident-store'
 import type { IncidentRecord } from './incident-types'
@@ -250,12 +251,22 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
     const before = eventStates(db)
     expect(before).toEqual(['staged', 'archive_pending', 'archive_incomplete'])
 
+    // Capture the failed row BEFORE the retry. Comparing the appended row against `result.pointers[0]`
+    // would be self-referential (that entry is derived from the post-retry row), so a re-baselining
+    // implementation — one that recomputed sha256 from the staging bytes instead of carrying the
+    // failed attempt's values — would still pass. These three values are the pre-retry truth.
+    const [preRetry] = readEvidenceArchiveState(db.db, 'inc_1')
+    expect(preRetry).toMatchObject({ state: 'archive_incomplete', error: 'sha256_mismatch' })
+    expect(preRetry.stagingPath).not.toBeNull()
+    expect(preRetry.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(preRetry.bytes).toBeGreaterThan(0)
+
     const result = retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 1_000 })
     expect(result).toMatchObject({ retried: 1, refused: 0 })
     expect(result.pointers).toHaveLength(1)
     expect(result.pointers[0]).toMatchObject({ pointerIndex: 0, code: 'retried', state: 'archive_pending' })
 
-    // Append-only: exactly one new event, carrying the same staging path/sha256/bytes with no error.
+    // Append-only: exactly one new event, carrying the pre-retry staging path/sha256/bytes with no error.
     expect(eventStates(db)).toEqual([
       'staged',
       'archive_pending',
@@ -264,9 +275,9 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
     ])
     const latest = readEvidenceArchiveState(db.db, 'inc_1')[0]
     expect(latest).toMatchObject({ state: 'archive_pending', error: null, archivePath: null })
-    expect(latest.stagingPath).toBe(result.pointers[0].stagingPath)
-    expect(latest.sha256).toBe(result.pointers[0].sha256)
-    expect(latest.bytes).toBe(result.pointers[0].bytes)
+    expect(latest.stagingPath).toBe(preRetry.stagingPath)
+    expect(latest.sha256).toBe(preRetry.sha256)
+    expect(latest.bytes).toBe(preRetry.bytes)
 
     // The ordinary drain publishes it: the retry only re-queues, it never archives by itself.
     expect(drainEvidenceArchive({ db: db.db, root, now: NOW + 2_000 })).toMatchObject({
@@ -450,24 +461,73 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
     void userData
   })
 
-  it('is visible to a second connection only after the append commits (IMMEDIATE transaction)', () => {
+  it('holds the writer lock across the read and the append, so a second writer is refused', () => {
     const { db } = mismatched()
-    const second = openIncidentsDatabase(join(directories[0], 'incidents', 'incidents.db'))
-    opened.push(second)
-    expect(retryIncompleteArchive({ db: db.db, incidentId: 'inc_1', now: NOW + 1 }).retried).toBe(1)
-    // The other connection sees the committed pending event and therefore refuses — a second
-    // concurrent caller cannot append a duplicate.
-    const fromOther = retryIncompleteArchive({
-      db: second.db,
-      incidentId: 'inc_1',
-      now: NOW + 2
-    })
-    expect(fromOther.pointers[0]).toMatchObject({ code: 'already_pending' })
-    expect(eventStates(second)).toEqual([
+    const dbPath = join(directories[0], 'incidents', 'incidents.db')
+    const before = eventStates(db)
+    // Observation-only record: the seam below runs while the first call is INSIDE `BEGIN IMMEDIATE`.
+    const seen: { busy: Error | null; rowsDuringLock: number | null; beganAtOnce: boolean } = {
+      busy: null,
+      rowsDuringLock: null,
+      beganAtOnce: false
+    }
+    // A second connection with a short busy timeout: if the writer lock is genuinely held, this either
+    // throws `database is locked` (SQLITE_BUSY) or, for a broken implementation, begins immediately.
+    const second = new Database(dbPath, { timeout: 50 })
+    let result: ReturnType<typeof retryIncompleteArchive> | null = null
+    try {
+      result = retryIncompleteArchive({
+        db: db.db,
+        incidentId: 'inc_1',
+        now: NOW + 1,
+        readStaging: (path) => {
+          try {
+            second.exec('BEGIN IMMEDIATE')
+            seen.beganAtOnce = true
+            second.exec('ROLLBACK')
+          } catch (error) {
+            seen.busy = error as Error
+          }
+          // A read is still allowed under the writer's RESERVED lock, and it must show the un-appended
+          // pre-state: the append happens after this seam returns.
+          const row = second
+            .prepare('SELECT COUNT(*) AS n FROM incident_evidence_archive_events')
+            .get() as { n: number }
+          seen.rowsDuringLock = Number(row.n)
+          return readFileSync(path)
+        }
+      })
+    } finally {
+      second.close()
+    }
+
+    // The lock boundary is real: the second writer could NOT begin while the first held the lock...
+    expect(seen.beganAtOnce).toBe(false)
+    expect(seen.busy).not.toBeNull()
+    const busyError = seen.busy as { message?: string; errcode?: number } | null
+    // Observed on this driver: {"message":"database is locked","code":"ERR_SQLITE_ERROR","errcode":5}.
+    expect(String(busyError?.message)).toMatch(/busy|locked/i)
+    if (typeof busyError?.errcode === 'number') {
+      expect(busyError.errcode).toBe(5) // SQLITE_BUSY
+    }
+    // ...and it could see the pre-append event count, i.e. nothing of the retry had been written yet.
+    expect(seen.rowsDuringLock).toBe(before.length)
+    // The first call still committed its one append.
+    expect(result).toMatchObject({ code: 'retried', retried: 1 })
+    expect(eventStates(db)).toEqual([
       'staged',
       'archive_pending',
       'archive_incomplete',
       'archive_pending'
     ])
+
+    // After that commit a second retry is a no-op refusal: it appends nothing (the second connection
+    // still refuses to double-append, now because the latest state is pending, not because of a lock).
+    const later = openIncidentsDatabase(dbPath)
+    opened.push(later)
+    const fromOther = retryIncompleteArchive({ db: later.db, incidentId: 'inc_1', now: NOW + 2 })
+    expect(fromOther).toMatchObject({ code: 'no_incomplete_pointer', retried: 0, refused: 1 })
+    expect(fromOther.pointers[0]).toMatchObject({ code: 'already_pending' })
+    expect(eventStates(later)).toHaveLength(before.length + 1)
   })
 })

@@ -101,8 +101,12 @@ export const archiveIncident: CommandHandler = async (ctx) => {
         `archived=${counts.archived} incomplete=${counts.archive_incomplete}`
     )
     if (retried !== null) {
+      // `code=` is the batch verdict, not a per-pointer code: `no_incomplete_pointer` produces no
+      // per-pointer lines at all, so without it a text-only operator cannot see the no-op reason that
+      // `--json` exposes as `retry.code`.
       console.log(
-        `Retry ${retried.incidentId}: retried=${retried.retried} refused=${retried.refused}`
+        `Retry ${retried.incidentId}: code=${retried.code} retried=${retried.retried} ` +
+          `refused=${retried.refused}`
       )
       for (const entry of retried.pointers) {
         console.log(`  ${entry.incidentId}#${entry.pointerIndex}  ${entry.code}`)

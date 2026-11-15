@@ -780,8 +780,25 @@ describe('incident archive (M8-4)', () => {
     const text = context('incident archive', { 'retry-incomplete': incidentId })
     await INCIDENT_HANDLERS['incident archive'](text.ctx)
     const output = text.output.join('\n')
-    expect(output).toContain(`Retry ${incidentId}: retried=0 refused=1`)
+    expect(output).toContain(`Retry ${incidentId}: code=no_incomplete_pointer retried=0 refused=1`)
     expect(output).toContain('already_pending')
+    expect(output).toContain('Nothing was appended')
+  })
+
+  it('prints the batch retry code in text output, including the no-event no-op', async () => {
+    // A crash row carries no evidence pointer, so the incident has no archive events at all: the retry
+    // is a pure no-op with no per-pointer lines to print. The batch code must still be visible in the
+    // text output, not only in `--json`'s `retry.code`.
+    const writable = store()
+    const crash = recordPtyExitIncidentTo(writable, facts(), { hostId: 'host-a', now: NOW })
+    expect(crash.id).not.toBeNull()
+
+    const text = context('incident archive', { 'retry-incomplete': crash.id as string })
+    await INCIDENT_HANDLERS['incident archive'](text.ctx)
+    const output = text.output.join('\n')
+    // The exact rendered line: batch code first, then the counts (this is the text a non-JSON
+    // operator reads; `--json` keeps its own `retry.code` field unchanged).
+    expect(output).toContain(`Retry ${crash.id}: code=no_incomplete_pointer retried=0 refused=0`)
     expect(output).toContain('Nothing was appended')
   })
 
