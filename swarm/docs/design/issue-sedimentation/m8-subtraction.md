@@ -226,8 +226,18 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 
 ## 9. 未决（需用户拍板）
 
-1. **归档根与范围**：`ORCA_INCIDENT_ARCHIVE_ROOT`、无 run 落 `_unattributed/<host>`、5 分钟 unref
-   drain + `incident archive --drain` 兜底；证据按 64 KiB/条截断、历史不补档。请确认或要求改名/整文件复制。
+**已定并已实现（原第 1 项）**：归档根与范围不再是待拍板项——根是部署输入
+`ORCA_INCIDENT_ARCHIVE_ROOT`（未配置 = 不归档，CLI 明示 `NOT CONFIGURED`，指针保持 `archive_pending`）、
+无 run 的行落 `_unattributed/<host>`、证据按 64 KiB/条截断且历史不补档、5 分钟 unref drain +
+`incident archive --drain` 兜底。实现见 `c679133e`（M8-4）；目录 0700（自有目录链逐个校验）与
+temp + fsync + rename 的发布屏障见 `8578a51e`。
+
+仍待拍板：
+
+1. **`sha256_mismatch` 的修复路径**：现在它是终态——append-only 记 `archive_incomplete`，之后的 drain
+   不再重试。产品层**没有**修复命令，本里程碑也没加（评审建议过的形态是带校验的
+   `incident archive --retry-incomplete`，但未实现）。要不要加一条显式修复路径，还是接受“人工清掉
+   坏文件后重新上报”，是产品决定。
 3. **decision 的报告指针**：是否加可空 `report_pointer` 列，还是只把 `report:<sha256>` 写进 `--reason`。
 4. **`incident wait` 保留为事实**（已实现）；**triage 不直接 `decide`**（只出报告 + 命令建议，`watch`/`duplicate` 也不自动 apply）。
 6. **工具失败保留期**（已实现 7 天 + 20k 行上限）与 `dropped` 预算；是否接受 `--min-age` 查询过滤。

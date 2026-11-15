@@ -42,18 +42,30 @@ recordPtyExitIncident({
 
 ## 2. 运维看见它 `[已实现]`
 
+`orca incident list` 是**人类视图**（`src/cli/incident-format.ts` 的 `formatIncidentList`）：列为
+`ID / CLASS / STATUS / CREATED / CAUSE / WORKTREE`，有摘要就多一行缩进摘要，然后空行 + 三行覆盖信息
+（`formatIncidentCoverage` / `formatShadowReplay` / `formatPaneClockNote`）。下面所有值虚构：
+
 ```console
 $ orca incident list --status untriaged
-Coverage: remote_incident_capture=unsupported  capacity_latch_set=false  currently_limited=false
-          shadow: lastSeq=0 incomplete=false
-14:02  crash  pi  issue-sediment  signaled(9)  untriaged  inc_example01
+Incidents (1 shown / 1 total, this host only):
+ID                             CLASS           STATUS       CREATED               CAUSE                      WORKTREE
+inc_example01                  crash           untriaged    2026-11-12T06:00:00.0 signaled(9)                wt-example
+  OOM killer 杀掉 pi worker（虚构摘要）
 
-$ orca incident show inc_example01 --md
-# inc_example01 · crash
-退出原因  signaled(9)
-unknown   未记录证据指针：PTY 拆除时拿不到 transcript 路径（§7.1 禁止反查被清理状态）
-动作      watch / duplicate / invalid / needs_archive / confirmed（confirmed 需显式 actor+理由）
+Coverage: remote_incident_capture=unsupported  capacity_latch_set=false  currently_limited=false  rows=1/50000  bytes=48.0KB/500.0MB
+Shadow replay: complete  last_seq=0  dropped=0  failures=0
+Pane clock: last_sample=2026-11-12T06:00:00.000Z  panes=1  declared_waits=0
 ```
+
+两处细节免得把它当成机器接缝：`CREATED` 列被 `pad(…, 21)` 截到 21 字符（所以上面是
+`…T06:00:00.0`，不是完整 ISO）；而 `orca incident export --json` 的 NDJSON 行是**另一套**形状
+（`meta` / `incident` / … 见 §4/§5），不是这个表格。
+
+`orca incident show <id> --md` 是另一份派生渲染（`src/main/incidents/incident-render.ts`）：标题以
+``# Incident `` 加反引号包住的 id 开头，接着是 class / status / created / host / source / fingerprint /
+worktree / run-task-dispatch / agent session / pty incarnation 的逐行头部，然后 §1 摘要、§2 背景与预期、
+§3 时间线、§4 机制分析、§5 未知边界、§6 证据与 pin、§7 防复发项、决策记录；未填的段落写“未填写”而不是猜。
 
 ## 3. 人工分流 `[已实现]`
 

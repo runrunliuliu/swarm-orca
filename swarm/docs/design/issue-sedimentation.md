@@ -522,6 +522,12 @@ CLI handler/spec/help/format 与 manifest drift 测试、acceptance 表迁移、
 | M4 | tool 事件解析 1 处 + automation 模板（无代码） |
 | M5 | `dispatch-completion.ts` 1 处（串行前置检查，不在事务内跑命令） + 新表迁移 |
 
+M6–M8 的“允许的生产代码改点”是政策数字，这里**不重给**（也不把 diff 行数当成预算）：可核对的真实
+提交范围为 M6 = `6c08ce4f`…`b79abde2`、M8 = `7be087bc`…`63b7b0aa` 加评审/清理 `c01cfae9`、
+`fcb0b081`、`8578a51e`；M7 是三分支加两次合并（`da866553` / `5821059a` / `4924a07c`，合并
+`a1353bd5`、`1f0c511e`，接缝 `763a91f2` / `1c0a045a`，角标 `4e7298d9`），没有单一区间能诚实地当作
+它的 per-milestone 预算。
+
 **最高风险改点是 `onPtyExit`**：它是高 churn 的生命周期函数，含 authority / mobile surface /
 liveness verdict / dispatch failure 多条顺序约束。因此接线必须是一个函数调用，参数在清理前一次性
 收集，函数内部不得反查将被清掉的 map。
