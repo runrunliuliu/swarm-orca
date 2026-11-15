@@ -16,15 +16,20 @@
 
 import { createHash } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   openSync,
   readFileSync,
   closeSync,
   readSync,
-  writeFileSync
+  rmSync,
+  statSync,
+  writeFileSync,
+  fsyncSync
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { durableWriteTempPath, renameDurableSync } from '../durable-file-write'
 import type Database from '../sqlite/sync-database'
 import type { IncidentEvidencePointer } from './incident-types'
 
@@ -203,6 +208,158 @@ function bucketFor(row: Record<string, unknown>): string {
   return join('_unattributed', host)
 }
 
+/** Below the archive root every directory this writer names stays private; the excerpt file too. */
+const ARCHIVE_DIRECTORY_MODE = 0o700
+const ARCHIVE_FILE_MODE = 0o600
+
+function looseModeBits(path: string): number {
+  return statSync(path).mode & 0o077
+}
+
+/**
+ * fsync a directory so a created entry or a rename inside it survives a crash.
+ *
+ * Best effort on purpose, the same trade the shared durable-write helper makes: Windows cannot open a
+ * directory for fsync and some filesystems reject it, while the file fsync below is the load-bearing
+ * part. What this mount actually does is measured, not assumed (M8 finish report, task E).
+ */
+function syncDirectoryBestEffort(path: string): void {
+  let fd: number | null = null
+  try {
+    fd = openSync(path, 'r')
+    fsyncSync(fd)
+  } catch {
+    // Unsupported platform or filesystem: the rename and the file fsync still happened.
+  } finally {
+    if (fd !== null) {
+      try {
+        closeSync(fd)
+      } catch {
+        // The fsync already happened or the open failed; nothing actionable.
+      }
+    }
+  }
+}
+
+/**
+ * Directories between the archive root (exclusive) and `directory` (inclusive), deepest first.
+ *
+ * The root is the boundary on purpose: it is deployment input and may be a shared tree whose mode was
+ * chosen deliberately, so this writer never creates it under its own policy and never chmods it.
+ */
+function archiveOwnedDirectories(root: string, directory: string): string[] {
+  const owned: string[] = []
+  const stop = resolve(root)
+  let current = resolve(directory)
+  for (;;) {
+    const rel = relative(stop, current)
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+      break
+    }
+    owned.push(current)
+    const parent = dirname(current)
+    if (parent === current) {
+      break
+    }
+    current = parent
+  }
+  return owned
+}
+
+/**
+ * Create the evidence directory chain private, and keep the whole owned chain private.
+ *
+ * Why: `mkdirSync(..., { recursive: true })` with no `mode` inherits the process umask, so under the
+ * common 022 the archive directories landed 0755 — run ids, host ids and incident ids sitting in
+ * world-traversable path components even though the excerpt itself was 0600 (real-filesystem drill
+ * finding F1). Two things fix that: the created chain is requested at 0700, and then every owned
+ * directory is *verified*, because a `mode` argument is only an upper bound on a create — a directory
+ * left wide by an earlier build, or widened by an inherited ACL, must not silently receive evidence.
+ * If a directory cannot be made private the call throws, so the pointer stays `archive_pending` (a
+ * visible non-durable state) instead of putting an excerpt in a leaking path.
+ *
+ * Returns the directories this call created so the caller can fsync their parent entries.
+ */
+function ensurePrivateArchiveDirectories(root: string, directory: string): string[] {
+  const owned = archiveOwnedDirectories(root, directory)
+  const created = owned.filter((path) => !existsSync(path))
+  if (created.length > 0) {
+    mkdirSync(directory, { recursive: true, mode: ARCHIVE_DIRECTORY_MODE })
+  }
+  for (const path of owned) {
+    if (looseModeBits(path) === 0) {
+      continue
+    }
+    chmodSync(path, ARCHIVE_DIRECTORY_MODE)
+    const remaining = looseModeBits(path)
+    if (remaining !== 0) {
+      throw new Error(`archive_directory_mode:${path}:${remaining.toString(8)}`)
+    }
+  }
+  return created
+}
+
+/**
+ * Publish one excerpt durably: temp file 0600 in the target directory, fsync the file, rename it into
+ * place, fsync the containing directory. The hash read-back that can set `archived` runs after this,
+ * in the caller, so a same-process read can never stand in for the write having reached the filesystem.
+ *
+ * Why the temp file is created here instead of through `writeFileDurableSync`: that helper writes its
+ * payload with the process default mode, which would briefly expose an excerpt as 0644 under umask
+ * 022. The platform-specific tail (rename with the Windows retry, then the directory fsync) is the
+ * shared helper, so there is no second implementation of that part.
+ *
+ * What this does NOT prove: that a different NFS client sees the bytes, or that the server committed
+ * them to stable storage. See the M8 finish report for the measured behaviour of this mount.
+ */
+function writeArchiveEvidenceFile(options: {
+  root: string
+  target: string
+  bytes: Buffer
+  write?: (path: string, bytes: Buffer) => void
+  sync?: (path: string) => void
+}): void {
+  const { root, target, bytes } = options
+  const created = ensurePrivateArchiveDirectories(root, dirname(target))
+  const tmpPath = durableWriteTempPath(target)
+  let published = false
+  try {
+    // `wx` with 0600: the excerpt is never group/other-readable, not even as a temp file.
+    const fd = openSync(tmpPath, 'wx', ARCHIVE_FILE_MODE)
+    closeSync(fd)
+    if (options.write === undefined) {
+      writeFileSync(tmpPath, bytes)
+    } else {
+      options.write(tmpPath, bytes)
+    }
+    if (options.sync === undefined) {
+      const syncFd = openSync(tmpPath, 'r+')
+      try {
+        fsyncSync(syncFd)
+      } finally {
+        closeSync(syncFd)
+      }
+    } else {
+      options.sync(tmpPath)
+    }
+    renameDurableSync(tmpPath, target)
+    published = true
+  } finally {
+    if (!published) {
+      try {
+        rmSync(tmpPath, { force: true })
+      } catch {
+        // The next tick retries the pointer; a leftover temp is inert and unpublishable.
+      }
+    }
+    // Entry durability for a newly created bucket/incidents/<id> chain. Only the first pointer of a
+    // drain pays for it; later pointers find the directories already present.
+    for (const path of created) {
+      syncDirectoryBestEffort(dirname(path))
+    }
+  }
+}
+
 export type DrainResult = {
   configured: boolean
   archived: number
@@ -224,6 +381,8 @@ export function drainEvidenceArchive(options: {
   limit?: number
   /** Test seam: replace the archive write to inject a read-back mismatch or an I/O failure. */
   write?: (path: string, bytes: Buffer) => void
+  /** Test seam: replace the file fsync, so a failing barrier can be observed without a bad disk. */
+  sync?: (path: string) => void
 }): DrainResult {
   const { db, root, now } = options
   const limit = options.limit ?? 50
@@ -271,12 +430,13 @@ export function drainEvidenceArchive(options: {
       'excerpt.bin'
     )
     try {
-      mkdirSync(dirname(target), { recursive: true })
-      if (options.write === undefined) {
-        writeFileSync(target, bytes, { mode: 0o600 })
-      } else {
-        options.write(target, bytes)
-      }
+      writeArchiveEvidenceFile({
+        root,
+        target,
+        bytes,
+        ...(options.write === undefined ? {} : { write: options.write }),
+        ...(options.sync === undefined ? {} : { sync: options.sync })
+      })
     } catch (error) {
       // Transient: leave it pending. The next tick retries and the CLI keeps saying "pending".
       failed += 1
