@@ -8,8 +8,10 @@
 1. [`../issue-sedimentation.md`](../issue-sedimentation.md) §1–§3：问题、结论、为什么选 TS-in-orca。
 2. 同文 §6（store）、§7（触发）、§8（acceptance）、§10（挖掘）：当前行为。
 3. 同文 §11–§13：硬问题、交付面、里程碑与 patch 预算。
-4. [`example.md`](example.md)：一条虚构事故从信号走到 guardrail。
-5. 本 README 的轮次表：想知道"这个字段为什么存在"时，按轮次查原始评审。
+4. [`m8-subtraction.md`](m8-subtraction.md)：M8 减法（判断搬出主进程）的目标形态、减法清单、迁移与实测净额；
+   结论摘要见正文 §19.5，轮次见本 README 的 R12。
+5. [`example.md`](example.md)：一条虚构事故从信号走到 guardrail。
+6. 本 README 的轮次表：想知道"这个字段为什么存在"时，按轮次查原始评审。
 
 ## 轮次索引
 
@@ -17,6 +19,8 @@
 
 - `swarm-artifacts/issue-sedimentation-rounds-20261113/`：M1–M6 的 39 份（brief / review / 共识 / 精简审计）
 - `swarm-artifacts/issue-sedimentation-rounds-20261113-m7/`：M7 的 12 份（分支级评审 / 角标裁决 / 合并前 / 接缝）
+- `swarm-artifacts/issue-sedimentation-rounds-20261114-m8/`：M8 的 3 份（brief / codex-ark review / trae review，
+  `INDEX.md` 记 sha256、复核基线与处置）
 
 要读原文时按下表的轮次定位；本仓库只保留结论与索引。
 

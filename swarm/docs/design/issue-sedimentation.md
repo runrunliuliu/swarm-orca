@@ -1,8 +1,9 @@
-# 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v2）
+# 多 Agent 运行故障沉淀与定期修复（Orca 一等能力 · 设计 v3）
 
 - 日期：2026-11-12（Asia/Shanghai）
-- 状态：**设计（v2.9，M1–M7 已实现并通过评审共识）**。不构成部署、启动、重试、写入、合并或权限授权。
-- 修订历史：v2.1–v2.8 每轮评审后的修正见 §19 与 [轮次索引](issue-sedimentation/README.md)（git log 有逐次提交）。
+- 状态：**设计（v3.0，M1–M8 已实现并通过评审：R3–R12）**。不构成部署、启动、重试、写入、合并或权限授权。
+- 修订历史：v2.1–v3.0 每轮评审后的修正见 §19 与 [轮次索引](issue-sedimentation/README.md)（git log 有逐次提交）；
+  M8 的减法与 R12 见 §19.5 与 [m8-subtraction.md](issue-sedimentation/m8-subtraction.md)。
 - 落地位置：本 fork 的 `orca/`（TypeScript，主进程），不是适配层、不等上游。
 - 过程材料（brief / 双方 review / 共识）**不随仓库分发**，归档在私有产物区；轮次索引与
   "每轮抓到了什么"见 [README](issue-sedimentation/README.md)。
@@ -232,7 +233,11 @@ transcript 可能 GB 级。record 存 `{path, inode/sha256, startOffset, endOffs
 - **已知丢失窗口**（不可消除，只能减小）：callback 入口到 shadow flush 之间主进程崩；stale
   incarnation 被丢弃；DB 与 shadow 只成功一边。
 
-### 7.2 no_progress（跑不下去但活着）——M3 已实现（默认不写）
+### 7.2 no_progress（跑不下去但活着）——M3 已实现，M8-2 起降级为事实
+
+> **当前行为（M8-2，`7472ebb0`）**：判定与写入已删除，采样器只写 `incident_pane_clocks` 事实行；
+> `incident wait` 保留为声明，但只是 triage 读到的上下文，不再抑制任何判定。下面的判据与依据
+> 保留下来解释字段来源，**不再是当前行为**；详见 §19.5 与 [m8-subtraction.md](issue-sedimentation/m8-subtraction.md)。
 
 **年龄口径（关键）**：年龄 = `now − lastSemanticEventAt`，即状态行上**最近一次语义事件/观测**的
 时间戳。不得用 PTY 字节流（pi/codex/trae 都是 TUI，spinner 每秒重绘，"有输出"与"有进展"脱钩），
@@ -257,7 +262,12 @@ transcript 可能 GB 级。record 存 `{path, inode/sha256, startOffset, endOffs
 - **判据边界**："45 分钟内持续有事件但无实质进展"（例如反复重试同一失败）**不**由本判据处理，
   归 M4 的 `tool_error` 聚簇。
 
-### 7.3 tool_error（工具/回合错误）——M4 已实现（默认不写）
+### 7.3 tool_error（工具/回合错误）——M4 已实现，M8-3 起降级为事实
+
+> **当前行为（M8-3，`1428767b`）**：归一化码表、5 次/10 分钟窗口、incident 行构造与
+> `INCIDENT_TOOL_ERROR_WRITE` 开关都已删除；只留一个写点把结构化的失败事实写进
+> `incident_tool_failures`（不含任何输出正文）。下面的判据是历史依据，不再是当前行为；
+> 详见 §19.5 与 [m8-subtraction.md](issue-sedimentation/m8-subtraction.md)。
 
 - **写点**：会话事件 sink 的 journal 追加路径（`structured-agent-session-event-sink` 及其
   resolved/revise 变体），统一走一个 `notifyJournaledItem` 通知；restore / legacy import /
@@ -346,7 +356,12 @@ operator 显式维护路径（task 终态更新、decision gate、底层维护�
 v1 只做**单条** `orca incident show <id> --md`（可重建），不做"一 fingerprint 一 md"的长期视图；
 后者需要稳定的 fingerprint 语义，与聚类一起放到后续里程碑。
 
-## 10. 定期挖掘与修复——M6 已实现（只读 + 候选）
+## 10. 定期挖掘与修复——M6 已实现，M8-1 起 `mine`/`digest` 已删除
+
+> **当前行为（M8-1，`7be087bc`）**：`incident mine`、`incident digest` 连同 `--apply`/`--target`
+> 直接删除（无别名，旧命令报"未知命令"），判断搬进 `swarm/skills/incident-triage/`（聚类按稳定实体，
+> 主进程不再设阈值），机器输入是 `orca incident export` 的 NDJSON。下面的挖掘规则只是历史依据，
+> 不再是主进程代码；详见 §19.5 与 [m8-subtraction.md](issue-sedimentation/m8-subtraction.md)。
 
 用 automations（`trigger: 'scheduled'`），**不新建调度器**。人机回路前置：没人看就等于没做，所以
 挖掘之前先有 §12 的 `list / show / decide`。
@@ -444,24 +459,29 @@ structured wire、liveness verdict、pty exit）→ 规定**只有 pty exit / di
 | CLI | `incident list` / `show <id> [--md]` | **M1（必须）** | `src/cli/handler-group-manifest.ts` + `src/cli/incident-*.ts` |
 | CLI | `incident decide --to <status> --reason`（`confirmed` 只允许显式 R1 actor） | **M1（必须）** | 同上 |
 | CLI | `incident report --class --code ...`（自报） | M2 | 同上 |
-| CLI | `incident stalls [--json]`（灰度只读：state/ageMs/ageBasis/声明/wouldWriteIfEnabled/reason） | **M3** | `src/main/incidents/incidents-stall-sampler.ts` |
-| CLI | `incident wait --terminal <h> --reason <t> [--until]` / `--clear`（整 pane，互斥） | **M3** | 同上 |
+| CLI | `incident pane-clocks [--json]`（事实只读：state/ageMs/ageBasis/声明/最后采样；无阈值、无 `wouldWriteIfEnabled`） | **M3 → M8-2** | `src/main/incidents/incident-pane-clocks.ts`、`incidents-stall-sampler.ts` |
+| CLI | `incident wait --terminal <h> --reason <t> [--until]` / `--clear`（整 pane，互斥；M8-2 起只是 triage 读到的声明） | **M3** | 同上 |
 | CLI | `incident prune --dry-run`（`--json` 带候选/已删 id） | **M1（必须）** | 同上 |
 | 覆盖缺口 | `list/show` 输出 `remote_incident_capture`、`capacity_latch_set`、`currently_limited`、`shadow_replay`（`lastSeq/incomplete/lastStopReason/failures/lastError/dropped/lastRun`） | **M1 + M2（必须）** | 读模型 |
 | 读模型 | shared 类型 + IPC | M2 | `src/shared/incident-*.ts`、`src/preload/api/incident-api.ts` |
-| 每日摘要 | scheduled automation 只出数字摘要 | M4 | automations |
-| CLI | `incident acceptance declare\|list\|show\|resolve`、`incident mine`、`incident digest` | M5 / M6 / M4 | `src/cli/specs/incident.ts` |
+| 每日挖掘 | scheduled automation 只跑只读的 `incident export` + `incident-triage` skill（M8-1 删掉 `digest`/`mine`） | M4 → M8 | automations + `swarm/skills/incident-triage/` |
+| CLI | `incident acceptance declare\|list\|show\|resolve` | M5 | `src/cli/specs/incident.ts` |
+| CLI | `incident export [--since] [--limit] [--json]`（NDJSON：`meta/incident/pane_clock/tool_failure/end`；判断的机器输入） | **M8-1** | `src/cli/handlers/incident-export.ts`、`src/main/incidents/incident-export.ts` |
+| CLI | `incident tool-failures`（事实只读：provider 覆盖 + `dropped`；无码表/窗口/写开关） | **M8-3** | `src/main/incidents/incident-tool-failures.ts` |
+| CLI | `incident archive [--drain]`（证据 excerpt 的 staging/归档状态；无归档根明示 NOT CONFIGURED） | **M8-4** | `src/cli/handlers/incident-archive.ts`、`src/main/incidents/incident-archive.ts` |
+| 判断 | `incident-triage` skill（读 export、按稳定实体聚类、出报告与 `decide` 命令建议，从不产出 `confirmed`） | **M8** | `swarm/skills/incident-triage/` |
 | CLI | `incident mirror [--json]`（三态 + unsynced，只读） | **M7** | `src/cli/handlers/incident-mirror.ts` |
 | 计数与推送 | `incident-counts.ts` 聚合 + keyed trailing-edge coalescer（100 ms 静默窗 / 500 ms 饥饿上限，emit 时读最新值） | **M7-A** | `src/main/ipc/incident-counts-push.ts` |
 | 角标 | 实心琥珀=本地缺口；描边/次级=远端缺口；`0 + 缺口` 显示"无数字"标记；`counts=null` 分 `unavailable` / `stale` 两态 | **M7-B** | `src/renderer/src/components/right-sidebar/incident-badge.ts` |
-| UI | 活动栏入口 + 抽屉（列表/筛选/覆盖缺口分级/详情/决策时间线/triage），灰度两张表用虚线区分"只观察" | **M7-B** | `src/renderer/src/components/right-sidebar/incidents/` |
+| UI | 活动栏入口 + 抽屉（列表/筛选/覆盖缺口分级/详情/决策时间线/triage），原来的两张灰度表在 M8-2/M8-3 改成事实视图（Pane clocks / Tool failures，无判定字段与判定配色） | **M7-B → M8** | `src/renderer/src/components/right-sidebar/incidents/` |
 | 远端 mirror | 三态 + 游标 + 原子写入 + 未同步计数（fake host 测试，无真实远端） | **M7-C** | `src/main/incidents/incident-mirror-*.ts` |
 
 M1 的判定标准是：**杀掉一个本机 agent 后，运维能列出事故、看到退出原因与 unknown 边界、标
 watch/invalid/needs_archive，并知道 store 是否有覆盖缺口。** 做不到就不算交付。
 
 M1 当时**不**包含（后续里程碑已补：shadow/reconcile、自报入口、IPC、`no_progress` 灰度、`tool_error`、
-acceptance、mining、UI、远端 mirror）：证据指针（crash 路仍为 `pointers: []`，见 §7.1）。
+acceptance、mining、UI、远端 mirror；其中 `no_progress`/`tool_error` 的判定与 `mining` 又在 M8 删除，见 §19.5）：
+证据指针（crash 路仍为 `pointers: []`，见 §7.1）。
 
 M1 的 CLI 实现口径：直连 SQLite（`list/show` 只读打开、不建 WAL、不迁移；`decide/prune --apply`
 读写），不走 IPC——因为桌面未运行时仍需能 triage；非本机 selector（`--host`）显式拒绝，不静默按
@@ -479,6 +499,7 @@ M1 的 CLI 实现口径：直连 SQLite（`list/show` 只读打开、不建 WAL�
 | M5 | acceptance 声明 + 可见停点（`acceptance_pending`） | 不满足 → incident + 可见停点；dispatch 不被静默悬挂 |
 | M6 | automations mining + triage 候选 | 产出决策、无 `confirmed`、有界停止 |
 | **M7** | 三分支并行：A 计数/推送/角标入口；B 面板（列表/详情/triage/灰度表）；C 远端 mirror（三态/游标/原子写入）。合并后补接缝与 stale 角标 | 合并零冲突；接缝评审 `APPROVE`；`0 + 缺口` 与 `counts=null` 都不与"无事故"同形 |
+| **M8** | 减法（单 worktree 顺序提交，不做 M7 式并行）：M8-1 删 `mine`/`digest` 换成 `export` + skill；M8-2 `no_progress` 降级为 pane 事实；M8-3 `tool_error` 降级为事实行；M8-4 证据 excerpt 本地 staging → NAS 归档状态机 | 保留行为零退化（幂等键/不可变触发器/验收门/mirror/角标测试不改也须通过）；incidents `user_version 6 → 8` 只加表/视图；净 −3,698 行（§19.5） |
 
 每步独立提交、独立测试；不合并成大包。M1 当时的取舍是**先不做**影子、停滞、acceptance、UI、远端——
 它们的噪声或复杂度会在首版把系统名声打坏；这些在后续里程碑里逐个补上，每一步都过了两轮独立评审。
@@ -543,27 +564,32 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 | 10 | NDJSON sink（**需显式 flush**） | 已实现 | `observability/local-file-sink.ts` |
 | 11 | 脱敏（凭据/URL/env） | 已实现，**不含**路径/主机名 | `observability/redactor.ts` |
 | 12 | 定期任务 | 已实现 | `automations`（`trigger: scheduled`） |
-| 13 | 业务验收（acceptance） | **缺口** | orchestration 无字段/表 |
+| 13 | 业务验收（acceptance） | **已实现（M5，存于 incidents 自有库；orchestration schema 仍无该字段）**，见 20b | §8；提交 `acece904`…`256dadf2` |
 | 14 | 通用无进展判定器 + 等待声明 | **缺口** | 无 |
 | 15 | incident store / 幂等键（含 epoch）/ 不可变触发器 / 容量上限 | **已实现（M1）** | §6、§11.5；提交 `916290df`+`4b92269c` |
 | 16 | `onPtyExit` crash 写入（含 fallback epoch、owner-claim binding） | **已实现（M1）** | §7.1；提交 `640d285f`+`50124307` |
 | 17 | shadow + 启动 reconcile（seq 水位、durable drop、有界可续、状态可见） | **已实现（M2）** | §11.2；提交 `d0004a4c`+`2e36f4a6`+`e1780f8f` |
-| 18 | 停滞判定（语义事件时钟、等待声明、灰度写入） | **已实现（M3，默认不写）** | §7.2；提交 `ca786b41`+`88a3af71`+`a73dcccd`+`deae60ba` |
-| 19 | tool_error 聚簇（结构化高危、按 turn 窗口、provider 覆盖声明） | **已实现（M4，默认不写）** | §7.3；提交 `0d9464e7`+`9dc65c45`+`643ee406` |
+| 18 | 停滞判定（语义事件时钟、等待声明、灰度写入） | **已移除（M8-2）**：判定与写入删除，只留 pane 事实行与 `incident wait` 声明 | §7.2；提交 `ca786b41`+`88a3af71`+`a73dcccd`+`deae60ba`（删除 `7472ebb0`） |
+| 19 | tool_error 聚簇（结构化高危、按 turn 窗口、provider 覆盖声明） | **已移除（M8-3）**：归一化码表/窗口/写开关删除，只留 `incident_tool_failures` 事实行 | §7.3；提交 `0d9464e7`+`9dc65c45`+`643ee406`（删除 `1428767b`） |
 | 20 | 自报入口 `incident report`（含 evidence 上限、统一 sanitize、同键语义） | **已实现（M2）** | §7.5；提交 `65910ea8`+`7b96419c` |
 | 20b | acceptance：声明存储、argv 执行、唯一门点、可见停点、override 留痕 | **已实现（M5）** | §8；提交 `acece904`+`b2358c17`+`e0f94015`+`256dadf2` |
 | 21 | 最小 CLI（list/show/decide/prune，含容量双字段与 prune 可追溯 id） | **已实现（M1）** | §12；提交 `5a04946a`+`4b92269c` |
 | 22 | 读模型/IPC/preload | **已实现（M2）** | §12；提交 `8a85931a` |
-| 23 | 定期只读挖掘 + triage 候选（稳定来源、单实体排除、有界扫描、显式 target） | **已实现（M6）** | §10；提交 `6c08ce4f`+`da7adf4f`+`c6097d32`+`16b9a26b`+`b79abde2` |
-| 24 | 远端 mirror / 多机聚合 | 缺口（M7） | §11.1 |
+| 23 | 定期只读挖掘 + triage 候选（稳定来源、单实体排除、有界扫描、显式 target） | **已移除（M8-1）**：`mine`/`digest` 删除，判断由 `incident-triage` skill 接管 | §10；提交 `6c08ce4f`+`da7adf4f`+`c6097d32`+`16b9a26b`+`b79abde2`（删除 `7be087bc`） |
+| 24 | 远端 mirror / 多机聚合 | **已实现（M7-C，仅 fake host）**，见 28；真实跨宿主（live）仍为缺口，见 29 | §11.1；提交 `7614be32`…`763a91f2` |
 | 25 | 端到端 live 验收（真实崩溃 → incident → 关闭） | **缺口** | 无 |
 | 26 | 计数聚合 + 合并推送 + 活动栏角标入口 | **已实现（M7-A）** | §12；提交 `569aaaaf`/`36517b8f`/`da866553` |
 | 27 | 面板（列表/筛选/详情/决策时间线/triage/灰度表）+ 角标分级 + stale 三态 | **已实现（M7-B）** | `src/renderer/src/components/right-sidebar/incidents/`；提交 `25f44933`…`4e7298d9` |
 | 28 | 远端 mirror（三态/游标/原子写入/未同步计数/接缝注册） | **已实现（M7-C）**，仅 fake host 验证 | §11.1；提交 `7614be32`…`763a91f2` |
 | 29 | 真实远端跨宿主 mirror（live） | **缺口** | 未连任何真实远端，需单独授权 |
 | 30 | UI 视觉/e2e 验收（截图、真实窗口） | **缺口** | 只有组件测试 |
+| 31 | `incident export`（NDJSON 五种记录；`meta` 带 coverage/`toolProviders`/mirror 三态，截断在 `end` 显式） | **已实现（M8-1）** | §12；提交 `7be087bc`（覆盖块补齐 `c01cfae9`） |
+| 32 | 事实表 `incident_pane_clocks`（M8-2）/ `incident_tool_failures`（M8-3，7 天 + 20k 行上限、拒收计 `dropped`） | **已实现（M8-2/M8-3）** | 提交 `7472ebb0`、`1428767b`；incidents `user_version 6 → 8` |
+| 33 | 证据 excerpt 本地 staging → 归档状态机（`staged/archive_pending/archived/archive_incomplete`，回读 sha256 相符才算 `archived`） | **已实现（M8-4）**，仅注入写者验证 | 提交 `c679133e`；归档根 `ORCA_INCIDENT_ARCHIVE_ROOT` |
+| 34 | `incident-triage` skill + 输入契约/report 模板（判断在 agent 侧，`confirmed` 仍只由 R1 `decide` 产生） | **已实现（M8）** | `swarm/skills/incident-triage/`；提交 `6c06a669`；契约测试 `swarm/tests/core/test_incident_triage_skill.py` |
 
 `已实现` 只描述该能力在源码中存在，不表示已被本设计接通或经过 live 验收；v2 评审已纠正 3/4/5/6/10/11 的过高估计。
+`已移除`/`已降级` 同理只描述源码状态，不代表被删的判据在别处已有等价证据。
 
 ## 18. 上一轮评审意见的处置
 
@@ -658,6 +684,16 @@ M1–M6 每轮都由两个独立评审（codex-ark、trae）先出结论、必�
 | 测试（外层复跑） | `right-sidebar` + `src/main/ipc` + `src/main/incidents`：770 files passed / 3 failed，7,428 passed / 4 failed；4 条失败与全检出基线完全一致（环境/flaky），无新增失败 |
 | 过程缺口 | trae 首版预合并评审卡死（约 1 小时无输出），用最小版重发才拿到结论；C 在评审期间改写提交，导致 codex 两条结论过时——此后约定评审先钉 SHA |
 | 仍未验证 | 无 live 崩溃→重启演练；mirror 只有 fake host；UI 只有组件测试，无截图/e2e |
+
+### 19.5 M8（减法）实施与评审记录
+
+| 项 | 内容 |
+| --- | --- |
+| 分支/基线 | `issue-sediment`，基线 `944e66c3`；M8-1..M8-4 顺序提交 `7be087bc`（−2,446）、`7472ebb0`（−960）、`1428767b`（−1,174）、`c679133e`（+859，含紧随的清理）；合计 +3,051 / −6,749，净 **−3,698**（含 [m8-subtraction.md](issue-sedimentation/m8-subtraction.md) 本文档） |
+| 判断去哪了 | 聚类/阈值/候选/归一化移出主进程：`mine`/`digest` 直接删除、`stalls`→`pane-clocks`、`tool-errors`→`tool-failures`（事实视图）、新增 `incident export` 作为机器接缝；判断在 `swarm/skills/incident-triage/`，`confirmed` 仍只由 R1 `decide` 产生 |
+| 存储 | incidents `user_version 6 → 8`（只加表/视图：`incident_triage_rows`、`incident_pane_clocks`、`incident_tool_failures`、`incident_evidence_archive_events` + 视图）；orchestration `SCHEMA_VERSION` 与 `integration.ts` 导出清单未动，0 新依赖 |
+| 评审（R12） | codex-ark 与 trae 均 **CHANGES_REQUIRED**，且落在同一接缝：export meta 缺 provider/mirror 覆盖、staging 未挂共享写路径、死 `tool_error` key、残留 stall/window 文案；五条全部修在 `c01cfae9`。skill 本体在评审后补（`6c06a669`，含契约测试）。逐份记录见 [轮次索引 R12](issue-sedimentation/README.md) |
+| 仍未验证 | live NAS 归档演练、live 崩溃 → triage → 关闭闭环；归档状态机只有注入写者/失败模拟，没有真实 NAS 回读证据 |
 
 ## 20. 本轮验收口径（设计阶段）
 

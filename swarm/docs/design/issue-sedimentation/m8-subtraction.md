@@ -1,7 +1,9 @@
-# M8「减法」：把判断搬出 Orca（设计草案）
+# M8「减法」：把判断搬出 Orca（已实施，R12 已评审）
 
 - 日期：2026-11-14（Asia/Shanghai）
-- 状态：**草案 v0.3：M8-1..M8-4 已实现（用户指示"继续"），尚未评审**。基线 `944e66c3`；提交与净额见 §11。
+- 状态：**v1.0：M8-1..M8-4 已实现，并经 R12（codex-ark + trae）评审后修复（`c01cfae9`）；`incident-triage` skill 与输入契约已补（`6c06a669`）**。
+  基线 `944e66c3`；提交与净额见 §11，轮次见 [README R12](README.md)。
+  剩余缺口：live NAS 归档演练、live 崩溃 → triage → 关闭闭环。
 - 上位文档：[../issue-sedimentation.md](../issue-sedimentation.md)（§7/§10/§16）、[README.md](README.md)。
 - 一句话：incidents 只存**事实**与**决策**；聚类、阈值、候选、归一化搬到 `incident-triage` skill，
   由 agent 在可复核的输入上判断，报告落 NAS，`decide` 仍由 R1 执行。
@@ -241,7 +243,7 @@ orca incident export [--since 24h|7d] [--limit <n>] [--json]   # NDJSON，一行
 ## 11. 实施记录（M8-1..M8-4，均在 `issue-sediment`）
 
 - 提交：`7be087bc` M8-1（−2,446）、`7472ebb0` M8-2（−960）、`1428767b` M8-3（−1,174）、
-  M8-4（+859，含紧随的清理）。合计 **+3,051 / −6,749，净 −3,698**（含本文档；评审修复已并入：export 覆盖块、共享写路径 staging、死 key/文案清理）。
+  `c679133e` M8-4（+859，含紧随的清理）。合计 **+3,051 / −6,749，净 −3,698**（含本文档；评审修复已并入：export 覆盖块、共享写路径 staging、死 key/文案清理）。
 
 - `user_version 6 → 8`（增量表/视图）；orchestration `SCHEMA_VERSION` 未动，0 新依赖。
 - 测试：`src/main/incidents` + `src/main/ipc` + `src/cli` + preload bridge + renderer right-sidebar，

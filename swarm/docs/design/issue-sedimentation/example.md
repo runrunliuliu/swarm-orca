@@ -1,9 +1,9 @@
-# 端到端示例（v2，按已落地实现写）
+# 端到端示例（v3，按已落地实现写）
 
 - 配套：[../issue-sedimentation.md](../issue-sedimentation.md)、[README](README.md)
 - 状态：**虚构示例**。所有 `inc_…` / `pane-…` / `disp-…` 均为虚构标识符，不含真实 Run/Task/Dispatch/
   终端 ID、主机名、私有路径或 session 原文。
-- 标注：`[已实现]` 当前代码有该行为；`[灰度]` 实现存在但默认不写；`[缺口]` 尚未实现。
+- 标注：`[已实现]` 当前代码有该行为；`[缺口]` 尚未实现（M8 删掉了默认不写的灰度写入，不再有 `[灰度]`）。
 
 ## 场景
 
@@ -63,34 +63,52 @@ $ orca incident decide inc_example01 --to watch --actor alice --reason "等同�
 
 决策是**追加**的：`incident_decisions` 多一行，`incidents` 行本身不变（触发器拒 UPDATE）。
 
-## 4. 一周后聚类 `[已实现]`
+## 4. 一周后交给 agent 侧 triage `[已实现]`
+
+聚类不在主进程里了：`incident mine` / `incident digest` 连同 `--apply` / `--target` 在 `7be087bc`（M8-1）
+直接删除（没有别名，旧命令报"未知命令"）。机器接缝是一次只读 NDJSON export：
 
 ```console
-$ orca incident mine --since 7d
-Candidates (scan 4,812 rows · 38ms)
- 12  crash/signaled · 4 stable sources (3 panes / 2 worktrees)     [候选]
-  8  tool_error/non_zero_exit · 2 sessions                          [候选·低信息]
-  2  acceptance_failed · single_entity_recurrence                   [不作候选]
+$ orca incident export --since 7d --json > incidents.ndjson   # 只读，一行一条记录
+$ head -1 incidents.ndjson    # meta：view=incident_triage_rows / exportVersion / coverage / toolProviders / mirror
+$ tail -1 incidents.ndjson    # end：counts / total / truncated / dropped
 ```
 
-"来源"按**实体**数（pane / session / dispatch），不是按 `source_id` 的 epoch 数 —— 否则同一 pane
-停顿三次就会被读成"跨源复现"。
+记录只有五种：`meta` / `incident` / `pane_clock` / `tool_failure` / `end`；`--limit` 只截断流，
+截断在 `end.truncated` 里显式声明（截断过的窗口不是总数）。把这份流交给
+`swarm/skills/incident-triage/`（SKILL.md + contract.example.json + report-template.md），
+由它按**稳定实体**聚类：
 
-## 5. 分流建议（默认 dry-run）`[已实现]`
+| sourceKind | 稳定键（先剥掉 epoch） |
+| --- | --- |
+| `status_stall` | `paneKey` |
+| `tool_error` | `sessionId` + `toolName` +（`errorKind` / `exitCode`） |
+| `acceptance` | `dispatchId` + 规则 id |
+| `pty_exit` | agent session，退化到 worktree / run |
+
+"来源"按**实体**数，不是按 `source_id` 里的 epoch 数——否则同一 pane 停顿三次就会被读成"跨源复现"。
+报告必须写明 `view` / `exportVersion` / `since` / `coverage`、`end.truncated` 与 `rowsUsed`；
+缺一项（或 `coverage` 显示 shadow replay 不完整 / 容量 latch）就不可当成完整窗口读。
+
+## 5. 报告给建议，`decide` 仍由 R1 执行 `[已实现]`
+
+M8 之后没有自动 apply：`--apply` / `--target` 随 `mine` 一起去掉，skill 只产出报告与命令建议。
+报告里 "Proposed decisions" 一节每行的形式是
+``<inc_id> | <to> | <why> | orca incident decide <inc_id> --to <to> --actor '<r1>' --reason '<why>'``，
+R1 自己执行：
 
 ```console
-$ orca incident mine --since 7d --apply --target watch --actor miner
-skipped_already_target  inc_example01
-appended watch          inc_example02 · inc_example03
+$ orca incident decide inc_example02 --to watch --actor alice --reason "triage: crash/signaled, 3 rows / 2 entities in 7d"
 ```
 
-`--apply` 必须显式 `--target`，且**只能**从当前 `untriaged` 出发：候选生成之后如果有人先把它设成
-`confirmed`，miner 会得到 `skipped_status_changed` 而不是覆盖人的判断。
+`decide` 只追加一条 `incident_decisions`，`incidents` 行依旧不可改；`--to confirmed` 必须显式
+`--actor`（自报，不校验），而 skill **从不**产出 `confirmed`，也不会自动写 `watch` / `duplicate`。
+报告里 `durable=false` 或 `pointers=0` 的记录不能当成"证据已归档"引用。
 
 ## 6. 起草防复发项（本轮仍是人做）`[缺口]`
 
-设计上每条已确认的故障类最终要产出一个 guardrail（测试/检查器/规则条目），目前 `mine` 只出候选，
-不提草案、不开工单。这一步决定 M7 之后是否补。
+设计上每条已确认的故障类最终要产出一个 guardrail（测试/检查器/规则条目），目前 triage 只出报告与
+`decide` 命令建议，不提草案、不开工单。这一步是否补仍未定。
 
 ## 7. 验收门（另一条独立路径）`[已实现，默认无声明]`
 
@@ -110,7 +128,7 @@ operator 若要绕过，必须显式 `--override-acceptance` 并留下 `acceptan
 
 活动栏的 `Incidents` 角标只消费主进程算好的数字与缺口判定：
 
-- **本地缺口**（shadow replay incomplete / 容量闸 latch / 扫描截断）→ 实心琥珀；
+- **本地缺口**（shadow replay incomplete / 容量闸 latch / 此刻正在拒收）→ 实心琥珀；
 - **远端缺口**（某台被监控的宿主 `not_probed` 或 `unsynced > 0`）→ 只有次级描边，数字与本地 tone 不变；
 - **`untriaged = 0` 但存在缺口** → 仍显示标记，只是不显示数字（"0"会被读成"没事"）；
 - **计数拉不到** → `unavailable`；超过 10 分钟未更新 → `stale`；两种都画 muted 标记，不与"无事故"同形。
@@ -118,15 +136,19 @@ operator 若要绕过，必须显式 `--override-acceptance` 并留下 `acceptan
 远端 mirror 只做搬运，不做判定：三态 `unsupported` / `not_probed` / `mirrored`，游标只推进到已投递的
 seq，origin 省略区间必须带 gap reason，否则 `unexplained_gap_*` 停下并保留游标。
 
-## 9. 灰度中的两条判据（默认不写）`[灰度]`
+## 9. 两张事实视图（只读，不判定）`[已实现]`
 
 ```console
-$ orca incident stalls          # 有语义事件就不再算停滞；ageBasis=state_fallback 时明示退化
-$ orca incident tool-errors     # 结构化高危才单次直通；文本命中最多进 non_zero_exit/unknown
+$ orca incident pane-clocks                  # 每个 pane 一行事实，无阈值、无 wouldWriteIfEnabled
+$ orca incident tool-failures --since 7d     # provider 原样的 errorKind / exitCode，无码表、无窗口
 ```
 
-两者都默认 off（`INCIDENT_STALL_WRITE` / `INCIDENT_TOOL_ERROR_WRITE` 仅 `on` 生效），所以上面这些
-观察**不会**自动变成 incident —— 打开写入前要先看这两张表在真实负载上的比例。
+两条都只读、都不写 incident：`pane-clocks` 打 `state / ageMs / ageBasis / observedAt / 声明`，
+`ageBasis=state_fallback` 明示"这台宿主没报过语义事件时钟，年龄退回 `stateStartedAt`"；
+`tool-failures` 没有 `INCIDENT_TOOL_ERROR_WRITE` 这类写开关，只有 provider 覆盖声明
+（`Coverage: covered=…` 与 `Coverage gap: …`）和 `dropped` 计数——两者都在说"这里的数字是下限"。
+所以**安静不等于没事故**：判据在 triage 那边；真认为是一条事故时，用
+`orca incident report --class <class> --code <code>` 自报一条。
 
 ## 10. 这个示例**不**代表的事
 
