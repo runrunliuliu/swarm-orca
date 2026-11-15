@@ -86,6 +86,23 @@ export function resolveWorktreeAddTimeoutMs(env: NodeJS.ProcessEnv = process.env
   return resolved
 }
 
+/**
+ * One wording for every deadlined checkout step, so the operator hint stays greppable.
+ *
+ * Why a warning and not a verdict: the deadline ended the wait, not the work — Git keeps writing
+ * whatever the caller must not delete, so this names the budget and the only override that moves it.
+ */
+export function warnWorktreeCheckoutExceeded(
+  step: string,
+  timeoutMs: number,
+  worktreePath: string
+): void {
+  console.warn(
+    `[git/worktree] ${step} exceeded ${timeoutMs}ms for "${worktreePath}"; it may still complete. ` +
+      'Set ORCA_WORKTREE_ADD_TIMEOUT_MS on the host that runs Git for a slower checkout.'
+  )
+}
+
 export type GitExecOptionsForWorktree = {
   cwd: string
   wslDistro?: string

@@ -21,7 +21,11 @@ import type {
   AddWorktreeResult,
   GitWorktreeExecOptions
 } from './worktree-operation-options'
-import { gitExecOptions, resolveWorktreeAddTimeoutMs } from './worktree-operation-options'
+import {
+  gitExecOptions,
+  resolveWorktreeAddTimeoutMs,
+  warnWorktreeCheckoutExceeded
+} from './worktree-operation-options'
 import { bumpWorktreeScanGeneration } from './worktree-scan-cache'
 
 export type WorktreeAddBaseContext = AddWorktreeResult & {
@@ -327,10 +331,7 @@ async function settleFailedWorktreeAdd(
     }
     throw error
   }
-  console.warn(
-    `[git/worktree] git worktree add exceeded ${timeoutMs}ms for "${worktreePath}"; it may still complete. ` +
-      'Set ORCA_WORKTREE_ADD_TIMEOUT_MS on the host that runs Git for a slower checkout.'
-  )
+  warnWorktreeCheckoutExceeded('git worktree add', timeoutMs, worktreePath)
   if (await readWorktreeAddCompletedAfterDeadline(repoPath, worktreePath, branch, options)) {
     return
   }
