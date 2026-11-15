@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMetadata } from '../../shared/runtime-bootstrap'
 import { formatCliError, reportCliError } from '../cli-error'
@@ -108,6 +111,51 @@ describe('runtime access denied', () => {
       await expect(pending).rejects.toMatchObject({ code: 'runtime_access_denied' })
     }
   )
+
+  // Why: a sandboxed shell hides Orca's pid namespace, so the ESRCH probe there proves nothing.
+  it.each(['CODEX_SANDBOX', 'CODEX_SANDBOX_NETWORK_DISABLED'])(
+    'keeps a denial when %s says a sandbox fences the pid probe',
+    async (marker) => {
+      mockKill('ESRCH')
+      vi.stubEnv(marker, '1')
+      const error = await deniedRequest('EPERM')
+
+      expect(error).toMatchObject({ code: 'runtime_access_denied', data: { systemCode: 'EPERM' } })
+      const human = formatCliError(error)
+      expect(human).toContain('The Codex sandbox blocked this command from connecting to Orca')
+      expect(human).toContain('escalated permissions, outside the Codex sandbox')
+      expect(human).toContain('not evidence that Orca stopped')
+      expect(human).not.toMatch(RESTART_OR_ABSENT_ADVICE)
+
+      // Why: status is what a worker runs first; it must not report a healthy sandboxed runtime as dead.
+      const pending = getCliStatus('/test')
+      failConnect('EPERM')
+      await expect(pending).rejects.toMatchObject({ code: 'runtime_access_denied' })
+    }
+  )
+
+  // Why: an endpoint that exists and still answered EPERM was denied, not absent.
+  it('keeps a denial for a present socket even when the pid probe says gone', async () => {
+    mockKill('ESRCH')
+    const dir = mkdtempSync(join(tmpdir(), 'orca-denied-endpoint-'))
+    const endpoint = join(dir, 'runtime.sock')
+    try {
+      writeFileSync(endpoint, '')
+      const pending = sendRequest(
+        { ...metadata, transports: [{ kind: 'unix', endpoint }] },
+        'status.get',
+        undefined,
+        1000
+      )
+      failConnect('EPERM')
+      const error = await pending.catch((failure: unknown) => failure)
+
+      expect(error).toMatchObject({ code: 'runtime_access_denied', data: { systemCode: 'EPERM' } })
+      expect(formatCliError(error)).toContain('sandbox or OS permissions block the connection')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
   // Why: a dead Orca leaves its socket behind, and the sandbox denies it before ECONNREFUSED.
   it('gives not-running advice when the denied endpoint belongs to a dead pid', async () => {

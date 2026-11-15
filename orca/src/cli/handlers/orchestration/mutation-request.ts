@@ -34,7 +34,11 @@ export async function callOrchestrationMutation<TResult>(
       if (carriesRequestId(error)) {
         sentError = error
       }
-      if (!unavailable || Date.now() + delayMs > deadline) {
+      // Why: a sandbox or OS permission denial is deterministic — every attempt hits the same
+      // fence — so retrying only turns an instant, actionable refusal into a silent hang for the
+      // whole retry window (worker_done waits 120 s, long past the agent's patience).
+      const refused = error instanceof RuntimeClientError && error.code === 'runtime_access_denied'
+      if (refused || !unavailable || Date.now() + delayMs > deadline) {
         // Why: a later attempt can fail before its request id is attached, though an earlier one may have landed.
         throw orchestrationMutationRecoveryError(
           carriesRequestId(error) ? error : (sentError ?? error)

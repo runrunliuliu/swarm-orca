@@ -109,6 +109,26 @@ describe('callOrchestrationMutation runtime_unavailable retry', () => {
     expect(requestIds).toHaveLength(1)
   })
 
+  it('does not retry a deterministic runtime_access_denied', async () => {
+    const { client, requestIds } = fakeClient(() => {
+      throw new RuntimeClientError(
+        'runtime_access_denied',
+        'The Codex sandbox blocked this command from connecting to Orca (EPERM).'
+      )
+    })
+    await expect(
+      callOrchestrationMutation(
+        client,
+        new Map(),
+        'orchestration.send',
+        WORKER_DONE,
+        undefined,
+        RETRY_MS
+      )
+    ).rejects.toMatchObject({ code: 'runtime_access_denied' })
+    expect(requestIds).toHaveLength(1)
+  })
+
   it('does not retry mutations that did not opt in', async () => {
     const { client, requestIds } = fakeClient((_attempt, options) => {
       throw unavailable(options)
