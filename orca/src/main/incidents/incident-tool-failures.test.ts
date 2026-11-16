@@ -1,33 +1,35 @@
 /**
- * The tool-failure cap's row accounting (A2): the cap is decided by the durable `tool_failure_rows`
- * counter, not by a `SELECT COUNT(*)` on the journal append path.
+ * The tool-failure cap and its `dropped` counter, stated as the invariants the code has to keep.
  *
- * What has to stay true, and why each case exists:
- *   * an insert increments the counter — otherwise the cap never closes;
- *   * a duplicate does not — `INSERT OR IGNORE` added no row, so counting it would drift the counter
- *     high and drop new facts early (the failure mode trae called out);
- *   * the cap refuses with `dropped`, but only a fact that is *not* already recorded: at the cap the
- *     same fact again is still a `duplicate`, because capacity did not refuse it;
- *   * prune recounts after its DELETE — the one place the table shrinks;
- *   * a store written before this counter existed recovers from a real count on first use, and the
- *     counter survives a close/reopen (a durable fact, not process state);
- *   * the cap still refuses with the same `dropped` counter, unchanged.
+ * The cap reads one authoritative `SELECT COUNT(*)`, so every case below is staged with real rows and
+ * asserted against the rows the table actually holds:
+ *   * below the cap an insert lands, and the same fact again is a `duplicate` that adds no row and
+ *     moves no counter — a duplicate consumed no capacity, so it is not evidence lost;
+ *   * at the cap a repeat of a recorded fact is still a `duplicate` and leaves `tool_failure_dropped`
+ *     exactly where it was (`4023fc96`'s fix: capacity did not refuse it, it was already recorded);
+ *   * at the cap a genuinely new fact is `dropped` and bumps `tool_failure_dropped` exactly once;
+ *   * prune deletes expired rows and the cap still refuses after it — the count follows the table, so
+ *     there is no stored number left to repair.
+ *
+ * The cap boundary is staged by inserting MAX_TOOL_FAILURE_ROWS rows in one statement (a recursive CTE
+ * `INSERT … SELECT`), never by writing a meta key: the count is read from the table, so only rows can
+ * put the table at its cap.
  */
 import { describe, expect, it } from 'vitest'
-import { closeStorePairs, databasePath, openStorePair } from './incident-test-fixture'
-import { openIncidentsDatabase } from './incidents-database'
+import { closeStorePairs, openStorePair } from './incident-test-fixture'
 import { readMeta, writeMeta } from './incident-store-meta'
 import {
   MAX_TOOL_FAILURE_ROWS,
   TOOL_FAILURE_DROPPED_META,
   TOOL_FAILURE_LAST_PRUNE_META,
   TOOL_FAILURE_RETENTION_MS,
-  TOOL_FAILURE_ROWS_META,
   recordToolFailure,
   type ToolFailureFact
 } from './incident-tool-failures'
 
 const NOW = 1_700_000_000_000
+
+type TestDb = ReturnType<typeof openStorePair>['opened']['db']
 
 function fact(overrides: Partial<ToolFailureFact> = {}): ToolFailureFact {
   return {
@@ -44,81 +46,77 @@ function fact(overrides: Partial<ToolFailureFact> = {}): ToolFailureFact {
 }
 
 /** Rows actually in the table, read the slow way: the assertion, never the implementation. */
-function realCount(db: ReturnType<typeof openStorePair>['opened']['db']): number {
+function realCount(db: TestDb): number {
   const row = db.prepare('SELECT COUNT(*) AS n FROM incident_tool_failures').get()
   return row ? Number(row.n ?? 0) : 0
 }
 
-function rowsMeta(db: ReturnType<typeof openStorePair>['opened']['db']): number {
-  return Number(readMeta(db, TOOL_FAILURE_ROWS_META) ?? -1)
+/**
+ * Add `count` live rows in ONE statement, so the cap's real boundary is staged by the rows the cap
+ * counts. A recursive CTE builds the numbers and `INSERT … SELECT` is a single statement (one implicit
+ * transaction): one write, not `count` calls to `recordToolFailure`.
+ *
+ * The staged facts are `session_id = 'bulk'`, `item_key = 'item-<n>'`, `ordinal = 0`, so a case can name
+ * one of them as "already recorded" instead of guessing at the live rows it also inserted.
+ */
+function fillTo(db: TestDb, count: number): void {
+  db.prepare(
+    `WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < ?)
+     INSERT INTO incident_tool_failures
+       (session_id, item_key, ordinal, turn, tool_name, error_kind, exit_code, observed_at)
+     SELECT 'bulk', 'item-' || n, 0, 'thread', 'bash', NULL, NULL, ?
+       FROM seq`
+  ).run(count, NOW)
 }
 
-describe('tool-failure row counter', () => {
-  it('increments on insert and leaves the counter alone on a duplicate', () => {
+describe('tool-failure cap', () => {
+  it('inserts below the cap, and a repeat adds no row and is not counted as lost', () => {
     const { opened } = openStorePair()
 
     expect(recordToolFailure(opened.db, fact())).toBe('inserted')
-    expect(rowsMeta(opened.db)).toBe(1)
     expect(recordToolFailure(opened.db, fact({ ordinal: 1 }))).toBe('inserted')
-    expect(rowsMeta(opened.db)).toBe(2)
+    expect(realCount(opened.db)).toBe(2)
 
-    // The same fact twice: `INSERT OR IGNORE` changes no row, so the counter must not move either.
+    // The same fact twice: `INSERT OR IGNORE` changes no row, so the table still holds two and no
+    // capacity was consumed — `dropped` must stay absent, because nothing was refused.
     expect(recordToolFailure(opened.db, fact())).toBe('duplicate')
-    expect(rowsMeta(opened.db)).toBe(2)
     expect(realCount(opened.db)).toBe(2)
-
-    closeStorePairs()
-  })
-
-  it('does not drift high on duplicate traffic, so the cap does not drop early', () => {
-    const { opened } = openStorePair()
-    recordToolFailure(opened.db, fact())
-    // One row below the cap: a duplicate that incremented the counter would now report `dropped`.
-    writeMeta(opened.db, TOOL_FAILURE_ROWS_META, String(MAX_TOOL_FAILURE_ROWS - 1))
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      expect(recordToolFailure(opened.db, fact())).toBe('duplicate')
-    }
-    expect(rowsMeta(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS - 1)
-
-    // A genuinely new fact still fits under the cap; nothing was refused because of duplicate drift.
-    expect(recordToolFailure(opened.db, fact({ ordinal: 1 }))).toBe('inserted')
     expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBeNull()
-    expect(realCount(opened.db)).toBe(2)
 
     closeStorePairs()
   })
 
   it('at the cap, repeats a recorded fact as `duplicate` and only a new fact as `dropped`', () => {
     const { opened } = openStorePair()
-    // Two durable rows; the counter is forced to the cap so the test names exact rows instead of
-    // staging twenty thousand of them. The boundary is the counter, which is what production reads.
-    recordToolFailure(opened.db, fact())
-    recordToolFailure(opened.db, fact({ ordinal: 1 }))
-    expect(rowsMeta(opened.db)).toBe(2)
-    writeMeta(opened.db, TOOL_FAILURE_ROWS_META, String(MAX_TOOL_FAILURE_ROWS))
-    // A dropped counter that already has a value, so "unchanged" is an exact number and not just null.
+    // The real boundary: the table really holds MAX_TOOL_FAILURE_ROWS rows, which is what the cap reads.
+    fillTo(opened.db, MAX_TOOL_FAILURE_ROWS)
+    expect(realCount(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
+    // A `dropped` counter that already has a value, so "unchanged" is an exact number and not just null.
     writeMeta(opened.db, TOOL_FAILURE_DROPPED_META, '7')
 
+    // `bulk/item-1/0` is one of the staged rows: capacity did not refuse it, it was already recorded.
+    const recorded = fact({ sessionId: 'bulk', itemKey: 'item-1' })
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      expect(recordToolFailure(opened.db, fact())).toBe('duplicate')
+      expect(recordToolFailure(opened.db, recorded)).toBe('duplicate')
     }
-    // Nothing was lost to capacity: the fact was already recorded, so `dropped` must not move, and no
-    // row may appear. Before this fix this path returned `dropped` and inflated the visible counter.
+    // Nothing was lost to capacity, and no duplicate row appeared. Before `4023fc96` this path
+    // returned `dropped` and inflated the operator-facing counter.
     expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBe('7')
-    expect(rowsMeta(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
-    expect(realCount(opened.db)).toBe(2)
+    expect(realCount(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
 
     // A genuinely new fact is the only thing the cap may refuse, and it is counted exactly once.
-    expect(recordToolFailure(opened.db, fact({ ordinal: 9 }))).toBe('dropped')
+    expect(recordToolFailure(opened.db, fact({ itemKey: 'not-staged' }))).toBe('dropped')
     expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBe('8')
-    expect(rowsMeta(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
-    expect(realCount(opened.db)).toBe(2)
+    expect(realCount(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
+
+    // The refusal changed nothing either: the same new fact is refused again, never inserted.
+    expect(recordToolFailure(opened.db, fact({ itemKey: 'not-staged' }))).toBe('dropped')
+    expect(realCount(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
 
     closeStorePairs()
   })
 
-  it('refreshes from a real count after prune, and the cap still refuses with `dropped`', () => {
+  it('prunes expired rows, and the cap still refuses after the prune', () => {
     const { opened } = openStorePair()
     // Mark the prune as just-run, so staging the expired row does not immediately delete it.
     writeMeta(opened.db, TOOL_FAILURE_LAST_PRUNE_META, String(NOW))
@@ -128,43 +126,22 @@ describe('tool-failure row counter', () => {
       fact({ observedAt: NOW - TOOL_FAILURE_RETENTION_MS - 1_000, itemKey: 'expired' })
     )
     recordToolFailure(opened.db, fact())
-    expect(rowsMeta(opened.db)).toBe(2)
+    expect(realCount(opened.db)).toBe(2)
 
     // Force the next call through the prune path (the interval is otherwise 60 s of wall clock).
     writeMeta(opened.db, TOOL_FAILURE_LAST_PRUNE_META, '0')
     expect(recordToolFailure(opened.db, fact({ ordinal: 1 }))).toBe('inserted')
-    // The DELETE took one row, the recount saw one, and this insert made two.
+    // The DELETE took the expired row and the insert added one: two rows left, and those two rows are
+    // the count the cap reads — no stored number to repair, none to fall out of step.
     expect(realCount(opened.db)).toBe(2)
-    expect(rowsMeta(opened.db)).toBe(2)
+    expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBeNull()
 
-    // Cap semantics are unchanged: at the cap a new fact is refused and counted, not inserted.
-    writeMeta(opened.db, TOOL_FAILURE_ROWS_META, String(MAX_TOOL_FAILURE_ROWS))
+    // Fill to the cap with rows, then confirm refusal still works against the post-prune table.
+    fillTo(opened.db, MAX_TOOL_FAILURE_ROWS - realCount(opened.db))
+    expect(realCount(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
     expect(recordToolFailure(opened.db, fact({ ordinal: 2 }))).toBe('dropped')
     expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBe('1')
-    expect(realCount(opened.db)).toBe(2)
-
-    closeStorePairs()
-  })
-
-  it('recovers from a real count when the key is absent (a store written before this counter)', () => {
-    const { opened, userData } = openStorePair()
-    recordToolFailure(opened.db, fact())
-    recordToolFailure(opened.db, fact({ ordinal: 1 }))
-    // Simulate the pre-A2 file: rows present, no counter key.
-    opened.db.prepare('DELETE FROM incident_store_meta WHERE key = ?').run(TOOL_FAILURE_ROWS_META)
-    expect(readMeta(opened.db, TOOL_FAILURE_ROWS_META)).toBeNull()
-
-    expect(recordToolFailure(opened.db, fact({ ordinal: 2 }))).toBe('inserted')
-    expect(rowsMeta(opened.db)).toBe(3)
-
-    // Durable across a close/reopen: the counter is a fact in the file, not process state.
-    opened.db.close()
-    const reopened = openIncidentsDatabase(databasePath(userData))
-    expect(rowsMeta(reopened.db)).toBe(3)
-    expect(recordToolFailure(reopened.db, fact({ ordinal: 3 }))).toBe('inserted')
-    expect(rowsMeta(reopened.db)).toBe(4)
-    expect(realCount(reopened.db)).toBe(4)
-    reopened.db.close()
+    expect(realCount(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
 
     closeStorePairs()
   })

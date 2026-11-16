@@ -12,32 +12,19 @@
 //     discarding the oldest evidence. Both numbers are read by the CLI and the panel, and `dropped`
 //     means what it says: only a fact that is not already recorded is refused by capacity.
 //
-// The cap reads the durable `tool_failure_rows` counter (see its comment), not `SELECT COUNT(*)`: the
-// count ran over the whole table on the journal append path for every failed tool call.
+// The cap is decided by one authoritative row count per recorded failure: a single `SELECT COUNT(*)`
+// over `incident_tool_failures` (see its comment). Nothing durable recites the table's size, so the cap
+// cannot read a number the table does not have. At the cap there is no `INSERT OR IGNORE` left to ask
+// whether this exact fact is already recorded, so one primary-key probe answers that question instead —
+// without it, repeating a recorded fact would be reported as evidence lost to capacity.
 
 import type Database from '../sqlite/sync-database'
-import { bumpMetaNumber, readMeta, readMetaNumber, writeMeta } from './incident-store-meta'
+import { bumpMetaNumber, readMeta, writeMeta } from './incident-store-meta'
 
 export const TOOL_FAILURE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 export const MAX_TOOL_FAILURE_ROWS = 20_000
 export const TOOL_FAILURE_DROPPED_META = 'tool_failure_dropped'
 export const TOOL_FAILURE_LAST_PRUNE_META = 'tool_failure_last_prune'
-/**
- * The durable row counter the cap is checked against (A2).
- *
- * Why meta and not a `SELECT COUNT(*)` per failure: the count ran over up to MAX_TOOL_FAILURE_ROWS rows
- * on the journal append path, for every failed tool call, to answer a question that only changes by the
- * one insert this call is about to attempt. The counter is now authoritative between prunes:
- *   * incremented only when `INSERT OR IGNORE` reports `changes === 1` (a duplicate adds no row, so it
- *     must not move the counter — that is the drift that would drop new facts early);
- *   * refreshed from a real count after every prune DELETE;
- *   * initialized from a real count on first use when the key is absent (a store written before this
- *     counter existed, i.e. the upgrade path).
- * Bounded drift: a crash between the insert and the meta write leaves the counter one low per lost
- * update; the next prune recount repairs it. Nothing else deletes from this table, and this module is
- * the only writer, so there is no second source of truth to reconcile.
- */
-export const TOOL_FAILURE_ROWS_META = 'tool_failure_rows'
 const PRUNE_INTERVAL_MS = 60 * 1000
 
 export type ToolFailureFact = {
@@ -71,28 +58,16 @@ export function clampToolFailureLimit(value: number): number {
 export type ToolFailureRecordResult = 'inserted' | 'duplicate' | 'dropped'
 
 /**
- * The real row count. Only two callers, both off the per-failure path: the counter's first-use
- * initialization and the recount after a prune. Never used to decide the cap on an insert.
+ * How many rows the table holds, asked once per recorded failure and nowhere else.
+ *
+ * This is the cap's only source of truth, deliberately: a stored counter would be a second copy of a
+ * number the table already knows, and every path that adds, deletes or crashes between the two would
+ * have to keep it in step. One bounded `COUNT(*)` over `incident_tool_failures` (bounded by that same
+ * 20 000-row cap) states the answer directly.
  */
-function realRowCount(db: Database.Database): number {
+function toolFailureRowCount(db: Database.Database): number {
   const row = db.prepare('SELECT COUNT(*) AS n FROM incident_tool_failures').get()
   return row ? Number(row.n ?? 0) : 0
-}
-
-/**
- * The durable row counter, initialized from a real count when the key is absent.
- *
- * A corrupt value reads as 0 through `readMetaNumber`, which only under-counts the cap by one refresh
- * cycle: the next prune recount makes it exact again.
- */
-function countedRows(db: Database.Database): number {
-  const stored = readMeta(db, TOOL_FAILURE_ROWS_META)
-  if (stored !== null) {
-    return readMetaNumber(db, TOOL_FAILURE_ROWS_META)
-  }
-  const real = realRowCount(db)
-  writeMeta(db, TOOL_FAILURE_ROWS_META, String(real))
-  return real
 }
 
 /** Delete expired rows at most once a minute, so the journal path does not pay a DELETE per event. */
@@ -104,9 +79,8 @@ function pruneIfDue(db: Database.Database, now: number): void {
   db.prepare('DELETE FROM incident_tool_failures WHERE observed_at < ?').run(
     now - TOOL_FAILURE_RETENTION_MS
   )
-  // The one authoritative recount: a DELETE is the only thing that can shrink the table, so this is
-  // the point where any stale-low counter is repaired.
-  writeMeta(db, TOOL_FAILURE_ROWS_META, String(realRowCount(db)))
+  // No recount to repair afterwards: the cap counts the table on every attempt, so a DELETE needs no
+  // follow-up bookkeeping. Only the prune's own clock is written.
   writeMeta(db, TOOL_FAILURE_LAST_PRUNE_META, String(now))
 }
 
@@ -136,8 +110,7 @@ function isRecorded(db: Database.Database, fact: ToolFailureFact): boolean {
 export function recordToolFailure(db: Database.Database, fact: ToolFailureFact): ToolFailureRecordResult {
   try {
     pruneIfDue(db, fact.observedAt)
-    const rows = countedRows(db)
-    if (rows >= MAX_TOOL_FAILURE_ROWS) {
+    if (toolFailureRowCount(db) >= MAX_TOOL_FAILURE_ROWS) {
       // A fact already in the table adds no row, so capacity is not what refused it: classify it the
       // same way the below-cap `INSERT OR IGNORE` does, and let `dropped` count only real loss.
       if (isRecorded(db, fact)) {
@@ -163,11 +136,10 @@ export function recordToolFailure(db: Database.Database, fact: ToolFailureFact):
         fact.observedAt
       )
     if (Number(result.changes) !== 1) {
-      // A duplicate is the same fact again: no row appeared, so the counter must not move. A failed
-      // insert reports `dropped`, not a counter change, so neither path can drift the count high.
+      // A duplicate is the same fact again: `INSERT OR IGNORE` added no row, and no capacity was
+      // consumed by it, so it is not evidence lost and must not touch `dropped`.
       return 'duplicate'
     }
-    writeMeta(db, TOOL_FAILURE_ROWS_META, String(rows + 1))
     return 'inserted'
   } catch {
     try {
