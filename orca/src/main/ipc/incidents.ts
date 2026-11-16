@@ -36,8 +36,8 @@ import { readIncidentCounts as readIncidentCountsFrom } from '../incidents/incid
 import { startIncidentCountsPush } from './incident-counts-push'
 import { readIncidentPaneClocksView, readIncidentToolFailuresView } from './incident-gray-views'
 import {
-  attachIncidentRemoteMirror,
-  attachIncidentRemoteMirrorToCounts
+  attachIncidentRemoteMirrorToCounts,
+  attachIncidentRemoteMirrorToCoverage
 } from './incident-mirror-coverage'
 
 /** The push channel the preload bridge listens on (`incidents.onCountsChanged`). */
@@ -153,9 +153,10 @@ export function readIncidentSnapshot(
     value: {
       incidents: result.incidents.map(listItem),
       total: result.total,
-      // The mirror's coverage is attached here, not computed: absent means "not reported by this
-      // build", which the panel renders as a stated fact rather than as completeness (M7-C).
-      coverage: attachIncidentRemoteMirror(runtime.db, result.coverage)
+      // The mirror's coverage is attached here, not computed: absent means the read failed or the
+      // mirror has nothing to report, which the panel renders as a stated fact rather than as
+      // completeness (M7-C).
+      coverage: attachIncidentRemoteMirrorToCoverage(runtime.db, result.coverage)
     }
   }
 }

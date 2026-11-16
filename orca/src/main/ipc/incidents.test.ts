@@ -19,10 +19,7 @@ import {
   registerIncidentHandlers
 } from './incidents'
 import { __resetIncidentCountsPushForTests } from './incident-counts-push'
-import {
-  registerIncidentMirrorCoverageReader,
-  resetIncidentMirrorCoverageReaderForTests
-} from './incident-mirror-coverage'
+import type { MirrorCoverage } from '../incidents/incident-mirror-types'
 
 const handled = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
 const sent: { channel: string; payload: unknown }[] = []
@@ -41,6 +38,55 @@ vi.mock('electron', () => ({
   // to have somewhere to send. The shape asserted below is the real wire shape (`incidents:countsChanged`).
   BrowserWindow: { getAllWindows: () => [windowMock] }
 }))
+
+/**
+ * The one thing a real store cannot demonstrate here is a *failing* mirror read, and the rule under
+ * test is that it costs only the optional `remoteMirror` field. So the read is replaced at the seam
+ * `incident-mirror-coverage.ts` imports: the DTO projection and its single try/catch boundary stay the
+ * production code, and only the answer is injected. (This used to be a process-global registration with
+ * a test reset; that seam is gone, and a module mock is the local equivalent.)
+ */
+const mirrorRead = vi.hoisted(() => ({
+  /** Test-set answer: return a coverage value, or throw to exercise the failure boundary. */
+  answer: null as null | (() => unknown)
+}))
+
+vi.mock('../incidents/incident-mirror-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../incidents/incident-mirror-store')>()
+  return {
+    ...actual,
+    readIncidentMirrorCoverage: () => {
+      if (mirrorRead.answer === null) {
+        throw new Error('mirror store unavailable')
+      }
+      return mirrorRead.answer()
+    }
+  }
+})
+
+/** A `MirrorCoverage` with the DTO's three inputs stated and every other fact at its zero value. */
+function mirrorCoverage(overrides: Partial<MirrorCoverage> = {}): MirrorCoverage {
+  return {
+    capture: 'unsupported',
+    hosts: [],
+    unsynced: null,
+    unsyncedAsOf: null,
+    unreachable: 0,
+    rejected: 0,
+    pruned: 0,
+    lastError: null,
+    mirroredRowsPresent: 0,
+    skippedRows: 0,
+    provenanceConflicts: 0,
+    ...overrides
+  }
+}
+
+/** The local facts with the optional remote hint removed: what a failing read must not change. */
+function localCoverage<T extends object>(coverage: T): Omit<T, 'remoteMirror'> {
+  const { remoteMirror: _omitted, ...local } = coverage as T & { remoteMirror?: unknown }
+  return local
+}
 
 // Every row in this file is one pty-exit crash; the shared fixture owns the boring defaults
 // (fingerprint, empty evidence, host-a/wt-1), so only what makes it a pty exit is stated here.
@@ -63,6 +109,7 @@ function sharedStore(): ReturnType<typeof openStorePair>['store'] {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  mirrorRead.answer = null
   __resetIncidentWriterForTests()
   __resetIncidentCountsPushForTests()
   handled.clear()
@@ -100,30 +147,54 @@ describe('readIncidentSnapshot', () => {
     })
   })
 
-  it('attaches the mirror coverage when a reader is registered, and omits it otherwise', () => {
+  it('attaches the mirror hint through one adapter, and a failed read costs only that hint', () => {
     const { store, opened } = openStorePair()
     store.insertIncident(record({ ...PTY_EXIT }))
     __configureIncidentStoreForTests(store, opened.db)
 
-    // No reader: "not reported" is absence, never a fabricated "mirrored".
-    const withoutMirror = readIncidentSnapshot({ limit: 10 })
-    expect(withoutMirror.ok && 'remoteMirror' in withoutMirror.value.coverage).toBe(false)
+    // A throwing read is "not reported", never a failed list: the key is absent, the local facts stay.
+    const failed = readIncidentSnapshot({ limit: 10 })
+    expect(failed.ok).toBe(true)
+    if (!failed.ok) {
+      return
+    }
+    expect('remoteMirror' in failed.value.coverage).toBe(false)
 
-    registerIncidentMirrorCoverageReader(() => ({ capture: 'not_probed', unsynced: 3 }))
-    const withMirror = readIncidentSnapshot({ limit: 10 })
-    expect(withMirror.ok && withMirror.value.coverage.remoteMirror).toEqual({
+    mirrorRead.answer = () => mirrorCoverage({ capture: 'not_probed', unsynced: 3 })
+    const attached = readIncidentSnapshot({ limit: 10 })
+    expect(attached.ok).toBe(true)
+    if (!attached.ok) {
+      return
+    }
+    expect(attached.value.coverage.remoteMirror).toEqual({
       capture: 'not_probed',
-      unsynced: 3
+      unsynced: 3,
+      monitored: true
     })
+    // The adapter adds the hint and moves nothing else — the local verdict is bit-for-bit the same.
+    expect(localCoverage(attached.value.coverage)).toEqual(localCoverage(failed.value.coverage))
+    expect(attached.value.total).toBe(failed.value.total)
+    expect(attached.value.incidents).toEqual(failed.value.incidents)
+  })
 
-    // A throwing mirror read must not fail the list: it degrades to "not reported".
-    registerIncidentMirrorCoverageReader(() => {
-      throw new Error('mirror read failed')
-    })
-    const throwing = readIncidentSnapshot({ limit: 10 })
-    expect(throwing.ok).toBe(true)
-    expect(throwing.ok && 'remoteMirror' in throwing.value.coverage).toBe(false)
-    resetIncidentMirrorCoverageReaderForTests()
+  it('degrades the counts read and the coalesced push the same way when the mirror read fails', async () => {
+    const { store, opened } = openStorePair()
+    __configureIncidentStoreForTests(store, opened.db)
+    registerIncidentHandlers()
+
+    mirrorRead.answer = () => {
+      throw new Error('mirror store unavailable')
+    }
+    store.insertIncident(record({ ...PTY_EXIT }))
+
+    const counts = readIncidentCountsSnapshot(undefined)
+    expect(counts.ok).toBe(true)
+    expect(counts.ok && 'remoteMirror' in counts.value.coverage).toBe(false)
+    // The push reads the same fields; it must land with the badge's number and no remote claim.
+    await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 2_000 })
+    const pushed = sent[0].payload as { untriaged: number; coverage: Record<string, unknown> }
+    expect(pushed.untriaged).toBe(1)
+    expect('remoteMirror' in pushed.coverage).toBe(false)
   })
 
   it('rejects an unknown filter and an unavailable store with a closed result', () => {

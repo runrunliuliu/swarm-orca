@@ -156,11 +156,9 @@ export type MirrorInsertResult = {
 /*
  * ── Where the mirror axis attaches, and where it must not ─────────────────────────────────────────
  *
- * M7-C could not edit the shared coverage/IPC surface, so the mirror is read through
- * `readIncidentMirrorCoverage(db)` and attached by the merge seam
- * (`main/ipc/incident-mirror-coverage.ts` + `incident-mirror-coverage-install.ts`, registered once from
- * `main/startup/main-process-ready-foundation.ts`). That is the ONE wiring, and it keeps two questions
- * apart:
+ * The mirror is read through `readIncidentMirrorCoverage(db)` and attached by one direct adapter
+ * (`main/ipc/incident-mirror-coverage.ts`), which every snapshot/counts/push reader calls. That is the
+ * ONE wiring (one read, one failure boundary), and it keeps two questions apart:
  *
  *   * LOCAL coverage (`IncidentCoverage`, `IncidentCoverageSummaryDto.gap`): the capacity latch, a
  *     current refusal, an unfinished shadow replay. These make `untriaged` a lower bound on *this* host,

@@ -9,7 +9,11 @@
 //     moving to the archive is an asynchronous drain, and the incident row is never updated;
 //   * a failed archive is not "archived". State lives in an append-only event table, and `archived`
 //     is written only after a read-back hash matches. Until then the row reads `archive_pending` and
-//     `durable=false`.
+//     `durable=false`;
+//   * local staging is reclaimed only AFTER that pointer's `archived` event is committed, because
+//     before it the staged excerpt may be the only copy left (see `reclaimStagingCopy`). A cleanup
+//     failure leaves the bytes and is logged; it never retracts `archived` and never turns a
+//     successful archive into a failure.
 //
 // The drain only selects `archive_pending`, so an `archive_incomplete` row (mismatch, missing staging)
 // is terminal for it. `retryIncompleteArchive` is the one explicit way back: it appends a new
@@ -29,6 +33,7 @@ import {
   closeSync,
   readSync,
   rmSync,
+  rmdirSync,
   statSync,
   writeFileSync,
   fsyncSync
@@ -69,6 +74,27 @@ function sha256(bytes: Buffer): string {
 function stagingDirectory(userDataPath: string, incidentId: string): string {
   return join(userDataPath, 'incidents', 'evidence-staging', incidentId)
 }
+
+/**
+ * Incident ids whose latest archive state still owns the only local copy of an excerpt.
+ *
+ * SQL rather than a TypeScript loop because the one consumer is prune's candidate query: it must decide
+ * "may this row go?" inside the same statement that selects and deletes rows, not with a second read
+ * that could drift from the delete. Exported (not duplicated there) so the state vocabulary keeps one
+ * owner.
+ *
+ * Every listed state means "deleting the staging file would destroy evidence we have not published":
+ *   * `staged` — the crash boundary between the `staged` and `archive_pending` appends; the excerpt is
+ *     on disk but no drain will pick it up;
+ *   * `archive_pending` — the drain's own queue, and the retry copy a later tick publishes from;
+ *   * `archive_incomplete` **with a staging path** — a failed publish whose local copy is still the
+ *     material `incident archive --retry-incomplete` re-publishes. One with no staging path has no
+ *     bytes to protect and must not pin the row forever.
+ */
+export const INCIDENT_IDS_WITH_RETRY_BYTES_SQL = `SELECT DISTINCT e.incident_id
+     FROM incident_evidence_archive_state e
+    WHERE e.state IN ('staged', 'archive_pending')
+       OR (e.state = 'archive_incomplete' AND e.staging_path IS NOT NULL)`
 
 function appendEvent(
   db: Database.Database,
@@ -375,6 +401,47 @@ export type DrainResult = {
 }
 
 /**
+ * Reclaim the local retry copy of a pointer whose `archived` event is already committed.
+ *
+ * Why only after `archived`: that event exists only after the excerpt was published under the archive
+ * root and read back with a matching SHA-256, so the local staging file is by then a second copy of
+ * durable evidence. In every earlier state the staging file can be the ONLY copy (see
+ * `INCIDENT_IDS_WITH_RETRY_BYTES_SQL`), and deleting it there would destroy the material the audit
+ * claim depends on.
+ *
+ * Order: unlink this pointer's file, then remove the incident's staging directory only if it is empty.
+ * Another pointer of the same incident may still be pending, and then the directory must stay.
+ *
+ * A cleanup failure is retryable leakage, never an archive outcome: the bytes stay, the committed
+ * `archived` event stands, and the pointer is reported archived. It must not be retracted because a
+ * directory was busy, and a leftover file is inert — a later drain of a sibling pointer in the same
+ * incident retries the directory removal, and the orphaned bytes are only reachable by an operator
+ * inspecting the tree.
+ */
+function reclaimStagingCopy(options: {
+  stagingPath: string
+  remove: (path: string) => void
+}): void {
+  const { stagingPath, remove } = options
+  try {
+    remove(stagingPath)
+  } catch (error) {
+    console.warn(
+      `[incidents] staging cleanup failed for ${stagingPath}:`,
+      error instanceof Error ? error.message : String(error)
+    )
+    return
+  }
+  try {
+    // `rmdirSync` and not `rmSync`: removing only an empty directory is the rule, and ENOTEMPTY is the
+    // expected answer while a sibling pointer is still pending.
+    rmdirSync(dirname(stagingPath))
+  } catch {
+    // Not empty, or already gone. Both are correct and neither is an archive failure.
+  }
+}
+
+/**
  * Move pending excerpts to the archive, verifying each by reading it back.
  *
  * A transient failure (NAS down, permission, full disk) leaves the row `archive_pending` so the next
@@ -389,9 +456,12 @@ export function drainEvidenceArchive(options: {
   write?: (path: string, bytes: Buffer) => void
   /** Test seam: replace the file fsync, so a failing barrier can be observed without a bad disk. */
   sync?: (path: string) => void
+  /** Test seam: replace the staging unlink, so a cleanup failure can be observed without a bad disk. */
+  remove?: (path: string) => void
 }): DrainResult {
   const { db, root, now } = options
   const limit = options.limit ?? 50
+  const remove = options.remove ?? ((path: string) => rmSync(path, { force: true }))
   if (root === null) {
     return { configured: false, archived: 0, incomplete: 0, failed: 0, remaining: pendingCount(db) }
   }
@@ -484,6 +554,8 @@ export function drainEvidenceArchive(options: {
       error: null,
       createdAt: now
     })
+    // After the committed `archived`, never before: see `reclaimStagingCopy`.
+    reclaimStagingCopy({ stagingPath, remove })
   }
   return { configured: true, archived, incomplete, failed, remaining: pendingCount(db) }
 }

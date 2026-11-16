@@ -1,9 +1,13 @@
 // Prune: the only deletion path (§11.5).
 //
-// Three rules, each of which a cheaper implementation would get wrong:
+// Four rules, each of which a cheaper implementation would get wrong:
 //   * only closed / invalid / duplicate rows — an untriaged crash is evidence, not clutter, however
 //     old it is;
 //   * only past the retention window;
+//   * a row whose latest evidence state still owns the only local copy of an excerpt is not a
+//     candidate, whatever its status: prune deletes rows, never staging bytes, and an
+//     `archive_pending`/`archive_incomplete` pointer without its incident row is a retry copy nothing
+//     can find any more (see `INCIDENT_IDS_WITH_RETRY_BYTES_SQL` in `incident-archive.ts`);
 //   * a dry run by default, and `--apply` is the caller's explicit word for it.
 //
 // The immutability trigger admits a DELETE only while `incident_store_meta.prune_deleting` is set.
@@ -16,6 +20,7 @@
 
 import type Database from '../sqlite/sync-database'
 import { PRUNABLE_STATUSES, type IncidentStatus } from './incident-types'
+import { INCIDENT_IDS_WITH_RETRY_BYTES_SQL } from './incident-archive'
 import {
   DEFAULT_INCIDENT_RETENTION_DAYS,
   PRUNE_ID_REPORT_LIMIT,
@@ -43,7 +48,8 @@ export function pruneIncidents(options: {
   const placeholders = PRUNABLE_STATUSES.map(() => '?').join(', ')
 
   const eligible = `FROM incidents i JOIN incident_state s ON s.incident_id = i.id
-     WHERE s.status IN (${placeholders}) AND i.created_at < ?`
+     WHERE s.status IN (${placeholders}) AND i.created_at < ?
+       AND i.id NOT IN (${INCIDENT_IDS_WITH_RETRY_BYTES_SQL})`
 
   const candidateRows = db
     .prepare(`SELECT s.status AS status, COUNT(*) AS count ${eligible} GROUP BY s.status`)

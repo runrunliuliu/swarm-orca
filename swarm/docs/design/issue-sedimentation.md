@@ -375,8 +375,9 @@ M7 的 mirror 口径（`incident-mirror-*`）：
   `unexplained_gap_*` 停止并保持游标——无 gap reason 的跳跃会永久越过事实。
 - **失败可见**：mirror 失败不改 cursor/pending，`unsynced` 保留上一次真实值并暴露给读模型；空页且
   `nextSeq == cursor` 判 `no_progress_page`，不会被行预算掩盖。
-- **注册接缝**：`registerIncidentMirrorCoverageReader` 在启动路径注册一次；无 feed 时短路，不创建
-  也不迁移 incidents 库。
+- **接缝**：`main/ipc/incident-mirror-coverage.ts` 是唯一的直接适配器（一次读取、一个失败边界），
+  snapshot/counts/push 都走它；无 feed 时短路，不创建也不迁移 incidents 库。可选的进程级注册器
+  已删除：启动路径本来无条件安装它，`orca serve` 也一样，故“无 remote 支持的构建”这一理由无证据。
 - **分级显示**：远端缺口**只**进 `coverage.remoteMirror`，不得并入本地 `coverage.gap`、不改本地
   tone、不改 untriaged 数字（角标语义由 codex-ark/trae 独立裁决，见轮次 R11）。
 
@@ -421,6 +422,14 @@ structured wire、liveness verdict、pty exit）→ 规定**只有 pty exit / di
 | 容量表达 | **拆分两个字段**：`capacity_latch_set`（曾限流，持久）与 `currently_limited`（此刻拒收） | 只把后者说成“正在拒收”；latch 表示“曾经用过去式” |
 | 删除 | 仅 `orca incident prune`（默认 `--dry-run`），且 `--json` 必须输出候选/已删 id（有限、可标 truncated） | 只允许删 `closed / invalid / duplicate` 且 older-than 90 天；`untriaged / confirmed / needs_archive` 不得自动删 |
 | `incident_decisions` | 不物理删 | 只能在整库归档后受控 compaction，否则关闭链路丢证据 |
+| `incident_evidence_archive_events`（只追加） | **随本 DB 终身保留**：普通 prune / compaction 都不删 | 触发器已禁 UPDATE/DELETE；未来的轮转只能是**版本化审计导出**（新文件 + 显式版本号，旧文件仍可读），而不是普通删除。理由：删掉它就抹掉“这份证据是否已 durable”的历史，而那份历史正是归档要证明的东西 |
+| 证据本地 staging（`incidents/evidence-staging/<incidentId>`） | 某指针的 `archived` 事件**提交后**才回收：先 unlink 该指针的 `*.bin`，目录空了才删目录 | 回收失败只记日志、字节留在原地（可重试的泄漏），既不得回退 `archived`、也不得把一次成功归档变成失败；`staged` / `archive_pending` / 带 `staging_path` 的 `archive_incomplete` 的字节是**唯一重试副本**，`prune` 不得删这些字节，也不得删仍持有它们的 incident 行（否则 drain 按 `incidents` join 找不到它）。staging 字节的**总量上限待定**：见下方说明 |
+
+上表最后一行剩余的未定项，写清楚它的边界，避免被当成“已经封住”：
+
+- **不变量（任何实现都必须满足）**：staging 扩张必须有一个可见的上限，且上限的计量**不得**放在 incident 写入/归档的热路径上（每次插入扫一遍 staging 目录不可接受）；回收只能发生在 `archived` 之后，`archive_pending` / `archive_incomplete` 的字节永不因容量或 prune 被删。
+- **缺少的输入**：这个上限的数值与处置策略（拒收 / 警告 / 按最旧归档指针清理）是**部署/Operator 策略**，不是代码可以自行选定的常量；同时需要一个独立的 staging 字节计数器与启动对账（计数器缺失或跨机变动时以一次离路径全量核对重建）。
+- **当前状态**：上限与计数器**均未实现**（只有“回收在 `archived` 之后”与“prune 不动 staging 字节”两条已实现并被测试钉住），所以 staging 目前只被“未归档 incident 数 × 指针数 × 64KB excerpt”间接封顶（DB 的 50k 行上限是那个间接上界），**不因字节数而受限**。补齐它需要一个部署策略输入，之后才能写出正确的实现。
 
 ## 12. 交付面与最小人机回路
 

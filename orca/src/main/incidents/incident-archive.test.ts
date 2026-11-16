@@ -3,10 +3,10 @@
  * most — a failed read-back is never reported as archived.
  */
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { dirname, join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import { createIncidentStore } from './incident-store'
 import type { IncidentRecord } from './incident-types'
@@ -190,5 +190,232 @@ describe('drainEvidenceArchive', () => {
     })
     expect(result.failed).toBe(1)
     expect(readEvidenceArchiveState(db.db, 'inc_1')[0].state).toBe('archive_pending')
+  })
+})
+
+/**
+ * Staging retention (#10): the local excerpt is reclaimed only after its `archived` event is
+ * committed, and prune never removes the row that still owns the only copy.
+ *
+ * The distinction these cases hold: `archived` means "published and read back with a matching SHA-256",
+ * so the staging file is a second copy and can go. Every earlier state means the staging file can be the
+ * ONLY copy — deleting it there would destroy the material the audit claim depends on.
+ */
+describe('staging reclamation', () => {
+  const DAY_MS = 24 * 60 * 60 * 1000
+
+  /** A prunable (`closed`, 200 days old) incident with one staged pointer. */
+  function stagedIncident(): {
+    db: OpenIncidentsDatabase
+    store: ReturnType<typeof createIncidentStore>
+    userData: string
+    stagingPath: string
+    root: string
+  } {
+    const { opened: database, userData } = pair()
+    const store = createIncidentStore({
+      db: database.db,
+      fileSizeBytes: database.fileSizeBytes
+    })
+    store.insertIncident(
+      record({ id: 'inc_1', status: 'closed', createdAt: NOW - 200 * DAY_MS })
+    )
+    const path = sourceFile(userData)
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [{ kind: 'transcript', path }],
+      userDataPath: userData,
+      now: NOW
+    })
+    const [state] = readEvidenceArchiveState(database.db, 'inc_1')
+    return {
+      db: database,
+      store,
+      userData,
+      stagingPath: state.stagingPath as string,
+      root: join(userData, 'archive')
+    }
+  }
+
+  function eventStates(database: OpenIncidentsDatabase, incidentId = 'inc_1'): string[] {
+    return (
+      database.db
+        .prepare(
+          `SELECT state FROM incident_evidence_archive_events
+            WHERE incident_id = ? ORDER BY id ASC`
+        )
+        .all(incidentId) as { state: string }[]
+    ).map((row) => row.state)
+  }
+
+  it('removes the staging file and the empty staging directory once the pointer is archived', () => {
+    const { db, stagingPath, root } = stagedIncident()
+    expect(statSync(stagingPath).size).toBe(14)
+
+    expect(drainEvidenceArchive({ db: db.db, root, now: NOW })).toMatchObject({
+      archived: 1,
+      remaining: 0
+    })
+
+    // The bytes are published under the archive root, so the retry copy is no longer needed.
+    const [state] = readEvidenceArchiveState(db.db, 'inc_1')
+    expect(state.state).toBe('archived')
+    expect(readFileSync(state.archivePath as string).toString()).toBe('evidence body\n')
+    expect(existsSync(stagingPath)).toBe(false)
+    expect(existsSync(dirname(stagingPath))).toBe(false)
+    // Reclaiming bytes never rewrites history: every event is still there, `staged` included.
+    expect(eventStates(db)).toEqual(['staged', 'archive_pending', 'archived'])
+  })
+
+  it('keeps a pending pointer\'s staging bytes, which are the only copy left', () => {
+    const { db, stagingPath } = stagedIncident()
+    // No `ORCA_INCIDENT_ARCHIVE_ROOT` on this host: the state stays pending, the bytes must stay too.
+    expect(drainEvidenceArchive({ db: db.db, root: null, now: NOW })).toMatchObject({
+      configured: false,
+      archived: 0
+    })
+    expect(readEvidenceArchiveState(db.db, 'inc_1')[0].state).toBe('archive_pending')
+    expect(statSync(stagingPath).size).toBe(14)
+  })
+
+  it('keeps the incident staging directory while a sibling pointer is still pending', () => {
+    const { opened: database, userData } = pair()
+    createIncidentStore({
+      db: database.db,
+      fileSizeBytes: database.fileSizeBytes
+    }).insertIncident(record({ id: 'inc_1', status: 'closed', createdAt: NOW - 200 * DAY_MS }))
+    const first = sourceFile(userData, Buffer.from('first excerpt\n'))
+    const second = join(userData, 'second.jsonl')
+    writeFileSync(second, 'second excerpt\n')
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [
+        { kind: 'transcript', path: first },
+        { kind: 'transcript', path: second }
+      ],
+      userDataPath: userData,
+      now: NOW
+    })
+    const [firstState, secondState] = readEvidenceArchiveState(database.db, 'inc_1')
+
+    const result = drainEvidenceArchive({
+      db: database.db,
+      root: join(userData, 'archive'),
+      now: NOW,
+      // The second pointer's publish fails transiently, so only the first pointer is archived.
+      write: (target, bytes) => {
+        if (target.includes('1-excerpt')) {
+          throw new Error('ENOSPC')
+        }
+        writeFileSync(target, bytes)
+      }
+    })
+    expect(result).toMatchObject({ archived: 1, failed: 1 })
+
+    expect(existsSync(firstState.stagingPath as string)).toBe(false)
+    expect(existsSync(secondState.stagingPath as string)).toBe(true)
+    // Not empty: the directory is the pending pointer's, not garbage.
+    expect(existsSync(dirname(secondState.stagingPath as string))).toBe(true)
+  })
+
+  it('logs a cleanup failure, keeps the bytes, and still reports the pointer archived', () => {
+    const { db, stagingPath, root } = stagedIncident()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const result = drainEvidenceArchive({
+        db: db.db,
+        root,
+        now: NOW,
+        remove: () => {
+          throw new Error('EBUSY')
+        }
+      })
+
+      // A busy directory is leakage, not an archive outcome: nothing is retracted, nothing fails.
+      expect(result).toMatchObject({ archived: 1, failed: 0, remaining: 0 })
+      expect(readEvidenceArchiveState(db.db, 'inc_1')[0].state).toBe('archived')
+      expect(existsSync(stagingPath)).toBe(true)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('staging cleanup failed')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('never prunes an incident whose staging bytes are still the only retry copy', () => {
+    const { db, store, stagingPath } = stagedIncident()
+    expect(readEvidenceArchiveState(db.db, 'inc_1')[0].state).toBe('archive_pending')
+
+    // Not a candidate, and `--apply` deletes nothing: the row is the only route back to those bytes.
+    expect(store.pruneIncidents({ dryRun: true, olderThanDays: 90, now: NOW })).toMatchObject({
+      candidates: 0,
+      candidateIds: []
+    })
+    expect(store.pruneIncidents({ dryRun: false, olderThanDays: 90, now: NOW })).toMatchObject({
+      deleted: 0,
+      deletedIds: []
+    })
+    expect(store.getIncident('inc_1')).not.toBeNull()
+    expect(statSync(stagingPath).size).toBe(14)
+  })
+
+  it('never prunes an incomplete pointer that still holds a staging copy', () => {
+    const { db, store, stagingPath, root } = stagedIncident()
+    // A read-back mismatch: `archive_incomplete` plus a real staging file, which `--retry-incomplete`
+    // republishes from. That file is the reason the row must stay.
+    expect(
+      drainEvidenceArchive({
+        db: db.db,
+        root,
+        now: NOW,
+        write: (target) => writeFileSync(target, 'tampered')
+      })
+    ).toMatchObject({ archived: 0, incomplete: 1 })
+    expect(readEvidenceArchiveState(db.db, 'inc_1')[0]).toMatchObject({
+      state: 'archive_incomplete',
+      error: 'sha256_mismatch'
+    })
+
+    expect(store.pruneIncidents({ dryRun: false, olderThanDays: 90, now: NOW }).deleted).toBe(0)
+    expect(store.getIncident('inc_1')).not.toBeNull()
+    expect(statSync(stagingPath).size).toBe(14)
+  })
+
+  it('prunes the row once archived, when the staging copy is already reclaimed', () => {
+    const { db, store, stagingPath, root } = stagedIncident()
+    drainEvidenceArchive({ db: db.db, root, now: NOW })
+    expect(existsSync(stagingPath)).toBe(false)
+
+    expect(store.pruneIncidents({ dryRun: false, olderThanDays: 90, now: NOW })).toMatchObject({
+      candidates: 1,
+      deleted: 1
+    })
+    expect(store.getIncident('inc_1')).toBeNull()
+  })
+
+  it('lets an incomplete pointer with no staging copy age out, because it owns no bytes', () => {
+    const { opened: database, userData } = pair()
+    const store = createIncidentStore({
+      db: database.db,
+      fileSizeBytes: database.fileSizeBytes
+    })
+    store.insertIncident(record({ id: 'inc_1', status: 'closed', createdAt: NOW - 200 * DAY_MS }))
+    // Never staged: the source could not be read, so there is nothing local to protect.
+    stageIncidentEvidence({
+      db: database.db,
+      incidentId: 'inc_1',
+      pointers: [{ kind: 'transcript', path: join(userData, 'missing.jsonl') }],
+      userDataPath: userData,
+      now: NOW
+    })
+    expect(readEvidenceArchiveState(database.db, 'inc_1')[0]).toMatchObject({
+      state: 'archive_incomplete',
+      stagingPath: null
+    })
+
+    expect(store.pruneIncidents({ dryRun: false, olderThanDays: 90, now: NOW }).deleted).toBe(1)
+    expect(store.getIncident('inc_1')).toBeNull()
   })
 })

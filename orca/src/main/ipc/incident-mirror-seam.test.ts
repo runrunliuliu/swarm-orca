@@ -3,11 +3,11 @@
  *
  * This file exists because none of the three branches could test the *joint*. A's counts and badge,
  * B's grading and panel DTOs, and C's mirror read were each proven in place; what was never proven is
- * that registering C's reader once changes only the secondary hint, and that the local verdict survives
- * it. So every case here goes through the real pipeline:
+ * that attaching C's read changes only the secondary hint, and that the local verdict survives it. So
+ * every case here goes through the real pipeline:
  *
- *   real store → `installIncidentMirrorCoverageReader()` (the production registration) → the mirror's
- *   own link rows → `readIncidentCountsSnapshot` / `readIncidentSnapshot` → the badge/banner mapping.
+ *   real store → the IPC adapter (`readIncidentRemoteMirror`, the production read) → the mirror's own
+ *   link rows → `readIncidentCountsSnapshot` / `readIncidentSnapshot` → the badge/banner mapping.
  *
  * The rule under test is the pre-merge review's must-fix #1: a remote hole may add a secondary hint and
  * must never enter `coverage.gap`, re-tone the badge, or change the untriaged number. The counterpart is
@@ -32,12 +32,8 @@ import { readIncidentCountsSnapshot, readIncidentSnapshot } from './incidents'
 import { __resetIncidentCountsPushForTests } from './incident-counts-push'
 import {
   readIncidentRemoteMirror,
-  resetIncidentMirrorCoverageReaderForTests
-} from './incident-mirror-coverage'
-import {
-  installIncidentMirrorCoverageReader,
   toIncidentRemoteMirrorDto
-} from './incident-mirror-coverage-install'
+} from './incident-mirror-coverage'
 import { incidentBadgeFromCounts } from '../../renderer/src/components/right-sidebar/incident-badge'
 import { incidentRemoteCoverageLine } from '../../renderer/src/components/right-sidebar/incidents/incident-coverage-banner'
 
@@ -145,7 +141,6 @@ afterEach(() => {
   vi.restoreAllMocks()
   __resetIncidentWriterForTests()
   __resetIncidentCountsPushForTests()
-  resetIncidentMirrorCoverageReaderForTests()
   for (const opened of databases.splice(0)) {
     try {
       opened.db.close()
@@ -167,7 +162,6 @@ describe('M7 merge seam: local coverage and the remote mirror', () => {
     // A configured peer with no completed pull: the strongest remote claim there is, on purpose — if a
     // remote hole could ever re-tone, this is the case that would show it.
     registerNeverProbedOrigin(opened.db)
-    installIncidentMirrorCoverageReader()
 
     const value = counts(store, opened)
     expect(value.untriaged).toBe(2)
@@ -196,7 +190,6 @@ describe('M7 merge seam: local coverage and the remote mirror', () => {
     const { store, opened } = openStore()
     store.insertIncident(record())
     store.insertIncident(record({ id: 'inc_seam_2', sourceId: 'ptyinc-seam-2' }))
-    installIncidentMirrorCoverageReader()
 
     // Baseline: the same two rows with no mirror at all.
     const before = counts(store, opened)
@@ -251,7 +244,6 @@ describe('M7 merge seam: local coverage and the remote mirror', () => {
   it('is not silent when a zero count sits over a local hole', () => {
     const { store, opened } = openStore()
     latchCapacity(opened.db)
-    installIncidentMirrorCoverageReader()
 
     const value = counts(store, opened)
     expect(value.untriaged).toBe(0)
@@ -272,7 +264,6 @@ describe('M7 merge seam: local coverage and the remote mirror', () => {
   it('is a quiet marker, not a number, when zero is complete locally and only the peer is behind', () => {
     const { store, opened } = openStore()
     registerNeverProbedOrigin(opened.db)
-    installIncidentMirrorCoverageReader()
 
     const value = counts(store, opened)
     expect(value.untriaged).toBe(0)
@@ -297,40 +288,62 @@ describe('M7 merge seam: local coverage and the remote mirror', () => {
     expect(line).toEqual({ state: 'gap', capture: 'not_probed', unsynced: null, gap: true })
   })
 
-  it('reports no remoteMirror at all until the reader is installed, and never as false/0', () => {
+  it('reports `unsupported` for an unregistered read and never as false/0', () => {
     const { store, opened } = openStore()
     store.insertIncident(record())
     registerNeverProbedOrigin(opened.db)
 
-    // Nothing registered: "not reported". The key must be absent, because `{ unsynced: 0 }` would be a
-    // claim ("caught up") that no mirror made.
-    expect(readIncidentRemoteMirror(opened.db)).toBeUndefined()
+    // The read is always wired now; the baseline for "nothing set up here" is the mirror's own
+    // `unsupported` answer, not a missing key. `{ unsynced: 0 }` would be a claim ("caught up") that no
+    // mirror made, so an unstated count still travels as `null`.
+    expect(readIncidentRemoteMirror(opened.db)).toEqual({
+      capture: 'not_probed',
+      unsynced: null,
+      monitored: true
+    })
     const beforeCounts = counts(store, opened)
     const beforeSnapshot = coverage(store, opened)
-    expect('remoteMirror' in beforeCounts.coverage).toBe(false)
-    expect('remoteMirror' in beforeSnapshot).toBe(false)
+    const stillCounts = counts(store, opened)
 
-    installIncidentMirrorCoverageReader()
-    const afterCounts = counts(store, opened)
-    const afterSnapshot = coverage(store, opened)
-    expect(afterCounts.coverage.remoteMirror).toEqual({
-      capture: 'not_probed',
-      unsynced: null,
-      monitored: true
-    })
-    expect(afterSnapshot.remoteMirror).toEqual({
-      capture: 'not_probed',
-      unsynced: null,
-      monitored: true
-    })
-
-    // Installing the reader is not a coverage change: the local verdict and the number are identical.
-    expect(afterCounts.untriaged).toBe(beforeCounts.untriaged)
-    expect(afterCounts.coverage.gap).toBe(beforeCounts.coverage.gap)
-    expect(afterCounts.coverage).toMatchObject({
+    // Reading the mirror is not a coverage change: the local verdict and the number are identical.
+    expect(stillCounts.untriaged).toBe(beforeCounts.untriaged)
+    expect(stillCounts.coverage.gap).toBe(beforeCounts.coverage.gap)
+    expect(stillCounts.coverage).toMatchObject({
       currentlyLimited: beforeCounts.coverage.currentlyLimited,
       capacityLatchSet: beforeCounts.coverage.capacityLatchSet,
       shadowReplayIncomplete: beforeCounts.coverage.shadowReplayIncomplete
+    })
+    expect(beforeSnapshot.remoteMirror).toEqual({
+      capture: 'not_probed',
+      unsynced: null,
+      monitored: true
+    })
+  })
+
+  it('reports `unsupported` when the store has no mirror tables (a host with no feed)', () => {
+    const { store, opened } = openStore()
+    store.insertIncident(record())
+
+    // No link row ever written: `unsupported` is a scope statement about this host, not a count.
+    expect(readIncidentRemoteMirror(opened.db)).toEqual({
+      capture: 'unsupported',
+      unsynced: null,
+      monitored: false
+    })
+    const value = counts(store, opened)
+    expect(value.untriaged).toBe(1)
+    expect(value.coverage.gap).toBe(false)
+    expect(value.coverage.remoteMirror).toEqual({
+      capture: 'unsupported',
+      unsynced: null,
+      monitored: false
+    })
+    // Not configured is not broken: the badge stays a plain count with no remote caveat.
+    expect(incidentBadgeFromCounts(value)).toMatchObject({
+      count: 1,
+      tone: 'alert',
+      localGap: false,
+      remoteGap: false
     })
   })
 
