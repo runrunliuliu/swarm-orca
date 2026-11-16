@@ -40,7 +40,7 @@ describe('Task/Dispatch concurrency', () => {
       if (!concurrentWon && sql === 'BEGIN IMMEDIATE') {
         concurrentWon = true
         expect(
-          concurrent.db.updateTaskStatus(task.id, 'failed', 'concurrent winner')
+          concurrent.db.updateTaskStatus(task.id, 'failed', 'concurrent winner').task
         ).toMatchObject({ status: 'failed' })
       }
       return exec(sql)
