@@ -29,7 +29,10 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     group: 'daily',
     summary: 'Show one incident, with its unknown boundaries and evidence pointers',
     usage: 'orca incident show <id> [--md] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'md'],
+    // Why 'id' is listed and not just declared as a positional: normalization rewrites the
+    // positional into `--id`, then validation checks it against allowedFlags. Omitting it made the
+    // documented form (`orca incident show inc_1`) fail with "Unknown flag --id".
+    allowedFlags: [...GLOBAL_FLAGS, 'id', 'md'],
     positionalArgs: ['id'],
     examples: ['orca incident show inc_abc123', 'orca incident show inc_abc123 --md']
   },
@@ -40,7 +43,7 @@ export const INCIDENT_COMMAND_SPECS: CommandSpec[] = [
     summary: 'Record a triage decision for one incident (append-only)',
     usage:
       'orca incident decide <id> --to <status> --reason <text> [--actor <name>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'to', 'actor', 'reason'],
+    allowedFlags: [...GLOBAL_FLAGS, 'id', 'to', 'actor', 'reason'],
     positionalArgs: ['id'],
     examples: [
       'orca incident decide inc_abc123 --to watch --reason "waiting for a second occurrence"',

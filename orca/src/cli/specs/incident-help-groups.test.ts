@@ -82,3 +82,23 @@ describe('incident archive repair flags (G5)', () => {
     expect(rendered).toContain('archive_incomplete')
   })
 })
+
+/**
+ * The daily path's id contract (found while checking the §17 item 25 live-verification debt).
+ *
+ * `show` and `decide` take the incident id positionally, and normalization rewrites that positional
+ * into `--id` before validation. With `'id'` missing from `allowedFlags` the documented form failed
+ * with "Unknown flag --id" for every release since `5a04946a`; the handler suites bind the flag
+ * themselves, so they never exercised the parser. Pinned here and by the generic guard in
+ * `args.test.ts` ("positional arguments survive parse → normalize → validate").
+ */
+describe('incident id positional (daily path)', () => {
+  it.each(['incident show', 'incident decide'])('%s declares <id> and allows --id', (path) => {
+    const spec = INCIDENT_COMMAND_SPECS.find((entry) => entry.path.join(' ') === path)
+
+    expect(spec?.positionalArgs).toEqual(['id'])
+    expect(spec?.allowedFlags).toContain('id')
+    // The examples stay in the positional form the parser must accept.
+    expect(spec?.examples?.[0]).toMatch(/^orca incident (show|decide) inc_abc123/)
+  })
+})

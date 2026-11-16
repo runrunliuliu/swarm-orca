@@ -4,6 +4,7 @@ import type { CommandSpec } from './args'
 import { COMMAND_SPECS } from './specs'
 import {
   REPEATED_FLAG_SEPARATOR,
+  effectiveAllowedFlags,
   findCommandSpec,
   normalizeCommandPositionals,
   parseArgs,
@@ -238,6 +239,36 @@ describe('command aliases', () => {
 
     expect(normalized.commandPath).toEqual(['repo', 'show'])
     expect(normalized.flags.get('repo')).toBe('id:abc')
+  })
+})
+
+describe('positional arguments survive parse → normalize → validate', () => {
+  // Why this pair exists: a positional is rewritten into a flag of the same name and then checked
+  // against allowedFlags, so `positionalArgs: ['id']` without `'id'` in allowedFlags makes the
+  // documented form unusable. `incident show`/`decide` shipped that way from `5a04946a` and no test
+  // noticed, because the handler suites call the handler with flags already bound.
+  it('lists every positional name in the spec that accepts it', () => {
+    const missing = COMMAND_SPECS.flatMap((spec) =>
+      (spec.positionalArgs ?? [])
+        .filter((name) => !effectiveAllowedFlags(spec).includes(name))
+        .map((name) => `${spec.path.join(' ')}: --${name}`)
+    )
+
+    expect(missing).toEqual([])
+  })
+
+  it('accepts the documented incident forms, id bound as a flag', () => {
+    const argvList = [
+      ['incident', 'show', 'inc_abc123'],
+      ['incident', 'show', 'inc_abc123', '--md'],
+      ['incident', 'decide', 'inc_abc123', '--to', 'watch', '--reason', 'waiting']
+    ]
+
+    for (const argv of argvList) {
+      const normalized = normalizeCommandPositionals(COMMAND_SPECS, parseArgs(argv))
+      expect(() => validateCommandAndFlags(COMMAND_SPECS, normalized)).not.toThrow()
+      expect(normalized.flags.get('id')).toBe('inc_abc123')
+    }
   })
 })
 
