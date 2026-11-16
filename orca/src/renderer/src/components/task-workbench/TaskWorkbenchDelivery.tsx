@@ -163,8 +163,15 @@ export function TaskWorkbenchDelivery({
           </Button>
         </div>
 
-        <CollapsibleContent id={BODY_ID} data-testid="task-workbench-delivery-body">
-          <div className="mt-2 flex flex-col gap-1 border-t border-border/50 pt-2 text-xs text-muted-foreground">
+        <CollapsibleContent id={BODY_ID}>
+          {/* Why the testid sits on the inner element: Radix keeps an empty
+              CollapsibleContent node mounted while collapsed, so an id on the
+              wrapper would be "present" with no content — a DOM assertion that
+              lies about what is on screen. Presence now means content. */}
+          <div
+            data-testid="task-workbench-delivery-body"
+            className="mt-2 flex flex-col gap-1 border-t border-border/50 pt-2 text-xs text-muted-foreground"
+          >
             {delivery.commits.lastSubject ? (
               <span className="min-w-0 truncate">
                 {translate(deliveryKeys('lastCommit'), 'Last commit: {{value0}}', {

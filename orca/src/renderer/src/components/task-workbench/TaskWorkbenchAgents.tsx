@@ -166,13 +166,14 @@ export function TaskWorkbenchAgents({
         {/* Why conditional: the records testid must not exist when there is no
             history, even if a tall layout expanded the group. */}
         {counts.historyAgents > 0 ? (
-          <CollapsibleContent
-            id={HISTORY_BODY_ID}
-            data-testid="task-workbench-agents-history-records"
-          >
-            {/* Why the wrapper: the collapsible primitive owns its own spacing, so
-                the gap above the rows is set on a plain element, not on it. */}
-            <div className="flex flex-col gap-1.5 pt-2">
+          <CollapsibleContent id={HISTORY_BODY_ID}>
+            {/* Why the testid sits on the inner element: Radix keeps an empty
+                CollapsibleContent mounted while collapsed, so the id on the
+                wrapper would be "present" with no rows. Presence now means rows. */}
+            <div
+              data-testid="task-workbench-agents-history-records"
+              className="flex flex-col gap-1.5 pt-2"
+            >
               <RowList rows={historyRows} showWorkspaceLabel={showWorkspaceLabel} />
             </div>
           </CollapsibleContent>
