@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { CLI_MAIN_ENTRY_NAMES } from '../build-plugins/plain-node-entry-guard'
 import { writeMobileWebBundleFixtureTree } from './mobile-web-bundle-fixture-tree.mjs'
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..')
@@ -301,6 +302,12 @@ describe('electron-builder config', () => {
         'out/main/claude-accounts/keychain.js'
       ])
     )
+  })
+
+  it.each(CLI_MAIN_ENTRY_NAMES)('unpacks the plain-Node CLI dependency %s', (entryName) => {
+    const matcher = new FileMatcher('/app', '/dest', (value) => value, electronBuilderConfig.asarUnpack)
+    const isUnpacked = matcher.createFilter()
+    expect(isUnpacked(join('/app', `out/main/${entryName}.js`), { isDirectory: () => false })).toBe(true)
   })
 
   // Why: without the unpacked entry the watcher client silently falls back to

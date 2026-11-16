@@ -112,6 +112,8 @@ describe('readIncidentCounts', () => {
   it('reports an empty store as zero without inventing a coverage gap', () => {
     const { store, opened } = openStore()
     const value = counts(store, opened)
+    expect(value.source).toEqual({ kind: 'local' })
+    expect(value.availability).toBe('supported')
     expect(value.untriaged).toBe(0)
     expect(value.total).toBe(0)
     expect(value.byWorktree).toEqual([])

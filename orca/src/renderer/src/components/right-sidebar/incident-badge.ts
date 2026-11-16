@@ -24,7 +24,7 @@
 import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
 import { translate } from '@/i18n/i18n'
 import { incidentRemoteCoverageIsGap } from './incidents/incident-remote-coverage'
-import type { IncidentCountsState } from './use-incident-counts'
+import type { IncidentCountsState } from './incident-counts-state'
 
 export type IncidentBadge = IncidentCountBadge | IncidentUnavailableBadge
 

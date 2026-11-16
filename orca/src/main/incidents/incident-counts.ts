@@ -120,6 +120,8 @@ export function readIncidentCounts(options: {
     coverage.shadowReplay.dropped > 0 ||
     coverage.capacityLatchSet
   return {
+    source: { kind: 'local' },
+    availability: 'supported',
     untriaged,
     total,
     byClass,

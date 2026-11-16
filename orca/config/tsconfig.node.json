@@ -17,7 +17,7 @@
     "../src/renderer/src/components/right-sidebar/incident-badge.ts",
     "../src/renderer/src/components/right-sidebar/incidents/incident-coverage-banner.ts",
     "../src/renderer/src/components/right-sidebar/incidents/incident-remote-coverage.ts",
-    "../src/renderer/src/components/right-sidebar/use-incident-counts.ts",
+    "../src/renderer/src/components/right-sidebar/incident-counts-state.ts",
     "../src/renderer/src/i18n/i18n.ts",
     "../src/renderer/src/i18n/pseudo-localization.ts",
     "../src/renderer/src/i18n/supported-languages.ts",

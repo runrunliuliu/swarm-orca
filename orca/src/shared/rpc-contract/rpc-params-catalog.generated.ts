@@ -290,6 +290,11 @@ import {
   HostedReviewForBranch
 } from './hosted-review-params'
 import {
+  IncidentCountsParams,
+  IncidentDetailParams,
+  IncidentSnapshotParams
+} from './incidents-params'
+import {
   AssignableUsers,
   Connect,
   CreateIssue as CreateIssueOfJiraParams,
@@ -915,6 +920,9 @@ export const RPC_PARAMS_BY_METHOD = {
   'hostedReview.createStacked': HostedReviewCreate,
   'hostedReview.forBranch': HostedReviewForBranch,
   'hostedReview.getCreationEligibility': HostedReviewCreationEligibility,
+  'incidents.counts': IncidentCountsParams,
+  'incidents.detail': IncidentDetailParams,
+  'incidents.snapshot': IncidentSnapshotParams,
   'jira.addIssueComment': IssueCommentOfJiraParams,
   'jira.connect': Connect,
   'jira.createIssue': CreateIssueOfJiraParams,

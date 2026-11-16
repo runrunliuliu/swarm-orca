@@ -25,6 +25,9 @@ import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
 import { incidentReadTarget, readIncidentCounts } from '../../runtime/incident-read-client'
 import type { RuntimeClientTarget } from '../../runtime/runtime-client-target'
 import { useAppStore } from '../../store'
+import type { IncidentCountsAvailability, IncidentCountsState } from './incident-counts-state'
+
+export type { IncidentCountsAvailability, IncidentCountsState } from './incident-counts-state'
 
 /**
  * How long a reading stays citable, measured from its own `readAt`.
@@ -41,19 +44,6 @@ import { useAppStore } from '../../store'
  * renderer running on a different machine is not a supported shape today.
  */
 export const INCIDENT_COUNTS_STALE_MS = 10 * 60 * 1000
-
-/**
- * `idle` = nothing has arrived yet and nothing has failed (first paint: draw nothing).
- * `ok` = a reading arrived and is still fresh.
- * `stale` = a reading arrived but is older than `INCIDENT_COUNTS_STALE_MS`.
- * `unavailable` = the read failed, or this window has no incident bridge, so there is no reading at all.
- */
-export type IncidentCountsAvailability = 'idle' | 'ok' | 'stale' | 'unavailable'
-
-export type IncidentCountsState = {
-  counts: IncidentCountsDto | null
-  availability: IncidentCountsAvailability
-}
 
 function newer(
   current: IncidentCountsDto | null,
