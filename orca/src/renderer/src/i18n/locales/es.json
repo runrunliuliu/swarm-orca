@@ -14843,6 +14843,117 @@
             "hostOnly": "Los detalles del inicio de sesión de Cursor solo se pueden leer en el equipo donde se ejecuta Orca."
           }
         }
+      },
+      "TaskWorkbenchAgentRow": {
+        "tokensUnavailable": "—",
+        "tokens": "{{value0}} tokens",
+        "outcome": {
+          "success": "Entregado",
+          "failure": "Fallido",
+          "cancellation": "Cancelado"
+        }
+      },
+      "TaskWorkbenchAgents": {
+        "heading": "Agentes",
+        "agentCount": "{{value0}}",
+        "empty": "Aún no hay agentes en esta tarea.",
+        "activeHeading": "Activo",
+        "attentionHeading": "Necesita tu atención",
+        "historyHeading": "Historial",
+        "historyCount": "{{value0}}",
+        "collapse": "Contraer",
+        "expand": "Expandir",
+        "historyEmpty": "Aún no hay historial."
+      },
+      "TaskWorkbenchDelivery": {
+        "pullRequestNumber": "PR #{{value0}}",
+        "noEvidence": "No se han leído las pruebas de entrega de esta tarea. Nada aquí indica que se haya entregado.",
+        "heading": "Entrega",
+        "commitCount": "{{value0}} commits",
+        "checksCount": "checks {{value0}}/{{value1}}",
+        "collapse": "Contraer",
+        "expand": "Expandir",
+        "lastCommit": "Último commit: {{value0}}",
+        "reviewDetail": "Estado de la revisión: {{value0}}",
+        "readOnly": "Pruebas de solo lectura. Este shell no ejecuta git, sondeos ni actualización de PR.",
+        "pullRequestState": {
+          "draft": "borrador",
+          "open": "abierto",
+          "merged": "fusionado",
+          "closed": "cerrado"
+        },
+        "review": {
+          "pending": "Revisión pendiente",
+          "approved": "Revisión aprobada",
+          "changes-requested": "Cambios solicitados"
+        }
+      },
+      "TaskWorkbenchHeader": {
+        "noTracker": "Sin rastreador",
+        "pullRequestNumber": "PR #{{value0}}",
+        "openWorkspace": "Abrir espacio de trabajo",
+        "trackerState": {
+          "open": "abierto",
+          "closed": "cerrado"
+        },
+        "pullRequestState": {
+          "draft": "borrador",
+          "open": "abierto",
+          "merged": "fusionado",
+          "closed": "cerrado"
+        }
+      },
+      "TaskWorkbenchPanel": {
+        "emptyTitle": "Aún no hay ningún espacio de trabajo vinculado a esta tarea",
+        "emptyBody": "Crea un espacio de trabajo para iniciar un agente en esta tarea.",
+        "createWorkspace": "Crear espacio de trabajo"
+      },
+      "TaskWorkbenchSpend": {
+        "tokensValue": "{{value0}} tokens",
+        "estimatedCost": "aprox. ${{value0}}",
+        "costUnknown": "Un modelo de esta tarea no tiene precio, así que no se estima ningún importe.",
+        "costEstimated": "Estimado a partir del precio del proveedor.",
+        "heading": "Gasto",
+        "unattributedSessions": "{{value0}} sesiones sin atribuir",
+        "turnOnTracking": "Activar en Ajustes",
+        "reason": {
+          "disabled": "El seguimiento de uso está desactivado. No se registra gasto para esta tarea.",
+          "unpriced": "Algunos modelos de esta tarea no tienen precio, así que el total es desconocido.",
+          "ambiguous_session": "Más de una sesión coincide con esta tarea, así que el uso no se puede atribuir.",
+          "no_matching_session": "Ninguna sesión coincide todavía con esta tarea, así que no hay nada que sumar.",
+          "remote_host": "Este espacio de trabajo se ejecuta en un host remoto, donde todavía no se recopila el uso.",
+          "unattributed": "Algunas sesiones no se pudieron vincular a esta tarea."
+        },
+        "status": {
+          "available": "disponible",
+          "disabled": "no disponible · disabled",
+          "unpriced": "no disponible · unpriced",
+          "ambiguous_session": "no disponible · ambiguous_session",
+          "no_matching_session": "no disponible · no_matching_session",
+          "remote_host": "no disponible · remote_host",
+          "unattributed": "no disponible · unattributed"
+        }
+      },
+      "TaskWorkbenchWorkspaces": {
+        "host": {
+          "local": "local",
+          "remote": "remoto"
+        },
+        "defaultFromActivity": "Predeterminado · actividad reciente",
+        "defaultExplicit": "Predeterminado",
+        "archived": "Archivado",
+        "kind": {
+          "folder": "carpeta"
+        },
+        "reviewNumber": "PR #{{value0}}",
+        "remoteHint": "Host remoto · el uso y las acciones permanecen locales",
+        "create": "Crear espacio de trabajo",
+        "noActive": "Ningún espacio de trabajo activo",
+        "moreWorkspaces": "+{{value0}} más",
+        "showArchived": "Mostrar archivados ({{value0}})",
+        "heading": "Espacios de trabajo",
+        "workspaceCount": "{{value0}} en total",
+        "showMore": "Mostrar {{value0}} espacios de trabajo más"
       }
     },
     "i18n": {

@@ -183,6 +183,117 @@
         "f294c500ef": "No GitLab work matches this filter.",
         "fe28c9821f": "view"
       },
+      "TaskWorkbenchAgentRow": {
+        "outcome": {
+          "cancellation": "Cancelled",
+          "failure": "Failed",
+          "success": "Delivered"
+        },
+        "tokens": "{{value0}} tok",
+        "tokensUnavailable": "—"
+      },
+      "TaskWorkbenchAgents": {
+        "activeHeading": "Active",
+        "agentCount": "{{value0}}",
+        "attentionHeading": "Needs you",
+        "collapse": "Collapse",
+        "empty": "No agents on this task yet.",
+        "expand": "Expand",
+        "heading": "Agents",
+        "historyCount": "{{value0}}",
+        "historyEmpty": "No history yet.",
+        "historyHeading": "History"
+      },
+      "TaskWorkbenchDelivery": {
+        "checksCount": "checks {{value0}}/{{value1}}",
+        "collapse": "Collapse",
+        "commitCount": "{{value0}} commits",
+        "expand": "Expand",
+        "heading": "Delivery",
+        "lastCommit": "Last commit: {{value0}}",
+        "noEvidence": "Delivery evidence has not been read for this task. Nothing here says it was delivered.",
+        "pullRequestNumber": "PR #{{value0}}",
+        "pullRequestState": {
+          "closed": "closed",
+          "draft": "draft",
+          "merged": "merged",
+          "open": "open"
+        },
+        "readOnly": "Read-only evidence. This shell runs no git, polling or PR refresh.",
+        "review": {
+          "approved": "Review approved",
+          "changes-requested": "Changes requested",
+          "pending": "Review pending"
+        },
+        "reviewDetail": "Review state: {{value0}}"
+      },
+      "TaskWorkbenchHeader": {
+        "noTracker": "No tracker",
+        "openWorkspace": "Open workspace",
+        "pullRequestNumber": "PR #{{value0}}",
+        "pullRequestState": {
+          "closed": "closed",
+          "draft": "draft",
+          "merged": "merged",
+          "open": "open"
+        },
+        "trackerState": {
+          "closed": "closed",
+          "open": "open"
+        }
+      },
+      "TaskWorkbenchPanel": {
+        "createWorkspace": "Create workspace",
+        "emptyBody": "Create a workspace to start an agent on this task.",
+        "emptyTitle": "No workspace is linked to this task yet"
+      },
+      "TaskWorkbenchSpend": {
+        "costEstimated": "Estimated from provider pricing.",
+        "costUnknown": "A model in this task has no price, so no amount is estimated.",
+        "estimatedCost": "est. ${{value0}}",
+        "heading": "Spend",
+        "reason": {
+          "ambiguous_session": "More than one session matches this task, so usage cannot be attributed.",
+          "disabled": "Usage tracking is off. No spend is recorded for this task.",
+          "no_matching_session": "No session matches this task yet, so there is nothing to total.",
+          "remote_host": "This workspace runs on a remote host, where usage is not collected yet.",
+          "unattributed": "Some sessions could not be tied to this task.",
+          "unpriced": "Some models in this task have no price, so the total is unknown."
+        },
+        "status": {
+          "ambiguous_session": "unavailable · ambiguous_session",
+          "available": "available",
+          "disabled": "unavailable · disabled",
+          "no_matching_session": "unavailable · no_matching_session",
+          "remote_host": "unavailable · remote_host",
+          "unattributed": "unavailable · unattributed",
+          "unpriced": "unavailable · unpriced"
+        },
+        "tokensValue": "{{value0}} tokens",
+        "turnOnTracking": "Turn on in Settings",
+        "unattributedSessions": "{{value0}} sessions unattributed"
+      },
+      "TaskWorkbenchWorkspaces": {
+        "archived": "Archived",
+        "create": "Create workspace",
+        "defaultExplicit": "Default",
+        "defaultFromActivity": "Default · recent activity",
+        "heading": "Workspaces",
+        "host": {
+          "local": "local",
+          "remote": "remote"
+        },
+        "kind": {
+          "folder": "folder"
+        },
+        "moreWorkspaces": "+{{value0}} more",
+        "noActive": "No active workspace",
+        "remoteHint": "Remote host · usage and actions stay local",
+        "reviewNumber": "PR #{{value0}}",
+        "showArchived": "Show archived ({{value0}})",
+        "showMore": "Show {{value0}} more workspaces",
+        "workspaceCount": "{{value0}} total"
+      },
       "Terminal": {
         "cdc9ac4b2d": "editor"
       },
@@ -971,6 +1082,18 @@
                   "title": "{{reviewLabelCap}} not supported here"
                 }
               }
+            }
+          },
+          "incidents": {
+            "IncidentGrayTables": {
+              "08a8f679fc": "Writing incidents: off in this host process. Nothing below has produced an incident row.",
+              "1f45a62bca": "structured denial (single hit)",
+              "21da0872e8": "recorded incident",
+              "2988d6f3a2": "would not write",
+              "3a1973e19f": "observed only",
+              "ae948293e3": "threshold",
+              "ce2c2f17d2": "would write (not recorded)",
+              "e0e9fb16cf": "Writing incidents: on in this host process. Rows marked recorded have a stored incident."
             }
           },
           "index": {
@@ -2742,9 +2865,6 @@
         "toggleDetails": "Toggle turn details",
         "workedFor": "Worked for {{value0}}",
         "workingFor": "Working for {{value0}}"
-      },
-      "subagents": {
-        "unnamed": "Subagent"
       },
       "tool": {
         "countN": "{{value0}} tool calls",

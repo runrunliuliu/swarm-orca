@@ -5681,7 +5681,10 @@
           "ef18787206": "Queued for deletion"
         },
         "WorktreeCardAgents": {
-          "1b0a156717": "Agents"
+          "1b0a156717": "Agents",
+          "spawnFailed": "Could not build launch command for {{value0}}.",
+          "spawnAgent": "Spawn another {{value0}} from this agent",
+          "spawnAgentFallback": "Spawn agent from this row"
         },
         "WorktreeCardReviewDetailSection": {
           "copyLink": "Copy link",
@@ -15909,7 +15912,8 @@
           "b06e13fcf7": "Dismiss agent",
           "0272969e28": "Send to this agent",
           "92a7017987": "sending",
-          "019b74d93a": "eligible"
+          "019b74d93a": "eligible",
+          "spawnAgent": "Spawn agent from this row"
         },
         "DashboardAgentRowMessage": {
           "0a01046763": "interrupted",
@@ -17569,6 +17573,117 @@
             "hostOnly": "Cursor sign-in details are only readable on the computer running Orca."
           }
         }
+      },
+      "TaskWorkbenchAgentRow": {
+        "tokensUnavailable": "—",
+        "tokens": "{{value0}} tok",
+        "outcome": {
+          "success": "Delivered",
+          "failure": "Failed",
+          "cancellation": "Cancelled"
+        }
+      },
+      "TaskWorkbenchAgents": {
+        "heading": "Agents",
+        "agentCount": "{{value0}}",
+        "empty": "No agents on this task yet.",
+        "activeHeading": "Active",
+        "attentionHeading": "Needs you",
+        "historyHeading": "History",
+        "historyCount": "{{value0}}",
+        "collapse": "Collapse",
+        "expand": "Expand",
+        "historyEmpty": "No history yet."
+      },
+      "TaskWorkbenchDelivery": {
+        "pullRequestNumber": "PR #{{value0}}",
+        "noEvidence": "Delivery evidence has not been read for this task. Nothing here says it was delivered.",
+        "heading": "Delivery",
+        "commitCount": "{{value0}} commits",
+        "checksCount": "checks {{value0}}/{{value1}}",
+        "collapse": "Collapse",
+        "expand": "Expand",
+        "lastCommit": "Last commit: {{value0}}",
+        "reviewDetail": "Review state: {{value0}}",
+        "readOnly": "Read-only evidence. This shell runs no git, polling or PR refresh.",
+        "pullRequestState": {
+          "draft": "draft",
+          "open": "open",
+          "merged": "merged",
+          "closed": "closed"
+        },
+        "review": {
+          "pending": "Review pending",
+          "approved": "Review approved",
+          "changes-requested": "Changes requested"
+        }
+      },
+      "TaskWorkbenchHeader": {
+        "noTracker": "No tracker",
+        "pullRequestNumber": "PR #{{value0}}",
+        "openWorkspace": "Open workspace",
+        "trackerState": {
+          "open": "open",
+          "closed": "closed"
+        },
+        "pullRequestState": {
+          "draft": "draft",
+          "open": "open",
+          "merged": "merged",
+          "closed": "closed"
+        }
+      },
+      "TaskWorkbenchPanel": {
+        "emptyTitle": "No workspace is linked to this task yet",
+        "emptyBody": "Create a workspace to start an agent on this task.",
+        "createWorkspace": "Create workspace"
+      },
+      "TaskWorkbenchSpend": {
+        "tokensValue": "{{value0}} tokens",
+        "estimatedCost": "est. ${{value0}}",
+        "costUnknown": "A model in this task has no price, so no amount is estimated.",
+        "costEstimated": "Estimated from provider pricing.",
+        "heading": "Spend",
+        "unattributedSessions": "{{value0}} sessions unattributed",
+        "turnOnTracking": "Turn on in Settings",
+        "reason": {
+          "disabled": "Usage tracking is off. No spend is recorded for this task.",
+          "unpriced": "Some models in this task have no price, so the total is unknown.",
+          "ambiguous_session": "More than one session matches this task, so usage cannot be attributed.",
+          "no_matching_session": "No session matches this task yet, so there is nothing to total.",
+          "remote_host": "This workspace runs on a remote host, where usage is not collected yet.",
+          "unattributed": "Some sessions could not be tied to this task."
+        },
+        "status": {
+          "available": "available",
+          "disabled": "unavailable · disabled",
+          "unpriced": "unavailable · unpriced",
+          "ambiguous_session": "unavailable · ambiguous_session",
+          "no_matching_session": "unavailable · no_matching_session",
+          "remote_host": "unavailable · remote_host",
+          "unattributed": "unavailable · unattributed"
+        }
+      },
+      "TaskWorkbenchWorkspaces": {
+        "host": {
+          "local": "local",
+          "remote": "remote"
+        },
+        "defaultFromActivity": "Default · recent activity",
+        "defaultExplicit": "Default",
+        "archived": "Archived",
+        "kind": {
+          "folder": "folder"
+        },
+        "reviewNumber": "PR #{{value0}}",
+        "remoteHint": "Remote host · usage and actions stay local",
+        "create": "Create workspace",
+        "noActive": "No active workspace",
+        "moreWorkspaces": "+{{value0}} more",
+        "showArchived": "Show archived ({{value0}})",
+        "heading": "Workspaces",
+        "workspaceCount": "{{value0}} total",
+        "showMore": "Show {{value0}} more workspaces"
       }
     },
     "i18n": {

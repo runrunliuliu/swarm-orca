@@ -17212,6 +17212,117 @@
             "hostOnly": "Cursor のサインイン詳細は、Orca を実行しているコンピュータでのみ読み取れます。"
           }
         }
+      },
+      "TaskWorkbenchAgentRow": {
+        "tokensUnavailable": "—",
+        "tokens": "{{value0}} トークン",
+        "outcome": {
+          "success": "納品済み",
+          "failure": "失敗",
+          "cancellation": "キャンセル"
+        }
+      },
+      "TaskWorkbenchAgents": {
+        "heading": "Agent",
+        "agentCount": "{{value0}}",
+        "empty": "このタスクにはまだ Agent がいません。",
+        "activeHeading": "アクティブ",
+        "attentionHeading": "対応が必要",
+        "historyHeading": "履歴",
+        "historyCount": "{{value0}}",
+        "collapse": "折りたたむ",
+        "expand": "展開する",
+        "historyEmpty": "履歴はまだありません。"
+      },
+      "TaskWorkbenchDelivery": {
+        "pullRequestNumber": "PR #{{value0}}",
+        "noEvidence": "このタスクのデリバリー根拠はまだ読み取られていません。ここには納品されたことを示す内容はありません。",
+        "heading": "デリバリー",
+        "commitCount": "{{value0}} コミット",
+        "checksCount": "チェック {{value0}}/{{value1}}",
+        "collapse": "折りたたむ",
+        "expand": "展開する",
+        "lastCommit": "最新のコミット: {{value0}}",
+        "reviewDetail": "レビューの状態: {{value0}}",
+        "readOnly": "読み取り専用の根拠です。このシェルは git、ポーリング、PR の更新を実行しません。",
+        "pullRequestState": {
+          "draft": "下書き",
+          "open": "オープン",
+          "merged": "マージ済み",
+          "closed": "クローズ"
+        },
+        "review": {
+          "pending": "レビュー待ち",
+          "approved": "レビュー承認済み",
+          "changes-requested": "変更をリクエスト済み"
+        }
+      },
+      "TaskWorkbenchHeader": {
+        "noTracker": "トラッカーなし",
+        "pullRequestNumber": "PR #{{value0}}",
+        "openWorkspace": "ワークスペースを開く",
+        "trackerState": {
+          "open": "オープン",
+          "closed": "クローズ"
+        },
+        "pullRequestState": {
+          "draft": "下書き",
+          "open": "オープン",
+          "merged": "マージ済み",
+          "closed": "クローズ"
+        }
+      },
+      "TaskWorkbenchPanel": {
+        "emptyTitle": "このタスクにはまだワークスペースがリンクされていません",
+        "emptyBody": "ワークスペースを作成すると、このタスクで Agent を開始できます。",
+        "createWorkspace": "ワークスペースを作成"
+      },
+      "TaskWorkbenchSpend": {
+        "tokensValue": "{{value0}} トークン",
+        "estimatedCost": "約 ${{value0}}",
+        "costUnknown": "このタスクのモデルに価格が設定されていないため、金額は推定されません。",
+        "costEstimated": "プロバイダーの料金に基づく推定値です。",
+        "heading": "費用",
+        "unattributedSessions": "{{value0}} 件のセッションが未割り当て",
+        "turnOnTracking": "設定で有効にする",
+        "reason": {
+          "disabled": "使用量の追跡がオフのため、このタスクの費用は記録されていません。",
+          "unpriced": "このタスクの一部のモデルに価格がないため、合計は不明です。",
+          "ambiguous_session": "このタスクに一致するセッションが複数あるため、使用量を割り当てられません。",
+          "no_matching_session": "このタスクに一致するセッションがまだないため、集計できるものがありません。",
+          "remote_host": "このワークスペースはリモートホストで実行されており、そこでは使用量がまだ収集されていません。",
+          "unattributed": "一部のセッションをこのタスクに関連付けられませんでした。"
+        },
+        "status": {
+          "available": "利用可能",
+          "disabled": "利用不可 · disabled",
+          "unpriced": "利用不可 · unpriced",
+          "ambiguous_session": "利用不可 · ambiguous_session",
+          "no_matching_session": "利用不可 · no_matching_session",
+          "remote_host": "利用不可 · remote_host",
+          "unattributed": "利用不可 · unattributed"
+        }
+      },
+      "TaskWorkbenchWorkspaces": {
+        "host": {
+          "local": "ローカル",
+          "remote": "リモート"
+        },
+        "defaultFromActivity": "デフォルト · 最近のアクティビティ",
+        "defaultExplicit": "デフォルト",
+        "archived": "アーカイブ済み",
+        "kind": {
+          "folder": "フォルダー"
+        },
+        "reviewNumber": "PR #{{value0}}",
+        "remoteHint": "リモートホスト · 使用量と操作はローカルにとどまります",
+        "create": "ワークスペースを作成",
+        "noActive": "アクティブなワークスペースはありません",
+        "moreWorkspaces": "+{{value0}} 件",
+        "showArchived": "アーカイブ済みを表示 ({{value0}})",
+        "heading": "ワークスペース",
+        "workspaceCount": "全 {{value0}} 件",
+        "showMore": "残り {{value0}} 件のワークスペースを表示"
       }
     },
     "i18n": {

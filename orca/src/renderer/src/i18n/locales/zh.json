@@ -17411,6 +17411,117 @@
             "hostOnly": "Cursor 登录详情仅可在运行 Orca 的电脑上读取。"
           }
         }
+      },
+      "TaskWorkbenchAgentRow": {
+        "tokensUnavailable": "—",
+        "tokens": "{{value0}} token",
+        "outcome": {
+          "success": "已交付",
+          "failure": "失败",
+          "cancellation": "已取消"
+        }
+      },
+      "TaskWorkbenchAgents": {
+        "heading": "智能体",
+        "agentCount": "{{value0}}",
+        "empty": "此任务上还没有智能体。",
+        "activeHeading": "当前",
+        "attentionHeading": "需要你",
+        "historyHeading": "历史",
+        "historyCount": "{{value0}}",
+        "collapse": "折叠",
+        "expand": "展开",
+        "historyEmpty": "尚无历史记录。"
+      },
+      "TaskWorkbenchDelivery": {
+        "pullRequestNumber": "PR #{{value0}}",
+        "noEvidence": "尚未读取此任务的交付证据。此处的任何内容都不表示已交付。",
+        "heading": "交付",
+        "commitCount": "{{value0}} 个提交",
+        "checksCount": "检查 {{value0}}/{{value1}}",
+        "collapse": "折叠",
+        "expand": "展开",
+        "lastCommit": "最后一次提交：{{value0}}",
+        "reviewDetail": "评审状态：{{value0}}",
+        "readOnly": "只读证据。此界面不运行 git、轮询或 PR 刷新。",
+        "pullRequestState": {
+          "draft": "草稿",
+          "open": "打开",
+          "merged": "已合并",
+          "closed": "已关闭"
+        },
+        "review": {
+          "pending": "评审待处理",
+          "approved": "评审已通过",
+          "changes-requested": "已请求修改"
+        }
+      },
+      "TaskWorkbenchHeader": {
+        "noTracker": "无追踪器",
+        "pullRequestNumber": "PR #{{value0}}",
+        "openWorkspace": "打开工作区",
+        "trackerState": {
+          "open": "打开",
+          "closed": "已关闭"
+        },
+        "pullRequestState": {
+          "draft": "草稿",
+          "open": "打开",
+          "merged": "已合并",
+          "closed": "已关闭"
+        }
+      },
+      "TaskWorkbenchPanel": {
+        "emptyTitle": "此任务尚未关联任何工作区",
+        "emptyBody": "创建工作区，即可在此任务上启动智能体。",
+        "createWorkspace": "创建工作区"
+      },
+      "TaskWorkbenchSpend": {
+        "tokensValue": "{{value0}} token",
+        "estimatedCost": "约 ${{value0}}",
+        "costUnknown": "此任务中有模型没有价格，因此无法估算金额。",
+        "costEstimated": "根据提供商定价估算。",
+        "heading": "花费",
+        "unattributedSessions": "{{value0}} 个会话未归属",
+        "turnOnTracking": "在设置中开启",
+        "reason": {
+          "disabled": "用量跟踪已关闭。此任务未记录任何花费。",
+          "unpriced": "此任务中有模型没有价格，因此总额未知。",
+          "ambiguous_session": "有多个会话与此任务匹配，因此无法归属用量。",
+          "no_matching_session": "尚无会话与此任务匹配，因此没有可汇总的数据。",
+          "remote_host": "此工作区运行在远程主机上，该处尚未收集用量。",
+          "unattributed": "有些会话无法关联到此任务。"
+        },
+        "status": {
+          "available": "可用",
+          "disabled": "不可用 · disabled",
+          "unpriced": "不可用 · unpriced",
+          "ambiguous_session": "不可用 · ambiguous_session",
+          "no_matching_session": "不可用 · no_matching_session",
+          "remote_host": "不可用 · remote_host",
+          "unattributed": "不可用 · unattributed"
+        }
+      },
+      "TaskWorkbenchWorkspaces": {
+        "host": {
+          "local": "本地",
+          "remote": "远程"
+        },
+        "defaultFromActivity": "默认 · 最近活动",
+        "defaultExplicit": "默认",
+        "archived": "已归档",
+        "kind": {
+          "folder": "文件夹"
+        },
+        "reviewNumber": "PR #{{value0}}",
+        "remoteHint": "远程主机 · 用量和操作仅在本地可用",
+        "create": "创建工作区",
+        "noActive": "无活动工作区",
+        "moreWorkspaces": "+{{value0}} 个",
+        "showArchived": "显示已归档 ({{value0}})",
+        "heading": "工作区",
+        "workspaceCount": "共 {{value0}} 个",
+        "showMore": "再显示 {{value0}} 个工作区"
       }
     },
     "i18n": {
