@@ -67,7 +67,7 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-/** One replayed line, parsed once: the two facts replay needs, in the order it reads them. */
+/** One replayed line: the two facts replay needs, in the order it reads them. */
 export type ParsedShadowLine = {
   seq: number
   record: IncidentRecord
@@ -165,21 +165,19 @@ export function incidentRecordFromShadowLine(text: string): IncidentRecord {
 }
 
 /**
- * Parse one replayed line once and hand back both facts, instead of parsing the same text twice.
+ * Parse the line's JSON once and hand back both facts, instead of parsing the same text twice.
  *
- * `record` is rebuilt on first read rather than here, so replay keeps the order it already had: a line
- * at or below the watermark is skipped on `seq` alone, and an unreadable body on a line replay would
- * never look at does not stop the run. A failed read is not cached; the next read throws the same
- * typed reason.
+ * `record` is rebuilt on read rather than here, so replay keeps the order it already had: a line at or
+ * below the watermark is skipped on `seq` alone, and an unreadable body on a line replay would never
+ * look at does not stop the run. Every read rebuilds the record — nothing is memoised — so a read that
+ * throws throws the same typed reason on the next read too.
  */
 export function parseShadowLine(text: string): ParsedShadowLine {
   const line = shadowLineObject(text)
-  let record: IncidentRecord | null = null
   return {
     seq: seqOfShadowLine(line),
     get record(): IncidentRecord {
-      record ??= recordOfShadowLine(line)
-      return record
+      return recordOfShadowLine(line)
     }
   }
 }

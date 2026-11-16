@@ -1,5 +1,5 @@
 /**
- * One line → two facts, parsed once (§11.2; A7).
+ * One line → two facts, JSON parsed once (§11.2; A7).
  *
  * The merge that matters is the validation split: replay reads `seq` first and only rebuilds the
  * record for a line above the watermark, so the merged parser must keep both rejection subsets and
@@ -71,11 +71,6 @@ describe('parseShadowLine: one parse, two facts', () => {
       createdAt: 1_700_000_000_000
     })
   })
-
-  it('rebuilds the record on first read only', () => {
-    const parsed = parseShadowLine(line())
-    expect(parsed.record).toBe(parsed.record)
-  })
 })
 
 describe('parseShadowLine: the seq subset is judged first', () => {
@@ -124,7 +119,7 @@ describe('parseShadowLine: the record subset is judged on read', () => {
     expect(() => parseShadowLine(line({ created_at: undefined })).record).toThrow(/created_at/)
   })
 
-  it('does not cache a failed read', () => {
+  it('reports the same typed reason on a repeated read', () => {
     const parsed = parseShadowLine(line({ fingerprint: undefined }))
     expect(reasonOf(() => parsed.record)).toBe('invalid_record')
     expect(reasonOf(() => parsed.record)).toBe('invalid_record')
