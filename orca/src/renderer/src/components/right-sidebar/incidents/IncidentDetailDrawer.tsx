@@ -107,6 +107,7 @@ function EvidencePointers({
                       { path: row.displayPath }
                     )}
                     title={row.displayPath}
+                    disabled={detail.source.kind !== 'local'}
                     onClick={() => onOpenEvidence(pointer)}
                   >
                     <ExternalLink size={12} />

@@ -80,6 +80,23 @@ async function renderDrawer(
 }
 
 describe('IncidentDetailDrawer', () => {
+  it('keeps remote decisions readable without local triage or local evidence opening', async () => {
+    const onOpenEvidence = vi.fn()
+    const onDecide = vi.fn()
+    const container = await renderDrawer(
+      detailFixture({ source: { kind: 'environment', environmentId: 'peer' } }),
+      { onOpenEvidence, onDecide }
+    )
+    expect(container.textContent).toContain('wait for a repeat')
+    expect(container.textContent).toContain('orca incident decide')
+    expect(container.querySelector('[aria-label="Triage this incident"]')).toBeNull()
+    const open = container.querySelector<HTMLButtonElement>('button[aria-label^="Open "]')
+    expect(open?.disabled).toBe(true)
+    await act(async () => { open?.click() })
+    expect(onOpenEvidence).not.toHaveBeenCalled()
+    expect(onDecide).not.toHaveBeenCalled()
+  })
+
   it('renders the exit cause as unknown, with its reason spelled out', async () => {
     const container = await renderDrawer()
     expect(container.textContent).toContain('Unknown · stop_unverified')

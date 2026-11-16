@@ -21,7 +21,8 @@ import type {
   IncidentSourceDto
 } from '../../../shared/incident-api-types'
 import { callRuntimeRpc, hasRuntimeRpcErrorCode } from './runtime-rpc-client'
-import { getActiveRuntimeTarget, type RuntimeClientTarget } from './runtime-client-target'
+import type { RuntimeClientTarget } from './runtime-client-target'
+import type { IncidentRuntimeTarget } from './incident-runtime-target'
 
 /**
  * The outcome of one read, in the vocabulary the panel renders.
@@ -34,13 +35,6 @@ export type IncidentReadOutcome<T> =
   | { availability: 'supported'; value: T }
   | { availability: 'unsupported' }
   | { availability: 'unavailable'; error: string }
-
-/** The target the panel reads from: the selected environment, else this window's own runtime. */
-export function incidentReadTarget(settings: {
-  activeRuntimeEnvironmentId?: string | null
-} | null): RuntimeClientTarget {
-  return getActiveRuntimeTarget(settings)
-}
 
 /** What the answer is labelled with — the host says `local`, the client re-stamps where it came from. */
 export function sourceForTarget(target: RuntimeClientTarget): IncidentSourceDto {
@@ -62,7 +56,10 @@ async function readRemote<T>(
   params: unknown
 ): Promise<IncidentReadOutcome<T>> {
   try {
-    return { availability: 'supported', value: await callRuntimeRpc<T>({ kind: 'environment', environmentId }, method, params) }
+    return {
+      availability: 'supported',
+      value: await callRuntimeRpc<T>({ kind: 'environment', environmentId }, method, params)
+    }
   } catch (error) {
     // Why this one code is special: a host that predates the method still authenticates and answers,
     // it just has nothing to serve. Telling the reader "not wired on that host" is the honest answer;
@@ -97,9 +94,15 @@ function fromBridge<T>(
 }
 
 export async function readIncidentSnapshot(
-  target: RuntimeClientTarget,
+  target: IncidentRuntimeTarget,
   request: IncidentListRequest
 ): Promise<IncidentReadOutcome<IncidentSnapshotDto>> {
+  if (target.kind === 'unsupported') {
+    return { availability: 'unsupported' }
+  }
+  if (target.kind === 'unavailable') {
+    return unavailable('The workspace incident runtime could not be resolved.')
+  }
   const outcome =
     target.kind === 'local'
       ? typeof incidentApi()?.snapshot !== 'function'
@@ -116,15 +119,23 @@ export async function readIncidentSnapshot(
 }
 
 export async function readIncidentDetail(
-  target: RuntimeClientTarget,
+  target: IncidentRuntimeTarget,
   incidentId: string
 ): Promise<IncidentReadOutcome<IncidentDetailDto>> {
+  if (target.kind === 'unsupported') {
+    return { availability: 'unsupported' }
+  }
+  if (target.kind === 'unavailable') {
+    return unavailable('The workspace incident runtime could not be resolved.')
+  }
   const outcome =
     target.kind === 'local'
       ? typeof incidentApi()?.detail !== 'function'
         ? ({ availability: 'unsupported' } as const)
         : fromBridge(await incidentApi()!.detail({ incidentId }))
-      : await readRemote<IncidentDetailDto>(target.environmentId, 'incidents.detail', { incidentId })
+      : await readRemote<IncidentDetailDto>(target.environmentId, 'incidents.detail', {
+          incidentId
+        })
   if (outcome.availability !== 'supported') {
     return outcome
   }
@@ -135,9 +146,15 @@ export async function readIncidentDetail(
 }
 
 export async function readIncidentCounts(
-  target: RuntimeClientTarget,
+  target: IncidentRuntimeTarget,
   request?: IncidentCountsRequest
 ): Promise<IncidentReadOutcome<IncidentCountsDto>> {
+  if (target.kind === 'unsupported') {
+    return { availability: 'unsupported' }
+  }
+  if (target.kind === 'unavailable') {
+    return unavailable('The workspace incident runtime could not be resolved.')
+  }
   const outcome =
     target.kind === 'local'
       ? typeof incidentApi()?.counts !== 'function'

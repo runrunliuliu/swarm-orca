@@ -20,11 +20,11 @@
 // quiet week). The timer is the *only* clock in this hook: it is armed once per reading, at the moment
 // that reading expires, and disposed with the reading.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
-import { incidentReadTarget, readIncidentCounts } from '../../runtime/incident-read-client'
-import type { RuntimeClientTarget } from '../../runtime/runtime-client-target'
-import { useAppStore } from '../../store'
+import { readIncidentCounts } from '../../runtime/incident-read-client'
+import type { IncidentRuntimeTarget } from '../../runtime/incident-runtime-target'
+import { useIncidentRuntimeTarget } from '../../hooks/use-incident-runtime-target'
 import type { IncidentCountsAvailability, IncidentCountsState } from './incident-counts-state'
 
 export type { IncidentCountsAvailability, IncidentCountsState } from './incident-counts-state'
@@ -39,46 +39,44 @@ export type { IncidentCountsAvailability, IncidentCountsState } from './incident
  * Ten minutes is long past any plausible push latency (≈1200× the starvation cap) and short enough
  * that a writer that died while the user was away is still visible in the same session.
  *
- * The comparison uses `readAt` against the renderer clock. Both run on this host (Electron main stamps
- * `Date.now()`, the renderer reads it), so there is no clock-skew assumption to document — only that a
- * renderer running on a different machine is not a supported shape today.
+ * The comparison uses host `readAt` against the renderer clock; remote clock skew can affect staleness.
  */
 export const INCIDENT_COUNTS_STALE_MS = 10 * 60 * 1000
 
-function newer(
-  current: IncidentCountsDto | null,
-  next: IncidentCountsDto
-): IncidentCountsDto {
+function newer(current: IncidentCountsDto | null, next: IncidentCountsDto): IncidentCountsDto {
   return current === null || next.readAt >= current.readAt ? next : current
 }
 
 export function useIncidentCounts(): IncidentCountsState {
-  const [counts, setCounts] = useState<IncidentCountsDto | null>(null)
   // Why the selection is part of the key: the badge must count the host the panel is showing, and a
   // switch must invalidate the previous host's number instead of leaving it on screen.
-  const activeEnvironmentId = useAppStore((s) => s.settings?.activeRuntimeEnvironmentId ?? null)
-  const target = useMemo(
-    () => incidentReadTarget({ activeRuntimeEnvironmentId: activeEnvironmentId }),
-    [activeEnvironmentId]
-  )
-  const targetKey = target.kind === 'local' ? 'local' : `environment:${target.environmentId}`
+  const target = useIncidentRuntimeTarget()
   // Kept separate from `counts` on purpose: "the read failed" must survive a failure that carries no
   // payload, and must clear the moment a reading (pull or push) actually arrives.
-  const [failed, setFailed] = useState(false)
-  const [stale, setStale] = useState(false)
-
-  const accept = (next: IncidentCountsDto): void => {
-    setCounts((current) => newer(current, next))
-    setFailed(false)
-  }
+  const [reading, setReading] = useState<{
+    target: IncidentRuntimeTarget
+    counts: IncidentCountsDto | null
+    failed: boolean
+  }>({ target, counts: null, failed: false })
+  const counts = reading.target === target ? reading.counts : null
+  const failed = reading.target === target && reading.failed
+  const [staleReading, setStaleReading] = useState<IncidentCountsDto | null>(null)
 
   useEffect(() => {
+    const accept = (next: IncidentCountsDto): void => {
+      setReading((current) => ({
+        target,
+        // Host clocks are incomparable; only order readings from the same target.
+        counts: newer(current.target === target ? current.counts : null, next),
+        failed: false
+      }))
+    }
     let live = true
     let unsubscribe: (() => void) | null = null
     // The pull goes through the runtime the panel is showing (local or a paired environment). The push
     // below stays local-only on purpose: `incidents:countsChanged` is a main-process broadcast, so a
     // remote host's writes reach us on the next bounded pull, not as a live push.
-    const subscribeLocalPush = (current: RuntimeClientTarget): (() => void) | null => {
+    const subscribeLocalPush = (current: IncidentRuntimeTarget): (() => void) | null => {
       if (current.kind !== 'local') {
         return null
       }
@@ -107,41 +105,35 @@ export function useIncidentCounts(): IncidentCountsState {
         } else {
           // `unsupported` and `unavailable` are both a stated absence, never a zero: the badge draws
           // its marker and the panel says why.
-          setCounts(null)
-          setFailed(true)
+          setReading({ target, counts: null, failed: true })
         }
       })
       .catch(() => {
         if (live) {
-          setFailed(true)
+          setReading({ target, counts: null, failed: true })
         }
       })
     return () => {
       live = false
       unsubscribe?.()
     }
-    // Re-read when the selected host changes; nothing else can change the answer, so the effect stays
-    // keyed on the target and not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetKey])
+  }, [target])
 
   // Arm the staleness deadline for the newest reading; a new push replaces it (and clears the flag).
   useEffect(() => {
     if (counts === null) {
-      setStale(false)
       return
     }
     const remaining = counts.readAt + INCIDENT_COUNTS_STALE_MS - Date.now()
     if (remaining <= 0) {
-      setStale(true)
+      setStaleReading(counts)
       return
     }
-    setStale(false)
-    const timer = setTimeout(() => setStale(true), remaining)
+    const timer = setTimeout(() => setStaleReading(counts), remaining)
     return () => clearTimeout(timer)
   }, [counts])
 
   const availability: IncidentCountsAvailability =
-    counts !== null ? (stale ? 'stale' : 'ok') : failed ? 'unavailable' : 'idle'
+    counts !== null ? (staleReading === counts ? 'stale' : 'ok') : failed ? 'unavailable' : 'idle'
   return { counts, availability }
 }

@@ -13,7 +13,7 @@
 //   * a slow response must not overwrite a newer one. Each hook keeps a generation counter and drops
 //     any result that is not from its own last request.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   IncidentDecideRequest,
   IncidentDecideResultDto,
@@ -27,8 +27,9 @@ import type {
   IncidentToolFailuresViewDto
 } from '../../../../../shared/incident-gray-types'
 import type { IncidentDecideReply } from './IncidentTriageActions'
-import { incidentReadTarget, readIncidentDetail, readIncidentSnapshot } from '../../../runtime/incident-read-client'
-import { useAppStore } from '../../../store'
+import { readIncidentDetail, readIncidentSnapshot } from '../../../runtime/incident-read-client'
+import { useIncidentRuntimeTarget } from '../../../hooks/use-incident-runtime-target'
+import type { IncidentRuntimeTarget } from '../../../runtime/incident-runtime-target'
 
 type IncidentBridge = NonNullable<Window['api']>['incidents']
 
@@ -59,23 +60,14 @@ export function useIncidentSnapshot(
 ): SnapshotState & {
   reload: () => void
 } {
-  const [state, setState] = useState<SnapshotState>({
+  const target = useIncidentRuntimeTarget()
+  const [state, setState] = useState<SnapshotState & { target: IncidentRuntimeTarget }>({
+    target,
     snapshot: null,
     loading: true,
     error: null,
     availability: 'idle'
   })
-  // Why the target is read here and not passed in: the panel is host-scoped, and the selection can
-  // change while the sidebar stays mounted. Reading it in the hook keeps the list, the detail and the
-  // counts on one selection instead of three call sites that could disagree.
-  const activeEnvironmentId = useAppStore((s) => s.settings?.activeRuntimeEnvironmentId ?? null)
-  // Why memoized on the id and not on `settings`: `getActiveRuntimeTarget` returns a fresh object, and an
-  // unstable target would re-run `load` on every render (an unbounded read loop, which is exactly what
-  // the panel test surfaced).
-  const target = useMemo(
-    () => incidentReadTarget({ activeRuntimeEnvironmentId: activeEnvironmentId }),
-    [activeEnvironmentId]
-  )
   const generation = useRef(0)
   // Read through a ref so a visibility change does not re-subscribe the push listener below.
   const visible = useRef(isVisible)
@@ -90,10 +82,17 @@ export function useIncidentSnapshot(
           return
         }
         if (outcome.availability === 'supported') {
-          setState({ snapshot: outcome.value, loading: false, error: null, availability: 'ok' })
+          setState({
+            target,
+            snapshot: outcome.value,
+            loading: false,
+            error: null,
+            availability: 'ok'
+          })
           return
         }
         setState({
+          target,
           snapshot: null,
           loading: false,
           error: outcome.availability === 'unavailable' ? outcome.error : null,
@@ -105,6 +104,7 @@ export function useIncidentSnapshot(
           return
         }
         setState({
+          target,
           snapshot: null,
           loading: false,
           error: error instanceof Error ? error.message : String(error),
@@ -120,6 +120,9 @@ export function useIncidentSnapshot(
     if (isVisible) {
       load()
     }
+    return () => {
+      generation.current += 1
+    }
   }, [load, isVisible])
 
   // Follow the coalesced store push: a decision made in the CLI, or a new crash, must not leave an open
@@ -127,6 +130,9 @@ export function useIncidentSnapshot(
   // While hidden the push is dropped on purpose: a 200-row snapshot read per coalesced write, for a
   // panel nobody can see, is the cost this gate removes.
   useEffect(() => {
+    if (target.kind !== 'local') {
+      return
+    }
     const bridge = incidentBridge()
     if (bridge === null || typeof bridge.onCountsChanged !== 'function') {
       return
@@ -142,9 +148,11 @@ export function useIncidentSnapshot(
       unsubscribe = null
     }
     return () => unsubscribe?.()
-  }, [load])
+  }, [load, target])
 
-  return { ...state, reload: load }
+  return state.target === target
+    ? { ...state, reload: load }
+    : { snapshot: null, loading: true, error: null, availability: 'idle', reload: load }
 }
 
 type DetailState = {
@@ -156,18 +164,22 @@ type DetailState = {
 export function useIncidentDetail(incidentId: string | null): DetailState & {
   reload: () => void
 } {
-  const [state, setState] = useState<DetailState>({ detail: null, loading: false, error: null })
+  const target = useIncidentRuntimeTarget()
+  const [state, setState] = useState<
+    DetailState & { target: IncidentRuntimeTarget; incidentId: string | null }
+  >({
+    target,
+    incidentId,
+    detail: null,
+    loading: false,
+    error: null
+  })
   const generation = useRef(0)
-  const activeEnvironmentId = useAppStore((s) => s.settings?.activeRuntimeEnvironmentId ?? null)
-  const target = useMemo(
-    () => incidentReadTarget({ activeRuntimeEnvironmentId: activeEnvironmentId }),
-    [activeEnvironmentId]
-  )
 
   const load = useCallback(() => {
     if (incidentId === null) {
       generation.current += 1
-      setState({ detail: null, loading: false, error: null })
+      setState({ target, incidentId, detail: null, loading: false, error: null })
       return
     }
     const current = ++generation.current
@@ -179,8 +191,10 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
         }
         setState(
           outcome.availability === 'supported'
-            ? { detail: outcome.value, loading: false, error: null }
+            ? { target, incidentId, detail: outcome.value, loading: false, error: null }
             : {
+                target,
+                incidentId,
                 detail: null,
                 loading: false,
                 error:
@@ -195,6 +209,8 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
           return
         }
         setState({
+          target,
+          incidentId,
           detail: null,
           loading: false,
           error: error instanceof Error ? error.message : String(error)
@@ -204,9 +220,14 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
 
   useEffect(() => {
     load()
+    return () => {
+      generation.current += 1
+    }
   }, [load])
 
-  return { ...state, reload: load }
+  return state.target === target && state.incidentId === incidentId
+    ? { ...state, reload: load }
+    : { detail: null, loading: incidentId !== null, error: null, reload: load }
 }
 
 /**
@@ -216,9 +237,9 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
  * because any other outcome wrote nothing. Everything else is handed back verbatim for the drawer to
  * display (`actor_required`, `invalid_transition`, …), so the store's policy is the only policy.
  */
-export function useIncidentDecide(options: { onAppended: () => void }): (
-  request: IncidentDecideRequest
-) => Promise<IncidentDecideReply> {
+export function useIncidentDecide(options: {
+  onAppended: () => void
+}): (request: IncidentDecideRequest) => Promise<IncidentDecideReply> {
   const { onAppended } = options
   return useCallback(
     async (request: IncidentDecideRequest): Promise<IncidentDecideReply> => {
@@ -251,9 +272,9 @@ type GrayState<T> = { view: T | null; loading: boolean; error: string | null }
  */
 export function useIncidentGrayView<T>(
   active: boolean,
-  read: (bridge: IncidentBridge) => Promise<
-    { ok: true; value: T } | { ok: false; error: string; code: string }
-  >
+  read: (
+    bridge: IncidentBridge
+  ) => Promise<{ ok: true; value: T } | { ok: false; error: string; code: string }>
 ): GrayState<T> & { reload: () => void } {
   const [state, setState] = useState<GrayState<T>>({ view: null, loading: false, error: null })
   const generation = useRef(0)
