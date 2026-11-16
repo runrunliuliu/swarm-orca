@@ -55,7 +55,7 @@ export class BunSqliteDatabase {
       ? SQLITE_OPEN_READONLY
       : SQLITE_OPEN_READWRITE | (options.fileMustExist ? 0 : SQLITE_OPEN_CREATE)
     this.database = new sqlite.Database(
-      filename === ':memory:' || filename === '' ? filename : sqliteFileUri(filename),
+      sqliteTarget(filename),
       // URI parsing defaults differ between the platform SQLite libraries.
       flags | SQLITE_OPEN_URI
     )
@@ -115,6 +115,20 @@ export class BunSqliteDatabase {
   close(): void {
     this.database.close(true)
   }
+}
+
+/**
+ * The handle Bun must be given for `filename`.
+ *
+ * Why the passthrough: node:sqlite accepts a `file:` URI, and the incident read paths pass one
+ * (`…?immutable=1` for a quiescent store). Encoding that string as a path escapes the `?`, so SQLite
+ * opens a filename that does not exist and reports "unable to open database file".
+ */
+export function sqliteTarget(filename: string): string {
+  if (filename === ':memory:' || filename === '') {
+    return filename
+  }
+  return filename.startsWith('file:') ? filename : sqliteFileUri(filename)
 }
 
 function sqliteFileUri(path: string): string {
