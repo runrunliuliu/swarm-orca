@@ -44,8 +44,8 @@ function ingest(server: AgentHookServer, row: HookRow): void {
 }
 
 /** The request `createAgentInterruptInference` emits for this row after its settle window.
- *  Its shape is pinned on the renderer side by agent-interrupt-inference.test.ts; the renderer
- *  cannot be imported here because tsconfig.node.json maps neither `@/` nor renderer sources. */
+ *  Its shape is pinned on the renderer side by agent-interrupt-inference.test.ts; that test cannot be
+ *  imported here because this project lists renderer sources one by one, and it is not one of them. */
 function pressInterruptKey(
   server: AgentHookServer,
   intent: AgentInterruptInputIntent,
