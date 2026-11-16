@@ -129,53 +129,23 @@
 实现：`src/main/incidents/incidents-database.ts`（复用 `sqlite/sync-database.ts`），
 `user_version` 自管，`migrate` 同构 `orchestration/db/schema/migrate.ts`（事务内建表 + 成功后置版本）。
 
-### 6.2 表
+### 6.2 表与不变式
 
-```sql
-CREATE TABLE IF NOT EXISTS incidents (
-  id TEXT PRIMARY KEY,
-  source_kind TEXT NOT NULL,   -- pty_exit | status_stall | dispatch_settle | acceptance | self_report
-  source_id   TEXT NOT NULL,   -- 稳定实体 + epoch（下详）
-  facet       TEXT NOT NULL,   -- 同一 source 的不同侧面（exit | stall | verdict | rule:<id>）
-  host_id     TEXT NOT NULL,
-  worktree_id TEXT, run_id TEXT, task_id TEXT, dispatch_id TEXT,
-  agent_session_id TEXT, pty_incarnation_id TEXT,
-  class       TEXT NOT NULL,   -- crash | no_progress | tool_error | acceptance_failed | unknown_state
-  status      TEXT NOT NULL DEFAULT 'untriaged', -- untriaged | confirmed | duplicate | invalid | watch | needs_archive | closed
-  exit_cause  TEXT,            -- TerminalExitCause 原样序列化
-  fingerprint TEXT NOT NULL,   -- 聚类用，不参与唯一键
-  evidence    TEXT NOT NULL,   -- JSON：transcript 路径+offset+sha256+窗口行数；不含正文
-  summary     TEXT NOT NULL,   -- 已过 redactor 的短摘要
-  created_at  INTEGER NOT NULL,
-  UNIQUE(source_kind, source_id, facet)
-);
-CREATE INDEX IF NOT EXISTS idx_incidents_fingerprint ON incidents(fingerprint, created_at);
+本节只写不变式，**不复制 DDL**。列、索引、触发器与投影视图的唯一来源是
+`orca/src/main/incidents/incidents-database.ts:92-320`；那里的建表语句随迁移演进，本文抄一份
+只会变成第二份、且是更旧的一份。三条不变式才是别处代码可以依赖的部分：
 
-CREATE TABLE IF NOT EXISTS incident_decisions (
-  id TEXT PRIMARY KEY,
-  incident_id TEXT NOT NULL,  -- 故意不加 FK：prune 删 incident 后审计行必须保留
-  from_status TEXT NOT NULL, to_status TEXT NOT NULL,
-  actor TEXT NOT NULL, reason TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
-```
-
-不可变性抄 `administrative-history-schema.ts` 的触发器等价物：
-
-```sql
--- UPDATE 无条件拒绝
-CREATE TRIGGER IF NOT EXISTS trg_incident_update BEFORE UPDATE ON incidents
-BEGIN SELECT RAISE(ABORT, 'incident_immutable'); END;
--- DELETE 只允许在 prune 事务内放行：先置 incident_store_meta.prune_deleting='1'，删除，finally 复位；
--- marker 与 DELETE 同事务，进程中断即回滚，不会留下“可任意删除”的窗口。
-CREATE TRIGGER IF NOT EXISTS trg_incident_delete BEFORE DELETE ON incidents
-WHEN COALESCE((SELECT value FROM incident_store_meta WHERE key = 'prune_deleting'), '0') <> '1'
-BEGIN SELECT RAISE(ABORT, 'incident_immutable'); END;
--- decisions 的 UPDATE/DELETE 无条件拒绝
-```
-
-状态只能通过 `incident_decisions` 追加 + 一张 `incident_state` 投影表更新（或视图），
-incident 本身不改。`decisions` 同样禁 UPDATE/DELETE。
+1. **追加即事实，改写由引擎拒绝。** `incidents` 的 UPDATE 无条件 ABORT；DELETE 只在 prune
+   事务内放行；`incident_decisions` 与证据归档事件同样禁 UPDATE/DELETE。因此 incident 行上的
+   `status` 是**入档状态**，有效状态由追加的 decision 行投影（`incident_state` 视图/投影表）得出。
+   `incident_decisions.incident_id` **故意不加 FK**：prune 删掉 incident 后审计行必须留下，
+   `CASCADE`/`SET NULL` 会静默抹掉或被孤儿化这段审计。
+2. **删除的放行标记写在同一事务里。** 触发器只认
+   `incident_store_meta.prune_deleting = '1'`；prune 先置标记、再 DELETE、`finally` 复位，
+   三步同事务。进程中途崩溃则整体回滚，不会留下一个"什么都能删"的持久窗口。
+3. **`UNIQUE(source_kind, source_id, facet)` 就是幂等。** 重复拉取同一页面、同一 session 重复
+   上报，都落成同一条记录而不是第二条；它是唯一的去重机制，store 不做"智能合并"。这个键只在
+   `source_id` 自带 epoch 时才成立，见 §6.2.1。
 
 ### 6.2.1 幂等键必须带 epoch（评审修正）
 

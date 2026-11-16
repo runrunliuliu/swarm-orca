@@ -14,6 +14,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
+import { countsFixture } from './incidents/incident-panel-fixtures'
 import {
   INCIDENT_COUNTS_STALE_MS,
   useIncidentCounts,
@@ -21,32 +22,6 @@ import {
 } from './use-incident-counts'
 
 const T0 = 1_700_000_000_000
-
-function counts(readAt: number, overrides: Partial<IncidentCountsDto> = {}): IncidentCountsDto {
-  return {
-    untriaged: 2,
-    total: 3,
-    byClass: {
-      crash: 2,
-      no_progress: 0,
-      tool_error: 0,
-      acceptance_failed: 0,
-      acceptance_overridden: 0,
-      unknown_state: 0
-    },
-    byWorktree: [{ worktreeId: 'wt-1', untriaged: 2 }],
-    coverage: {
-      currentlyLimited: false,
-      capacityLatchSet: false,
-      shadowReplayIncomplete: false,
-      shadowReplayDropped: 0,
-      remoteIncidentCapture: 'unsupported',
-      gap: false
-    },
-    readAt,
-    ...overrides
-  }
-}
 
 type PushListener = (next: IncidentCountsDto) => void
 
@@ -67,7 +42,7 @@ function installBridge(options: {
       if (options.reject) {
         return Promise.reject(new Error('bridge unavailable'))
       }
-      return Promise.resolve(options.result ?? { ok: true, value: counts(T0) })
+      return Promise.resolve(options.result ?? { ok: true, value: countsFixture({ readAt: T0 }) })
     },
     onCountsChanged: (next: PushListener) => {
       if (options.onCountsChangedThrows) {
@@ -110,7 +85,7 @@ afterEach(() => {
 describe('useIncidentCounts availability', () => {
   it('starts idle and stays idle until a reading arrives', async () => {
     // A bridge that never answers yet: the first paint must not accuse the store.
-    installBridge({ result: { ok: true, value: counts(T0) } })
+    installBridge({ result: { ok: true, value: countsFixture({ readAt: T0 }) } })
     const { result } = renderHook(() => useIncidentCounts())
     expect(result.current).toEqual<IncidentCountsState>({ counts: null, availability: 'idle' })
   })
@@ -140,7 +115,9 @@ describe('useIncidentCounts availability', () => {
   })
 
   it('goes ok on a reading, stale once the window passes, and ok again on the next push', async () => {
-    const push = installBridge({ result: { ok: true, value: counts(T0) } })
+    const push = installBridge({
+      result: { ok: true, value: countsFixture({ readAt: T0 }) }
+    })
     const { result } = renderHook(() => useIncidentCounts())
     await settle()
     expect(result.current.availability).toBe('ok')
@@ -159,14 +136,16 @@ describe('useIncidentCounts availability', () => {
 
     // A push is a fresh reading: the marker must clear immediately, not on the next deadline.
     await act(async () => {
-      push.push(counts(T0 + INCIDENT_COUNTS_STALE_MS, { untriaged: 5 }))
+      push.push(countsFixture({ readAt: T0 + INCIDENT_COUNTS_STALE_MS, untriaged: 5 }))
     })
     expect(result.current.availability).toBe('ok')
     expect(result.current.counts?.untriaged).toBe(5)
   })
 
   it('re-arms the deadline for each reading instead of keeping the first one', async () => {
-    const push = installBridge({ result: { ok: true, value: counts(T0) } })
+    const push = installBridge({
+      result: { ok: true, value: countsFixture({ readAt: T0 }) }
+    })
     const { result } = renderHook(() => useIncidentCounts())
     await settle()
 
@@ -174,7 +153,7 @@ describe('useIncidentCounts availability', () => {
       vi.advanceTimersByTime(INCIDENT_COUNTS_STALE_MS / 2)
     })
     await act(async () => {
-      push.push(counts(T0 + INCIDENT_COUNTS_STALE_MS / 2))
+      push.push(countsFixture({ readAt: T0 + INCIDENT_COUNTS_STALE_MS / 2 }))
     })
     // The first deadline would have fired at T0 + window; the reading moved, so it must not.
     await act(async () => {
@@ -185,21 +164,32 @@ describe('useIncidentCounts availability', () => {
 
   it('treats a reading that arrives already older than the window as stale', async () => {
     // The pull happens after a long sleep/resume: `readAt` is already past its citable age.
-    installBridge({ result: { ok: true, value: counts(T0 - INCIDENT_COUNTS_STALE_MS - 1) } })
+    installBridge({
+      result: { ok: true, value: countsFixture({ readAt: T0 - INCIDENT_COUNTS_STALE_MS - 1 }) }
+    })
     const { result } = renderHook(() => useIncidentCounts())
     await settle()
     expect(result.current).toMatchObject({ availability: 'stale' })
   })
 
   it('does not let a slow pull overwrite newer pushed counts', async () => {
-    // Same rule the hook always had, kept while the state shape changed.
+    // The pull is deliberately still in flight when the push lands: the push carries a newer
+    // `readAt`, so the pull's older payload must be dropped by the `newer()` guard instead of
+    // overwriting it. (The previous body resolved the pull with the newer value and asserted it,
+    // so it passed whether or not a push was ever involved.)
     let resolvePull: ((value: { ok: true; value: IncidentCountsDto }) => void) | null = null
+    let listener: PushListener | null = null
     const incidents = {
       counts: () =>
         new Promise((resolve) => {
           resolvePull = resolve as typeof resolvePull
         }),
-      onCountsChanged: () => () => {}
+      onCountsChanged: (next: PushListener) => {
+        listener = next
+        return () => {
+          listener = null
+        }
+      }
     }
     ;(window as unknown as { api: unknown }).api = { incidents }
     const { result } = renderHook(() => useIncidentCounts())
@@ -207,16 +197,24 @@ describe('useIncidentCounts availability', () => {
     expect(result.current.availability).toBe('idle')
 
     await act(async () => {
-      resolvePull?.({ ok: true, value: counts(T0 + 5_000, { untriaged: 9 }) })
+      listener?.(countsFixture({ readAt: T0 + 5_000, untriaged: 9 }))
+    })
+    expect(result.current.counts?.untriaged).toBe(9)
+
+    // The pull resolves last but with an OLDER reading: it loses, and the pushed value stays.
+    await act(async () => {
+      resolvePull?.({ ok: true, value: countsFixture({ readAt: T0 + 1_000, untriaged: 1 }) })
     })
     await settle()
     expect(result.current.counts?.untriaged).toBe(9)
+    expect(result.current.counts?.readAt).toBe(T0 + 5_000)
+    expect(result.current.availability).toBe('ok')
   })
 
   it('still reads once when the push subscription is unavailable', async () => {
     // A bridge that cannot subscribe can still read: the pull decides the state.
     const bridge = installBridge({
-      result: { ok: true, value: counts(T0) },
+      result: { ok: true, value: countsFixture({ readAt: T0 }) },
       onCountsChangedThrows: true
     })
     const { result } = renderHook(() => useIncidentCounts())

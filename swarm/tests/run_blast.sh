@@ -8,13 +8,14 @@
 #
 # Selection rules live in tests/blast_radius.py and are fixed there on purpose: same basename,
 # tests that import the module, one hop of source importers, a changed helper under `tests/` ->
-# the test modules importing it, plus the explicit SHARED_MAP policy. It is not the transitive
-# closure and it is not "grep for the name".
+# the test modules importing it, plus the two explicit policies (SHARED_MAP for widely imported
+# modules, PATH_MAP for paths a test pins by name). It is not the transitive closure and it is
+# not "grep for the name".
 #
 # What this cannot see: dynamic imports, modules invoked as a subprocess
-# (`python3 <module>.py`), and coupling that exists only through fixtures. Those are stated
-# here rather than papered over. An empty radius is exit 2, never a pass: "nothing was selected"
-# and "nothing could break" are different claims.
+# (`python3 <module>.py`), coupling that exists only through fixtures, and any non-Python path
+# PATH_MAP does not name — such a path is reported as skipped, never as safe. An empty radius is
+# exit 2, never a pass: "nothing was selected" and "nothing could break" are different claims.
 #
 # The run goes through tests/run_offline.sh --modules, so the summary says
 # `selection: k/N modules (explicit)` and `TARGETED OK`. A targeted run is not an offline PASS.
@@ -30,7 +31,7 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || { echo "run_blast.sh: --range needs a revision or range" >&2; exit 2; }
             range_spec=$2; shift 2 ;;
         --dry-run) dry_run=1; shift ;;
-        -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         --jobs) [ $# -ge 2 ] || { echo "run_blast.sh: --jobs needs a positive integer" >&2; exit 2; }
                 jobs=$2; shift 2 ;;
         *) echo "run_blast.sh: unknown option: $1" >&2; exit 2 ;;

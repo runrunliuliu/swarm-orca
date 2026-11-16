@@ -3,13 +3,9 @@
  * a thrown crossing the bridge. The shapes are pinned here so a future renderer cannot invent a
  * second interpretation of `currently_limited` or of the entry-vs-effective status.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IncidentRecord } from '../incidents/incident-types'
-import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../incidents/incidents-database'
-import { createIncidentStore, type IncidentStore } from '../incidents/incident-store'
+import { closeStorePairs, openStorePair, record } from '../incidents/incident-test-fixture'
 import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests
@@ -46,46 +42,23 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [windowMock] }
 }))
 
-const directories: string[] = []
-const databases: OpenIncidentsDatabase[] = []
-
-function realStore(): IncidentStore {
-  return realStoreWithDatabase().store
+// Every row in this file is one pty-exit crash; the shared fixture owns the boring defaults
+// (fingerprint, empty evidence, host-a/wt-1), so only what makes it a pty exit is stated here.
+const PTY_EXIT: Partial<IncidentRecord> = {
+  id: 'inc_ipc_1',
+  sourceKind: 'pty_exit',
+  sourceId: 'ptyinc-ipc-1',
+  facet: 'exit',
+  runId: null,
+  ptyIncarnationId: 'ptyinc-ipc-1',
+  class: 'crash',
+  exitCause: { kind: 'unknown', reason: 'stop_unverified' },
+  evidence: { pointers: [], unknownBoundaries: ['stop never confirmed'] },
+  summary: 'stop never confirmed'
 }
 
-function realStoreWithDatabase(): { store: IncidentStore; opened: OpenIncidentsDatabase } {
-  const directory = mkdtempSync(join(tmpdir(), 'orca-incident-ipc-'))
-  directories.push(directory)
-  const opened = openIncidentsDatabase(join(directory, 'incidents', 'incidents.db'))
-  databases.push(opened)
-  return {
-    store: createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes }),
-    opened
-  }
-}
-
-function record(overrides: Partial<IncidentRecord> = {}): IncidentRecord {
-  return {
-    id: 'inc_ipc_1',
-    sourceKind: 'pty_exit',
-    sourceId: 'ptyinc-ipc-1',
-    facet: 'exit',
-    hostId: 'host-a',
-    worktreeId: 'wt-1',
-    runId: null,
-    taskId: null,
-    dispatchId: null,
-    agentSessionId: null,
-    ptyIncarnationId: 'ptyinc-ipc-1',
-    class: 'crash',
-    status: 'untriaged',
-    exitCause: { kind: 'unknown', reason: 'stop_unverified' },
-    fingerprint: 'f'.repeat(64),
-    evidence: { pointers: [], unknownBoundaries: ['stop never confirmed'] },
-    summary: 'stop never confirmed',
-    createdAt: 1_700_000_000_000,
-    ...overrides
-  }
+function sharedStore(): ReturnType<typeof openStorePair>['store'] {
+  return openStorePair().store
 }
 
 afterEach(() => {
@@ -94,22 +67,13 @@ afterEach(() => {
   __resetIncidentCountsPushForTests()
   handled.clear()
   sent.length = 0
-  for (const opened of databases.splice(0)) {
-    try {
-      opened.db.close()
-    } catch {
-      // Already closed.
-    }
-  }
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  closeStorePairs()
 })
 
 describe('readIncidentSnapshot', () => {
   it('returns the list plus both capacity facts and the remote gap', () => {
-    const store = realStore()
-    store.insertIncident(record())
+    const store = sharedStore()
+    store.insertIncident(record({ ...PTY_EXIT }))
     __configureIncidentStoreForTests(store)
 
     const result = readIncidentSnapshot({ limit: 10 })
@@ -137,8 +101,8 @@ describe('readIncidentSnapshot', () => {
   })
 
   it('attaches the mirror coverage when a reader is registered, and omits it otherwise', () => {
-    const { store, opened } = realStoreWithDatabase()
-    store.insertIncident(record())
+    const { store, opened } = openStorePair()
+    store.insertIncident(record({ ...PTY_EXIT }))
     __configureIncidentStoreForTests(store, opened.db)
 
     // No reader: "not reported" is absence, never a fabricated "mirrored".
@@ -163,7 +127,7 @@ describe('readIncidentSnapshot', () => {
   })
 
   it('rejects an unknown filter and an unavailable store with a closed result', () => {
-    const store = realStore()
+    const store = sharedStore()
     __configureIncidentStoreForTests(store)
     expect(readIncidentSnapshot({ status: 'nope' as never })).toMatchObject({ ok: false })
 
@@ -177,8 +141,8 @@ describe('readIncidentSnapshot', () => {
 
 describe('readIncidentDetail', () => {
   it('carries unknowns, evidence pointers and the projected status', () => {
-    const store = realStore()
-    store.insertIncident(record())
+    const store = sharedStore()
+    store.insertIncident(record({ ...PTY_EXIT }))
     store.appendDecision({ incidentId: 'inc_ipc_1', toStatus: 'watch', actor: 'alice', reason: 'r' })
     __configureIncidentStoreForTests(store)
 
@@ -194,15 +158,15 @@ describe('readIncidentDetail', () => {
   })
 
   it('reports a missing incident as not_found', () => {
-    __configureIncidentStoreForTests(realStore())
+    __configureIncidentStoreForTests(sharedStore())
     expect(readIncidentDetail({ incidentId: 'nope' })).toMatchObject({ ok: false, code: 'not_found' })
   })
 })
 
 describe('decideIncident', () => {
   it('appends a decision and reports the transition', () => {
-    const store = realStore()
-    store.insertIncident(record())
+    const store = sharedStore()
+    store.insertIncident(record({ ...PTY_EXIT }))
     __configureIncidentStoreForTests(store)
 
     const result = decideIncident({
@@ -226,8 +190,8 @@ describe('decideIncident', () => {
   })
 
   it('mirrors the CLI rules: no invented actor, terminal states stay final', () => {
-    const store = realStore()
-    store.insertIncident(record())
+    const store = sharedStore()
+    store.insertIncident(record({ ...PTY_EXIT }))
     __configureIncidentStoreForTests(store)
 
     expect(
@@ -247,9 +211,11 @@ describe('decideIncident', () => {
 
 describe('readIncidentCountsSnapshot', () => {
   it('counts what the badge draws, and answers a closed failure without a store', () => {
-    const { store, opened } = realStoreWithDatabase()
-    store.insertIncident(record())
-    store.insertIncident(record({ id: 'inc_ipc_2', sourceId: 'ptyinc-ipc-2', class: 'tool_error' }))
+    const { store, opened } = openStorePair()
+    store.insertIncident(record({ ...PTY_EXIT }))
+    store.insertIncident(
+      record({ ...PTY_EXIT, id: 'inc_ipc_2', sourceId: 'ptyinc-ipc-2', class: 'tool_error' })
+    )
     store.appendDecision({ incidentId: 'inc_ipc_2', toStatus: 'watch', actor: 'alice', reason: 'r' })
     __configureIncidentStoreForTests(store, opened.db)
 
@@ -285,8 +251,8 @@ describe('registerIncidentHandlers', () => {
       'incidents:snapshot',
       'incidents:toolFailures'
     ])
-    const store = realStore()
-    store.insertIncident(record())
+    const store = sharedStore()
+    store.insertIncident(record({ ...PTY_EXIT }))
     __configureIncidentStoreForTests(store)
     const snapshot = handled.get('incidents:snapshot')?.({}, undefined) as {
       ok: boolean
@@ -297,11 +263,11 @@ describe('registerIncidentHandlers', () => {
   })
 
   it('pushes the coalesced counts to the window after a write', async () => {
-    const { store, opened } = realStoreWithDatabase()
+    const { store, opened } = openStorePair()
     __configureIncidentStoreForTests(store, opened.db)
     registerIncidentHandlers()
 
-    store.insertIncident(record())
+    store.insertIncident(record({ ...PTY_EXIT }))
     // Real timers here: the push's windows are short (100ms quiet / 500ms cap) and the assertion is
     // about the channel and payload, not about the exact settle time.
     await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 2_000 })

@@ -16,17 +16,26 @@ unfalsifiable, so only these count:
   (b2) one hop back:    a `swarm/*.py` module importing `m`, then that module's (a)+(b)
   (c)  policy:          SHARED_MAP says the radius is wider than any import scan shows
   (d)  test helper:     a changed file under `swarm/tests/` -> the test modules importing it
+  (e)  path policy:     a non-Python path a test module pins by name (a skill file) -> PATH_MAP
 
 (d) exists because a shared fixture is neither a source nor a test module: editing one selected
 nothing at all, and the command's only escape was a hand-widened run — the unrepeatable
 judgement this tool replaces. It is one hop, like (b), not the closure.
 
+(e) exists because the radius is otherwise a Python import graph, so a *document* looks inert.
+`skills/incident-triage/**` is not inert: `core.test_incident_triage_skill` reads those files by
+path and fails when they drift, so a skill-only diff used to select nothing and exit 2. A path
+the tool cannot see is skipped and reported as skipped, never treated as safe — and an all-skipped
+diff exits 2, so "nothing selected" still cannot read as a pass.
+
 The transitive closure is excluded on purpose: it is nearly the whole suite, which would turn
 every change into a full run — the behaviour this replaces.
 
-Standard library only, like the rest of this directory. Known blind spot: dynamic imports and
-subprocess argv (`python3 <module>.py`) are invisible to an AST scan. That is why an empty
-radius is a failure rather than a pass, and why `run_blast.sh --help` states it.
+Standard library only, like the rest of this directory. Known blind spots, stated here rather than
+papered over: dynamic imports and subprocess argv (`python3 <module>.py`) are invisible to an AST
+scan, and any path without a (e) mapping is not scanned at all — a test that pins a file by path
+stays out of the radius until it is recorded in PATH_MAP. That is why an empty radius is a failure
+rather than a pass, and why `run_blast.sh --help` states both.
 """
 
 from __future__ import annotations
@@ -54,7 +63,14 @@ SHARED_MAP: dict[str, tuple[str, ...]] = {
 # behaviour, so a new test area's `__init__.py` is recorded here instead of demanding a test.
 UNTESTED: dict[str, str] = {
     "__init__": "test-area package marker; no behaviour to cover",
+    "run_modules": "parallel runner helper; launched as a subprocess, so nothing imports it",
 }
+
+# Modules under `tests/` that are code rather than fixtures. They are sources for the same reason
+# `log_io.py` is: one has a test module of its own, the other is executed. Leaving them out made
+# `test_blast_radius` — which covers the selector — look "unexplained" to the invariant that every
+# test module has a subject, when what was wrong was the source map.
+HELPER_SOURCES: tuple[str, ...] = ("tests/blast_radius.py", "tests/run_modules.py")
 
 # Changes to the runner itself are not module-level: they change how every module is selected
 # and reported, so the radius is the whole suite (`*`) or, for the selector only, the test that
@@ -63,7 +79,15 @@ RUNNER_PATHS: dict[str, tuple[str, ...]] = {
     "run_offline.sh": ("*",),
     "run_blast.sh": ("*",),
     "run_modules.py": ("*",),
-    "blast_radius.py": ("core.test_offline_baseline",),
+    "blast_radius.py": ("core.test_offline_baseline", "test_blast_radius"),
+}
+
+# Path policy (rule e): repo-relative prefixes whose radius is a test module that reads the file by
+# path, not by import. Policy rather than measurement, for the same reason as SHARED_MAP: no AST
+# scan can see a document. A prefix that names a module which no longer exists fails closed (the
+# change becomes `unmapped`, exit 2) instead of quietly selecting nothing.
+PATH_MAP: dict[str, tuple[str, ...]] = {
+    "swarm/skills/incident-triage/": ("core.test_incident_triage_skill",),
 }
 
 
@@ -92,9 +116,17 @@ def imported_modules(path: Path) -> set[str]:
 
 
 def source_files() -> dict[str, Path]:
-    """Top-level modules *and* packages: `swarm_ledger/` is a package whose tests import it."""
+    """Top-level modules *and* packages: `swarm_ledger/` is a package whose tests import it.
+
+    `HELPER_SOURCES` adds the runner's own code that happens to live under `tests/`: it is a
+    subject a test can cover, not a fixture, so it belongs in the same map.
+    """
     files = {path.stem: path for path in sorted(ROOT.glob("*.py"))
              if path.name != "run_modules.py"}
+    for helper in HELPER_SOURCES:
+        path = ROOT / helper
+        if path.exists():
+            files[path.stem] = path
     for package in sorted(ROOT.glob("*/")):
         if package.name in {"tests", "docs", "examples", "field-guide", "skills", "runit"}:
             continue
@@ -110,6 +142,14 @@ def policy_matches(name: str, patterns: tuple[str, ...]) -> bool:
         if pattern.endswith(".*") and name.startswith(pattern[:-1]):
             return True
     return False
+
+
+def path_policy_modules(change: str) -> tuple[str, ...]:
+    """The modules a non-Python path is pinned by (rule e). Longest matching prefix wins."""
+    for prefix in sorted(PATH_MAP, key=len, reverse=True):
+        if change.startswith(prefix):
+            return PATH_MAP[prefix]
+    return ()
 
 
 class Radius:
@@ -218,15 +258,23 @@ def select(range_spec: str) -> tuple[dict[str, dict[str, str]], list[str], list[
         elif str(path).startswith("swarm/") and path.suffix == ".py":
             package = path.parent.name
             reasons = radius.tests_for_source(package) if package in radius.sources else {}
+        elif mapped := path_policy_modules(change):
+            # (e) A path a named test module pins. A stale mapping (module gone) leaves `reasons`
+            # empty on purpose: it must land in `unmapped` and fail closed, not read as "nothing".
+            reasons = {module: "path" for module in mapped if module in radius.available}
         else:
             skipped.append(change)
             continue
         if reasons:
             selection[change] = reasons
-        elif not Path(change).exists():
+        elif not (ROOT.parent / change).exists():
             # A deleted file has no module left to run: the removal *is* the change, and the modules
             # that used it are selected by their own diffs. Reporting it as unmapped would make every
             # deletion pass look like a broken selector.
+            # Resolved against the repository root, not the caller's cwd: `git diff` above runs in
+            # `ROOT.parent`, so a bare `Path(change)` is false for every existing file when the
+            # tool is invoked from `swarm/` and "existing but unmapped" would be misreported as
+            # "deleted".
             removed.append(change)
         elif name in UNTESTED:
             skipped.append(change)

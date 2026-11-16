@@ -2,16 +2,11 @@
  * One sanitize layer, three consumers (M2-C2): a report write, a store insert, and a shadow replay.
  * The shadow is a plain file anyone can append to, so replay has to assume hostile input.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
-import { createIncidentStore } from './incident-store'
 import { buildSelfReportRecord } from './incident-report'
 import { sanitizeEvidence, sanitizeIncidentRecord, sanitizeText } from './incident-sanitize'
 import { incidentRecordFromShadowLine } from './incident-shadow-line'
-import type { IncidentRecord } from './incident-types'
+import { closeStorePairs, openStorePair, record } from './incident-test-fixture'
 
 const SECRETS = [
   'sk-ant-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH',
@@ -19,59 +14,8 @@ const SECRETS = [
   'Authorization: Bearer abcdef1234567890'
 ]
 
-const directories: string[] = []
-const databases: OpenIncidentsDatabase[] = []
-
-function fixture(): { store: ReturnType<typeof createIncidentStore>; opened: OpenIncidentsDatabase } {
-  const directory = mkdtempSync(join(tmpdir(), 'orca-sanitize-'))
-  directories.push(directory)
-  const opened = openIncidentsDatabase(join(directory, 'incidents', 'incidents.db'))
-  databases.push(opened)
-  return {
-    store: createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes }),
-    opened
-  }
-}
-
-function record(overrides: Partial<IncidentRecord> = {}): IncidentRecord {
-  return {
-    id: 'inc_secret',
-    sourceKind: 'self_report',
-    sourceId: 'req-1',
-    facet: 'report',
-    hostId: 'host-a',
-    worktreeId: null,
-    runId: null,
-    taskId: null,
-    dispatchId: null,
-    agentSessionId: null,
-    ptyIncarnationId: null,
-    class: 'tool_error',
-    status: 'untriaged',
-    exitCause: null,
-    fingerprint: 'f'.repeat(64),
-    evidence: {
-      pointers: [],
-      unknownBoundaries: [],
-      code: 'tool_schema_mismatch'
-    },
-    summary: 'clean',
-    createdAt: 1_700_000_000_000,
-    ...overrides
-  }
-}
-
 afterEach(() => {
-  for (const opened of databases.splice(0)) {
-    try {
-      opened.db.close()
-    } catch {
-      // Already closed.
-    }
-  }
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  closeStorePairs()
 })
 
 describe('sanitizeEvidence', () => {
@@ -119,7 +63,7 @@ describe('sanitizeText', () => {
 
 describe('the three write paths', () => {
   it('normal write: a report with a secret repro never reaches the row', () => {
-    const { store } = fixture()
+    const { store } = openStorePair()
     const built = buildSelfReportRecord({
       class: 'tool_error',
       code: 'tool_schema_mismatch',
@@ -136,9 +80,14 @@ describe('the three write paths', () => {
   })
 
   it('DB insert: an unsanitized record is cleaned before it lands', () => {
-    const { store } = fixture()
+    const { store } = openStorePair()
     store.insertIncident(
       record({
+        // This suite's row is a bare self-report keyed by `req-1` outside any Run or worktree.
+        id: 'inc_secret',
+        sourceId: 'req-1',
+        runId: null,
+        worktreeId: null,
         summary: `oops ${SECRETS[0]}`,
         evidence: {
           pointers: [{ kind: 'transcript', path: `/tmp/${SECRETS[2]}.log` }],
@@ -154,7 +103,7 @@ describe('the three write paths', () => {
   })
 
   it('shadow replay: a hostile line is sanitized on the way in', () => {
-    const { store } = fixture()
+    const { store } = openStorePair()
     const hostile = JSON.stringify({
       v: 2,
       seq: 1,

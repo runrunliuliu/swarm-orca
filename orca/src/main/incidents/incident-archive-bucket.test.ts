@@ -16,14 +16,18 @@
  * Nothing here duplicates the existing file: it covers staging bounds, `root = null`, the happy
  * read-back path and the immediate shape of both failure states, all of which stay there.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import Database from '../sqlite/sync-database'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
-import { createIncidentStore } from './incident-store'
-import type { IncidentRecord } from './incident-types'
+import {
+  closeStorePairs,
+  databasePath,
+  openStorePair,
+  record,
+  trackDatabase
+} from './incident-test-fixture'
 import {
   drainEvidenceArchive,
   readEvidenceArchiveState,
@@ -33,63 +37,19 @@ import {
 } from './incident-archive'
 
 const NOW = 1_700_000_000_000
-const directories: string[] = []
-const opened: OpenIncidentsDatabase[] = []
-
-function pair(): { opened: OpenIncidentsDatabase; userData: string } {
-  const userData = mkdtempSync(join(tmpdir(), 'orca-incident-archive-extra-'))
-  directories.push(userData)
-  const database = openIncidentsDatabase(join(userData, 'incidents', 'incidents.db'))
-  opened.push(database)
-  return { opened: database, userData }
-}
-
-function record(id: string, overrides: Partial<IncidentRecord> = {}): IncidentRecord {
-  return {
-    id,
-    sourceKind: 'self_report',
-    sourceId: `src-${id}`,
-    facet: 'report',
-    hostId: 'host-a',
-    worktreeId: 'wt-1',
-    runId: 'run-1',
-    taskId: null,
-    dispatchId: null,
-    agentSessionId: null,
-    ptyIncarnationId: null,
-    class: 'tool_error',
-    status: 'untriaged',
-    exitCause: null,
-    fingerprint: 'f'.repeat(64),
-    evidence: { pointers: [], unknownBoundaries: [] },
-    summary: 'reported',
-    createdAt: NOW,
-    ...overrides
-  }
-}
 
 afterEach(() => {
-  for (const database of opened.splice(0)) {
-    try {
-      database.db.close()
-    } catch {
-      // Already closed.
-    }
-  }
-  for (const directory of directories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  closeStorePairs()
 })
 
 describe('archive bucket layout', () => {
   it('puts a row with no run under _unattributed/<host_id>, and an empty run id too', () => {
-    const { opened: database, userData } = pair()
-    const store = createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes })
+    const { opened: database, store, userData } = openStorePair()
     const path = join(userData, 'transcript.jsonl')
     writeFileSync(path, 'evidence body\n')
-    store.insertIncident(record('inc_no_run', { runId: null, hostId: 'host-a' }))
-    store.insertIncident(record('inc_empty_run', { runId: '', hostId: 'host-b' }))
-    store.insertIncident(record('inc_named_run', { runId: 'run-1' }))
+    store.insertIncident(record({ id: 'inc_no_run', runId: null, hostId: 'host-a' }))
+    store.insertIncident(record({ id: 'inc_empty_run', runId: '', hostId: 'host-b' }))
+    store.insertIncident(record({ id: 'inc_named_run' }))
     for (const id of ['inc_no_run', 'inc_empty_run', 'inc_named_run']) {
       expect(stageIncidentEvidence({
         db: database.db,
@@ -115,11 +75,10 @@ describe('archive bucket layout', () => {
   })
 
   it('falls back to the literal `local` host for an empty host id', () => {
-    const { opened: database, userData } = pair()
-    const store = createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes })
+    const { opened: database, store, userData } = openStorePair()
     const path = join(userData, 'transcript.jsonl')
     writeFileSync(path, 'evidence body\n')
-    store.insertIncident(record('inc_no_host', { runId: null, hostId: '' }))
+    store.insertIncident(record({ id: 'inc_no_host', runId: null, hostId: '' }))
     stageIncidentEvidence({
       db: database.db,
       incidentId: 'inc_no_host',
@@ -136,8 +95,8 @@ describe('archive bucket layout', () => {
 
 describe('failure state is a distinction, not a delay', () => {
   function staged(): { db: OpenIncidentsDatabase; userData: string; root: string } {
-    const { opened: database, userData } = pair()
-    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(record('inc_1'))
+    const { opened: database, store, userData } = openStorePair()
+    store.insertIncident(record({ id: 'inc_1' }))
     const path = join(userData, 'transcript.jsonl')
     writeFileSync(path, 'evidence body\n')
     stageIncidentEvidence({
@@ -218,10 +177,8 @@ function eventStates(db: OpenIncidentsDatabase, incidentId = 'inc_1'): string[] 
 describe('explicit retry for an incomplete pointer (G5)', () => {
   /** Stage one excerpt, then make the drain record a `sha256_mismatch`. */
   function mismatched(): { db: OpenIncidentsDatabase; userData: string; root: string; id: string } {
-    const { opened: database, userData } = pair()
-    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
-      record('inc_1')
-    )
+    const { opened: database, store, userData } = openStorePair()
+    store.insertIncident(record({ id: 'inc_1' }))
     const path = join(userData, 'transcript.jsonl')
     writeFileSync(path, 'evidence body\n')
     stageIncidentEvidence({
@@ -302,10 +259,8 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
   })
 
   it('refuses a retry on an archived pointer', () => {
-    const { opened: database, userData } = pair()
-    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
-      record('inc_1')
-    )
+    const { opened: database, store, userData } = openStorePair()
+    store.insertIncident(record({ id: 'inc_1' }))
     const path = join(userData, 'transcript.jsonl')
     writeFileSync(path, 'evidence body\n')
     stageIncidentEvidence({
@@ -327,10 +282,8 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
   })
 
   it('refuses a retry on a pointer that is only pending, and on one never staged', () => {
-    const { opened: database, userData } = pair()
-    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
-      record('inc_1')
-    )
+    const { opened: database, store, userData } = openStorePair()
+    store.insertIncident(record({ id: 'inc_1' }))
     const path = join(userData, 'transcript.jsonl')
     writeFileSync(path, 'evidence body\n')
     stageIncidentEvidence({
@@ -397,10 +350,8 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
   })
 
   it('retries every incomplete pointer by default, and only the named one with pointerIndex', () => {
-    const { opened: database, userData } = pair()
-    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
-      record('inc_1')
-    )
+    const { opened: database, store, userData } = openStorePair()
+    store.insertIncident(record({ id: 'inc_1' }))
     const first = join(userData, 'first.jsonl')
     const second = join(userData, 'second.jsonl')
     writeFileSync(first, 'first excerpt\n')
@@ -450,10 +401,8 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
   })
 
   it('refuses when nothing is incomplete at all, and appends nothing', () => {
-    const { opened: database, userData } = pair()
-    createIncidentStore({ db: database.db, fileSizeBytes: database.fileSizeBytes }).insertIncident(
-      record('inc_1')
-    )
+    const { opened: database, store, userData } = openStorePair()
+    store.insertIncident(record({ id: 'inc_1' }))
     const before = eventStates(database)
     const result = retryIncompleteArchive({ db: database.db, incidentId: 'inc_1', now: NOW })
     expect(result).toMatchObject({ retried: 0, refused: 0, pointers: [] })
@@ -462,8 +411,8 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
   })
 
   it('holds the writer lock across the read and the append, so a second writer is refused', () => {
-    const { db } = mismatched()
-    const dbPath = join(directories[0], 'incidents', 'incidents.db')
+    const { db, userData } = mismatched()
+    const dbPath = databasePath(userData)
     const before = eventStates(db)
     // Observation-only record: the seam below runs while the first call is INSIDE `BEGIN IMMEDIATE`.
     const seen: { busy: Error | null; rowsDuringLock: number | null; beganAtOnce: boolean } = {
@@ -523,8 +472,7 @@ describe('explicit retry for an incomplete pointer (G5)', () => {
 
     // After that commit a second retry is a no-op refusal: it appends nothing (the second connection
     // still refuses to double-append, now because the latest state is pending, not because of a lock).
-    const later = openIncidentsDatabase(dbPath)
-    opened.push(later)
+    const later = trackDatabase(openIncidentsDatabase(dbPath))
     const fromOther = retryIncompleteArchive({ db: later.db, incidentId: 'inc_1', now: NOW + 2 })
     expect(fromOther).toMatchObject({ code: 'no_incomplete_pointer', retried: 0, refused: 1 })
     expect(fromOther.pointers[0]).toMatchObject({ code: 'already_pending' })
