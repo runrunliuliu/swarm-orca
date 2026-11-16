@@ -838,3 +838,22 @@ export function readIncidentArchiveDetail(
   const states = readEvidenceArchiveState(db, incidentId)
   return { summary: summarizeArchive(states, pointerCount), states }
 }
+
+/**
+ * The label both renderers print for one pointer.
+ *
+ * Why it lives here: the plain view and `--md` each normalized the state names themselves once, and
+ * they disagreed (`archive_incomplete` stayed verbatim in one and became `incomplete` in the other).
+ */
+export function evidenceArchiveStateLabel(state: EvidenceArchiveState | undefined): string {
+  if (state === undefined) {
+    return 'not staged'
+  }
+  if (state === 'archive_pending') {
+    return 'pending'
+  }
+  if (state === 'archive_incomplete') {
+    return 'incomplete'
+  }
+  return state
+}

@@ -13,6 +13,7 @@ import type {
   IncidentView
 } from '../main/incidents/incident-types'
 import type { IncidentArchiveDetail } from '../main/incidents/incident-archive'
+import { evidenceArchiveStateLabel } from '../main/incidents/incident-archive'
 import { formatPaneClockNote } from '../main/incidents/incident-pane-clocks'
 import { formatBytes, isoTimestamp as iso, pad } from './incident-format-shared'
 
@@ -152,13 +153,19 @@ function evidenceLines(
   const statesByIndex = new Map<number, string>(
     (archive?.states ?? []).map((state) => [
       state.pointerIndex,
-      state.state === 'archive_pending' ? 'pending' : state.state
+      evidenceArchiveStateLabel(state.state)
     ])
   )
   const summary = archive?.summary
-  const lines = [
-    `Evidence (pointers, durable=${summary === undefined ? 'unknown' : String(summary.durable)}):`
-  ]
+  // Why the no-pointer case never says "unknown": the row itself proves no evidence was offered, so
+  // a view built without archive detail must not pair `durable=unknown` with the "not a failure" note.
+  const durable =
+    pointers.length === 0
+      ? 'false'
+      : summary === undefined
+        ? 'unknown'
+        : String(summary.durable)
+  const lines = [`Evidence (pointers, durable=${durable}):`]
   if (pointers.length === 0) {
     lines.push('  (none collected)')
   } else {

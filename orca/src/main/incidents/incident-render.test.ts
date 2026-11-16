@@ -255,14 +255,30 @@ describe('renderIncidentMarkdown', () => {
     expect(oneOfTwo).toContain('`durable=false`')
     expect(oneOfTwo).toContain('| pending |')
 
+    // Every pointer archived, and the per-pointer column must agree with the verdict: a summary that
+    // claims durability while the rows say `not staged` is exactly the disagreement this test exists for.
+    const archivedState = (incidentId: string, pointerIndex: number) => ({
+      incidentId,
+      pointerIndex,
+      state: 'archived' as const,
+      stagingPath: null,
+      archivePath: `/tmp/archive/${pointerIndex}.bin`,
+      sha256: 'b'.repeat(64),
+      bytes: 12,
+      error: null,
+      createdAt: 1_700_000_000_000
+    })
     const both = renderIncidentMarkdown(view, {
       archive: {
         summary: { pointers: 2, staged: 0, pending: 0, archived: 2, incomplete: 0, durable: true },
-        states: []
+        states: [archivedState('inc_render_1', 0), archivedState('inc_render_1', 1)]
       }
     })
     expect(both).toContain('`durable=true`')
     expect(both).not.toContain('archived=1/2')
+    expect(both).not.toContain('no (pointer only)')
+    // One header cell plus one cell per pointer: the column cannot disagree with the verdict.
+    expect(both.match(/\| archived \|/g)).toHaveLength(3)
   })
 
   it('separates "no evidence offered" from "not archived"', () => {

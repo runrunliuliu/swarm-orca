@@ -245,10 +245,35 @@ describe('formatIncidentShow', () => {
     expect(unknown).toContain('durable=unknown')
     expect(unknown).toContain('归档状态未读取')
 
-    // A crash row offers no evidence at all: that is not an archive failure.
+    // A crash row offers no evidence at all: that is not an archive failure, and the header must not
+    // say "unknown" while the note explains durable=false.
     const none = formatIncidentShow(view())
     expect(none).toContain('durable=false')
     expect(none).toContain('不是“归档失败”')
+    expect(none).not.toContain('durable=unknown')
+    expect(none).not.toContain('归档状态未读取')
+
+    // Both renderers normalize the state-machine labels the same way.
+    const incomplete = formatIncidentShow(withPointer, {
+      archive: {
+        summary: { pointers: 1, staged: 0, pending: 0, archived: 0, incomplete: 1, durable: false },
+        states: [
+          {
+            incidentId: 'inc_1',
+            pointerIndex: 0,
+            state: 'archive_incomplete',
+            stagingPath: '/tmp/staging/0.bin',
+            archivePath: null,
+            sha256: 'c'.repeat(64),
+            bytes: 20,
+            error: 'read-back mismatch',
+            createdAt: 1_700_000_000_000
+          }
+        ]
+      }
+    })
+    expect(incomplete).toContain('[incomplete]')
+    expect(incomplete).not.toContain('archive_incomplete')
   })
 
   it('marks an absent unknown list as a gap rather than printing an empty heading', () => {

@@ -11,8 +11,11 @@
 //     suspicious than one that lists them.
 
 import { describeTerminalExitCause, type TerminalExitCause } from '../../shared/terminal-exit-cause'
-import type { IncidentArchiveDetail } from './incident-archive'
-import type { EvidenceArchiveState } from './incident-archive'
+import {
+  evidenceArchiveStateLabel,
+  type EvidenceArchiveState,
+  type IncidentArchiveDetail
+} from './incident-archive'
 import type { IncidentEvidence, IncidentView } from './incident-types'
 
 function iso(ms: number): string {
@@ -35,19 +38,6 @@ function describeExitCause(cause: unknown): string {
     }
   }
   return '未记录（exit_cause 缺失）'
-}
-
-function archiveStateLabel(state: EvidenceArchiveState | undefined): string {
-  if (state === undefined) {
-    return 'not staged'
-  }
-  if (state === 'archive_pending') {
-    return 'pending'
-  }
-  if (state === 'archive_incomplete') {
-    return 'incomplete'
-  }
-  return state
 }
 
 /**
@@ -103,7 +93,7 @@ function evidenceRows(
             }`
       lines.push(
         `| ${pointer.kind} | \`${pointer.path}\` | ${pointer.bytes ?? '—'} | ` +
-          `${pointer.sha256 ?? '—'} | ${offsets} | ${archiveStateLabel(statesByIndex.get(index))} |`
+          `${pointer.sha256 ?? '—'} | ${offsets} | ${evidenceArchiveStateLabel(statesByIndex.get(index))} |`
       )
     }
   }
