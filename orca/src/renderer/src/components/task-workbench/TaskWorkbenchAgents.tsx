@@ -169,9 +169,12 @@ export function TaskWorkbenchAgents({
           <CollapsibleContent
             id={HISTORY_BODY_ID}
             data-testid="task-workbench-agents-history-records"
-            className="pt-2"
           >
-            <RowList rows={historyRows} showWorkspaceLabel={showWorkspaceLabel} />
+            {/* Why the wrapper: the collapsible primitive owns its own spacing, so
+                the gap above the rows is set on a plain element, not on it. */}
+            <div className="flex flex-col gap-1.5 pt-2">
+              <RowList rows={historyRows} showWorkspaceLabel={showWorkspaceLabel} />
+            </div>
           </CollapsibleContent>
         ) : null}
       </Collapsible>
