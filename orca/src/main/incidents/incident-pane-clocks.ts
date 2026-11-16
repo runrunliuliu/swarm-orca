@@ -10,6 +10,7 @@
 // all), not a judgement, and a reader must be able to tell a weaker age from a stronger one.
 
 import type Database from '../sqlite/sync-database'
+import { runIncidentsTransaction } from './incidents-database'
 import type { IncidentPaneClockCoverage } from './incident-types'
 import { bumpMetaNumber, readMeta, writeMeta } from './incident-store-meta'
 import { publishDeclaredWaitCount, readDeclaredWaitCount } from './incident-wait'
@@ -58,10 +59,9 @@ export function replacePaneClocks(
   facts: readonly PaneClockFact[],
   observedAt: number
 ): { written: number; skipped: number } {
-  let written = 0
-  let skipped = 0
-  db.exec('BEGIN IMMEDIATE')
-  try {
+  return runIncidentsTransaction(db, () => {
+    let written = 0
+    let skipped = 0
     db.prepare('DELETE FROM incident_pane_clocks').run()
     const insert = db.prepare(
       `INSERT INTO incident_pane_clocks (pane_key, terminal_handle, state, state_started_at,
@@ -85,18 +85,8 @@ export function replacePaneClocks(
       )
       written += 1
     }
-    db.exec('COMMIT')
-  } catch (error) {
-    if (db.isTransaction) {
-      try {
-        db.exec('ROLLBACK')
-      } catch {
-        // Best effort; the error below is what matters.
-      }
-    }
-    throw error
-  }
-  return { written, skipped }
+    return { written, skipped }
+  })
 }
 
 export function bumpPaneClockSkipped(db: Database.Database, skipped: number): void {

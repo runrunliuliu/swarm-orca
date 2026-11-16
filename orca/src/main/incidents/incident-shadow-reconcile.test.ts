@@ -113,11 +113,11 @@ describe('reconcileIncidentShadow: replay basics', () => {
     const ctx = fixture()
     appendShadowRecord(ctx.userDataPath, record('inc_a'))
     appendShadowRecord(ctx.userDataPath, record('inc_b'))
-    expect(ctx.store.countIncidents()).toBe(0)
+    expect(ctx.store.listIncidents().total).toBe(0)
 
     const summary = replay(ctx)
     expect(summary).toMatchObject({ replayed: 2, inserted: 2, duplicates: 0, stopped: null })
-    expect(ctx.store.countIncidents()).toBe(2)
+    expect(ctx.store.listIncidents().total).toBe(2)
     expect(ctx.store.getIncident('inc_a')?.exitCause).toEqual({ kind: 'signaled', signal: 9 })
   })
 
@@ -127,7 +127,7 @@ describe('reconcileIncidentShadow: replay basics', () => {
     replay(ctx)
     const second = replay(ctx)
     expect(second).toMatchObject({ replayed: 0, inserted: 0, duplicates: 0 })
-    expect(ctx.store.countIncidents()).toBe(1)
+    expect(ctx.store.listIncidents().total).toBe(1)
   })
 
   it('resumes after the watermark: only lines above it are handled', () => {
@@ -138,7 +138,7 @@ describe('reconcileIncidentShadow: replay basics', () => {
 
     const summary = replay(ctx)
     expect(summary).toMatchObject({ replayed: 1, inserted: 1, duplicates: 0 })
-    expect(ctx.store.countIncidents()).toBe(2)
+    expect(ctx.store.listIncidents().total).toBe(2)
   })
 
   it('treats an already-inserted row as a duplicate, not an error', () => {
@@ -146,7 +146,7 @@ describe('reconcileIncidentShadow: replay basics', () => {
     appendShadowRecord(ctx.userDataPath, record('inc_a'))
     ctx.store.insertIncident(record('inc_a'))
     expect(replay(ctx)).toMatchObject({ inserted: 0, duplicates: 1 })
-    expect(ctx.store.countIncidents()).toBe(1)
+    expect(ctx.store.listIncidents().total).toBe(1)
   })
 })
 
@@ -175,7 +175,7 @@ describe('reconcileIncidentShadow: torn and foreign lines', () => {
     const summary = replay(ctx)
     expect(summary).toMatchObject({ replayed: 1, inserted: 1, incomplete: true })
     expect(summary.stopped).toMatchObject({ reason: 'unparsable_json', lastSeq: goodSeq })
-    expect(ctx.store.countIncidents()).toBe(1)
+    expect(ctx.store.listIncidents().total).toBe(1)
     // Nothing was truncated or rewritten: the bad line is still there for an operator to see.
     expect(readFileSync(path, 'utf8')).toBe(before)
     expect(readShadowReplayCoverage(ctx.opened.db)).toMatchObject({
@@ -330,7 +330,7 @@ describe('reconcileIncidentShadow: budget and coverage (M2-C4/C6)', () => {
     const first = replay(ctx, { budget: { maxLines: 1 } })
     expect(first).toMatchObject({ replayed: 1, inserted: 1, incomplete: true })
     expect(first.stopped?.reason).toBe('budget')
-    expect(ctx.store.countIncidents()).toBe(1)
+    expect(ctx.store.listIncidents().total).toBe(1)
     expect(readShadowReplayCoverage(ctx.opened.db)).toMatchObject({
       incomplete: true,
       lastStopReason: 'budget'
@@ -343,7 +343,7 @@ describe('reconcileIncidentShadow: budget and coverage (M2-C4/C6)', () => {
     expect(Number(readMeta(ctx.opened.db, SHADOW_REPLAYED_SEQ_META))).toBeGreaterThanOrEqual(
       watermark
     )
-    expect(ctx.store.countIncidents()).toBe(3)
+    expect(ctx.store.listIncidents().total).toBe(3)
     expect(readShadowReplayCoverage(ctx.opened.db).incomplete).toBe(false)
   })
 

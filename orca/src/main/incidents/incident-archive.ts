@@ -36,6 +36,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { durableWriteTempPath, renameDurableSync } from '../durable-file-write'
 import type Database from '../sqlite/sync-database'
+import { runIncidentsTransaction } from './incidents-database'
 import type { IncidentEvidencePointer } from './incident-types'
 
 export const ARCHIVE_ROOT_ENV = 'ORCA_INCIDENT_ARCHIVE_ROOT'
@@ -564,29 +565,6 @@ export type ArchiveRetryResult = {
   pointers: ArchiveRetryEntry[]
 }
 
-/**
- * One IMMEDIATE transaction whose COMMIT sits inside the failure boundary, the same shape as
- * `incident-store.ts`'s `runImmediate`: a shared connection can be left mid-transaction by a failed
- * COMMIT, and a throw must not leave half a batch written.
- */
-function runArchiveImmediate<T>(db: Database.Database, run: () => T): T {
-  db.exec('BEGIN IMMEDIATE')
-  try {
-    const result = run()
-    db.exec('COMMIT')
-    return result
-  } catch (error) {
-    if (db.isTransaction) {
-      try {
-        db.exec('ROLLBACK')
-      } catch {
-        // The original error is what the caller needs.
-      }
-    }
-    throw error
-  }
-}
-
 function retryEntry(
   row: Pick<EvidenceArchiveRow, 'incidentId' | 'pointerIndex' | 'stagingPath' | 'sha256' | 'bytes'>,
   state: EvidenceArchiveState | null,
@@ -726,7 +704,7 @@ export function retryIncompleteArchive(options: {
     return summarise(considered(latest, false))
   }
 
-  return runArchiveImmediate(db, () => {
+  return runIncidentsTransaction(db, () => {
     // Re-read INSIDE the transaction: `BEGIN IMMEDIATE` serialises writers, so a second call sees the
     // first call's committed `archive_pending` instead of the stale `archive_incomplete` it queued on.
     const rechecked = readEvidenceArchiveState(db, incidentId).filter(

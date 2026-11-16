@@ -25,9 +25,9 @@ import { shadowFilePath } from './incident-shadow'
 import {
   ShadowRecordError,
   completeLines,
-  incidentRecordFromShadowLine,
+  parseShadowLine,
   readFileSlice,
-  shadowLineSeq
+  type ParsedShadowLine
 } from './incident-shadow-line'
 import { lastSeqInTail } from './incident-shadow-tail'
 import {
@@ -214,9 +214,11 @@ export function reconcileIncidentShadow(options: {
         }
         break
       }
-      let seq: number
+      // One parse for both facts. `seq` is judged first and the record is rebuilt only when this
+      // line is actually replayed, so a body line replay would skip cannot stop the run.
+      let parsed: ParsedShadowLine
       try {
-        seq = shadowLineSeq(line.text)
+        parsed = parseShadowLine(line.text)
       } catch (error) {
         summary.stopped = {
           file: basename(file),
@@ -226,12 +228,13 @@ export function reconcileIncidentShadow(options: {
         }
         break
       }
+      const seq = parsed.seq
       if (seq <= lastSeq) {
         continue
       }
       let record: IncidentRecord
       try {
-        record = incidentRecordFromShadowLine(line.text)
+        record = parsed.record
       } catch (error) {
         summary.stopped = {
           file: basename(file),

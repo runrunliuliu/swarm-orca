@@ -67,14 +67,19 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+/** One replayed line, parsed once: the two facts replay needs, in the order it reads them. */
+export type ParsedShadowLine = {
+  seq: number
+  record: IncidentRecord
+}
+
+type ShadowLineObject = Partial<ShadowRecord> & Record<string, unknown>
+
 /**
- * Rebuild the record a line describes.
- *
- * Throws rather than filling defaults: a line that cannot be rebuilt means this build and the writer
- * disagree, and a half-invented record would be worse than stopping.
+ * `JSON.parse` plus the two checks both readers make first: it must be an object, and it must carry a
+ * body version this build knows. Shared so the two rejection reasons cannot drift between them.
  */
-/** The line's seq, or a typed failure. Replay reads this before it rebuilds the whole record. */
-export function shadowLineSeq(text: string): number {
+function shadowLineObject(text: string): ShadowLineObject {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -84,10 +89,15 @@ export function shadowLineSeq(text: string): number {
   if (typeof parsed !== 'object' || parsed === null) {
     throw new ShadowRecordError('invalid_record', 'shadow line is not an object')
   }
-  const line = parsed as Partial<ShadowRecord>
+  const line = parsed as ShadowLineObject
   if (line.v !== INCIDENT_SHADOW_VERSION) {
     throw new ShadowRecordError('unsupported_version', `shadow version ${String(line.v)}`)
   }
+  return line
+}
+
+/** The seq subset: version is already checked, and nothing about the body is judged. */
+function seqOfShadowLine(line: ShadowLineObject): number {
   const seq = line.seq
   if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq <= 0) {
     throw new ShadowRecordError('invalid_record', 'shadow line has no usable seq')
@@ -95,15 +105,13 @@ export function shadowLineSeq(text: string): number {
   return seq
 }
 
-export function incidentRecordFromShadowLine(text: string): IncidentRecord {
-  const parsed: unknown = JSON.parse(text)
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new ShadowRecordError('invalid_record', 'shadow line is not an object')
-  }
-  const line = parsed as Partial<ShadowRecord> & Record<string, unknown>
-  if (line.v !== INCIDENT_SHADOW_VERSION) {
-    throw new ShadowRecordError('unsupported_version', `shadow version ${String(line.v)}`)
-  }
+/**
+ * Rebuild the record a line describes.
+ *
+ * Throws rather than filling defaults: a line that cannot be rebuilt means this build and the writer
+ * disagree, and a half-invented record would be worse than stopping.
+ */
+function recordOfShadowLine(line: ShadowLineObject): IncidentRecord {
   const id = asString(line.id)
   const sourceId = asString(line.source_id)
   const facet = asString(line.facet)
@@ -145,5 +153,34 @@ export function incidentRecordFromShadowLine(text: string): IncidentRecord {
     summary: typeof line.summary === 'string' ? line.summary : '',
     createdAt: line.created_at
   })
+}
+
+/** The line's seq, or a typed failure. Replay reads this before it rebuilds the whole record. */
+export function shadowLineSeq(text: string): number {
+  return seqOfShadowLine(shadowLineObject(text))
+}
+
+export function incidentRecordFromShadowLine(text: string): IncidentRecord {
+  return recordOfShadowLine(shadowLineObject(text))
+}
+
+/**
+ * Parse one replayed line once and hand back both facts, instead of parsing the same text twice.
+ *
+ * `record` is rebuilt on first read rather than here, so replay keeps the order it already had: a line
+ * at or below the watermark is skipped on `seq` alone, and an unreadable body on a line replay would
+ * never look at does not stop the run. A failed read is not cached; the next read throws the same
+ * typed reason.
+ */
+export function parseShadowLine(text: string): ParsedShadowLine {
+  const line = shadowLineObject(text)
+  let record: IncidentRecord | null = null
+  return {
+    seq: seqOfShadowLine(line),
+    get record(): IncidentRecord {
+      record ??= recordOfShadowLine(line)
+      return record
+    }
+  }
 }
 
