@@ -108,3 +108,9 @@ export type TaskWorkbenchView = {
 // Why: components import every view type from one module, so they never reach
 // into `shared/` twice. Re-export only — these shapes stay defined upstream.
 export type { DashboardBucket, DashboardCard, DashboardCardReview }
+
+// Why: the layout input/output live next to the pure decision function, but every
+// consumer that needs them already imports this module for the view types. One
+// import site keeps a component from depending on the module graph. No cycle:
+// `task-workbench-layout.ts` imports nothing.
+export type { TaskWorkbenchLayout, TaskWorkbenchLayoutInput } from './task-workbench-layout'
