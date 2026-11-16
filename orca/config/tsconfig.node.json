@@ -10,6 +10,17 @@
     "../src/renderer/src/lib/skill-freshness-display-status.ts",
     "../src/renderer/src/components/native-chat/native-chat-resolution-receipt.ts",
     "../src/renderer/src/components/native-chat/structured-agent-question-projection.ts",
+    // Why: main-side seam tests import these renderer/cli pure modules directly; each is a leaf that
+    // reaches only `src/shared`, `react`, and the renderer's own i18n chain listed below.
+    "../src/cli/incident-format-shared.ts",
+    "../src/cli/incident-mirror-format.ts",
+    "../src/renderer/src/components/right-sidebar/incident-badge.ts",
+    "../src/renderer/src/components/right-sidebar/incidents/incident-coverage-banner.ts",
+    "../src/renderer/src/components/right-sidebar/incidents/incident-remote-coverage.ts",
+    "../src/renderer/src/components/right-sidebar/use-incident-counts.ts",
+    "../src/renderer/src/i18n/i18n.ts",
+    "../src/renderer/src/i18n/pseudo-localization.ts",
+    "../src/renderer/src/i18n/supported-languages.ts",
     "../src/preload/**/*",
     "../src/shared/**/*",
     "../src/relay/**/*",
@@ -17,6 +28,11 @@
   ],
   "compilerOptions": {
     "composite": true,
-    "types": ["electron-vite/node"]
+    "types": ["electron-vite/node"],
+    // Why: the renderer modules above use the renderer's own `@/…` alias, which vitest already maps;
+    // without the same mapping here their imports do not resolve in this project (TS2307).
+    "paths": {
+      "@/*": ["../src/renderer/src/*"]
+    }
   }
 }

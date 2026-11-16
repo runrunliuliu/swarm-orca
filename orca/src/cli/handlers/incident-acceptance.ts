@@ -176,15 +176,17 @@ export const acceptanceListIncident: CommandHandler = async (ctx) => {
       console.log(unavailable.note)
       return
     }
-    const allRules = listAcceptanceRules(opened.db, dispatchFilter ?? undefined)
+    // C3: `db: null` without `unavailable` means "no store on this host yet" — an empty answer.
+    const db = opened.db
+    const allRules = db === null ? [] : listAcceptanceRules(db, dispatchFilter ?? undefined)
     const dispatches = [...new Set(allRules.map((rule) => rule.dispatchId))]
     // C8: each row carries only ITS OWN rules. The M5 build passed the whole list to every row, so a
     // dispatch with one rule printed three.
     const rows = dispatches.map((dispatchId) => ({
       dispatchId,
       rules: allRules.filter((rule) => rule.dispatchId === dispatchId),
-      stop: getAcceptanceStop(opened.db as NonNullable<typeof opened.db>, dispatchId),
-      gate: acceptanceGateState(opened.db as NonNullable<typeof opened.db>, dispatchId)
+      stop: db === null ? null : getAcceptanceStop(db, dispatchId),
+      gate: db === null ? null : acceptanceGateState(db, dispatchId)
     }))
     if (ctx.json) {
       printIncidentJson({ dispatches: rows, store: 'ok', actorIsSelfReported: true })

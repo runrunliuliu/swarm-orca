@@ -37,13 +37,14 @@ export async function exportIncident(ctx: HandlerContext): Promise<void> {
   refuseNonLocalIncidentSelector(ctx, 'orca incident export')
 
   const sinceRaw = stringFlag(ctx, 'since')
-  const windowMs = sinceRaw === null ? undefined : parseExportWindow(sinceRaw)
-  if (sinceRaw !== null && windowMs === null) {
+  const parsedWindow = sinceRaw === null ? undefined : parseExportWindow(sinceRaw)
+  if (parsedWindow === null) {
     throw new RuntimeClientError(
       'invalid_argument',
       `Unsupported --since "${sinceRaw}". Use a duration such as 24h, 7d or 90m.`
     )
   }
+  const windowMs = parsedWindow
   // The stream always prints its meta line, so `--limit 0` would claim a window it refuses to
   // describe: this command's contract is a positive bound (the incident.test.ts pin predates C4).
   const limitRaw = intFlag(ctx, 'limit', { min: 1 })
