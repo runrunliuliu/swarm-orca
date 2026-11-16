@@ -46,7 +46,7 @@ describe('Task/Dispatch concurrency', () => {
       return exec(sql)
     })
 
-    expect(first.db.updateTaskStatus(task.id, 'completed')).toMatchObject({
+    expect(first.db.updateTaskStatus(task.id, 'completed').task).toMatchObject({
       status: 'completed',
       result: 'concurrent winner'
     })
@@ -76,7 +76,7 @@ describe('Task/Dispatch concurrency', () => {
       return result
     })
 
-    expect(first.db.updateTaskStatus(task.id, 'completed', 'reserved winner')).toMatchObject({
+    expect(first.db.updateTaskStatus(task.id, 'completed', 'reserved winner').task).toMatchObject({
       status: 'completed',
       result: 'reserved winner'
     })

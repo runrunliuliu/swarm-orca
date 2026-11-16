@@ -658,7 +658,7 @@ describe('Task/Dispatch lifecycle guards', () => {
       runId: 'run_legacy_local',
       spec: 'corrupt gated task'
     })
-    const gate = database.createGate({ taskId: task.id, question: 'Proceed?' })
+    const { gate } = database.createGate({ taskId: task.id, question: 'Proceed?' })
     sqliteFor(database).prepare("UPDATE tasks SET status = 'ready' WHERE id = ?").run(task.id)
     const dispatch = createRootDispatch(database, task.id, 'term_worker')
     sqliteFor(database).prepare("UPDATE tasks SET status = 'blocked' WHERE id = ?").run(task.id)

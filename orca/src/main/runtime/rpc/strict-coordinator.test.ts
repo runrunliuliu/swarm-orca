@@ -109,7 +109,7 @@ describe.each([false, true])('strict Coordinator (streaming=%s)', (streaming) =>
     expect(await h.call('orchestration.workerStop', { dispatch: dispatchId })).toMatchObject(
       refused
     )
-    const gate = h.db.createGate({
+    const { gate } = h.db.createGate({
       taskId: h.db.getDispatchContextById(dispatchId)!.task_id,
       question: 'approve',
       options: ['yes', 'no']

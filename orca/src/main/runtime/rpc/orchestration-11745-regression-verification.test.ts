@@ -163,7 +163,7 @@ describe('#11745 H1 — gate methods authorize the caller Run', () => {
   it('G5 leaves a foreign gate pending and its task blocked', async () => {
     const harness = createHarness()
     bindRunA(harness)
-    const gate = harness.db.createGate({ taskId: harness.taskId, question: 'Proceed?' })
+    const { gate } = harness.db.createGate({ taskId: harness.taskId, question: 'Proceed?' })
     const before = adoptedGraph(harness)
 
     const response = await harness.dispatcher.dispatch(
@@ -415,7 +415,7 @@ describe('#11745 H1 — gateList read posture', () => {
     const harness = createHarness()
     const runA = bindRunA(harness)
     const ownTask = harness.db.createTask({ spec: 'own work', runId: runA })
-    const ownGate = harness.db.createGate({ taskId: ownTask.id, question: 'Own?' })
+    const { gate: ownGate } = harness.db.createGate({ taskId: ownTask.id, question: 'Own?' })
 
     const response = await harness.dispatcher.dispatch(
       request(

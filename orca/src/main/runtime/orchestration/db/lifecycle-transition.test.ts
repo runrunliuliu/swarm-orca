@@ -52,6 +52,6 @@ describe('guarded lifecycle transitions', () => {
     const task = db.createTask({ runId: 'run_legacy_local', spec: 'manual status correction' })
     db.db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run(from, task.id)
 
-    expect(db.updateTaskStatus(task.id, to)?.status).toBe(to)
+    expect(db.updateTaskStatus(task.id, to)?.task?.status).toBe(to)
   })
 })

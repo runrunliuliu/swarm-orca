@@ -130,7 +130,7 @@ export const ORCHESTRATION_GATE_METHODS = [
           ? {}
           : { acceptanceOverride: params.overrideAcceptance })
       })
-      const { gate, skipped } = db.createGateWithSettlement({
+      const { gate, skipped } = db.createGate({
         taskId: params.task,
         question: params.question,
         options,

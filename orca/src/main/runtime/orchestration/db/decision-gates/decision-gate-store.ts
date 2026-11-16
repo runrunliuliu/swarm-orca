@@ -137,21 +137,13 @@ function applyCreateGate(this: OrchestrationDb, gate: CreateGateInput): CreateGa
 }
 
 /**
- * The row-returning form direct callers already use.
+ * The one entry point for creating a decision gate.
  *
- * Kept for them, because a caller that just created a gate does not need the settlement answer. A
- * caller reporting to an operator uses `createGateWithSettlement` rather than querying the active
- * dispatch set again.
+ * The created row and the settlement's own `skipped` answer come back together, because opening a gate
+ * settles the Task's active Dispatches and a caller reporting to an operator needs both. A caller that
+ * only needs the row takes `.gate`.
  */
-export function createGate(this: OrchestrationDb, gate: CreateGateInput): DecisionGateRow {
-  return applyCreateGate.call(this, gate).gate
-}
-
-/** The same gate, returning the settlement helper's exact `skipped` ids alongside the row. */
-export function createGateWithSettlement(
-  this: OrchestrationDb,
-  gate: CreateGateInput
-): CreateGateOutcome {
+export function createGate(this: OrchestrationDb, gate: CreateGateInput): CreateGateOutcome {
   return applyCreateGate.call(this, gate)
 }
 
@@ -231,7 +223,6 @@ export function getGate(this: OrchestrationDb, id: string): DecisionGateRow | un
 
 export type DecisionGateStoreMethods = {
   createGate: typeof createGate
-  createGateWithSettlement: typeof createGateWithSettlement
   resolveGate: typeof resolveGate
   timeoutGate: typeof timeoutGate
   listGates: typeof listGates
@@ -241,7 +232,6 @@ export type DecisionGateStoreMethods = {
 export function attachDecisionGateStore(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
     createGate,
-    createGateWithSettlement,
     resolveGate,
     timeoutGate,
     listGates,

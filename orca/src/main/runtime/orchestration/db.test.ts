@@ -82,7 +82,7 @@ describe('OrchestrationDb', () => {
     it('sets completed_at on completion', () => {
       const d = createDb()
       const task = d.createTask({ runId, spec: 'do it' })
-      const updated = d.updateTaskStatus(task.id, 'completed', '{"result": true}')
+      const { task: updated } = d.updateTaskStatus(task.id, 'completed', '{"result": true}')
       expect(updated?.completed_at).toBeTruthy()
       expect(updated?.result).toBe('{"result": true}')
     })
@@ -331,7 +331,7 @@ describe('OrchestrationDb', () => {
         spec: 'needs approval'
       })
       createRootDispatch(d, task.id, 'term_a')
-      const gate = d.createGate({
+      const { gate } = d.createGate({
         taskId: task.id,
         question: 'Proceed?',
         options: ['yes', 'no']
@@ -350,7 +350,7 @@ describe('OrchestrationDb', () => {
     it('resolves a gate and unblocks the task', () => {
       const d = createDb()
       const task = d.createTask({ runId, spec: 'work' })
-      const gate = d.createGate({ taskId: task.id, question: 'ok?' })
+      const { gate } = d.createGate({ taskId: task.id, question: 'ok?' })
 
       const resolved = d.resolveGate(gate.id, 'yes')
       expect(resolved?.status).toBe('resolved')
@@ -363,7 +363,7 @@ describe('OrchestrationDb', () => {
     it('times out a gate', () => {
       const d = createDb()
       const task = d.createTask({ runId, spec: 'work' })
-      const gate = d.createGate({ taskId: task.id, question: 'ok?' })
+      const { gate } = d.createGate({ taskId: task.id, question: 'ok?' })
 
       const timedOut = d.timeoutGate(gate.id)
       expect(timedOut?.status).toBe('timeout')
@@ -374,7 +374,7 @@ describe('OrchestrationDb', () => {
       const t1 = d.createTask({ runId, spec: 'a' })
       const t2 = d.createTask({ runId, spec: 'b' })
       d.createGate({ taskId: t1.id, question: 'q1' })
-      const g2 = d.createGate({ taskId: t2.id, question: 'q2' })
+      const { gate: g2 } = d.createGate({ taskId: t2.id, question: 'q2' })
       d.resolveGate(g2.id, 'done')
 
       expect(d.listGates()).toHaveLength(2)

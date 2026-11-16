@@ -20,10 +20,10 @@ const UPDATE_TASK_STATUS_SAVEPOINT = 'update_task_status'
 /**
  * A Task transition's row plus the settlement answer that produced it.
  *
- * Same shape as the `TaskRow | undefined` every direct caller already uses, plus `skipped` — the exact
- * dispatches this transition's settlement left unsettled, captured from the helper instead of being
- * re-derived by a second query (see `DispatchSettlementReport`). `skipped` is empty for a non-terminal
- * status: those transitions settle nothing, so nothing is "left unsettled" by them.
+ * `task` is the transition's row (`undefined` = no such Task); `skipped` is the exact set of dispatches
+ * this transition's settlement left unsettled, captured from the helper instead of being re-derived by a
+ * second query (see `DispatchSettlementReport`). `skipped` is empty for a non-terminal status: those
+ * transitions settle nothing, so nothing is "left unsettled" by them.
  */
 export type TaskStatusTransitionOutcome = {
   task: TaskRow | undefined
@@ -159,24 +159,14 @@ function applyTaskStatusTransition(
 }
 
 /**
- * The row-returning form every direct caller already uses; `undefined` means "no such Task".
+ * The one entry point for a Task status mutation.
  *
- * Kept because it is the whole answer a caller that is not reporting a settlement needs. A caller that
- * must tell an operator *which* dispatches stayed open uses `updateTaskStatusWithSettlement` instead of
- * asking the database a second question.
+ * The row and the settlement's own `skipped` answer come back together, because a caller that reports to
+ * an operator needs both and re-querying "which dispatches are still active" would be a second, drifting
+ * definition of "not settled". A caller that only needs the row takes `.task` (`undefined` = no such
+ * Task).
  */
 export function updateTaskStatus(
-  this: OrchestrationDb,
-  id: string,
-  status: TaskStatus,
-  result?: string,
-  acceptanceOverride?: AcceptanceOverride
-): TaskRow | undefined {
-  return applyTaskStatusTransition.call(this, id, status, result, acceptanceOverride).task
-}
-
-/** The same transition, returning the settlement helper's exact `skipped` ids alongside the row. */
-export function updateTaskStatusWithSettlement(
   this: OrchestrationDb,
   id: string,
   status: TaskStatus,
@@ -188,9 +178,8 @@ export function updateTaskStatusWithSettlement(
 
 export type TaskStatusTransitionMethods = {
   updateTaskStatus: typeof updateTaskStatus
-  updateTaskStatusWithSettlement: typeof updateTaskStatusWithSettlement
 }
 
 export function attachTaskStatusTransition(ctor: { prototype: object }): void {
-  Object.assign(ctor.prototype, { updateTaskStatus, updateTaskStatusWithSettlement })
+  Object.assign(ctor.prototype, { updateTaskStatus })
 }

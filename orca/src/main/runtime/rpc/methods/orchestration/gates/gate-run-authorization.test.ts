@@ -203,7 +203,7 @@ describe('orchestration gate Run authorization', () => {
   it('G5 refuses an unattested caller resolving another Run gate', async () => {
     const harness = createHarness()
     bindCurrentCoordinatorRun(harness)
-    const gate = harness.db.createGate({ taskId: harness.taskId, question: 'Proceed?' })
+    const { gate } = harness.db.createGate({ taskId: harness.taskId, question: 'Proceed?' })
 
     const response = await harness.dispatcher.dispatch(
       request(
@@ -223,7 +223,7 @@ describe('orchestration gate Run authorization', () => {
     const harness = createHarness()
     const runA = bindCurrentCoordinatorRun(harness)
     const ownTask = harness.db.createTask({ spec: 'own assignment', runId: runA })
-    const ownGate = harness.db.createGate({ taskId: ownTask.id, question: 'Own?' })
+    const { gate: ownGate } = harness.db.createGate({ taskId: ownTask.id, question: 'Own?' })
     harness.db.createGate({ taskId: harness.taskId, question: 'Adopted?' })
 
     const response = await harness.dispatcher.dispatch(

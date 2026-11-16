@@ -43,7 +43,7 @@ describe('Task/Dispatch invariant transactions', () => {
       })
 
       expect(task.status).toBe('pending')
-      const updated = db.updateTaskStatus(task.id, status, 'manual resolution')
+      const { task: updated } = db.updateTaskStatus(task.id, status, 'manual resolution')
 
       expect(updated?.status).toBe(status)
       expect(db.getTask(task.id)?.status).toBe(status)

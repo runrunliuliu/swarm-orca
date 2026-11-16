@@ -62,13 +62,13 @@ describe('a Task whose supervised worker is stopping', () => {
       const task = db.createTask({ runId: 'run_legacy_local', spec: 'unsupervised work' })
       createRootDispatch(db, task.id, 'term_worker')
 
-      expect(db.updateTaskStatus(task.id, 'dispatched')?.status).toBe('dispatched')
+      expect(db.updateTaskStatus(task.id, 'dispatched')?.task?.status).toBe('dispatched')
     })
 
     it('control: still accepts dispatched while the supervised worker is ready', () => {
       const { task } = localWorker()
 
-      expect(db.updateTaskStatus(task.id, 'dispatched')?.status).toBe('dispatched')
+      expect(db.updateTaskStatus(task.id, 'dispatched')?.task?.status).toBe('dispatched')
     })
 
     it('control: a no-op re-assert of dispatched under a stopping worker stays legal', () => {
@@ -78,7 +78,7 @@ describe('a Task whose supervised worker is stopping', () => {
       // beginWorkerStop moved the Task to blocked; put it back the only way that is not a re-open.
       db.db.prepare("UPDATE tasks SET status = 'dispatched' WHERE id = ?").run(task.id)
 
-      expect(db.updateTaskStatus(task.id, 'dispatched')?.status).toBe('dispatched')
+      expect(db.updateTaskStatus(task.id, 'dispatched')?.task?.status).toBe('dispatched')
     })
   })
 

@@ -284,7 +284,7 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
           `Task ${params.id} was not found in Run ${run.id}.`
         )
       }
-      const settled = db.updateTaskStatusWithSettlement(
+      const settled = db.updateTaskStatus(
         params.id,
         params.status,
         params.result,

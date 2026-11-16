@@ -6,8 +6,9 @@
  * is the load-bearing one — the gate decides BEFORE `SAVEPOINT create_gate`, because its blocked branch
  * writes an incident and an acceptance stop into a second database that cannot be atomic with the
  * orchestration writer. This test pins the fallback (`precomputeActiveDispatchAcceptance`) on that
- * outside-the-transaction, before-the-savepoint path, and pins the fail-closed write side: the blocked
- * Dispatch is left unsettled with its stop visible.
+ * outside-the-transaction, before-the-gate-row path — observed from inside the decision, not from the
+ * order of SQL tokens — and pins the fail-closed write side: the blocked Dispatch is left unsettled
+ * with its stop visible.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -34,9 +35,9 @@ import {
 const T0 = 1_700_000_000_000
 
 const gate = vi.hoisted(() => ({
-  calls: [] as { dispatchId: string; inTransaction: boolean }[],
-  events: [] as string[],
-  db: null as null | { isTransaction: boolean }
+  calls: [] as { dispatchId: string; inTransaction: boolean; gateRows: number }[],
+  db: null as null | { isTransaction: boolean },
+  gateRows: null as null | (() => number)
 }))
 
 vi.mock('../../../../incidents/integration', async (importOriginal) => {
@@ -48,9 +49,9 @@ vi.mock('../../../../incidents/integration', async (importOriginal) => {
     ) => {
       gate.calls.push({
         dispatchId: input.dispatchId,
-        inTransaction: gate.db?.isTransaction === true
+        inTransaction: gate.db?.isTransaction === true,
+        gateRows: gate.gateRows?.() ?? -1
       })
-      gate.events.push(`gate:${input.dispatchId}`)
       return actual.decideMaintenanceAcceptance(input)
     }
   }
@@ -104,8 +105,8 @@ function declareFailedRule(
 
 afterEach(() => {
   gate.calls.length = 0
-  gate.events.length = 0
   gate.db = null
+  gate.gateRows = null
   __resetIncidentWriterForTests()
   db?.close()
   db = undefined
@@ -122,39 +123,32 @@ afterEach(() => {
 })
 
 describe('createGate for a direct caller that omits acceptanceDecisions', () => {
-  it('decides outside the transaction, before SAVEPOINT create_gate, and stays fail-closed', () => {
+  it('decides with no transaction open and no gate row yet, and stays fail-closed', () => {
     db = new OrchestrationDb(':memory:')
+    const orchestration = db
     const task = db.createTask({ runId: 'run_legacy_local', spec: 'direct gate caller' })
     const dispatch = createRootDispatch(db, task.id, 'term_a')
     const { opened, store } = incidents()
     declareFailedRule(opened.db, dispatch.id)
     __configureIncidentStoreForTests(store, opened.db)
-    gate.db = db.db
+    gate.db = orchestration.db
+    // Observed from INSIDE the decision: the orchestration connection has no transaction open, and the
+    // gate's own row has not been written yet. Both facts are read at that instant, not inferred from
+    // the order of SQL tokens afterwards, so a refactor that inserts the row or opens the savepoint
+    // first is caught here even if the final statuses still match.
+    gate.gateRows = () =>
+      (
+        orchestration.db
+          .prepare('SELECT COUNT(*) AS count FROM decision_gates WHERE task_id = ?')
+          .get(task.id) as { count: number }
+      ).count
 
-    const target = db.db as { exec: (sql: string) => void }
-    const original = target.exec.bind(target)
-    target.exec = (sql: string) => {
-      const statement = sql.trim().toUpperCase()
-      if (/^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b/.test(statement)) {
-        gate.events.push(statement.split(/\s+/).slice(0, 2).join(' '))
-      }
-      return original(sql)
-    }
+    // No `acceptanceDecisions`: the fallback has to produce it.
+    const { gate: created } = db.createGate({ taskId: task.id, question: 'Proceed?' })
+    expect(created.status).toBe('pending')
 
-    try {
-      // No `acceptanceDecisions`: the fallback has to produce it.
-      const created = db.createGate({ taskId: task.id, question: 'Proceed?' })
-      expect(created.status).toBe('pending')
-    } finally {
-      target.exec = original
-    }
-
-    // One decision, taken with no transaction open, and before the savepoint that opens the gate's.
-    expect(gate.calls).toEqual([{ dispatchId: dispatch.id, inTransaction: false }])
-    const gateEvent = gate.events.indexOf(`gate:${dispatch.id}`)
-    const savepointEvent = gate.events.indexOf('SAVEPOINT CREATE_GATE')
-    expect(gateEvent).toBeGreaterThanOrEqual(0)
-    expect(savepointEvent).toBeGreaterThan(gateEvent)
+    // One decision, taken outside the transaction and before the gate row existed.
+    expect(gate.calls).toEqual([{ dispatchId: dispatch.id, inTransaction: false, gateRows: 0 }])
 
     // The write side is unchanged: blocked never means failed, and the stop is the visible part.
     expect(db.getTask(task.id)?.status).toBe('blocked')
@@ -164,12 +158,12 @@ describe('createGate for a direct caller that omits acceptanceDecisions', () => 
 })
 
 /**
- * B-F10: `createGateWithSettlement` reports the settlement helper's own `skipped` ids.
+ * B-F10: `createGate` reports the settlement helper's own `skipped` ids.
  *
  * `gate-create` settles the Task's active Dispatches and used to be silent about the ones it left open,
  * while `task-update` printed a separately queried list. Both now carry the same answer.
  */
-describe('createGateWithSettlement returns the settlement answer', () => {
+describe('createGate returns the settlement answer', () => {
   it('names the blocked dispatch by exact id', () => {
     db = new OrchestrationDb(':memory:')
     const task = db.createTask({ runId: 'run_legacy_local', spec: 'gate over a blocked dispatch' })
@@ -178,7 +172,7 @@ describe('createGateWithSettlement returns the settlement answer', () => {
     declareFailedRule(opened.db, dispatch.id)
     __configureIncidentStoreForTests(store, opened.db)
 
-    const created = db.createGateWithSettlement({ taskId: task.id, question: 'Proceed?' })
+    const created = db.createGate({ taskId: task.id, question: 'Proceed?' })
 
     expect(created.gate.status).toBe('pending')
     expect(created.skipped).toEqual([dispatch.id])
@@ -190,7 +184,7 @@ describe('createGateWithSettlement returns the settlement answer', () => {
     db = new OrchestrationDb(':memory:')
     const task = db.createTask({ runId: 'run_legacy_local', spec: 'gate with nothing active' })
 
-    const created = db.createGateWithSettlement({ taskId: task.id, question: 'Proceed?' })
+    const created = db.createGate({ taskId: task.id, question: 'Proceed?' })
 
     expect(created.gate.status).toBe('pending')
     expect(created.skipped).toEqual([])

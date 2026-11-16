@@ -69,7 +69,7 @@ describe('orchestration RPC methods', () => {
     it('resolves a gate and unblocks the task', async () => {
       setup()
       const task = db.createTask({ spec: 'needs approval' })
-      const gate = db.createGate({ taskId: task.id, question: 'Proceed?' })
+      const { gate } = db.createGate({ taskId: task.id, question: 'Proceed?' })
 
       const result = (await call('orchestration.gateResolve', {
         id: gate.id,
@@ -106,7 +106,7 @@ describe('orchestration RPC methods', () => {
     it('filters by status', async () => {
       setup()
       const task = db.createTask({ spec: 'work' })
-      const gate = db.createGate({ taskId: task.id, question: 'q' })
+      const { gate } = db.createGate({ taskId: task.id, question: 'q' })
       db.resolveGate(gate.id, 'yes')
 
       const result = (await call('orchestration.gateList', {

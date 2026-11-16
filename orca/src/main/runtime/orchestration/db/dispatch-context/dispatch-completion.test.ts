@@ -184,7 +184,7 @@ describe('updateTaskStatus settles maintenance dispatches from a precomputed dec
     const restore = traceTransactions(db)
 
     try {
-      expect(db.updateTaskStatus(taskId, 'completed')?.status).toBe('completed')
+      expect(db.updateTaskStatus(taskId, 'completed')?.task?.status).toBe('completed')
     } finally {
       restore()
     }
@@ -215,7 +215,7 @@ describe('updateTaskStatus settles maintenance dispatches from a precomputed dec
       db.updateTaskStatus(taskId, 'completed', undefined, {
         actor: 'alice',
         reason: 'hotfix deployed by hand'
-      })?.status
+      })?.task?.status
     ).toBe('completed')
 
     expect(gate.calls).toEqual([{ dispatchId, inTransaction: false }])
@@ -283,7 +283,7 @@ describe('a dispatch that appeared after the precompute', () => {
     }
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    expect(db.updateTaskStatus(task.id, 'completed')?.status).toBe('completed')
+    expect(db.updateTaskStatus(task.id, 'completed')?.task?.status).toBe('completed')
 
     // Only the dispatch the map covers was decided; the newcomer was never asked about.
     expect(gate.calls).toEqual([{ dispatchId: active.id, inTransaction: false }])
@@ -324,7 +324,7 @@ describe('the failed path', () => {
     __configureIncidentStoreForTests(store, opened.db)
     gate.db = db.db
 
-    expect(db.updateTaskStatus(taskId, 'failed', 'operator gave up')?.status).toBe('failed')
+    expect(db.updateTaskStatus(taskId, 'failed', 'operator gave up')?.task?.status).toBe('failed')
 
     expect(gate.calls).toEqual([])
     expect(db.getDispatchContextById(dispatchId)?.status).toBe('failed')
@@ -340,14 +340,14 @@ describe('the failed path', () => {
  * unsettled", while "which dispatches are still active" is a snapshot taken after the mutation — so the
  * transition has to hand its own answer to the caller.
  */
-describe('updateTaskStatusWithSettlement returns the settlement answer', () => {
+describe('updateTaskStatus returns the settlement answer', () => {
   it('names the blocked dispatch by exact id', () => {
     const { db, taskId, dispatchId } = fixture()
     const { opened, store } = incidents()
     declareRule(opened.db, dispatchId)
     __configureIncidentStoreForTests(store, opened.db)
 
-    const settled = db.updateTaskStatusWithSettlement(taskId, 'completed')
+    const settled = db.updateTaskStatus(taskId, 'completed')
 
     expect(settled.task?.status).toBe('completed')
     expect(settled.skipped).toEqual([dispatchId])
@@ -361,7 +361,7 @@ describe('updateTaskStatusWithSettlement returns the settlement answer', () => {
     declareRule(opened.db, dispatchId, 'passed')
     __configureIncidentStoreForTests(store, opened.db)
 
-    const settled = db.updateTaskStatusWithSettlement(taskId, 'completed')
+    const settled = db.updateTaskStatus(taskId, 'completed')
 
     expect(settled.skipped).toEqual([])
     expect(db.getDispatchContextById(dispatchId)?.status).toBe('completed')
@@ -378,14 +378,14 @@ describe('updateTaskStatusWithSettlement returns the settlement answer', () => {
     declareRule(opened.db, active.id)
     __configureIncidentStoreForTests(store, opened.db)
 
-    const first = db.updateTaskStatusWithSettlement(task.id, 'completed')
+    const first = db.updateTaskStatus(task.id, 'completed')
     expect(first.skipped).toEqual([active.id])
     // No duplicate entries for one dispatch, whatever the row set looked like.
     expect(new Set(first.skipped).size).toBe(first.skipped.length)
 
     // Re-running the same terminal transition settles nothing, so it reports nothing — it must not
     // recycle the previous call's ids.
-    expect(db.updateTaskStatusWithSettlement(task.id, 'completed').skipped).toEqual([])
+    expect(db.updateTaskStatus(task.id, 'completed').skipped).toEqual([])
   })
 
   it('reports nothing for a non-terminal transition, which settles nothing', () => {
@@ -394,7 +394,7 @@ describe('updateTaskStatusWithSettlement returns the settlement answer', () => {
     const dispatch = createRootDispatch(db, task.id, 'term_a')
 
     // `dispatched` is a no-op re-assert: the active dispatch is expected, not "left unsettled".
-    expect(db.updateTaskStatusWithSettlement(task.id, 'dispatched').skipped).toEqual([])
+    expect(db.updateTaskStatus(task.id, 'dispatched').skipped).toEqual([])
     expect(db.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
   })
 })

@@ -293,7 +293,7 @@ describe('OrchestrationDb Run state', () => {
         to: 'term_coord',
         subject: 'status'
       })
-      const gate = d.createGate({ taskId: task.id, question: 'Continue?' })
+      const { gate } = d.createGate({ taskId: task.id, question: 'Continue?' })
 
       expect(task.run_id).toBe(run.id)
       expect(dispatch.run_id).toBe(run.id)
