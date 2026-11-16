@@ -36,6 +36,9 @@ import {
 } from '../../shared/orchestration-timing-budgets'
 import { MAX_TIMER_DELAY_MS } from '../../shared/timer-delay'
 import {
+  DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS
+} from '../../main/incidents/dispatch-acceptance-run'
+import {
   buildOrchestrationRecoveryCommand,
   resolveOrchestrationCliExecutable
 } from './orchestration-recovery-command'
@@ -200,6 +203,17 @@ export class RuntimeClient {
       if (Number.isFinite(inner) && inner > 0) {
         return Math.max(inner + LONG_POLL_CLIENT_GRACE_MS, this.requestTimeoutMs)
       }
+    }
+    // Why: `orchestration.send` of a worker_report evaluates the dispatch's acceptance rules inside
+    // the request, before it writes anything (issue-sedimentation.md §8). The evaluation's own
+    // aggregate budget is derived from the per-rule default timeout, so the socket has to outlive
+    // that budget plus the same long-poll grace used above — otherwise the transport cuts the
+    // evaluation off and the caller gets no answer instead of a typed `aggregate_deadline:` verdict.
+    if (method === 'orchestration.send') {
+      return Math.max(
+        DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS + LONG_POLL_CLIENT_GRACE_MS,
+        this.requestTimeoutMs
+      )
     }
     return this.requestTimeoutMs
   }

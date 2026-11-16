@@ -7,7 +7,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import type { AcceptanceRule } from './dispatch-acceptance-store'
-import { declareAcceptanceRule, getAcceptanceStop } from './dispatch-acceptance-store'
+import {
+  DISPATCH_ACCEPTANCE_TIMEOUT_MS,
+  declareAcceptanceRule,
+  getAcceptanceStop
+} from './dispatch-acceptance-store'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import { createIncidentStore } from './incident-store'
 import { gateDispatchSettlement } from './acceptance-gate'
@@ -239,17 +243,19 @@ describe('stdoutFingerprint', () => {
 /**
  * #9: one aggregate evaluation budget, clipped per rule.
  *
- * `orchestration.send` awaits the evaluation inside the RPC, and the client's timeout for that method is
- * the 60 s default. A rule's declared timeout is up to 10 minutes and rules run sequentially, so without
- * a shared deadline the transport dies before the settlement the caller asked for — and the caller gets
- * no answer at all instead of a visible reason.
+ * `orchestration.send` awaits the evaluation inside the RPC, and the client widens its socket timeout
+ * for that method to this budget plus its transport grace. A rule's declared timeout may be up to 10
+ * minutes and rules run sequentially, so without a shared deadline the transport would die before the
+ * settlement the caller asked for — and the caller would get no answer at all instead of a visible
+ * reason.
  */
 describe('the aggregate evaluation budget', () => {
-  it('stays safely below the 60 s send transport budget', () => {
-    // The client default is 60 s (`cli/runtime/client.ts` constructor). The gap is the transport grace
-    // for the settlement write, the receipt and the socket, so it must be a real margin, not 1 ms.
-    expect(DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS).toBeLessThan(60_000)
-    expect(DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS).toBeLessThanOrEqual(50_000)
+  it('is the per-rule default timeout, not an independent policy', () => {
+    // One source for the number: a rule declaring nothing gets `DISPATCH_ACCEPTANCE_TIMEOUT_MS`, so
+    // the budget that bounds all rules has to be exactly that. The client side is pinned where it
+    // belongs, in `cli/runtime/client-timeout-policy.test.ts` (it asserts the socket covers this
+    // budget plus a real grace), so no copy of the constant is asserted here.
+    expect(DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS).toBe(DISPATCH_ACCEPTANCE_TIMEOUT_MS)
   })
 
   it('clips a rule to the remaining budget and still lets a fast rule pass', async () => {
@@ -381,13 +387,18 @@ describe('a budget-cut evaluation at the settlement gate', () => {
         program: 'npm',
         args: ['test'],
         expect: { exitCode: 0 },
+        // Declared above the budget on purpose: a rule declaring exactly the default is not clipped by
+        // a budget derived from that default, so the aggregate-clip detail is only observable when a
+        // rule asks for more than the budget (the per-rule cap is 10 minutes).
+        timeoutMs: 5 * 60_000,
         cwd: wt.cwd,
         worktreeRoot: wt.root,
         actor: 'alice',
         now: T0
       })
     }
-    // The shipped budget, driven by a fake clock: two rules declaring the 60 s default cannot both run.
+    // The shipped budget, driven by a fake clock: two rules declaring more than the budget cannot both
+    // run, and the one that does run is clipped to the budget.
     let clock = T0
     const runner: AcceptanceRunner = async (spec) => {
       clock += spec.timeoutMs

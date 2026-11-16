@@ -15,6 +15,7 @@ import { sanitizeText } from './incident-sanitize'
 import { rejectionForRun } from './acceptance-cwd'
 import {
   DISPATCH_ACCEPTANCE_MAX_OUTPUT_BYTES,
+  DISPATCH_ACCEPTANCE_TIMEOUT_MS,
   type AcceptanceExpectation,
   type AcceptanceRule,
   type AcceptanceVerdict
@@ -33,23 +34,28 @@ export type AcceptanceRunResult = {
 /**
  * The whole evaluation budget for one `worker_done` report, in milliseconds.
  *
- * Why one aggregate number and not only the per-rule clamp: `orchestration.send` awaits the
- * evaluation before it writes anything, and the CLI's client timeout for that method is the default
- * 60 s (`cli/runtime/client.ts`, the `RuntimeClient` constructor default; `resolveMethodTimeoutMs`
- * gives `orchestration.send` no exception). Rules run one after another, so N declared rules could
- * cost the sum of their timeouts — the socket dies first and the client gets no answer at all.
+ * Derived, not chosen: the per-rule default `DISPATCH_ACCEPTANCE_TIMEOUT_MS`. A rule that declares no
+ * `timeoutMs` is given exactly that default, so an aggregate budget below it would cut off the default
+ * rule it is supposed to accommodate and answer `undeterminable` for a reason the declaration did not
+ * cause. One number, one source: there is no second acceptance-timeout policy.
  *
- * 45 s keeps 15 s of transport grace for the send itself (settlement write, receipt, socket). A rule
- * that genuinely needs its declared 60 s default is therefore cut off, and the answer is a typed
- * `aggregate_deadline:` verdict: the settlement fails closed and the stop says why, which is the
- * visible trade this budget makes.
+ * Why one aggregate number and not only the per-rule clamp: `orchestration.send` awaits the
+ * evaluation before it writes anything. Rules run one after another, so N declared rules could cost
+ * the sum of their timeouts — the socket dies first and the client gets no answer at all. The budget
+ * bounds that wall clock, and the client's socket timeout for `orchestration.send` is widened to
+ * `budget + LONG_POLL_CLIENT_GRACE_MS` (`cli/runtime/client.ts:resolveMethodTimeoutMs`), so a rule at
+ * the declared default can pass.
+ *
+ * The trade this budget keeps: a rule declaring more than the budget (the per-rule cap is 10 minutes)
+ * fails closed with a typed `aggregate_deadline:` verdict instead of passing unverified. The
+ * settlement is blocked, the stop carries the reason, and a retry re-evaluates under the same rule.
  *
  * No declaration-side rule-count cap is added here. The budget bounds wall-clock time regardless of
  * N, and a rule the budget cannot accommodate is answered `undeterminable` without being started, so
  * a count cap adds no bound this constant does not already give. A count cap would also need a new
  * `AcceptanceDeclarationError` reason (a new declaration contract) and a deployment-owned number.
  */
-export const DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS = 45_000
+export const DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS = DISPATCH_ACCEPTANCE_TIMEOUT_MS
 
 export type AcceptanceRunner = (spec: {
   program: string
@@ -134,13 +140,13 @@ export function stdoutFingerprint(stdout: string): { digest: string; bytes: numb
  * and a test suite that runs three rules should read as three runs, not one race.
  *
  * Bounded in aggregate, not only per rule (#9): rules run one after another, so without a shared
- * deadline N rules cost roughly the sum of their declared timeouts — more than the client's
- * `orchestration.send` timeout, which would then fail before the settlement it asked for. Each rule is
- * clipped to the remaining budget, and a rule the budget cannot accommodate is answered
- * `undeterminable` with a typed `aggregate_deadline:` detail. That is fail-closed on purpose: the
- * settlement is blocked, the reason is on the acceptance incident, and a later evaluation records it as
- * the stop's `last_error`. A rule that already ran keeps its own verdict, and a rule that finishes
- * inside the budget keeps its pass.
+ * deadline N rules cost roughly the sum of their declared timeouts — past the client's
+ * `orchestration.send` timeout, which is this same budget plus the transport grace, so the socket
+ * would fail before the settlement it asked for. Each rule is clipped to the remaining budget, and a
+ * rule the budget cannot accommodate is answered `undeterminable` with a typed `aggregate_deadline:`
+ * detail. That is fail-closed on purpose: the settlement is blocked, the reason is on the acceptance
+ * incident, and a later evaluation records it as the stop's `last_error`. A rule that already ran keeps
+ * its own verdict, and a rule that finishes inside the budget keeps its pass.
  */
 export async function evaluateAcceptanceRules(input: {
   rules: readonly AcceptanceRule[]

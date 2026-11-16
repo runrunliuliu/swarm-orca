@@ -289,6 +289,11 @@ type AcceptanceRule = {
 }
 ```
 
+**评估预算（派生，不是第二套策略）**：一次 worker_report 结算里所有规则共享的预算就是规则的默认
+`timeoutMs`（`DISPATCH_ACCEPTANCE_TIMEOUT_MS`），不再单独维护一个数字；`orchestration.send` 的
+客户端超时按“预算 + 传输 grace”放宽，所以按默认值声明的规则能跑完，而声明超过预算的规则仍然
+fail-closed，落到 `aggregate_deadline:*` 的 typed detail 上。
+
 **门点**：所有 **worker_report** 结算入口（本地 `send`/`check`/coordinator tick、federation
 import、legacy lifecycle）必须进同一 gate；命令在写事务**之外**执行，结果以值传入。裁决只有
 `passed | blocked | store_unavailable` 三种：
