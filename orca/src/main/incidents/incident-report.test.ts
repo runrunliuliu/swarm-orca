@@ -129,7 +129,7 @@ describe('recordSelfReportTo', () => {
       { userDataPath }
     )
     expect(first).toMatchObject({ outcome: 'inserted', shadow: 'written' })
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
 
     const again = recordSelfReportTo(
       store,
@@ -138,7 +138,7 @@ describe('recordSelfReportTo', () => {
     )
     expect(again.outcome).toBe('duplicate')
     expect(again.id).toBe(first.id)
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
 
     const lines = readFileSync(shadowFilePath(userDataPath), 'utf8').trimEnd().split('\n')
     expect(lines).toHaveLength(2)

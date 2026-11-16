@@ -21,8 +21,7 @@ import type { CapacityBatch } from './incident-store-capacity'
 import type {
   MirrorCoverage,
   MirrorHostCoverage,
-  MirrorInsertResult,
-  MirrorProvenance
+  MirrorInsertResult
 } from './incident-mirror-types'
 
 export const MIRROR_LINKS_TABLE = 'incident_mirror_links'
@@ -320,31 +319,6 @@ export function recordMirrorProbeFailure(
     input.ms,
     input.hostId
   )
-}
-
-/** Provenance of one incident, by the incident's own id. */
-export function readMirrorProvenance(
-  db: Database.Database,
-  incidentId: string
-): MirrorProvenance | null {
-  if (!mirrorTablesPresent(db)) {
-    return null
-  }
-  const row = db
-    .prepare(
-      `SELECT incident_id, host_id, origin_seq, pulled_at FROM ${MIRROR_ROWS_TABLE}
-        WHERE incident_id = ?`
-    )
-    .get(incidentId)
-  if (!row) {
-    return null
-  }
-  return {
-    incidentId: String(row.incident_id),
-    hostId: String(row.host_id),
-    originSeq: Number(row.origin_seq ?? 0),
-    pulledAt: Number(row.pulled_at ?? 0)
-  }
 }
 
 /**

@@ -170,7 +170,6 @@ export type IncidentStore = {
   getIncident: (id: string) => IncidentView | null
   listIncidents: (options?: IncidentListOptions) => IncidentListResult
   coverage: () => IncidentCoverage
-  countIncidents: () => number
   pruneIncidents: (options?: PruneOptions) => PruneResult
   readonly readOnly: boolean
 }

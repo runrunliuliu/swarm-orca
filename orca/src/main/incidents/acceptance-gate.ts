@@ -22,8 +22,7 @@ import {
   acceptanceGateState,
   getAcceptanceStop,
   openAcceptanceStop,
-  recordAcceptanceOverride,
-  type AcceptanceGateState
+  recordAcceptanceOverride
 } from './dispatch-acceptance-stops'
 import type { IncidentRecord } from './incident-types'
 import { buildIncidentKey, incidentFingerprint } from './incident-key'
@@ -272,15 +271,4 @@ export function recordAcceptanceBypass(
       .run(incidentId, input.dispatchId)
   }
   return true
-}
-
-/** Read-only view for the CLI: the state and the reasons, without the incident body. */
-export function describeAcceptanceState(state: AcceptanceGateState): string {
-  if (state.state === 'no_rules') {
-    return 'no_rules'
-  }
-  if (state.state === 'passed') {
-    return `passed(${state.via})`
-  }
-  return `blocked(${[...state.failedRules, ...state.notEvaluatedRules].join(',') || 'rules'})`
 }

@@ -36,6 +36,7 @@ import {
 import { createCapacityGate } from './incident-store-capacity'
 import { emitIncidentStoreChange } from './incident-store-changes'
 import { pruneIncidents } from './incident-store-prune'
+import { runIncidentsTransaction } from './incidents-database'
 import {
   rowToDecision,
   rowToRecord,
@@ -62,26 +63,12 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
   const idFactory = options.idFactory ?? defaultIdFactory
 
   /**
-   * One IMMEDIATE transaction whose COMMIT sits inside the failure boundary: SQLite can leave a
-   * transaction open after a failed COMMIT, and this connection is shared with the caller.
+   * One IMMEDIATE transaction whose COMMIT sits inside the failure boundary — `runIncidentsTransaction`
+   * owns that rule (SQLite can leave a transaction open after a failed COMMIT, and this connection is
+   * shared with the caller) and additionally rejects an `await` inside the transaction. The two
+   * collaborators below still take a `() => T` closure, so this binds the connection for them.
    */
-  function runImmediate<T>(run: () => T): T {
-    db.exec('BEGIN IMMEDIATE')
-    try {
-      const result = run()
-      db.exec('COMMIT')
-      return result
-    } catch (error) {
-      if (db.isTransaction) {
-        try {
-          db.exec('ROLLBACK')
-        } catch {
-          // The original error is what the caller needs.
-        }
-      }
-      throw error
-    }
-  }
+  const runImmediate = <T>(run: () => T): T => runIncidentsTransaction(db, run)
 
   const capacity = createCapacityGate({
     db,
@@ -89,11 +76,6 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
     fileSizeBytes: options.fileSizeBytes ?? (() => 0),
     runImmediate
   })
-
-  function countIncidents(): number {
-    const row = db.prepare('SELECT COUNT(*) AS n FROM incidents').get()
-    return row ? Number(row.n ?? 0) : 0
-  }
 
   function effectiveStatusOf(incidentId: string): IncidentStatus | null {
     const row = db.prepare('SELECT status FROM incident_state WHERE incident_id = ?').get(incidentId)
@@ -326,7 +308,6 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
     getIncident,
     listIncidents,
     coverage: capacity.coverage,
-    countIncidents,
     pruneIncidents: (requested) => {
       const result = pruneIncidents({ db, readOnly, now, runImmediate, requested })
       // A dry run and a zero-row prune both leave the store exactly as it was: nothing to announce.

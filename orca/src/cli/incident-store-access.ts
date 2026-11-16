@@ -75,7 +75,6 @@ function unavailableStore(): IncidentStore {
     getIncident: () => null,
     listIncidents: () => ({ incidents: [], total: 0, coverage }),
     coverage: () => coverage,
-    countIncidents: () => 0,
     pruneIncidents: () => ({
       dryRun: true,
       olderThanDays: DEFAULT_INCIDENT_RETENTION_DAYS,

@@ -208,6 +208,6 @@ describe('store change signal', () => {
     } finally {
       off()
     }
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 })

@@ -105,7 +105,7 @@ describe('onPtyExit incident write', () => {
       cause: { kind: 'exited', exitCode: 0 },
       hostExitConfirmed: true
     })
-    expect(store.countIncidents()).toBe(0)
+    expect(store.coverage().capacity.rows).toBe(0)
   })
 
   it('records a repeated callback for the same incarnation only once', () => {
@@ -115,7 +115,7 @@ describe('onPtyExit incident write', () => {
     const options = { cause: { kind: 'signaled', signal: 15 }, hostExitConfirmed: true } as const
     runtime.onPtyExit(PTY, 143, 'ptyinc-wiring-1' as never, options)
     runtime.onPtyExit(PTY, 143, 'ptyinc-wiring-1' as never, options)
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 
   it('keeps an unconfirmed SSH exit as unknown, never as a failure', () => {
@@ -166,7 +166,7 @@ describe('onPtyExit incident write', () => {
       'ptyinc-bare-shell' as never,
       { cause: { kind: 'unknown', reason: 'cause_unreported' } }
     )
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
     const view = store.getIncident(store.listIncidents().incidents[0].id)!
     expect(view.ptyIncarnationId).toBe('ptyinc-agent')
   })
@@ -194,7 +194,7 @@ describe('onPtyExit incident write', () => {
       cause: { kind: 'signaled', signal: 9 },
       hostExitConfirmed: true
     })
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
     expect(store.listIncidents().incidents[0].id).toBe(afterFirst[0].id)
   })
 
@@ -213,7 +213,7 @@ describe('onPtyExit incident write', () => {
       cause: { kind: 'unknown', reason: 'cause_unreported' }
     })
 
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
     const view = store.getIncident(store.listIncidents().incidents[0].id)!
     expect(view.ptyIncarnationId).toBe('ptyinc-claim-only')
     expect(view.evidence.agentIdentityDigest).toBe('digest-claim-only')

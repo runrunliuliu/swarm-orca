@@ -70,7 +70,7 @@ describe('samplePaneClocks', () => {
     const { opened: database, store } = pair()
     const summary = samplePaneClocks({ db: database.db, now: NOW, rows: [row()] })
     expect(summary).toMatchObject({ panes: 1, declaredWaits: 0, skipped: 0 })
-    expect(store.countIncidents()).toBe(0)
+    expect(store.coverage().capacity.rows).toBe(0)
     const rows = readPaneClocks(database.db, NOW)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({

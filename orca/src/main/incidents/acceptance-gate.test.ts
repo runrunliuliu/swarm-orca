@@ -131,7 +131,7 @@ describe('a dispatch with no acceptance rules (regression)', () => {
     expect(reconcileLifecycleMessage(orchestration as OrchestrationDb, message).action).toBe(
       'completed'
     )
-    expect(store.countIncidents()).toBe(0)
+    expect(store.coverage().capacity.rows).toBe(0)
     expect(getAcceptanceStop(opened.db, dispatch.id)).toBeNull()
   })
 })

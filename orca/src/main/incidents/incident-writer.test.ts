@@ -12,7 +12,6 @@ import type { PtyExitIncidentFacts } from './incident-pty-exit'
 import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests,
-  incidentWriterDiagnostics,
   recordPtyExitIncident,
   recordPtyExitIncidentTo
 } from './incident-writer'
@@ -72,7 +71,7 @@ describe('recordPtyExitIncidentTo', () => {
     expect(
       recordPtyExitIncidentTo(store, facts({ exitCause: { kind: 'exited', exitCode: 0 } })).outcome
     ).toBe('skipped')
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 
   it('is idempotent for a repeated callback on the same incarnation', () => {
@@ -82,7 +81,7 @@ describe('recordPtyExitIncidentTo', () => {
     expect(first.outcome).toBe('inserted')
     expect(second.outcome).toBe('duplicate')
     expect(second.id).toBe(first.id)
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 
   it('survives an unavailable store without throwing', () => {
@@ -101,7 +100,7 @@ describe('recordPtyExitIncidentTo', () => {
     // Crash rows are exempt from the limit, so this one still lands; the exemption is what keeps a
     // failure visible when the store is full of noise.
     expect(next.outcome).toBe('inserted')
-    expect(store.countIncidents()).toBe(2)
+    expect(store.coverage().capacity.rows).toBe(2)
     expect(store.coverage().currentlyLimited).toBe(true)
   })
 })
@@ -111,17 +110,14 @@ describe('recordPtyExitIncident', () => {
     const store = storeFixture()
     __configureIncidentStoreForTests(store)
     expect(() => recordPtyExitIncident(facts())).not.toThrow()
-    expect(store.countIncidents()).toBe(1)
-    expect(incidentWriterDiagnostics()).toMatchObject({ attempts: 1, inserted: 1 })
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 
-  it('turns an unavailable store into a diagnostics counter, not an exception', () => {
+  it('turns an unavailable store into a skip, not an exception', () => {
     __configureIncidentStoreForTests(null)
+    // The typed skip (`incident_store_unavailable`) is the result of the call below; what a teardown
+    // must never see is the exception, so that is what this case keeps pinning.
     expect(() => recordPtyExitIncident(facts())).not.toThrow()
-    expect(incidentWriterDiagnostics()).toMatchObject({
-      skipped: 1,
-      lastSkipReason: 'incident_store_unavailable'
-    })
   })
 
   it('never lets an unexpected store failure escape into the PTY teardown', () => {
@@ -133,6 +129,5 @@ describe('recordPtyExitIncident', () => {
     } as IncidentStore
     __configureIncidentStoreForTests(exploding)
     expect(() => recordPtyExitIncident(facts())).not.toThrow()
-    expect(incidentWriterDiagnostics().failures).toBe(1)
   })
 })

@@ -59,8 +59,3 @@ export function readShadowReplayCoverage(db: Database.Database): IncidentShadowR
           }
   }
 }
-
-/** True when the replay state says the hint family has not been fully consumed yet. */
-export function shadowReplayIncomplete(coverage: IncidentShadowReplayCoverage): boolean {
-  return coverage.incomplete
-}

@@ -33,8 +33,8 @@ import {
 } from './incident-mirror-sync'
 import {
   insertMirroredIncident,
-  readIncidentMirrorCoverage,
-  readMirrorProvenance
+  MIRROR_ROWS_TABLE,
+  readIncidentMirrorCoverage
 } from './incident-mirror-store'
 import {
   formatIncidentMirrorCoverage,
@@ -82,6 +82,26 @@ afterEach(() => {
 })
 
 type HostRecord = { seq: number; record: IncidentRecord }
+
+/**
+ * A provenance row read straight from the table.
+ *
+ * `incident-mirror-store.ts` does not export a reader for this (nothing in production asks the
+ * question), but these cases are the only proof that a mirrored fact and its provenance land in one
+ * transaction with the origin's host id and seq — so the query stays here, next to its assertions.
+ */
+type ProvenanceRow = { incidentId: string; hostId: string; originSeq: number; pulledAt: number }
+
+const PROVENANCE_SQL = `SELECT incident_id AS incidentId, host_id AS hostId,
+   origin_seq AS originSeq, pulled_at AS pulledAt
+   FROM ${MIRROR_ROWS_TABLE} WHERE incident_id = ?`
+
+function readProvenance(
+  db: OpenIncidentsDatabase['db'],
+  incidentId: string
+): ProvenanceRow | null {
+  return (db.prepare(PROVENANCE_SQL).get(incidentId) as ProvenanceRow | undefined) ?? null
+}
 
 function record(overrides: Partial<IncidentRecord> = {}): IncidentRecord {
   return {
@@ -216,7 +236,7 @@ describe('mirror success', () => {
     // The origin's host id is preserved. A mirror that rewrote it to this host would make the read
     // model claim an observation that never happened.
     expect(list.incidents.every((item) => item.hostId === 'host-a')).toBe(true)
-    expect(readMirrorProvenance(opened.db, 'inc_host-a_1')).toEqual({
+    expect(readProvenance(opened.db, 'inc_host-a_1')).toEqual({
       incidentId: 'inc_host-a_1',
       hostId: 'host-a',
       originSeq: 1,
@@ -247,7 +267,7 @@ describe('mirror success', () => {
   it('leaves locally written rows without provenance and keeps the shared coverage object untouched', async () => {
     const { store, opened } = openStore()
     store.insertIncident(record())
-    expect(readMirrorProvenance(opened.db, 'inc_local_1')).toBeNull()
+    expect(readProvenance(opened.db, 'inc_local_1')).toBeNull()
 
     // The merge seam (documented in incident-mirror-types.ts): until M7-B adds the one line to
     // `incident-store-capacity.coverage()`, the shared object still reports the M1 value while the
@@ -331,7 +351,7 @@ describe('reconnect resync is idempotent', () => {
     expect(third).toMatchObject({ inserted: 0, duplicates: 3 })
     expect(store.listIncidents().total).toBe(3)
     // The provenance still names the same origin seq for each fact.
-    expect(readMirrorProvenance(opened.db, 'inc_host-a_3')?.originSeq).toBe(3)
+    expect(readProvenance(opened.db, 'inc_host-a_3')?.originSeq).toBe(3)
   })
 })
 
@@ -442,7 +462,7 @@ describe('cross-host dedupe', () => {
     // The half-write this test simulates: the incident row landed (with the origin's host_id) but the
     // provenance row did not. The key is taken, yet this is a mirrored row, not a local one.
     store.insertIncident({ ...origin.record, id: 'inc_host_a_partial' })
-    expect(readMirrorProvenance(opened.db, 'inc_host_a_partial')).toBeNull()
+    expect(readProvenance(opened.db, 'inc_host_a_partial')).toBeNull()
 
     const host = fakeHost('host-a', [origin])
     const summary = await pull(store, opened, [host])
@@ -455,7 +475,7 @@ describe('cross-host dedupe', () => {
     })
     expect(store.listIncidents().total).toBe(1)
     // Provenance is healed, so the tombstone and the dedupe classification work from now on.
-    expect(readMirrorProvenance(opened.db, 'inc_host_a_partial')).toMatchObject({
+    expect(readProvenance(opened.db, 'inc_host_a_partial')).toMatchObject({
       hostId: 'host-a',
       originSeq: 1
     })
@@ -832,7 +852,7 @@ describe('atomic mirrored insert (review C1)', () => {
     const retried = await pull(store, opened, [host])
     expect(retried.hosts[0].inserted).toBe(1)
     expect(store.listIncidents().total).toBe(1)
-    expect(readMirrorProvenance(opened.db, 'inc_host-a_1')).not.toBeNull()
+    expect(readProvenance(opened.db, 'inc_host-a_1')).not.toBeNull()
   })
 
   it('still refuses to resurrect a fact pruned after it was mirrored (tombstone holds)', async () => {

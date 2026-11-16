@@ -17,7 +17,6 @@
 import { existsSync } from 'node:fs'
 import type Database from '../sqlite/sync-database'
 import {
-  acceptanceGateState,
   declareAcceptanceRule,
   listAcceptanceRules,
   writeAcceptanceVerdict,
@@ -313,34 +312,4 @@ export function logAcceptanceBlocked(
       ? `Dispatch ${dispatchId} is not settled: the incidents store cannot be read, so its acceptance rules cannot be checked (fail-closed)`
       : `Dispatch ${dispatchId} is blocked by acceptance rules; not settled`
   )
-}
-
-/**
- * The reconciliation-shaped answer for one worker_done, or null when settlement may proceed.
- *
- * Retained for callers that ask the question without running a settlement; the reconciliation path
- * itself reads the decision out of `settleWorkerReport` so the gate runs exactly once.
- */
-export function acceptancePendingResult(input: {
-  taskId: string
-  dispatchId: string
-  log: (message: string) => void
-}): { action: 'acceptance_pending'; taskId: string; dispatchId: string } | null {
-  const decision = decideWorkerReportAcceptance(input.dispatchId)
-  if (decision.action === 'allow') {
-    return null
-  }
-  logAcceptanceBlocked(input.dispatchId, decision.reason, input.log)
-  return { action: 'acceptance_pending', taskId: input.taskId, dispatchId: input.dispatchId }
-}
-
-/** Read-only summary for the CLI: rules, verdicts, stop and the gate's current answer. */
-export function acceptanceStatusForDispatch(
-  db: Database.Database,
-  dispatchId: string
-): {
-  rules: AcceptanceRule[]
-  gate: ReturnType<typeof acceptanceGateState>
-} {
-  return { rules: listAcceptanceRules(db, dispatchId), gate: acceptanceGateState(db, dispatchId) }
 }

@@ -45,32 +45,6 @@ export type PtyExitIncidentWriteResult = {
   id?: string
 }
 
-type WriterDiagnostics = {
-  attempts: number
-  inserted: number
-  duplicates: number
-  capacityLimited: number
-  skipped: number
-  failures: number
-  shadowWritten: number
-  shadowFailed: number
-  lastSkipReason: string | null
-  lastFailureReason: string | null
-}
-
-const diagnostics: WriterDiagnostics = {
-  attempts: 0,
-  inserted: 0,
-  duplicates: 0,
-  capacityLimited: 0,
-  skipped: 0,
-  failures: 0,
-  shadowWritten: 0,
-  shadowFailed: 0,
-  lastSkipReason: null,
-  lastFailureReason: null
-}
-
 /** `undefined` = not resolved yet, `null` = resolved and unavailable (retried per start). */
 let cached: RuntimeIncidentStore | null | undefined
 
@@ -151,10 +125,8 @@ function openAndCache(path: string): RuntimeIncidentStore | null {
       db: opened.db,
       path
     }
-  } catch (error) {
+  } catch {
     cached = null
-    diagnostics.failures += 1
-    diagnostics.lastFailureReason = `incident_store_open_failed:${error instanceof Error ? error.name : 'unknown'}`
   }
   return cached
 }
@@ -197,13 +169,7 @@ export function persistIncidentRecord(
       options.shadowMode === 'append'
         ? appendShadowRecordFromCli(userDataPath, record)
         : appendShadowRecord(userDataPath, record)
-    if (written.written) {
-      shadow = 'written'
-      diagnostics.shadowWritten += 1
-    } else {
-      shadow = 'failed'
-      diagnostics.shadowFailed += 1
-    }
+    shadow = written.written ? 'written' : 'failed'
   }
   const result = store.insertIncident(record)
   // Evidence staging belongs to the shared write contract, not to one CLI command (M8 review): any
@@ -250,13 +216,9 @@ export function recordPtyExitIncidentTo(
 ): PtyExitIncidentWriteResult {
   const assessed = assessPtyExit(input)
   if (!assessed.write) {
-    diagnostics.skipped += 1
-    diagnostics.lastSkipReason = assessed.reason
     return { outcome: 'skipped', reason: assessed.reason }
   }
   if (!isStore(store)) {
-    diagnostics.skipped += 1
-    diagnostics.lastSkipReason = 'incident_store_unavailable'
     return { outcome: 'skipped', reason: 'incident_store_unavailable' }
   }
   const built = buildPtyExitIncidentRecord(input, {
@@ -265,8 +227,6 @@ export function recordPtyExitIncidentTo(
     createdAt: options.now ?? Date.now()
   })
   if (!built.ok) {
-    diagnostics.skipped += 1
-    diagnostics.lastSkipReason = built.reason
     return { outcome: 'skipped', reason: built.reason }
   }
   const { result } = persistIncidentRecord(store, built.record, {
@@ -276,21 +236,14 @@ export function recordPtyExitIncidentTo(
   })
   switch (result.outcome) {
     case 'inserted':
-      diagnostics.inserted += 1
       return { outcome: 'inserted', id: result.id ?? built.record.id }
     case 'duplicate':
-      diagnostics.duplicates += 1
       return { outcome: 'duplicate', id: result.id ?? undefined }
     case 'capacity_limited':
-      diagnostics.capacityLimited += 1
       return { outcome: 'capacity_limited', reason: result.limitedBy }
     case 'read_only':
-      diagnostics.skipped += 1
-      diagnostics.lastSkipReason = 'incident_store_read_only'
       return { outcome: 'skipped', reason: 'incident_store_read_only' }
     default:
-      diagnostics.failures += 1
-      diagnostics.lastFailureReason = result.reason ?? result.outcome
       return { outcome: 'failed', reason: result.reason ?? result.outcome }
   }
 }
@@ -302,20 +255,12 @@ export function recordPtyExitIncidentTo(
  * and worktree binding before `retirePtyAgentLaunchAuthority` deletes the receipt they come from.
  */
 export function recordPtyExitIncident(input: RecordPtyExitIncidentInput): void {
-  diagnostics.attempts += 1
   try {
     const runtime = incidentRuntimeStore()
     recordPtyExitIncidentTo(runtime?.store ?? null, input, runtime === null ? {} : { db: runtime.db })
-  } catch (error) {
+  } catch {
     // Even an unexpected failure here must not escape into the PTY teardown.
-    diagnostics.failures += 1
-    diagnostics.lastFailureReason =
-      error instanceof Error ? `incident_write_threw:${error.name}` : 'incident_write_threw'
   }
-}
-
-export function incidentWriterDiagnostics(): Readonly<WriterDiagnostics> {
-  return { ...diagnostics }
 }
 
 /** Test seam (house pattern: `__configure…ForTests`), never called from production paths. */
@@ -331,16 +276,6 @@ export function __configureIncidentStoreForTests(
 
 export function __resetIncidentWriterForTests(): void {
   cached = undefined
-  diagnostics.attempts = 0
-  diagnostics.inserted = 0
-  diagnostics.duplicates = 0
-  diagnostics.capacityLimited = 0
-  diagnostics.skipped = 0
-  diagnostics.failures = 0
-  diagnostics.shadowWritten = 0
-  diagnostics.shadowFailed = 0
-  diagnostics.lastSkipReason = null
-  diagnostics.lastFailureReason = null
 }
 
 /** Exported for the path test; production code resolves through the functions above. */

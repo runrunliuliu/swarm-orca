@@ -227,14 +227,6 @@ export function isIncidentSourceKind(value: unknown): value is IncidentSourceKin
   return typeof value === 'string' && (INCIDENT_SOURCE_KINDS as readonly string[]).includes(value)
 }
 
-export function isTerminalStatus(value: IncidentStatus): boolean {
-  return TERMINAL_STATUSES.includes(value)
-}
-
-export function isPrunableStatus(value: IncidentStatus): boolean {
-  return PRUNABLE_STATUSES.includes(value)
-}
-
 /** Whether R1 may move an incident between these two statuses. Identity moves are not transitions. */
 export function canTransition(from: IncidentStatus, to: IncidentStatus): boolean {
   return INCIDENT_STATUS_TRANSITIONS[from].includes(to)

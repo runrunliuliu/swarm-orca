@@ -84,7 +84,7 @@ describe('insertIncident idempotency', () => {
     const second = store.insertIncident(record({ id: 'inc_other' }))
     expect(first).toMatchObject({ outcome: 'inserted', id: 'inc_1' })
     expect(second).toMatchObject({ outcome: 'duplicate', id: 'inc_1' })
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 
   it('keeps a second genuine failure of the same entity: the epoch is part of the key', () => {
@@ -94,7 +94,7 @@ describe('insertIncident idempotency', () => {
       record({ id: 'inc_2', sourceId: 'inc-2', ptyIncarnationId: 'inc-2' })
     )
     expect(respawn.outcome).toBe('inserted')
-    expect(store.countIncidents()).toBe(2)
+    expect(store.coverage().capacity.rows).toBe(2)
   })
 
   it('is idempotent across two connections (concurrent writers)', () => {
@@ -107,8 +107,8 @@ describe('insertIncident idempotency', () => {
     ]
     expect(results.filter((result) => result.outcome === 'inserted')).toHaveLength(1)
     expect(results.filter((result) => result.outcome === 'duplicate')).toHaveLength(1)
-    expect(first.store.countIncidents()).toBe(1)
-    expect(second.store.countIncidents()).toBe(1)
+    expect(first.store.coverage().capacity.rows).toBe(1)
+    expect(second.store.coverage().capacity.rows).toBe(1)
   })
 
   it('rejects a record whose class or status is outside the closed vocabulary', () => {
@@ -117,7 +117,7 @@ describe('insertIncident idempotency', () => {
       record({ class: 'not_a_class' as IncidentClass })
     )
     expect(result.outcome).toBe('invalid_record')
-    expect(store.countIncidents()).toBe(0)
+    expect(store.coverage().capacity.rows).toBe(0)
   })
 
   it('redacts the summary before it lands', () => {
@@ -338,7 +338,7 @@ describe('capacity (§11.5)', () => {
     )
     expect(refused).toMatchObject({ outcome: 'capacity_limited', limitedBy: 'rows' })
     expect(store.coverage()).toMatchObject({ capacityLatchSet: true, currentlyLimited: true })
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 
   it('still accepts a crash row at the limit', () => {
@@ -413,7 +413,7 @@ describe('prune (§11.5)', () => {
     expect(result.candidateIds).toEqual(['inc_old_invalid'])
     expect(result.candidateIdsTruncated).toBe(false)
     expect(result.deletedIds).toEqual([])
-    expect(store.countIncidents()).toBe(3)
+    expect(store.coverage().capacity.rows).toBe(3)
   })
 
   it('reports the ids it deleted, so retained decisions stay locatable (C5)', () => {
@@ -463,7 +463,7 @@ describe('prune (§11.5)', () => {
     const { store } = openPair()
     store.insertIncident(record({ createdAt: NOW - 400 * DAY }))
     expect(store.pruneIncidents({ dryRun: false, now: NOW }).deleted).toBe(0)
-    expect(store.countIncidents()).toBe(1)
+    expect(store.coverage().capacity.rows).toBe(1)
   })
 })
 

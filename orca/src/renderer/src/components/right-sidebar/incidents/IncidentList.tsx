@@ -150,8 +150,7 @@ export function IncidentList({
       const intent = resolveIncidentListNavigation({
         key: event.key,
         currentIndex: focusIndex,
-        total: items.length,
-        detailOpen: false
+        total: items.length
       })
       if (intent.type === 'focus') {
         event.preventDefault()
