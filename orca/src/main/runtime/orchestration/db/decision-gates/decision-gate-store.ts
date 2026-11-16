@@ -3,7 +3,11 @@ import { OrchestrationError } from '../../orchestration-error'
 import { generateId } from '../generated-id'
 import type { OrchestrationDb } from '../orchestration-db'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
-import type { AcceptanceOverride } from '../dispatch-context/dispatch-completion'
+import {
+  precomputeActiveDispatchAcceptance,
+  type AcceptanceDecisions,
+  type AcceptanceOverride
+} from '../dispatch-context/dispatch-completion'
 
 // ── Decision Gates ──
 
@@ -14,63 +18,89 @@ export function createGate(
     question: string
     options?: string[]
     requester?: { handle: string; paneKey?: string | null; dispatchId: string }
-    /** §8 C1: the gate is external authority, so it may bypass acceptance — only when recorded. */
+    /**
+     * §8 C1: the gate is external authority, so it may bypass acceptance — only when recorded.
+     *
+     * Opening a gate settles the Task's active Dispatches, so the acceptance answer has to be a value
+     * produced before `SAVEPOINT create_gate`: the gate writes incidents and an acceptance stop into a
+     * second database, outside the lifecycle write transaction (`incidents/acceptance-gate.ts:10-17`).
+     * The RPC call site (`orchestration.gateCreate`) computes the map; a direct caller that omits it
+     * gets the same guarantee from the fallback, which also runs after validation and before the
+     * savepoint. A Dispatch with no entry is left unsettled (reported through `log`), never allowed.
+     */
+    acceptanceDecisions?: AcceptanceDecisions
+    /** Convenience for direct callers: applied by the fallback precompute. */
     acceptanceOverride?: AcceptanceOverride
+    log?: (message: string) => void
   }
 ): DecisionGateRow {
-  this.db.exec('SAVEPOINT create_gate')
-  try {
-    const task = this.getTask(gate.taskId)
-    if (!task) {
-      throw new OrchestrationError(
-        'lifecycle_not_found',
-        `Task ${gate.taskId} was not found while creating a decision gate.`,
-        { taskId: gate.taskId }
-      )
-    }
-    const runId = task.run_id
-    this.requireRun(runId)
-    const active = this.db
-      .prepare(
-        `SELECT * FROM dispatch_contexts
+  const task = this.getTask(gate.taskId)
+  if (!task) {
+    throw new OrchestrationError(
+      'lifecycle_not_found',
+      `Task ${gate.taskId} was not found while creating a decision gate.`,
+      { taskId: gate.taskId }
+    )
+  }
+  const runId = task.run_id
+  this.requireRun(runId)
+  const active = this.db
+    .prepare(
+      `SELECT * FROM dispatch_contexts
          WHERE task_id = ? AND status IN ('pending', 'dispatched')
          ORDER BY rowid DESC LIMIT 1`
-      )
-      .get(gate.taskId) as DispatchContextRow | undefined
-    if (
-      gate.requester &&
-      (!active ||
-        active.id !== gate.requester.dispatchId ||
-        !this.isDispatchMessageSender({
-          dispatchId: active.id,
-          handle: gate.requester.handle,
-          paneKey: gate.requester.paneKey,
-          allowCanonicalDispatchHandle: true
-        }))
-    ) {
-      throw new OrchestrationError(
-        'consumer_fenced',
-        `Terminal ${gate.requester.handle} does not own the active Dispatch for Task ${gate.taskId}.`,
-        { taskId: gate.taskId, dispatchId: active?.id }
-      )
-    }
-    const activeWorker = this.db
-      .prepare(
-        `SELECT active.id
+    )
+    .get(gate.taskId) as DispatchContextRow | undefined
+  if (
+    gate.requester &&
+    (!active ||
+      active.id !== gate.requester.dispatchId ||
+      !this.isDispatchMessageSender({
+        dispatchId: active.id,
+        handle: gate.requester.handle,
+        paneKey: gate.requester.paneKey,
+        allowCanonicalDispatchHandle: true
+      }))
+  ) {
+    throw new OrchestrationError(
+      'consumer_fenced',
+      `Terminal ${gate.requester.handle} does not own the active Dispatch for Task ${gate.taskId}.`,
+      { taskId: gate.taskId, dispatchId: active?.id }
+    )
+  }
+  const activeWorker = this.db
+    .prepare(
+      `SELECT active.id
          FROM dispatch_contexts active
          JOIN worker_dispatches worker ON worker.dispatch_id = active.id
          WHERE active.task_id = ? AND active.status IN ('pending', 'dispatched')
            AND worker.state NOT IN ('failed', 'succeeded', 'stopped', 'abandoned')
          ORDER BY active.rowid DESC LIMIT 1`
-      )
-      .get(gate.taskId) as { id: string } | undefined
-    if (activeWorker) {
-      throw new OrchestrationError(
-        'task_not_startable',
-        `Task ${gate.taskId} cannot open a gate while supervised Dispatch ${activeWorker.id} is active; stop or settle its worker first.`,
-        { taskId: gate.taskId, dispatchId: activeWorker.id }
-      )
-    }
+    )
+    .get(gate.taskId) as { id: string } | undefined
+  if (activeWorker) {
+    throw new OrchestrationError(
+      'task_not_startable',
+      `Task ${gate.taskId} cannot open a gate while supervised Dispatch ${activeWorker.id} is active; stop or settle its worker first.`,
+      { taskId: gate.taskId, dispatchId: activeWorker.id }
+    )
+  }
+  // Why after the guards and before the savepoint: a gate that these guards refuse must not leave
+  // acceptance evidence for a settle it never attempted, and the decision must not share the
+  // transaction the insert below opens.
+  const decisions =
+    gate.acceptanceDecisions ??
+    precomputeActiveDispatchAcceptance(this, gate.taskId, {
+      ...(gate.acceptanceOverride === undefined
+        ? {}
+        : { acceptanceOverride: gate.acceptanceOverride })
+    })
+  // Why the reads above now run before the savepoint: they are read-only guards, and moving them out
+  // is what lets the acceptance decision above stay outside the transaction. A concurrent change
+  // between a guard and the savepoint is caught by the lifecycle transitions below (they are guarded
+  // by `from`), which roll the whole savepoint back instead of writing a half-applied gate.
+  this.db.exec('SAVEPOINT create_gate')
+  try {
     const id = generateId('gate')
     const optionsJson = JSON.stringify(gate.options ?? [])
     this.db
@@ -79,9 +109,8 @@ export function createGate(
       )
       .run(id, runId, gate.taskId, gate.question, optionsJson)
     this.completeActiveDispatchesForTask(gate.taskId, {
-      ...(gate.acceptanceOverride === undefined
-        ? {}
-        : { acceptanceOverride: gate.acceptanceOverride })
+      decisions,
+      ...(gate.log === undefined ? {} : { log: gate.log })
     })
     transitionLifecycleWithDb(this.db, {
       entity: 'task',

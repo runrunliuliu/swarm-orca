@@ -53,13 +53,73 @@ export function completeDispatch(this: OrchestrationDb, ctxId: string): void {
  */
 export type AcceptanceOverride = { actor: string; reason: string }
 
+/** One acceptance answer per dispatch id, computed before a lifecycle write transaction opens. */
+export type AcceptanceDecisions = ReadonlyMap<string, AcceptanceDecision>
+
+/**
+ * The acceptance decision for every currently active Dispatch of one Task.
+ *
+ * Call this BEFORE opening a lifecycle write transaction. `decideMaintenanceAcceptance` writes
+ * incidents and an acceptance stop — a *second* database's rows plus a `busy_timeout`-bounded read —
+ * and the gate's own contract is that all of that happens outside the orchestration WAL writer's
+ * transaction (`incidents/acceptance-gate.ts:10-17`). Computing it here is also what makes the answer
+ * a value: the transaction below cannot decide anything, it can only apply what this returned.
+ *
+ * The answer is a snapshot of the dispatch set at call time: a Dispatch that becomes active later has
+ * no entry, and `settleActiveDispatchesForTask` leaves it unsettled (visible in `skipped`) instead of
+ * deciding it inside the transaction.
+ *
+ * Callers pass an `acceptanceOverride` here rather than to the settle helper: the override is applied
+ * by `decideMaintenanceAcceptance`, which is exactly the call that must not move back inside.
+ */
+export function precomputeActiveDispatchAcceptance(
+  db: OrchestrationDb,
+  taskId: string,
+  options: { acceptanceOverride?: AcceptanceOverride } = {}
+): Map<string, AcceptanceDecision> {
+  const rows = db.db
+    .prepare(
+      "SELECT id FROM dispatch_contexts WHERE task_id = ? AND status IN ('pending', 'dispatched') ORDER BY rowid"
+    )
+    .all(taskId) as { id: string }[]
+  const decisions = new Map<string, AcceptanceDecision>()
+  for (const row of rows) {
+    decisions.set(
+      row.id,
+      decideMaintenanceAcceptance({
+        dispatchId: row.id,
+        override: options.acceptanceOverride ?? null
+      })
+    )
+  }
+  return decisions
+}
+
+/**
+ * Settle the Task's active Dispatches from acceptance decisions that were computed earlier.
+ *
+ * `options.decisions` is required and is the only source of an acceptance answer: this function runs
+ * inside a lifecycle write transaction, so it must not call the gate (see
+ * `precomputeActiveDispatchAcceptance`). A Dispatch with no decision is left unsettled and named in
+ * `skipped` — never allowed — and that includes a Dispatch that became active after the map was
+ * computed, which is reported through `log` rather than decided here.
+ *
+ * The `failed` path reads no decision at all: acceptance answers "did the worker's finished work meet
+ * the contract", force-failing a Dispatch is a stop, not a claim of completion, and blocking it would
+ * trap the operator in a dispatch nobody can close (callers pass an empty map).
+ */
 export function settleActiveDispatchesForTask(
   db: OrchestrationDb,
   taskId: string,
   status: 'completed' | 'failed',
-  failure?: string,
-  options: { acceptanceOverride?: AcceptanceOverride; log?: (message: string) => void } = {}
+  failure: string | undefined,
+  options: { decisions: AcceptanceDecisions; log?: (message: string) => void }
 ): { skipped: string[] } {
+  const requiresAcceptance = status === 'completed'
+  const decisions = options.decisions
+  const log = options.log
+  // Why re-read instead of trusting the precompute: the row set is the transaction's own truth, and
+  // the precomputed keys are what decide which of these rows may be settled at all.
   const rows = db.db
     .prepare(
       "SELECT * FROM dispatch_contexts WHERE task_id = ? AND status IN ('pending', 'dispatched')"
@@ -67,17 +127,18 @@ export function settleActiveDispatchesForTask(
     .all(taskId) as DispatchContextRow[]
   const skipped: string[] = []
   for (const row of rows) {
-    // Why only `completed`: acceptance answers "did the worker's finished work meet the contract".
-    // Force-failing a dispatch is a stop, not a claim of completion, and blocking it would trap the
-    // operator in a dispatch nobody can close.
-    if (status === 'completed') {
-      const decision: AcceptanceDecision = decideMaintenanceAcceptance({
-        dispatchId: row.id,
-        override: options.acceptanceOverride ?? null
-      })
+    if (requiresAcceptance) {
+      const decision = decisions.get(row.id)
+      if (decision === undefined) {
+        skipped.push(row.id)
+        log?.(
+          `Dispatch ${row.id} left unsettled: it has no precomputed acceptance decision (it became active after the decision was computed); re-run the transition to decide and settle it`
+        )
+        continue
+      }
       if (decision.action === 'blocked') {
         skipped.push(row.id)
-        options.log?.(
+        log?.(
           decision.reason === 'store_unavailable'
             ? `Dispatch ${row.id} left unsettled: the incidents store cannot be read (acceptance fail-closed; pass --override-acceptance to record a bypass)`
             : `Dispatch ${row.id} left unsettled: acceptance rules blocked it (pass --override-acceptance --actor --reason to record a bypass)`
@@ -107,7 +168,7 @@ export function settleActiveDispatchesForTask(
 export function completeActiveDispatchesForTask(
   this: OrchestrationDb,
   taskId: string,
-  options: { acceptanceOverride?: AcceptanceOverride } = {}
+  options: { decisions: AcceptanceDecisions; log?: (message: string) => void }
 ): { skipped: string[] } {
   return settleActiveDispatchesForTask(this, taskId, 'completed', undefined, options)
 }
@@ -258,6 +319,7 @@ export function failDispatch(
 
 export type DispatchCompletionMethods = {
   completeDispatch: typeof completeDispatch
+  precomputeActiveDispatchAcceptance: typeof precomputeActiveDispatchAcceptance
   completeActiveDispatchesForTask: typeof completeActiveDispatchesForTask
   failActiveDispatchForTask: typeof failActiveDispatchForTask
   recordHeartbeat: typeof recordHeartbeat
@@ -268,6 +330,7 @@ export type DispatchCompletionMethods = {
 export function attachDispatchCompletion(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
     completeDispatch,
+    precomputeActiveDispatchAcceptance,
     completeActiveDispatchesForTask,
     failActiveDispatchForTask,
     recordHeartbeat,

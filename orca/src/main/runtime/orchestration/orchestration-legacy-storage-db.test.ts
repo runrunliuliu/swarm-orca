@@ -1,5 +1,7 @@
-import { rmSync } from 'node:fs'
-import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import Database from '../../sqlite/sync-database'
 import {
   CURRENT_CONTRACT_VERSION,
@@ -7,6 +9,18 @@ import {
   LEGACY_RUN_ID,
   OrchestrationDb
 } from './db'
+import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../../incidents/incidents-database'
+import { createIncidentStore } from '../../incidents/incident-store'
+import {
+  __configureIncidentStoreForTests,
+  __resetIncidentWriterForTests
+} from '../../incidents/incident-writer'
+import {
+  declareAcceptanceRule,
+  getAcceptanceStop,
+  writeAcceptanceVerdict
+} from '../../incidents/dispatch-acceptance-store'
+import { createRootDispatch } from './db/root-dispatch-test-fixture'
 import {
   createLegacyStorageCutoverFixture,
   type LegacyStorageCutoverFixture
@@ -15,6 +29,8 @@ import {
 describe('OrchestrationDb legacy contract storage', () => {
   let db: OrchestrationDb | undefined
   let tempDir: string | undefined
+  const incidentDatabases: OpenIncidentsDatabase[] = []
+  const incidentDirectories: string[] = []
 
   afterEach(() => {
     db?.close()
@@ -22,6 +38,18 @@ describe('OrchestrationDb legacy contract storage', () => {
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true })
       tempDir = undefined
+    }
+    __resetIncidentWriterForTests()
+    vi.restoreAllMocks()
+    for (const opened of incidentDatabases.splice(0)) {
+      try {
+        opened.db.close()
+      } catch {
+        // Already closed.
+      }
+    }
+    for (const directory of incidentDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 
@@ -64,6 +92,103 @@ describe('OrchestrationDb legacy contract storage', () => {
       adoptedRunId,
       workerPrincipalId: worker.principal.id,
       coordinatorPrincipalId: coordinator.principal.id
+    }
+  }
+
+  /** A real incidents store in the process-global slot `decideWorkerReportAcceptance` resolves. */
+  function openIncidents(): {
+    opened: OpenIncidentsDatabase
+    store: ReturnType<typeof createIncidentStore>
+  } {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-legacy-acceptance-'))
+    incidentDirectories.push(directory)
+    const opened = openIncidentsDatabase(join(directory, 'incidents', 'incidents.db'))
+    incidentDatabases.push(opened)
+    const store = createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes })
+    __configureIncidentStoreForTests(store, opened.db)
+    return { opened, store }
+  }
+
+  /** One rule whose stored verdict fails, so a gate call on this dispatch would block and write. */
+  function declareFailedRule(incidentsDb: OpenIncidentsDatabase['db'], dispatchId: string): void {
+    const rule = declareAcceptanceRule(incidentsDb, {
+      hostId: 'host-a',
+      dispatchId,
+      ruleId: 'tests',
+      program: 'npm',
+      args: ['test'],
+      expect: { exitCode: 0 },
+      cwd: '/work/tree',
+      worktreeRoot: '/work',
+      actor: 'alice',
+      now: 1_700_000_000_000
+    })
+    writeAcceptanceVerdict(incidentsDb, {
+      dispatchId,
+      ruleId: 'tests',
+      verdict: 'failed',
+      exitCode: 2,
+      signal: null,
+      stdoutDigest: 'a'.repeat(64),
+      stdoutBytes: 12,
+      detail: 'exit_code_expected_0_got_2',
+      evaluatedAt: 1_700_000_000_000,
+      ruleDigest: rule.digest,
+      ruleDeclaredAt: rule.createdAt
+    })
+  }
+
+  /**
+   * A legacy Task with two active Dispatches: an older context-only sibling and the reporting one,
+   * created last so it is the current Dispatch, plus a third that is completed up front so a test can
+   * make it reappear after the acceptance preflight.
+   *
+   * `createDispatchContext` only accepts a `ready` Task, which the lifecycle guard tests also work
+   * around: opening a Dispatch flips the Task to `dispatched`, so the intervening ones are opened by
+   * resetting the Task first. The three Dispatches are then marked as legacy attempts (the cutover
+   * fixture's rows are legacy because they predate it; freshly created ones are current-contract) so
+   * `commitLegacyLifecycleOperation` and `commitLegacyCompatibilityPrincipal` accept them.
+   */
+  function createLegacySiblingSplit(spec: string): {
+    adoptedRunId: string
+    principalId: string
+    taskId: string
+    siblingDispatchId: string
+    lateDispatchId: string
+    reportingDispatchId: string
+  } {
+    const state = openAdoptedFixture()
+    const sqlite = (db as unknown as { db: Database.Database }).db
+    const forceReady = (taskId: string): void => {
+      sqlite.prepare("UPDATE tasks SET status = 'ready' WHERE id = ?").run(taskId)
+    }
+    const task = db!.createTask({ runId: state.adoptedRunId, spec })
+    const sibling = createRootDispatch(db!, task.id, 'term_sibling')
+    forceReady(task.id)
+    const late = createRootDispatch(db!, task.id, 'term_late')
+    db!.completeDispatch(late.id)
+    forceReady(task.id)
+    const reporting = createRootDispatch(db!, task.id, 'term_reporter')
+    sqlite
+      .prepare('UPDATE dispatch_contexts SET contract_version = ? WHERE id IN (?, ?, ?)')
+      .run(LEGACY_CONTRACT_VERSION, sibling.id, late.id, reporting.id)
+    const principal = db!.commitLegacyCompatibilityPrincipal({
+      runId: state.adoptedRunId,
+      dispatchId: reporting.id,
+      role: 'worker',
+      hostScope: 'local:runtime_1',
+      terminalHandle: 'term_reporter',
+      paneKey: 'tab_reporter:55555555-5555-4555-8555-555555555555',
+      launchTokenHash: 'reporter_launch_hash',
+      processIncarnation: 'process_reporter'
+    })
+    return {
+      adoptedRunId: state.adoptedRunId,
+      principalId: principal.principal.id,
+      taskId: task.id,
+      siblingDispatchId: sibling.id,
+      lateDispatchId: late.id,
+      reportingDispatchId: reporting.id
     }
   }
 
@@ -657,6 +782,176 @@ describe('OrchestrationDb legacy contract storage', () => {
       status: 'completed',
       result: 'accepted elsewhere'
     })
+  })
+
+  it('writes the acceptance stop and incident exactly once for an admissible blocked legacy report', () => {
+    const state = openAdoptedFixture()
+    const { opened, store } = openIncidents()
+    const dispatchId = state.fixture.legacyDispatchId
+    const taskId = db!.getDispatchContextById(dispatchId)!.task_id
+    declareFailedRule(opened.db, dispatchId)
+
+    const result = db!.commitLegacyLifecycleOperation({
+      principalId: state.workerPrincipalId,
+      operationKey: 'legacy_blocked_report',
+      method: 'orchestration.send',
+      payloadHash: 'legacy_blocked_report_payload',
+      message: { to: 'term_legacy_coord', subject: 'Completed', type: 'worker_done' },
+      lifecycle: { kind: 'worker_report', taskId, outcome: 'succeeded', result: 'done' }
+    })
+
+    expect(result.settlement).toMatchObject({ action: 'acceptance_pending' })
+    // Blocked never means failed: the dispatch keeps its status and the stop owns the next step.
+    expect(db!.getDispatchContextById(dispatchId)?.status).toBe('dispatched')
+    expect(getAcceptanceStop(opened.db, dispatchId)).toMatchObject({
+      state: 'pending',
+      gateSeenCount: 1
+    })
+    expect(
+      store.listIncidents().incidents.filter((incident) => incident.class === 'acceptance_failed')
+    ).toHaveLength(1)
+  })
+
+  it('writes no second acceptance evidence when the same operation is re-delivered (F7)', () => {
+    const state = openAdoptedFixture()
+    const { opened, store } = openIncidents()
+    const dispatchId = state.fixture.legacyDispatchId
+    const taskId = db!.getDispatchContextById(dispatchId)!.task_id
+    declareFailedRule(opened.db, dispatchId)
+    const params = {
+      principalId: state.workerPrincipalId,
+      operationKey: 'legacy_duplicate_report',
+      method: 'orchestration.send',
+      payloadHash: 'legacy_duplicate_report_payload',
+      message: { to: 'term_legacy_coord', subject: 'Completed', type: 'worker_done' as const },
+      lifecycle: {
+        kind: 'worker_report' as const,
+        taskId,
+        outcome: 'succeeded' as const,
+        result: 'done'
+      }
+    }
+
+    const first = db!.commitLegacyLifecycleOperation(params)
+    expect(first.settlement).toMatchObject({ action: 'acceptance_pending' })
+    expect(getAcceptanceStop(opened.db, dispatchId)).toMatchObject({ gateSeenCount: 1 })
+    const incidentIds = store.listIncidents().incidents.map((incident) => incident.id)
+    expect(incidentIds).toHaveLength(1)
+
+    // The replay never settles anything, so it must not write acceptance evidence for a settlement
+    // that does not happen: no new incident row, and the stop's seen count stays where it was.
+    const replay = db!.commitLegacyLifecycleOperation(params)
+    expect(replay).toMatchObject({ duplicate: true, message: { id: first.message.id } })
+    expect(store.listIncidents().incidents.map((incident) => incident.id)).toEqual(incidentIds)
+    expect(getAcceptanceStop(opened.db, dispatchId)).toMatchObject({ gateSeenCount: 1 })
+  })
+
+  it('writes no acceptance evidence when the legacy dispatch is no longer active (F7)', () => {
+    const state = openAdoptedFixture()
+    const { opened, store } = openIncidents()
+    const dispatchId = state.fixture.legacyDispatchId
+    const taskId = db!.getDispatchContextById(dispatchId)!.task_id
+    declareFailedRule(opened.db, dispatchId)
+    // A settled dispatch: the transaction rejects this report, so the gate must never run.
+    db!.completeDispatch(dispatchId)
+
+    expect(() =>
+      db!.commitLegacyLifecycleOperation({
+        principalId: state.workerPrincipalId,
+        operationKey: 'legacy_inactive_report',
+        method: 'orchestration.send',
+        payloadHash: 'legacy_inactive_report_payload',
+        message: { to: 'term_legacy_coord', subject: 'Completed', type: 'worker_done' },
+        lifecycle: { kind: 'worker_report', taskId, outcome: 'succeeded', result: 'done' }
+      })
+    ).toThrow(/settled/)
+    expect(store.listIncidents().incidents).toEqual([])
+    expect(getAcceptanceStop(opened.db, dispatchId)).toBeNull()
+  })
+
+  it('settles an older context-only sibling through a legacy worker_report', () => {
+    const split = createLegacySiblingSplit('legacy sibling split')
+
+    const result = db!.commitLegacyLifecycleOperation({
+      principalId: split.principalId,
+      operationKey: 'legacy_sibling_report',
+      method: 'orchestration.send',
+      payloadHash: 'legacy_sibling_report_payload',
+      message: { to: 'term_legacy_coord', subject: 'Completed', type: 'worker_done' },
+      lifecycle: {
+        kind: 'worker_report',
+        taskId: split.taskId,
+        outcome: 'succeeded',
+        result: 'done'
+      }
+    })
+
+    expect(result.settlement).toMatchObject({
+      action: 'settled',
+      outcome: 'succeeded',
+      duplicate: false
+    })
+    expect(db!.getDispatchContextById(split.reportingDispatchId)?.status).toBe('completed')
+    expect(db!.getTask(split.taskId)?.status).toBe('completed')
+    // The map was handed over under the name the settlement actually reads (`siblingDecisions`); with
+    // any other property name it is dropped at runtime and this sibling stays `dispatched`.
+    expect(db!.getDispatchContextById(split.siblingDispatchId)).toMatchObject({
+      status: 'completed',
+      capability_revoked_at: expect.any(String)
+    })
+  })
+
+  it('leaves a sibling that appears only after the preflight unsettled and names it', () => {
+    const split = createLegacySiblingSplit('legacy late sibling split')
+    const sqlite = (db as unknown as { db: Database.Database }).db
+    const connection = (db as unknown as { db: { exec: (sql: string) => void } }).db
+    const originalExec = connection.exec.bind(connection)
+    let injected = false
+    // The seam is `BEGIN IMMEDIATE`: the acceptance preflight has already run, and the settlement has
+    // not read the dispatch set yet, which is exactly the window a real concurrent writer would hit.
+    connection.exec = (sql: string) => {
+      if (!injected && sql.trim().toUpperCase() === 'BEGIN IMMEDIATE') {
+        injected = true
+        sqlite
+          .prepare("UPDATE dispatch_contexts SET status = 'pending' WHERE id = ?")
+          .run(split.lateDispatchId)
+      }
+      return originalExec(sql)
+    }
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    let result: ReturnType<OrchestrationDb['commitLegacyLifecycleOperation']>
+    try {
+      result = db!.commitLegacyLifecycleOperation({
+        principalId: split.principalId,
+        operationKey: 'legacy_late_sibling_report',
+        method: 'orchestration.send',
+        payloadHash: 'legacy_late_sibling_report_payload',
+        message: { to: 'term_legacy_coord', subject: 'Completed', type: 'worker_done' },
+        lifecycle: {
+          kind: 'worker_report',
+          taskId: split.taskId,
+          outcome: 'succeeded',
+          result: 'done'
+        }
+      })
+    } finally {
+      connection.exec = originalExec
+    }
+
+    expect(injected).toBe(true)
+    expect(result!.settlement).toMatchObject({ action: 'settled', outcome: 'succeeded' })
+    // The sibling the preflight knew about settled; the newcomer had no decision and was left alone.
+    expect(db!.getDispatchContextById(split.siblingDispatchId)?.status).toBe('completed')
+    expect(db!.getDispatchContextById(split.lateDispatchId)?.status).toBe('pending')
+    const messages = warning.mock.calls.map((call) => String(call[1]))
+    expect(
+      messages.some(
+        (message) =>
+          message.includes(split.lateDispatchId) &&
+          message.includes('no precomputed acceptance decision')
+      )
+    ).toBe(true)
   })
 
   it('uses invocation identity for repeated asks and atomically conflicts divergent replies', () => {

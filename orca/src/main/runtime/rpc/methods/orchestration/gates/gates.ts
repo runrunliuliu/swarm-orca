@@ -1,5 +1,6 @@
 import { defineMethod } from '../../../core'
 import type { GateStatus } from '../../../../orchestration/db'
+import { precomputeActiveDispatchAcceptance } from '../../../../orchestration/db/dispatch-context/dispatch-completion'
 import { Coordinator } from '../../../../orchestration/coordinator'
 import { resolveRunScope } from '../runs/run-scope'
 import { taskNotFoundError } from '../../../../orchestration/task-dispatch-refusal'
@@ -119,13 +120,22 @@ export const ORCHESTRATION_GATE_METHODS = [
           runId: run.id
         })
       }
+      // Why the acceptance decision is computed here, before `createGate` opens its write transaction:
+      // creating a gate settles the Task's active Dispatches, and the acceptance gate writes incidents
+      // and an acceptance stop into a *second* database (`incidents/acceptance-gate.ts:10-17`).
+      // `createGate` then only applies this map: a dispatch it has no entry for is left unsettled —
+      // fail-closed — instead of being decided while the lifecycle WAL writer is held.
+      const acceptanceDecisions = precomputeActiveDispatchAcceptance(db, params.task, {
+        ...(params.overrideAcceptance === undefined
+          ? {}
+          : { acceptanceOverride: params.overrideAcceptance })
+      })
       const gate = db.createGate({
         taskId: params.task,
         question: params.question,
         options,
-        ...(params.overrideAcceptance === undefined
-          ? {}
-          : { acceptanceOverride: params.overrideAcceptance })
+        acceptanceDecisions,
+        log: (message) => console.warn('[orchestration]', message)
       })
       return { gate }
     }

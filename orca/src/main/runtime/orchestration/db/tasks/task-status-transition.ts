@@ -1,6 +1,11 @@
 import { OrchestrationError } from '../../orchestration-error'
 import type { TaskRow, TaskStatus } from '../../types'
-import { settleActiveDispatchesForTask, type AcceptanceOverride } from '../dispatch-context/dispatch-completion'
+import {
+  precomputeActiveDispatchAcceptance,
+  settleActiveDispatchesForTask,
+  type AcceptanceDecisions,
+  type AcceptanceOverride
+} from '../dispatch-context/dispatch-completion'
 import type { OrchestrationDb } from '../orchestration-db'
 import {
   beginLifecycleWriteTransaction,
@@ -22,6 +27,20 @@ export function updateTaskStatus(
   const terminalStatus = status === 'completed' || status === 'failed'
   const requiresActiveDispatch = status === 'dispatched'
   const permitsActiveDispatch = terminalStatus || requiresActiveDispatch
+  // Why before the transaction (not in the settle call below): accepting a maintenance settlement asks
+  // the acceptance gate, which writes incidents and an acceptance stop into a *second* database and
+  // reads it with a `busy_timeout`. The gate's own contract is that none of that happens inside the
+  // orchestration WAL writer's transaction (`incidents/acceptance-gate.ts:10-17`). The map is a value,
+  // so the transaction can only apply it — a dispatch it has no entry for is left unsettled, and a
+  // dispatch that becomes active afterwards stays unsettled instead of being decided in here.
+  // The `failed` path reads no decision at all (a stop is not a claim of completion), so it passes an
+  // empty map and keeps settling exactly as before.
+  const dispatchAcceptance: AcceptanceDecisions =
+    status === 'completed'
+      ? precomputeActiveDispatchAcceptance(this, id, {
+          ...(acceptanceOverride === undefined ? {} : { acceptanceOverride })
+        })
+      : new Map()
   // Why: reserve the WAL writer before lifecycle reads so a concurrent commit cannot stale the snapshot.
   const transaction = beginLifecycleWriteTransaction(this.db, UPDATE_TASK_STATUS_SAVEPOINT)
   try {
@@ -106,8 +125,10 @@ export function updateTaskStatus(
     }
     if (terminalStatus) {
       settleActiveDispatchesForTask(this, id, status, result, {
-        ...(acceptanceOverride === undefined ? {} : { acceptanceOverride }),
-        log: () => undefined
+        decisions: dispatchAcceptance,
+        // F10: the option stays, so a caller can route the "left unsettled" reason. There is no logger
+        // on this connection, so it goes to the main-process log rather than being discarded.
+        log: (message) => console.warn('[orchestration]', message)
       })
     }
     if (status === 'completed') {

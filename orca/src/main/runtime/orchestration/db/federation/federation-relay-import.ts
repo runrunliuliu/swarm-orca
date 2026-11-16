@@ -8,6 +8,11 @@ import type {
 import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
 import { decideWorkerReportAcceptance } from '../../../../incidents/integration'
+import type { AcceptanceDecisions } from '../dispatch-context/dispatch-completion'
+import {
+  readWorkerReportAdmission,
+  readSiblingDispatchAcceptance
+} from '../dispatch-context/worker-report-settlement'
 
 export function importFederatedRelayItem(
   this: OrchestrationDb,
@@ -46,10 +51,30 @@ export function importFederatedRelayItem(
   // path runs the commands early — the gate writes incidents rows and must not live inside the
   // lifecycle write transaction. A federated worker_report that the gate blocks is imported and stays
   // unread, so the coordinator's next tick re-reads it and settles once the stop is accepted.
-  const acceptance =
+  //
+  // F7: the gate is evaluated only for a report the settlement would actually act on. A duplicate
+  // federated item, a report whose dispatch/task already settled, or one the settlement rejects as
+  // stale/inactive must not write an acceptance incident or bump the stop's seen count — that evidence
+  // would describe a settlement that never happens. The preflight is read-only and the same predicate
+  // the settlement re-runs below, so a state change between the two is answered by the settlement as a
+  // rejection (`acceptance: null` fails closed) instead of being decided inside the transaction.
+  const admission =
     params.lifecycle.kind === 'worker_report'
-      ? decideWorkerReportAcceptance(params.dispatchId)
+      ? readWorkerReportAdmission(this, {
+          taskId: params.lifecycle.taskId,
+          dispatchId: params.dispatchId,
+          outcome: params.lifecycle.outcome
+        })
       : undefined
+  const acceptance =
+    admission?.verdict === 'admitted' ? decideWorkerReportAcceptance(params.dispatchId) : null
+  // F1: the sibling Dispatches this import will also settle are decided here, before the transaction,
+  // for the same reason — the maintenance gate writes a second database. An empty map is only passed
+  // where the settlement cannot reach its write path at all.
+  const siblingDecisions: AcceptanceDecisions =
+    admission?.verdict === 'admitted' && params.lifecycle.kind === 'worker_report'
+      ? readSiblingDispatchAcceptance(admission.siblingDispatchIds, params.lifecycle.outcome)
+      : new Map()
   this.db.exec('BEGIN IMMEDIATE')
   try {
     const federated = this.getFederatedDispatch(params.dispatchId)
@@ -105,7 +130,8 @@ export function importFederatedRelayItem(
         dispatchId: params.dispatchId,
         outcome: params.lifecycle.outcome,
         result: params.lifecycle.result,
-        acceptance: acceptance as NonNullable<typeof acceptance>
+        acceptance,
+        siblingDecisions
       })
       if (lifecycle.action === 'rejected' && !duplicate) {
         message = this.convertLifecycleMessageToRejection(
