@@ -67,6 +67,10 @@ function unavailableStore(): IncidentStore {
   }
   return {
     insertIncident: () => ({ outcome: 'read_only', id: null }),
+    // A capacity batch is only meaningful for a writer, and this stub refuses every write: one empty
+    // reading, and nothing to latch because nothing can be admitted.
+    beginCapacityBatch: () => ({ state: { rows: 0, bytes: 0, limitedBy: null }, admitted: 0 }),
+    endCapacityBatch: () => ({ rows: 0, bytes: 0, limitedBy: null }),
     appendDecision: () => ({ outcome: 'read_only' }),
     getIncident: () => null,
     listIncidents: () => ({ incidents: [], total: 0, coverage }),

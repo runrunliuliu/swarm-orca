@@ -4,6 +4,7 @@
 // result shapes without importing each other's implementation.
 
 import type Database from '../sqlite/sync-database'
+import type { CapacityBatch, CapacityState } from './incident-store-capacity'
 import type { IncidentCoverage, IncidentStatus, IncidentView } from './incident-types'
 import type {
   IncidentClass,
@@ -39,6 +40,18 @@ export type InsertIncidentResult = {
   /** Which limit stopped the write, when `outcome` is `capacity_limited`. */
   limitedBy?: 'rows' | 'bytes'
   reason?: string
+}
+
+/**
+ * Per-call hints for the write path.
+ *
+ * `batch` is the supported way for a batch writer (shadow replay, mirror page) to reuse one capacity
+ * reading across many inserts instead of paying `COUNT(*)` + three `stat` calls per row (A1). The
+ * store still owns the decision, the latch and the `outcome`/`limitedBy` values: passing a batch
+ * changes what the store *reads*, never what it *decides* to admit for the rows it can see.
+ */
+export type InsertIncidentOptions = {
+  batch?: CapacityBatch
 }
 
 export type AppendDecisionOutcome =
@@ -143,7 +156,16 @@ export type PruneOptions = {
 }
 
 export type IncidentStore = {
-  insertIncident: (record: IncidentRecord) => InsertIncidentResult
+  insertIncident: (record: IncidentRecord, options?: InsertIncidentOptions) => InsertIncidentResult
+  /**
+   * One real capacity reading for a batch of inserts (A1). Pass the result as
+   * `insertIncident(record, { batch })` for every row in the batch and hand it back to
+   * `endCapacityBatch` when the batch is over: the row cap stays exact in between, and the latch is
+   * decided from a real reading at the end instead of never.
+   */
+  beginCapacityBatch: () => CapacityBatch
+  /** Re-read once at the end of a batch and latch if the batch finished over a limit. */
+  endCapacityBatch: (batch: CapacityBatch) => CapacityState
   appendDecision: (input: AppendDecisionInput) => AppendDecisionResult
   getIncident: (id: string) => IncidentView | null
   listIncidents: (options?: IncidentListOptions) => IncidentListResult

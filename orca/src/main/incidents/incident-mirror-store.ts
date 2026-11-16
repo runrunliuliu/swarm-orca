@@ -17,6 +17,7 @@ import type Database from '../sqlite/sync-database'
 import { runIncidentsTransaction } from './incidents-database'
 import type { IncidentRecord } from './incident-types'
 import type { IncidentStore } from './incident-store'
+import type { CapacityBatch } from './incident-store-capacity'
 import type {
   MirrorCoverage,
   MirrorHostCoverage,
@@ -363,6 +364,9 @@ export function readMirrorProvenance(
  *      makes "mirrored row without provenance" a state this code cannot produce (review C1). The
  *      store's capacity latch is the one thing that cannot run inside an outer transaction (it opens
  *      its own IMMEDIATE), so that path is detected and re-run outside; the refusal stays the store's.
+ *
+ * `batch` (A1/F5) is the page's one capacity reading: it is handed to the store so a 5,000-line pull
+ * pays two counts instead of 5,000. It changes nothing about the four rules above.
  */
 export function insertMirroredIncident(input: {
   store: IncidentStore
@@ -371,8 +375,10 @@ export function insertMirroredIncident(input: {
   originHostId: string
   originSeq: number
   pulledAt: number
+  batch?: CapacityBatch
 }): MirrorInsertResult {
-  const { store, db, record, originHostId, originSeq, pulledAt } = input
+  const { store, db, record, originHostId, originSeq, pulledAt, batch } = input
+  const insertOptions = batch === undefined ? undefined : { batch }
   if (record.hostId !== originHostId) {
     return { outcome: 'host_mismatch', id: null, reason: 'record_host_is_not_feed_host' }
   }
@@ -448,7 +454,7 @@ export function insertMirroredIncident(input: {
    * persisted and the outcome is `capacity_limited`, exactly as a local writer sees.
    */
   function insertOutsideTransaction(): MirrorInsertResult {
-    const outside = store.insertIncident(record)
+    const outside = store.insertIncident(record, insertOptions)
     if (outside.outcome === 'inserted' && tables) {
       try {
         writeProvenance(record.id)
@@ -498,7 +504,7 @@ export function insertMirroredIncident(input: {
   let result: StoreInsert
   try {
     result = runIncidentsTransaction(db, () => {
-      const inserted = store.insertIncident(record)
+      const inserted = store.insertIncident(record, insertOptions)
       if (inserted.outcome === 'inserted') {
         if (!tables) {
           // A writable open always migrates the mirror tables in. Reaching here means the write path

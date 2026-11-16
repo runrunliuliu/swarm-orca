@@ -32,6 +32,7 @@ import {
   type MirrorPage
 } from './incident-mirror-sync'
 import {
+  insertMirroredIncident,
   readIncidentMirrorCoverage,
   readMirrorProvenance
 } from './incident-mirror-store'
@@ -615,6 +616,65 @@ describe('the shared capacity gate applies to mirrors', () => {
     expect(readIncidentMirrorCoverage(opened.db).hosts[0].droppedRows).toBe(1)
     // A dropped mirror line advanced the cursor: it will not be retried, and it is counted durably.
     expect(readIncidentMirrorCoverage(opened.db).hosts[0].lastCursor).toBe(2)
+  })
+
+  it('pays one capacity reading per page instead of per line, with the per-line result (A1/F5)', async () => {
+    const { opened } = openStore()
+    let reads = 0
+    const limited = createIncidentStore({
+      db: opened.db,
+      fileSizeBytes: () => {
+        reads += 1
+        return 0
+      },
+      limits: { maxRows: 2, maxBytes: 500 * 1024 * 1024 }
+    })
+
+    // Four lines, one page: a crash plus three noise rows, against a two-row cap.
+    const entries = originRecords('host-a', 4)
+    const summary = await pull(limited, opened, [fakeHost('host-a', entries)])
+
+    // rows: the crash takes the first slot, the first noise row the second, the rest are refused.
+    expect(summary.hosts[0]).toMatchObject({ inserted: 2, dropped: 2, stopped: null })
+    // One page, two readings (open + end). Per line this used to be one count plus three stats per
+    // row; the number must not grow with the page.
+    expect(reads).toBe(2)
+
+    // The reference: the same four records through the same store API, one call at a time.
+    const perLine = openStore()
+    const perLineStore = createIncidentStore({
+      db: perLine.opened.db,
+      fileSizeBytes: perLine.opened.fileSizeBytes,
+      limits: { maxRows: 2, maxBytes: 500 * 1024 * 1024 }
+    })
+    const perLineResults = entries.map((entry) =>
+      insertMirroredIncident({
+        store: perLineStore,
+        db: perLine.opened.db,
+        record: entry.record,
+        originHostId: 'host-a',
+        originSeq: entry.seq,
+        pulledAt: NOW
+      })
+    )
+    expect(perLineResults.map((result) => result.outcome)).toEqual([
+      'inserted',
+      'inserted',
+      'capacity_limited',
+      'capacity_limited'
+    ])
+    expect(
+      perLineResults
+        .filter((result) => result.outcome === 'capacity_limited')
+        .map((result) => result.limitedBy)
+    ).toEqual(['rows', 'rows'])
+
+    const ids = (store: IncidentStore): string[] =>
+      store
+        .listIncidents({ limit: 100 })
+        .incidents.map((incident) => incident.id)
+        .sort()
+    expect(ids(limited)).toEqual(ids(perLineStore))
   })
 })
 

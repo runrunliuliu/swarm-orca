@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IncidentRecord } from './incident-types'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import { readIncidentCounts, clampTopWorktrees } from './incident-counts'
@@ -53,6 +53,34 @@ function record(overrides: Partial<IncidentRecord> = {}): IncidentRecord {
 }
 
 const NOW = 1_700_000_000_000
+
+/**
+ * A class this build does not know, written straight to the table.
+ *
+ * `insertIncident` refuses it by contract, so this is the only way the read model can meet a row from
+ * a newer build — which is exactly the case the tripwire "an unknown class still counts into
+ * `untriaged`" exists for.
+ */
+function insertUnknownClassRow(
+  opened: OpenIncidentsDatabase,
+  options: { id: string; worktreeId: string | null; className: string }
+): void {
+  opened.db
+    .prepare(
+      `INSERT INTO incidents (id, source_kind, source_id, facet, host_id, worktree_id, class,
+         status, fingerprint, evidence, summary, created_at)
+       VALUES (?, 'pty_exit', ?, 'exit', 'host-a', ?, ?, 'untriaged', ?, ?, 'from a newer build', ?)`
+    )
+    .run(
+      options.id,
+      `src-${options.id}`,
+      options.worktreeId,
+      options.className,
+      'e'.repeat(64),
+      JSON.stringify({ pointers: [], unknownBoundaries: [] }),
+      NOW
+    )
+}
 
 function counts(
   store: IncidentStore,
@@ -222,6 +250,56 @@ describe('readIncidentCounts', () => {
     const value = counts(store, opened)
     expect(value.untriaged).toBe(1)
     expect(value.coverage).toMatchObject({ shadowReplayIncomplete: true, gap: true })
+  })
+})
+
+describe('readIncidentCounts: one scan (A1/B-F3)', () => {
+  it('derives untriaged, total, byClass and top-N from a single grouped query', () => {
+    const { store, opened } = openStore()
+    store.insertIncident(
+      record({ id: 'inc_a', sourceId: 'sa', worktreeId: 'wt-2', class: 'crash' })
+    )
+    store.insertIncident(
+      record({ id: 'inc_b', sourceId: 'sb', worktreeId: 'wt-2', class: 'crash' })
+    )
+    store.insertIncident(
+      record({ id: 'inc_c', sourceId: 'sc', worktreeId: 'wt-1', class: 'tool_error' })
+    )
+    // No worktree binding: counted, never attributed.
+    store.insertIncident(
+      record({ id: 'inc_d', sourceId: 'sd', worktreeId: null, class: 'no_progress' })
+    )
+    // Triaged away: still a row (`total`), no longer untriaged.
+    store.appendDecision({ incidentId: 'inc_c', toStatus: 'watch', actor: 'alice', reason: 'r' })
+    insertUnknownClassRow(opened, { id: 'inc_future', worktreeId: 'wt-1', className: 'future' })
+
+    const coverage = store.coverage()
+    const prepare = vi.spyOn(opened.db, 'prepare')
+    const value = readIncidentCounts({ db: opened.db, coverage, topWorktrees: 2, now: () => NOW })
+    const statements = prepare.mock.calls.map((call) => String(call[0]))
+    prepare.mockRestore()
+
+    expect(value.untriaged).toBe(4)
+    expect(value.total).toBe(5)
+    // The unknown class counts into the total and into `untriaged`, and gets no invented key.
+    expect(value.byClass).toEqual({
+      crash: 2,
+      no_progress: 1,
+      tool_error: 0,
+      acceptance_failed: 0,
+      acceptance_overridden: 0,
+      unknown_state: 0
+    })
+    expect(value.byWorktree).toEqual([
+      { worktreeId: 'wt-2', untriaged: 2 },
+      { worktreeId: 'wt-1', untriaged: 1 }
+    ])
+
+    // One statement reads `incidents` at all, and it is the grouped one: the previous shape read the
+    // table three times, two of them through the correlated `incident_state` view.
+    const incidentReads = statements.filter((sql) => /\bFROM incidents\b/i.test(sql))
+    expect(incidentReads).toHaveLength(1)
+    expect(incidentReads[0]).toMatch(/GROUP BY\s+i\.class,\s*i\.worktree_id/i)
   })
 })
 

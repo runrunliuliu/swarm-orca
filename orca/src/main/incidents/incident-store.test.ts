@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
 import {
   DEFAULT_INCIDENT_RETENTION_DAYS,
@@ -180,6 +180,145 @@ describe('appendDecision', () => {
 })
 
 describe('capacity (§11.5)', () => {
+  /**
+   * A1: count the two halves of the capacity reading separately — the `COUNT(*)` statement and the
+   * byte `stat` — so "did not consult the reader" is asserted, not inferred.
+   */
+  function countingStore(options: {
+    limits?: { maxRows?: number; maxBytes?: number }
+    fileSizeBytes?: () => number
+  } = {}): {
+    opened: OpenIncidentsDatabase
+    store: IncidentStore
+    stats: () => number
+    countReads: () => number
+    restore: () => void
+  } {
+    const opened = openIncidentsDatabase(databasePath())
+    openDatabases.push(opened)
+    let stats = 0
+    const store = createIncidentStore({
+      db: opened.db,
+      fileSizeBytes:
+        options.fileSizeBytes ??
+        (() => {
+          stats += 1
+          return 0
+        }),
+      now: () => NOW,
+      ...(options.limits ? { limits: options.limits } : {})
+    })
+    const prepare = vi.spyOn(opened.db, 'prepare')
+    // Exactly the capacity gate's own statement, not `listIncidents`' joined total.
+    const countReads = (): number =>
+      prepare.mock.calls.filter((call) =>
+        /^SELECT COUNT\(\*\) AS n FROM incidents\s*$/i.test(String(call[0]).trim())
+      ).length
+    return { opened, store, stats: () => stats, countReads, restore: () => prepare.mockRestore() }
+  }
+
+  it('reads capacity for a noise insert and never for a crash insert (A1)', () => {
+    const counted = countingStore()
+    try {
+      // The PTY-exit path: every one of these used to pay a COUNT(*) plus three stats and discard it.
+      expect(counted.store.insertIncident(record())).toMatchObject({ outcome: 'inserted' })
+      expect(counted.stats()).toBe(0)
+      expect(counted.countReads()).toBe(0)
+
+      // A noise row still asks, because §11.5 stops noise first.
+      const noise = counted.store.insertIncident(
+        record({ id: 'inc_noise', sourceId: 'noise', class: 'no_progress' })
+      )
+      expect(noise.outcome).toBe('inserted')
+      expect(counted.stats()).toBe(1)
+      expect(counted.countReads()).toBe(1)
+    } finally {
+      counted.restore()
+    }
+  })
+
+  it('a batch writer admits and refuses exactly what per-line inserts do, with two readings (A1)', () => {
+    const classes: IncidentClass[] = ['crash', 'no_progress', 'no_progress', 'no_progress', 'no_progress']
+    const fixtures = classes.map((_, index) =>
+      record({
+        id: `inc_${index}`,
+        sourceId: `s-${index}`,
+        class: classes[index],
+        fingerprint: String(index + 1).repeat(64)
+      })
+    )
+
+    // Reference: the per-line path, one reading per non-crash row.
+    const perLine = countingStore({ limits: { maxRows: 3 } })
+    // Batched: one reading for the batch, one at the end.
+    const batched = countingStore({ limits: { maxRows: 3 } })
+    try {
+      const perLineResults = fixtures.map((entry) => perLine.store.insertIncident(entry))
+      const batch = batched.store.beginCapacityBatch()
+      const batchedResults = fixtures.map((entry) =>
+        batched.store.insertIncident(entry, { batch })
+      )
+      const endState = batched.store.endCapacityBatch(batch)
+      // Read the counters before anything else touches the store: `listIncidents`/`coverage` also
+      // stat the files, and this assertion is about the inserts.
+      const perLineReads = perLine.stats()
+      const batchedReads = batched.stats()
+
+      // Same decisions in the same order: the same rows land, the same rows are refused, and the
+      // refusal names the same limit (the batch counts its own admissions, so the row cap is exact).
+      expect(batchedResults.map((result) => [result.outcome, result.limitedBy ?? null])).toEqual(
+        perLineResults.map((result) => [result.outcome, result.limitedBy ?? null])
+      )
+      expect(batchedResults.map((result) => result.outcome)).toEqual([
+        'inserted',
+        'inserted',
+        'inserted',
+        'capacity_limited',
+        'capacity_limited'
+      ])
+      const ids = (store: IncidentStore): string[] =>
+        store
+          .listIncidents({ limit: 100 })
+          .incidents.map((incident) => incident.id)
+          .sort()
+      expect(ids(batched.store)).toEqual(ids(perLine.store))
+
+      // Counted, not timed: four noise rows would be four readings one at a time; the batch pays two.
+      expect(perLineReads).toBe(4)
+      expect(batchedReads).toBe(2)
+      expect(endState.limitedBy).toBe('rows')
+      // Both paths latch at the same observable point: the first refused row.
+      expect(perLine.store.coverage()).toMatchObject({ capacityLatchSet: true })
+      expect(batched.store.coverage()).toMatchObject({ capacityLatchSet: true })
+    } finally {
+      perLine.restore()
+      batched.restore()
+    }
+  })
+
+  it('reconciles a batch that ends over the byte limit, and latches there (A1)', () => {
+    let bytes = 0
+    const counted = countingStore({ fileSizeBytes: () => bytes, limits: { maxBytes: 1000 } })
+    try {
+      bytes = 10
+      const batch = counted.store.beginCapacityBatch()
+      // Under the byte cap when the batch opened because bytes are only re-read once, at the end:
+      // this is the one axis a batch can be behind on, and the re-read is what closes it.
+      expect(counted.store.insertIncident(record({ class: 'no_progress' }), { batch }).outcome).toBe(
+        'inserted'
+      )
+      bytes = 2000
+      const endState = counted.store.endCapacityBatch(batch)
+      expect(endState).toMatchObject({ bytes: 2000, limitedBy: 'bytes' })
+      expect(counted.store.coverage()).toMatchObject({
+        capacityLatchSet: true,
+        currentlyLimited: true
+      })
+    } finally {
+      counted.restore()
+    }
+  })
+
   it('stops new non-crash rows at the row limit and latches the coverage flag', () => {
     const opened = openIncidentsDatabase(databasePath())
     openDatabases.push(opened)

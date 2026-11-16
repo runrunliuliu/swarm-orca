@@ -27,7 +27,10 @@ import { readMeta } from './incident-store-meta'
 const directories: string[] = []
 const databases: OpenIncidentsDatabase[] = []
 
-function fixture(limits?: { maxRows: number }): {
+function fixture(
+  limits?: { maxRows: number },
+  fileSizeBytes?: () => number
+): {
   userDataPath: string
   store: IncidentStore
   opened: OpenIncidentsDatabase
@@ -40,7 +43,7 @@ function fixture(limits?: { maxRows: number }): {
     userDataPath,
     store: createIncidentStore({
       db: opened.db,
-      fileSizeBytes: opened.fileSizeBytes,
+      fileSizeBytes: fileSizeBytes ?? opened.fileSizeBytes,
       ...(limits ? { limits } : {})
     }),
     opened
@@ -257,6 +260,63 @@ describe('reconcileIncidentShadow: capacity refusals (M2-C3)', () => {
     })
     // Triage can see that something was dropped instead of trusting an empty slot in the list.
     expect(readShadowReplayCoverage(ctx.opened.db).dropped).toBe(1)
+  })
+
+  it('pays two capacity readings per replay instead of one per line (A1)', () => {
+    let reads = 0
+    const ctx = fixture(undefined, () => {
+      reads += 1
+      return 0
+    })
+    for (const id of ['a', 'b', 'c', 'd', 'e']) {
+      appendShadowRecord(ctx.userDataPath, record(`inc_${id}`, { class: 'no_progress' }))
+    }
+
+    const summary = replay(ctx)
+    expect(summary).toMatchObject({ inserted: 5, dropped: 0 })
+    // Five noise lines used to be five counts plus fifteen stats. The batch opens with one reading and
+    // closes with one, so this number does not grow with the backlog.
+    expect(reads).toBe(2)
+  })
+
+  it('admits and drops exactly what the per-line path does for the same fixture (A1)', () => {
+    const entries = ['a', 'b', 'c', 'd', 'e'].map((id, index) =>
+      record(`inc_${id}`, { class: index === 0 ? 'crash' : 'no_progress' })
+    )
+
+    // The replay's own path: one batch reading for the run.
+    const replayed = fixture({ maxRows: 3 })
+    for (const entry of entries) {
+      appendShadowRecord(replayed.userDataPath, entry)
+    }
+    const summary = replay(replayed)
+
+    // The reference: the same records, inserted one at a time with a reading per row.
+    const perLine = fixture({ maxRows: 3 })
+    const perLineResults = entries.map((entry) => perLine.store.insertIncident(entry))
+
+    expect(summary.inserted).toBe(
+      perLineResults.filter((result) => result.outcome === 'inserted').length
+    )
+    expect(summary.dropped).toBe(
+      perLineResults.filter((result) => result.outcome === 'capacity_limited').length
+    )
+    // A crash row is still worth its bytes: it lands first and occupies the first of the three slots.
+    expect(summary).toMatchObject({ inserted: 3, dropped: 2 })
+    expect(
+      perLineResults
+        .filter((result) => result.outcome === 'capacity_limited')
+        .map((result) => result.limitedBy)
+    ).toEqual(['rows', 'rows'])
+    expect(readShadowReplayCoverage(replayed.opened.db).lastDroppedReason).toBe(
+      'capacity_limited:rows'
+    )
+    const ids = (store: IncidentStore): string[] =>
+      store
+        .listIncidents({ limit: 100 })
+        .incidents.map((incident) => incident.id)
+        .sort()
+    expect(ids(replayed.store)).toEqual(ids(perLine.store))
   })
 })
 

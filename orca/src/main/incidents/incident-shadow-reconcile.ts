@@ -45,6 +45,7 @@ import {
   type IncidentShadowReplayCoverage
 } from './incident-shadow-coverage'
 import type { IncidentStore } from './incident-store'
+import type { CapacityBatch } from './incident-store-capacity'
 import { emitIncidentStoreChange } from './incident-store-changes'
 import { bumpMetaNumber, readMetaNumber, writeMeta } from './incident-store-meta'
 
@@ -137,8 +138,18 @@ export function reconcileIncidentShadow(options: {
     watermark
   }
   let lastSeq = watermark
+  /**
+   * A1: the whole replay shares ONE capacity reading instead of paying `COUNT(*)` + three `stat`
+   * calls per line. `finish` closes it with a real read, so a replay that ends over a limit latches
+   * at the end of the batch rather than at the line that crossed it.
+   */
+  let batch: CapacityBatch | null = null
 
   const finish = (stop: ShadowReconcileStop | null): ShadowReconcileSummary => {
+    if (batch !== null) {
+      store.endCapacityBatch(batch)
+      batch = null
+    }
     summary.stopped = stop
     summary.incomplete = stop !== null
     summary.watermark = lastSeq
@@ -158,6 +169,9 @@ export function reconcileIncidentShadow(options: {
   if (files.length === 0) {
     return finish(null)
   }
+
+  const replayBatch = store.beginCapacityBatch()
+  batch = replayBatch
 
   for (const file of files) {
     if (summary.stopped !== null) {
@@ -227,7 +241,7 @@ export function reconcileIncidentShadow(options: {
         }
         break
       }
-      const result = store.insertIncident(record)
+      const result = store.insertIncident(record, { batch: replayBatch })
       if (result.outcome === 'capacity_limited' && record.class !== 'crash') {
         // M2-C3: a refused noise line must not block the rest of the family. It is dropped durably —
         // the count and the last reason are the only trace it ever existed — and replay moves on.

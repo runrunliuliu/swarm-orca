@@ -53,39 +53,57 @@ export function readIncidentCounts(options: {
     IncidentClass,
     number
   >
-  const classRows = db
+  // A1/B-F3: one scan.
+  //
+  // The old shape read `incidents` three times — twice through the `incident_state` view, whose
+  // `status` is a correlated `COALESCE(... ORDER BY created_at DESC LIMIT 1)` subquery evaluated per
+  // row, and once more for `total` — and the worktree query added two temp B-trees for its
+  // `ORDER BY`/`LIMIT`. One grouped query returns everything this read model needs: the per-row
+  // subquery is evaluated once instead of three times, `total` is the sum of the groups (the view has
+  // exactly one row per incident, so the join cannot drop one), and `untriaged`/`byClass`/top-N are
+  // derived from the same rows, so they cannot disagree with each other.
+  const grouped = db
     .prepare(
-      `SELECT i.class AS class, COUNT(*) AS n
+      `SELECT i.class AS class, i.worktree_id AS worktree_id, COUNT(*) AS n,
+              SUM(CASE WHEN s.status = 'untriaged' THEN 1 ELSE 0 END) AS untriaged
          FROM incidents i JOIN incident_state s ON s.incident_id = i.id
-        WHERE s.status = 'untriaged'
-        GROUP BY i.class`
+        GROUP BY i.class, i.worktree_id`
     )
     .all()
   let untriaged = 0
-  for (const row of classRows) {
+  let total = 0
+  // Grouped by `(class, worktree_id)`, so one worktree appears once per class: sum it back into one
+  // entry per worktree before the top-N cut, which is what the per-worktree SQL read returned.
+  const worktrees = new Map<string, number>()
+  for (const row of grouped) {
     const count = Number(row.n ?? 0)
+    const open = Number(row.untriaged ?? 0)
+    total += count
+    untriaged += open
     const name = String(row.class)
     // A class this build does not know is still a row: count it in the total, not in a made-up key.
     if ((INCIDENT_CLASSES as readonly string[]).includes(name)) {
-      byClass[name as IncidentClass] += count
+      byClass[name as IncidentClass] += open
     }
-    untriaged += count
+    // Rows without a worktree binding are counted but not attributed; a group with nothing untriaged
+    // is absent, exactly as the `WHERE status = 'untriaged'` query left it out.
+    if (row.worktree_id !== null && row.worktree_id !== undefined && open > 0) {
+      const worktreeId = String(row.worktree_id)
+      worktrees.set(worktreeId, (worktrees.get(worktreeId) ?? 0) + open)
+    }
   }
-
-  const byWorktree = db
-    .prepare(
-      `SELECT i.worktree_id AS worktree_id, COUNT(*) AS n
-         FROM incidents i JOIN incident_state s ON s.incident_id = i.id
-        WHERE s.status = 'untriaged' AND i.worktree_id IS NOT NULL
-        GROUP BY i.worktree_id
-        -- Deterministic on both keys: equal counts must not reshuffle between two reads.
-        ORDER BY n DESC, i.worktree_id ASC
-        LIMIT ?`
-    )
-    .all(topWorktrees)
-    .map((row) => ({ worktreeId: String(row.worktree_id), untriaged: Number(row.n ?? 0) }))
-
-  const totalRow = db.prepare('SELECT COUNT(*) AS n FROM incidents').get()
+  const byWorktree = [...worktrees.entries()]
+    .map(([worktreeId, open]) => ({ worktreeId, untriaged: open }))
+    // Deterministic on both keys, and `worktreeId` compares as bytes (SQLite's default BINARY
+    // collation on TEXT), so this order is the one the SQL `ORDER BY n DESC, worktree_id ASC` gave.
+    .sort((a, b) => {
+      const byCount = b.untriaged - a.untriaged
+      if (byCount !== 0) {
+        return byCount
+      }
+      return a.worktreeId < b.worktreeId ? -1 : a.worktreeId > b.worktreeId ? 1 : 0
+    })
+    .slice(0, topWorktrees)
 
   // A *local* gap makes `untriaged` a floor. The capacity latch belongs here even though it is past
   // tense: a store that once refused a write may already be missing rows, so the count is a lower
@@ -96,7 +114,7 @@ export function readIncidentCounts(options: {
     coverage.currentlyLimited || coverage.shadowReplay.incomplete || coverage.capacityLatchSet
   return {
     untriaged,
-    total: totalRow ? Number(totalRow.n ?? 0) : 0,
+    total,
     byClass,
     byWorktree,
     coverage: {

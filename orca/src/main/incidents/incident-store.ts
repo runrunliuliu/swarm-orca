@@ -30,6 +30,7 @@ import {
   type IncidentListOptions,
   type IncidentListResult,
   type IncidentStore,
+  type InsertIncidentOptions,
   type InsertIncidentResult
 } from './incident-store-contract'
 import { createCapacityGate } from './incident-store-capacity'
@@ -99,7 +100,10 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
     return row ? (String(row.status) as IncidentStatus) : null
   }
 
-  function insertIncident(record: IncidentRecord): InsertIncidentResult {
+  function insertIncident(
+    record: IncidentRecord,
+    options: InsertIncidentOptions = {}
+  ): InsertIncidentResult {
     if (readOnly) {
       return { outcome: 'read_only', id: null }
     }
@@ -115,11 +119,19 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
     // M2-C2: one sanitize pass before anything lands, so repro/boundary/path fields cannot smuggle a
     // secret just because the writer forgot.
     const safe = sanitizeIncidentRecord(record)
-    const state = capacity.state()
-    if (state.limitedBy !== null && record.class !== 'crash') {
-      // §11.5: noise stops first; a crash row is still worth its bytes.
-      capacity.latch()
-      return { outcome: 'capacity_limited', id: null, limitedBy: state.limitedBy }
+    const batch = options.batch
+    if (record.class !== 'crash') {
+      // §11.5: noise stops first; a crash row is still worth its bytes. That exemption is why the
+      // reading moved inside this branch — a crash row used to pay for a count and three stats whose
+      // answer it then discarded, on the whole PTY-exit path (A1).
+      //
+      // A batch writer's reading is one moment plus its own admissions, so the row cap stays exact
+      // for the rows this process can see; only the byte cap waits for the end-of-batch re-read.
+      const state = batch === undefined ? capacity.state() : capacity.batchState(batch)
+      if (state.limitedBy !== null) {
+        capacity.latch()
+        return { outcome: 'capacity_limited', id: null, limitedBy: state.limitedBy }
+      }
     }
     let inserted = false
     try {
@@ -159,6 +171,12 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
       }
     }
     if (inserted) {
+      // Every row this batch admitted consumes a row, crash included: the per-row path's next count
+      // would have seen it too, and leaving it out would let a replay admit noise the per-row path
+      // refuses.
+      if (batch !== undefined) {
+        batch.admitted += 1
+      }
       // A duplicate changed nothing, so only a real insert announces itself (see incident-store-changes).
       emitIncidentStoreChange({ kind: 'insert', rows: 1 })
       return { outcome: 'inserted', id: record.id }
@@ -302,6 +320,8 @@ export function createIncidentStore(options: CreateIncidentStoreOptions): Incide
 
   return {
     insertIncident,
+    beginCapacityBatch: capacity.beginBatch,
+    endCapacityBatch: capacity.endBatch,
     appendDecision,
     getIncident,
     listIncidents,

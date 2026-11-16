@@ -349,6 +349,10 @@ async function pullHost(options: {
     // Held until the loop is done: the readable prefix is applied in THIS pass, and the page's own
     // verdict becomes the stop reason only if no earlier stop (the line budget) already fired.
     const pageStop = validation.ok ? null : validation.stop
+    // A1/F5: one capacity reading for the page. `endCapacityBatch` runs after the line loop, which
+    // is reached by every `break` in it, so a mid-page stop still reconciles the latch with a real
+    // read. The transactions stay per line: the mid-page stop/partial-apply rule is unchanged.
+    const batch = store.beginCapacityBatch()
     for (const [index, line] of page.lines.entries()) {
       if (index >= seqs.length) {
         // Past the lines this page is allowed to contribute (see `PageValidation.apply`).
@@ -384,7 +388,8 @@ async function pullHost(options: {
           record,
           originHostId: feed.hostId,
           originSeq: seq,
-          pulledAt: probeAt
+          pulledAt: probeAt,
+          batch
         })
       } catch (error) {
         // A throwing store is a store failure, not a fact: stop and keep the cursor where it was.
@@ -473,6 +478,7 @@ async function pullHost(options: {
         break
       }
     }
+    store.endCapacityBatch(batch)
     if (state.stop === null && pageStop !== null) {
       state.stop = pageStop
     }
