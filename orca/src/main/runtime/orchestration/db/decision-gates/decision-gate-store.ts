@@ -11,33 +11,35 @@ import {
 
 // ── Decision Gates ──
 
-export function createGate(
-  this: OrchestrationDb,
-  gate: {
-    taskId: string
-    question: string
-    options?: string[]
-    requester?: { handle: string; paneKey?: string | null; dispatchId: string }
-    /**
-     * §8 C1: the gate is external authority, so it may bypass acceptance — only when recorded.
-     *
-     * Opening a gate settles the Task's active Dispatches, so the acceptance answer has to be a value
-     * produced before `SAVEPOINT create_gate`: the gate writes incidents and an acceptance stop into a
-     * second database, outside the lifecycle write transaction (`incidents/acceptance-gate.ts:10-17`).
-     *
-     * OPTIONAL, and deliberately not a mandatory argument. The RPC call site
-     * (`orchestration.gateCreate`) passes a map it computed itself. A direct caller may omit it and
-     * still gets the invariant from the fallback below: `precomputeActiveDispatchAcceptance` runs after
-     * the guards and BEFORE the savepoint, so the gate decides outside the lifecycle write transaction
-     * on both paths. A Dispatch with no entry is left unsettled (reported through `log`), never
-     * allowed.
-     */
-    acceptanceDecisions?: AcceptanceDecisions
-    /** Convenience for direct callers: applied by the fallback precompute. */
-    acceptanceOverride?: AcceptanceOverride
-    log?: (message: string) => void
-  }
-): DecisionGateRow {
+/** The gate row plus the settlement answer that produced it (`skipped` = left unsettled). */
+export type CreateGateOutcome = { gate: DecisionGateRow; skipped: string[] }
+
+export type CreateGateInput = {
+  taskId: string
+  question: string
+  options?: string[]
+  requester?: { handle: string; paneKey?: string | null; dispatchId: string }
+  /**
+   * §8 C1: the gate is external authority, so it may bypass acceptance — only when recorded.
+   *
+   * Opening a gate settles the Task's active Dispatches, so the acceptance answer has to be a value
+   * produced before `SAVEPOINT create_gate`: the gate writes incidents and an acceptance stop into a
+   * second database, outside the lifecycle write transaction (`incidents/acceptance-gate.ts:10-17`).
+   *
+   * OPTIONAL, and deliberately not a mandatory argument. The RPC call site
+   * (`orchestration.gateCreate`) passes a map it computed itself. A direct caller may omit it and
+   * still gets the invariant from the fallback below: `precomputeActiveDispatchAcceptance` runs after
+   * the guards and BEFORE the savepoint, so the gate decides outside the lifecycle write transaction
+   * on both paths. A Dispatch with no entry is left unsettled (reported through `log`), never
+   * allowed.
+   */
+  acceptanceDecisions?: AcceptanceDecisions
+  /** Convenience for direct callers: applied by the fallback precompute. */
+  acceptanceOverride?: AcceptanceOverride
+  log?: (message: string) => void
+}
+
+function applyCreateGate(this: OrchestrationDb, gate: CreateGateInput): CreateGateOutcome {
   const task = this.getTask(gate.taskId)
   if (!task) {
     throw new OrchestrationError(
@@ -112,7 +114,7 @@ export function createGate(
         'INSERT INTO decision_gates (id, run_id, task_id, question, options) VALUES (?, ?, ?, ?, ?)'
       )
       .run(id, runId, gate.taskId, gate.question, optionsJson)
-    this.completeActiveDispatchesForTask(gate.taskId, {
+    const settlement = this.completeActiveDispatchesForTask(gate.taskId, {
       decisions,
       ...(gate.log === undefined ? {} : { log: gate.log })
     })
@@ -126,12 +128,31 @@ export function createGate(
       | DecisionGateRow
       | undefined
     this.db.exec('RELEASE create_gate')
-    return created as DecisionGateRow
+    return { gate: created as DecisionGateRow, skipped: [...settlement.skipped] }
   } catch (error) {
     this.db.exec('ROLLBACK TO create_gate')
     this.db.exec('RELEASE create_gate')
     throw error
   }
+}
+
+/**
+ * The row-returning form direct callers already use.
+ *
+ * Kept for them, because a caller that just created a gate does not need the settlement answer. A
+ * caller reporting to an operator uses `createGateWithSettlement` rather than querying the active
+ * dispatch set again.
+ */
+export function createGate(this: OrchestrationDb, gate: CreateGateInput): DecisionGateRow {
+  return applyCreateGate.call(this, gate).gate
+}
+
+/** The same gate, returning the settlement helper's exact `skipped` ids alongside the row. */
+export function createGateWithSettlement(
+  this: OrchestrationDb,
+  gate: CreateGateInput
+): CreateGateOutcome {
+  return applyCreateGate.call(this, gate)
 }
 
 export function resolveGate(
@@ -210,6 +231,7 @@ export function getGate(this: OrchestrationDb, id: string): DecisionGateRow | un
 
 export type DecisionGateStoreMethods = {
   createGate: typeof createGate
+  createGateWithSettlement: typeof createGateWithSettlement
   resolveGate: typeof resolveGate
   timeoutGate: typeof timeoutGate
   listGates: typeof listGates
@@ -219,6 +241,7 @@ export type DecisionGateStoreMethods = {
 export function attachDecisionGateStore(ctor: { prototype: object }): void {
   Object.assign(ctor.prototype, {
     createGate,
+    createGateWithSettlement,
     resolveGate,
     timeoutGate,
     listGates,

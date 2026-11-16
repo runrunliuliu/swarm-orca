@@ -162,3 +162,37 @@ describe('createGate for a direct caller that omits acceptanceDecisions', () => 
     expect(getAcceptanceStop(opened.db, dispatch.id)).toMatchObject({ state: 'pending' })
   })
 })
+
+/**
+ * B-F10: `createGateWithSettlement` reports the settlement helper's own `skipped` ids.
+ *
+ * `gate-create` settles the Task's active Dispatches and used to be silent about the ones it left open,
+ * while `task-update` printed a separately queried list. Both now carry the same answer.
+ */
+describe('createGateWithSettlement returns the settlement answer', () => {
+  it('names the blocked dispatch by exact id', () => {
+    db = new OrchestrationDb(':memory:')
+    const task = db.createTask({ runId: 'run_legacy_local', spec: 'gate over a blocked dispatch' })
+    const dispatch = createRootDispatch(db, task.id, 'term_a')
+    const { opened, store } = incidents()
+    declareFailedRule(opened.db, dispatch.id)
+    __configureIncidentStoreForTests(store, opened.db)
+
+    const created = db.createGateWithSettlement({ taskId: task.id, question: 'Proceed?' })
+
+    expect(created.gate.status).toBe('pending')
+    expect(created.skipped).toEqual([dispatch.id])
+    expect(db.getTask(task.id)?.status).toBe('blocked')
+    expect(db.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
+  })
+
+  it('omits the key entirely on a clean settle', () => {
+    db = new OrchestrationDb(':memory:')
+    const task = db.createTask({ runId: 'run_legacy_local', spec: 'gate with nothing active' })
+
+    const created = db.createGateWithSettlement({ taskId: task.id, question: 'Proceed?' })
+
+    expect(created.gate.status).toBe('pending')
+    expect(created.skipped).toEqual([])
+  })
+})

@@ -5,9 +5,15 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import type { AcceptanceRule } from './dispatch-acceptance-store'
+import { declareAcceptanceRule, getAcceptanceStop } from './dispatch-acceptance-store'
+import { openIncidentsDatabase, type OpenIncidentsDatabase } from './incidents-database'
+import { createIncidentStore } from './incident-store'
+import { gateDispatchSettlement } from './acceptance-gate'
+import { evaluateAcceptanceForDispatch } from './acceptance-runtime'
 import {
+  DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS,
   decideAcceptanceVerdict,
   evaluateAcceptanceRules,
   stdoutFingerprint,
@@ -142,7 +148,7 @@ describe('evaluateAcceptanceRules', () => {
     }
   })
 
-  it('passes cwd, argv and the timeout through to the runner, never a shell string', async () => {
+  it('passes cwd, argv and the declared timeout through to the runner when the budget allows it', async () => {
     const seen: unknown[] = []
     const runner: AcceptanceRunner = async (spec) => {
       seen.push(spec)
@@ -150,7 +156,9 @@ describe('evaluateAcceptanceRules', () => {
     }
     await evaluateAcceptanceRules({
       rules: [rule({ args: ['test', '--reporter=dot'] })],
-      runner
+      runner,
+      // Above the declared 60 s, so the aggregate clip (asserted below) cannot mask the pass-through.
+      budgetMs: 120_000
     })
     expect(seen).toEqual([
       {
@@ -225,5 +233,200 @@ describe('stdoutFingerprint', () => {
   it('is the sha256 and byte length, not the text', () => {
     expect(stdoutFingerprint('PASS')).toMatchObject({ bytes: 4 })
     expect(stdoutFingerprint('PASS').digest).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+/**
+ * #9: one aggregate evaluation budget, clipped per rule.
+ *
+ * `orchestration.send` awaits the evaluation inside the RPC, and the client's timeout for that method is
+ * the 60 s default. A rule's declared timeout is up to 10 minutes and rules run sequentially, so without
+ * a shared deadline the transport dies before the settlement the caller asked for — and the caller gets
+ * no answer at all instead of a visible reason.
+ */
+describe('the aggregate evaluation budget', () => {
+  it('stays safely below the 60 s send transport budget', () => {
+    // The client default is 60 s (`cli/runtime/client.ts` constructor). The gap is the transport grace
+    // for the settlement write, the receipt and the socket, so it must be a real margin, not 1 ms.
+    expect(DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS).toBeLessThan(60_000)
+    expect(DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS).toBeLessThanOrEqual(50_000)
+  })
+
+  it('clips a rule to the remaining budget and still lets a fast rule pass', async () => {
+    const seen: number[] = []
+    const runner: AcceptanceRunner = async (spec) => {
+      seen.push(spec.timeoutMs)
+      return run()
+    }
+    const verdicts = await evaluateAcceptanceRules({
+      rules: [rule({ timeoutMs: 600_000 })],
+      runner,
+      now: () => T0,
+      budgetMs: 5_000
+    })
+    // Declared ten minutes, given the whole remaining budget — never more.
+    expect(seen).toEqual([5_000])
+    // Passing inside the budget is unchanged: the clip is not a verdict.
+    expect(verdicts[0]).toMatchObject({ verdict: 'passed', detail: 'ok' })
+  })
+
+  it('answers every rule the budget cannot accommodate, before the budget, with a typed reason', async () => {
+    // A fake clock that advances exactly as long as each run was allowed to take: three rules declaring
+    // 60 s each against a 100 ms budget must consume 100 ms, not 180 s.
+    let clock = T0
+    const asked: number[] = []
+    const runner: AcceptanceRunner = async (spec) => {
+      asked.push(spec.timeoutMs)
+      clock += spec.timeoutMs
+      return run({ timedOut: true, code: null })
+    }
+    const verdicts = await evaluateAcceptanceRules({
+      rules: [
+        rule({ ruleId: 'a', timeoutMs: 60_000 }),
+        rule({ ruleId: 'b', timeoutMs: 60_000 }),
+        rule({ ruleId: 'c', timeoutMs: 60_000 })
+      ],
+      runner,
+      now: () => clock,
+      budgetMs: 100
+    })
+
+    expect(clock - T0).toBe(100)
+    // One run only: the first rule was clipped to the whole budget, and by the time it was cut off there
+    // was nothing left to start a second one with.
+    expect(asked).toEqual([100])
+    expect(verdicts.map((verdict) => [verdict.ruleId, verdict.verdict])).toEqual([
+      ['a', 'undeterminable'],
+      ['b', 'undeterminable'],
+      ['c', 'undeterminable']
+    ])
+    expect(verdicts.map((verdict) => verdict.detail)).toEqual([
+      'aggregate_deadline:timeout_after_100ms',
+      'aggregate_deadline:not_run',
+      'aggregate_deadline:not_run'
+    ])
+    // Every answer still belongs to the rule revision the gate will compare against (§8 C7).
+    for (const verdict of verdicts) {
+      expect(verdict.ruleDigest).toBe('d'.repeat(64))
+      expect(verdict.ruleDeclaredAt).toBe(T0)
+    }
+  })
+
+  it('keeps the verdicts of rules that ran before the budget ran out', async () => {
+    let clock = T0
+    const runner: AcceptanceRunner = async (spec) => {
+      clock += spec.timeoutMs
+      return run()
+    }
+    const verdicts = await evaluateAcceptanceRules({
+      rules: [
+        rule({ ruleId: 'a', timeoutMs: 40 }),
+        rule({ ruleId: 'b', timeoutMs: 60 }),
+        rule({ ruleId: 'c', timeoutMs: 60 }),
+        rule({ ruleId: 'd', timeoutMs: 60 })
+      ],
+      runner,
+      now: () => clock,
+      budgetMs: 100
+    })
+
+    expect(clock - T0).toBe(100)
+    expect(verdicts.map((verdict) => [verdict.ruleId, verdict.verdict, verdict.detail])).toEqual([
+      ['a', 'passed', 'ok'],
+      ['b', 'passed', 'ok'],
+      ['c', 'undeterminable', 'aggregate_deadline:not_run'],
+      ['d', 'undeterminable', 'aggregate_deadline:not_run']
+    ])
+  })
+})
+
+describe('a budget-cut evaluation at the settlement gate', () => {
+  const directories: string[] = []
+  const databases: OpenIncidentsDatabase[] = []
+
+  function incidents(): {
+    opened: OpenIncidentsDatabase
+    store: ReturnType<typeof createIncidentStore>
+  } {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-acceptance-budget-'))
+    directories.push(directory)
+    const opened = openIncidentsDatabase(join(directory, 'incidents', 'incidents.db'))
+    databases.push(opened)
+    return {
+      opened,
+      store: createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes })
+    }
+  }
+
+  afterEach(() => {
+    for (const opened of databases.splice(0)) {
+      try {
+        opened.db.close()
+      } catch {
+        // Already closed.
+      }
+    }
+    for (const directory of directories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('blocks the settlement and leaves the budget reason on the visible stop', async () => {
+    const { opened, store } = incidents()
+    for (const ruleId of ['a', 'b']) {
+      declareAcceptanceRule(opened.db, {
+        hostId: 'host-a',
+        dispatchId: 'disp-1',
+        ruleId,
+        program: 'npm',
+        args: ['test'],
+        expect: { exitCode: 0 },
+        cwd: wt.cwd,
+        worktreeRoot: wt.root,
+        actor: 'alice',
+        now: T0
+      })
+    }
+    // The shipped budget, driven by a fake clock: two rules declaring the 60 s default cannot both run.
+    let clock = T0
+    const runner: AcceptanceRunner = async (spec) => {
+      clock += spec.timeoutMs
+      return run({ timedOut: true, code: null })
+    }
+
+    const summary = await evaluateAcceptanceForDispatch('disp-1', {
+      runtime: { store, db: opened.db },
+      runner,
+      now: () => clock
+    })
+
+    expect(clock - T0).toBe(DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS)
+    expect(summary).toMatchObject({ evaluated: 2, undeterminable: 2, passed: 0 })
+
+    // Fail closed: both rules are undeterminable, so the gate refuses the settlement. The budget reason
+    // travels with the verdict and lands on the incident, which is what `incident acceptance show`
+    // prints — the operator can see why it blocked, not just that it did.
+    const outcome = gateDispatchSettlement({ db: opened.db, store }, 'disp-1')
+    expect(outcome.verdict).toBe('blocked')
+    expect(outcome.verdict === 'blocked' ? [...outcome.blockedRules].sort() : []).toEqual([
+      'a',
+      'b'
+    ])
+    expect(getAcceptanceStop(opened.db, 'disp-1')).toMatchObject({ state: 'pending' })
+    const summaries = store.listIncidents().incidents.map((incident) => incident.summary)
+    expect(summaries.filter((summary) => summary.includes('aggregate_deadline'))).toHaveLength(2)
+
+    // A retry re-evaluates while the stop is open, and that is where the stop's own `last_error`
+    // (`incident acceptance list`) comes from — the reason is on both surfaces.
+    clock += 1
+    await evaluateAcceptanceForDispatch('disp-1', {
+      runtime: { store, db: opened.db },
+      runner,
+      now: () => clock
+    })
+    expect(getAcceptanceStop(opened.db, 'disp-1')).toMatchObject({
+      state: 'pending',
+      lastError: `aggregate_deadline:timeout_after_${DISPATCH_ACCEPTANCE_AGGREGATE_BUDGET_MS}ms`
+    })
   })
 })

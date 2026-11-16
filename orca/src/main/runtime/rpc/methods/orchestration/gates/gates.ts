@@ -130,14 +130,17 @@ export const ORCHESTRATION_GATE_METHODS = [
           ? {}
           : { acceptanceOverride: params.overrideAcceptance })
       })
-      const gate = db.createGate({
+      const { gate, skipped } = db.createGateWithSettlement({
         taskId: params.task,
         question: params.question,
         options,
         acceptanceDecisions,
         log: (message) => console.warn('[orchestration]', message)
       })
-      return { gate }
+      // B-F10: opening a gate settles the Task's active Dispatches, so it can leave some unsettled for
+      // the same reasons a Task terminal does (acceptance blocked, or no decision for a newcomer).
+      // The ids are the settlement helper's own answer — gate-create used to be silent about them.
+      return skipped.length === 0 ? { gate } : { gate, skippedAcceptance: skipped }
     }
   }),
 

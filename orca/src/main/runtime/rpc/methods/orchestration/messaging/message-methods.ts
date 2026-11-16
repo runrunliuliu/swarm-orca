@@ -284,24 +284,21 @@ export const ORCHESTRATION_MESSAGE_METHODS = [
           `Task ${params.id} was not found in Run ${run.id}.`
         )
       }
-      const task = db.updateTaskStatus(
+      const settled = db.updateTaskStatusWithSettlement(
         params.id,
         params.status,
         params.result,
         params.overrideAcceptance
       )
+      const task = settled.task
       if (!task) {
         throw new Error(`Task not found: ${params.id}`)
       }
       // §8 C1: name the dispatches a bypass did NOT settle, so an operator who used the override
-      // without a declaration change still learns that something stayed open.
-      const skippedAcceptance = db
-        .db.prepare(
-          "SELECT id FROM dispatch_contexts WHERE task_id = ? AND status IN ('pending', 'dispatched')"
-        )
-        .all(params.id)
-        .map((row) => String(row.id))
-      return skippedAcceptance.length === 0 ? { task } : { task, skippedAcceptance }
+      // without a declaration change still learns that something stayed open. The ids are the
+      // settlement helper's own answer (B-F10): re-querying "which dispatches are still active" was a
+      // second definition of "not settled" that drifted from the decision that left them open.
+      return settled.skipped.length === 0 ? { task } : { task, skippedAcceptance: settled.skipped }
     }
   })
 ]

@@ -119,6 +119,8 @@ export const ORCHESTRATION_TASK_HANDLERS: Record<string, CommandHandler> = {
       result,
       json,
       (r) =>
+        // `skippedAcceptance` is the settlement helper's own answer (B-F10), so this line names exactly
+        // what the transition left open rather than whatever happens to be active afterwards.
         `Updated ${r.task.id} -> ${r.task.status}` +
         (r.skippedAcceptance && r.skippedAcceptance.length > 0
           ? `\nNot settled (acceptance blocked; re-run with --override-acceptance --actor <name> --reason <text> to record a bypass): ${r.skippedAcceptance.join(', ')}`

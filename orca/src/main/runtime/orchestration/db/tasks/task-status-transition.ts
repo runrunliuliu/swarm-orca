@@ -4,7 +4,8 @@ import {
   precomputeActiveDispatchAcceptance,
   settleActiveDispatchesForTask,
   type AcceptanceDecisions,
-  type AcceptanceOverride
+  type AcceptanceOverride,
+  type DispatchSettlementReport
 } from '../dispatch-context/dispatch-completion'
 import type { OrchestrationDb } from '../orchestration-db'
 import {
@@ -16,14 +17,27 @@ import {
 
 const UPDATE_TASK_STATUS_SAVEPOINT = 'update_task_status'
 
-export function updateTaskStatus(
+/**
+ * A Task transition's row plus the settlement answer that produced it.
+ *
+ * Same shape as the `TaskRow | undefined` every direct caller already uses, plus `skipped` — the exact
+ * dispatches this transition's settlement left unsettled, captured from the helper instead of being
+ * re-derived by a second query (see `DispatchSettlementReport`). `skipped` is empty for a non-terminal
+ * status: those transitions settle nothing, so nothing is "left unsettled" by them.
+ */
+export type TaskStatusTransitionOutcome = {
+  task: TaskRow | undefined
+  skipped: string[]
+}
+
+function applyTaskStatusTransition(
   this: OrchestrationDb,
   id: string,
   status: TaskStatus,
   result?: string,
   /** §8 C1: operator maintenance bypass; undefined means "blocked dispatches stay open". */
   acceptanceOverride?: AcceptanceOverride
-): TaskRow | undefined {
+): TaskStatusTransitionOutcome {
   const terminalStatus = status === 'completed' || status === 'failed'
   const requiresActiveDispatch = status === 'dispatched'
   const permitsActiveDispatch = terminalStatus || requiresActiveDispatch
@@ -47,7 +61,7 @@ export function updateTaskStatus(
     const task = this.getTask(id)
     if (!task) {
       commitLifecycleWriteTransaction(this.db, transaction)
-      return undefined
+      return { task: undefined, skipped: [] }
     }
     const active = this.db
       .prepare(
@@ -97,7 +111,7 @@ export function updateTaskStatus(
     }
     if (task.status === status && result === undefined) {
       commitLifecycleWriteTransaction(this.db, transaction)
-      return task
+      return { task, skipped: [] }
     }
     try {
       transitionLifecycleWithDb(this.db, {
@@ -121,10 +135,11 @@ export function updateTaskStatus(
         throw error
       }
       commitLifecycleWriteTransaction(this.db, transaction)
-      return current
+      return { task: current, skipped: [] }
     }
+    let settlement: DispatchSettlementReport = { skipped: [] }
     if (terminalStatus) {
-      settleActiveDispatchesForTask(this, id, status, result, {
+      settlement = settleActiveDispatchesForTask(this, id, status, result, {
         decisions: dispatchAcceptance,
         // F10: the option stays, so a caller can route the "left unsettled" reason. There is no logger
         // on this connection, so it goes to the main-process log rather than being discarded.
@@ -136,17 +151,46 @@ export function updateTaskStatus(
     }
     const updatedTask = this.getTask(id)
     commitLifecycleWriteTransaction(this.db, transaction)
-    return updatedTask
+    return { task: updatedTask, skipped: [...settlement.skipped] }
   } catch (error) {
     rollbackLifecycleWriteTransaction(this.db, transaction)
     throw error
   }
 }
 
+/**
+ * The row-returning form every direct caller already uses; `undefined` means "no such Task".
+ *
+ * Kept because it is the whole answer a caller that is not reporting a settlement needs. A caller that
+ * must tell an operator *which* dispatches stayed open uses `updateTaskStatusWithSettlement` instead of
+ * asking the database a second question.
+ */
+export function updateTaskStatus(
+  this: OrchestrationDb,
+  id: string,
+  status: TaskStatus,
+  result?: string,
+  acceptanceOverride?: AcceptanceOverride
+): TaskRow | undefined {
+  return applyTaskStatusTransition.call(this, id, status, result, acceptanceOverride).task
+}
+
+/** The same transition, returning the settlement helper's exact `skipped` ids alongside the row. */
+export function updateTaskStatusWithSettlement(
+  this: OrchestrationDb,
+  id: string,
+  status: TaskStatus,
+  result?: string,
+  acceptanceOverride?: AcceptanceOverride
+): TaskStatusTransitionOutcome {
+  return applyTaskStatusTransition.call(this, id, status, result, acceptanceOverride)
+}
+
 export type TaskStatusTransitionMethods = {
   updateTaskStatus: typeof updateTaskStatus
+  updateTaskStatusWithSettlement: typeof updateTaskStatusWithSettlement
 }
 
 export function attachTaskStatusTransition(ctor: { prototype: object }): void {
-  Object.assign(ctor.prototype, { updateTaskStatus })
+  Object.assign(ctor.prototype, { updateTaskStatus, updateTaskStatusWithSettlement })
 }

@@ -57,6 +57,15 @@ export type AcceptanceOverride = { actor: string; reason: string }
 export type AcceptanceDecisions = ReadonlyMap<string, AcceptanceDecision>
 
 /**
+ * What one settlement did NOT settle, by exact dispatch id.
+ *
+ * This is the helper's own answer, so it is the only value an RPC result may report: a caller that
+ * re-queries "which dispatches are still active" after the mutation answers a different question
+ * ("what is active now") and the two drift as soon as a status is added.
+ */
+export type DispatchSettlementReport = { skipped: string[] }
+
+/**
  * The acceptance decision for every currently active Dispatch of one Task.
  *
  * Call this BEFORE opening a lifecycle write transaction. `decideMaintenanceAcceptance` writes
@@ -114,7 +123,7 @@ export function settleActiveDispatchesForTask(
   status: 'completed' | 'failed',
   failure: string | undefined,
   options: { decisions: AcceptanceDecisions; log?: (message: string) => void }
-): { skipped: string[] } {
+): DispatchSettlementReport {
   const requiresAcceptance = status === 'completed'
   const decisions = options.decisions
   const log = options.log
@@ -169,7 +178,7 @@ export function completeActiveDispatchesForTask(
   this: OrchestrationDb,
   taskId: string,
   options: { decisions: AcceptanceDecisions; log?: (message: string) => void }
-): { skipped: string[] } {
+): DispatchSettlementReport {
   return settleActiveDispatchesForTask(this, taskId, 'completed', undefined, options)
 }
 

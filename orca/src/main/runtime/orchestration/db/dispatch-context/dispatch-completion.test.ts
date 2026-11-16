@@ -332,3 +332,69 @@ describe('the failed path', () => {
     expect(store.listIncidents().incidents).toEqual([])
   })
 })
+
+/**
+ * B-F10: the RPC result reports the settlement helper's own `skipped` ids, not a second query.
+ *
+ * The two answers are not the same question — `skipped` is "this settlement left this dispatch
+ * unsettled", while "which dispatches are still active" is a snapshot taken after the mutation — so the
+ * transition has to hand its own answer to the caller.
+ */
+describe('updateTaskStatusWithSettlement returns the settlement answer', () => {
+  it('names the blocked dispatch by exact id', () => {
+    const { db, taskId, dispatchId } = fixture()
+    const { opened, store } = incidents()
+    declareRule(opened.db, dispatchId)
+    __configureIncidentStoreForTests(store, opened.db)
+
+    const settled = db.updateTaskStatusWithSettlement(taskId, 'completed')
+
+    expect(settled.task?.status).toBe('completed')
+    expect(settled.skipped).toEqual([dispatchId])
+    // Blocked never means failed: the dispatch is still exactly where it was.
+    expect(db.getDispatchContextById(dispatchId)?.status).toBe('dispatched')
+  })
+
+  it('omits the key entirely on a clean settle', () => {
+    const { db, taskId, dispatchId } = fixture()
+    const { opened, store } = incidents()
+    declareRule(opened.db, dispatchId, 'passed')
+    __configureIncidentStoreForTests(store, opened.db)
+
+    const settled = db.updateTaskStatusWithSettlement(taskId, 'completed')
+
+    expect(settled.skipped).toEqual([])
+    expect(db.getDispatchContextById(dispatchId)?.status).toBe('completed')
+  })
+
+  it('does not name an inactive dispatch, and a repeat adds no stale id', () => {
+    const db = orchestration()
+    const task = db.createTask({ runId: 'run_legacy_local', spec: 'work' })
+    // An earlier attempt that already failed is inactive: it is not something this settlement leaves open.
+    const earlier = createRootDispatch(db, task.id, 'term_a')
+    db.failDispatch(earlier.id, 'retry me')
+    const active = createRootDispatch(db, task.id, 'term_b')
+    const { opened, store } = incidents()
+    declareRule(opened.db, active.id)
+    __configureIncidentStoreForTests(store, opened.db)
+
+    const first = db.updateTaskStatusWithSettlement(task.id, 'completed')
+    expect(first.skipped).toEqual([active.id])
+    // No duplicate entries for one dispatch, whatever the row set looked like.
+    expect(new Set(first.skipped).size).toBe(first.skipped.length)
+
+    // Re-running the same terminal transition settles nothing, so it reports nothing — it must not
+    // recycle the previous call's ids.
+    expect(db.updateTaskStatusWithSettlement(task.id, 'completed').skipped).toEqual([])
+  })
+
+  it('reports nothing for a non-terminal transition, which settles nothing', () => {
+    const db = orchestration()
+    const task = db.createTask({ runId: 'run_legacy_local', spec: 'work' })
+    const dispatch = createRootDispatch(db, task.id, 'term_a')
+
+    // `dispatched` is a no-op re-assert: the active dispatch is expected, not "left unsettled".
+    expect(db.updateTaskStatusWithSettlement(task.id, 'dispatched').skipped).toEqual([])
+    expect(db.getDispatchContextById(dispatch.id)?.status).toBe('dispatched')
+  })
+})

@@ -10,6 +10,7 @@ export const ORCHESTRATION_GATE_HANDLERS: Record<string, CommandHandler> = {
     const override = acceptanceOverrideFromFlags(flags)
     const result = await callOrchestrationMutation<{
       gate: { id: string; task_id: string; status: string }
+      skippedAcceptance?: string[]
     }>(client, flags, 'orchestration.gateCreate', {
       task: getRequiredStringFlag(flags, 'task'),
       question: getRequiredStringFlag(flags, 'question'),
@@ -22,7 +23,12 @@ export const ORCHESTRATION_GATE_HANDLERS: Record<string, CommandHandler> = {
       result,
       json,
       (value) =>
-        `Gate ${value.gate.id} created for task ${value.gate.task_id} [${value.gate.status}]`
+        `Gate ${value.gate.id} created for task ${value.gate.task_id} [${value.gate.status}]` +
+        // B-F10: same wording as `task-update` — a gate settles the Task's active Dispatches, so an
+        // unsettled one must be as visible here as it is there.
+        (value.skippedAcceptance && value.skippedAcceptance.length > 0
+          ? `\nNot settled (acceptance blocked; re-run with --override-acceptance --actor <name> --reason <text> to record a bypass): ${value.skippedAcceptance.join(', ')}`
+          : '')
     )
   },
 
