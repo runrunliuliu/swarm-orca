@@ -93,6 +93,9 @@ const RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
 const COMPUTER_PASSTHROUGH_CODES: ReadonlySet<string> = new Set(Object.values(COMPUTER_ERROR_CODES))
 const LINEAR_PASSTHROUGH_CODES: ReadonlySet<string> = new Set(LINEAR_ERROR_CODES)
 const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
+  // Why `not_found` is structured: a client asking for one row must tell "that row is gone" apart from
+  // "the transport or the host failed". Flattened to `runtime_error` the only signal left is prose.
+  'not_found',
   'strict_coordinator_required',
   'strict_continuity_required',
   // Start-grant refusals are decisions the caller must tell apart — "expired" retries with a new
