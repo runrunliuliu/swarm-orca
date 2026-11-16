@@ -34,7 +34,11 @@ export function RightSidebarPanelContent({
         {effectiveTab === 'ports' && (
           <PortsPanel isVisible={rightSidebarOpen && effectiveTab === 'ports'} />
         )}
-        {effectiveTab === 'incidents' && <IncidentPanel />}
+        {/* Why isVisible: the sidebar keeps the panel mounted while collapsed, so without the
+            flag it keeps reading the 200-row snapshot on every coalesced store push. */}
+        {effectiveTab === 'incidents' && (
+          <IncidentPanel isVisible={rightSidebarOpen && effectiveTab === 'incidents'} />
+        )}
         {effectiveTab === 'vault' && <AiVaultPanel />}
         {effectiveTab === 'workspaces' && <FolderWorkspaceWorktreesPanel />}
         {effectiveTab === 'pr-checks' && (

@@ -99,24 +99,33 @@ afterEach(async () => {
   document.body.innerHTML = ''
 })
 
-async function renderPanel(): Promise<HTMLElement> {
+type PanelHandle = {
+  container: HTMLElement
+  /** Re-render with another sidebar visibility, as collapsing/opening the sidebar does. */
+  show: (isVisible: boolean) => Promise<void>
+}
+
+async function renderPanel(options: { isVisible?: boolean } = {}): Promise<PanelHandle> {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
   roots.push(root)
-  await act(async () => {
-    root.render(<IncidentPanel />)
-  })
-  // Let the snapshot promise settle.
-  await act(async () => {
-    await Promise.resolve()
-  })
-  return container
+  const show = async (isVisible: boolean): Promise<void> => {
+    await act(async () => {
+      root.render(<IncidentPanel isVisible={isVisible} />)
+    })
+    // Let the snapshot promise settle.
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+  await show(options.isVisible ?? true)
+  return { container, show }
 }
 
 describe('IncidentPanel', () => {
   it('loads the default untriaged view without a standing remote warning', async () => {
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(api.snapshot).toHaveBeenCalledWith({ limit: 200, status: 'untriaged' })
     expect(container.textContent).toContain('Agent process killed by signal 9')
     expect(container.textContent).toContain('Status: untriaged')
@@ -134,7 +143,7 @@ describe('IncidentPanel', () => {
         })
       )
     )
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(container.textContent).toContain('Remote view')
     expect(container.textContent).toContain('has not been probed yet')
   })
@@ -145,7 +154,7 @@ describe('IncidentPanel', () => {
       code: 'incident_store_unavailable',
       error: 'no store yet'
     })
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(container.textContent).toContain(
       'The incident store could not be read, so this is not a claim that there are no incidents.'
     )
@@ -154,7 +163,7 @@ describe('IncidentPanel', () => {
   })
 
   it('opens the drawer for a row and records a decision, then refreshes both reads', async () => {
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(api.detail).not.toHaveBeenCalled()
 
     const row = container.querySelector<HTMLButtonElement>('ul button')
@@ -207,7 +216,7 @@ describe('IncidentPanel', () => {
     api.decide.mockResolvedValue(
       ok({ outcome: 'actor_required', detail: '`confirmed` requires an explicit actor.' })
     )
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     const row = container.querySelector<HTMLButtonElement>('ul button')
     await act(async () => {
       row?.click()
@@ -244,7 +253,7 @@ describe('IncidentPanel', () => {
   })
 
   it('switches to the grayscale views and reads them only when selected', async () => {
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(api.paneClocks).not.toHaveBeenCalled()
     expect(api.toolFailures).not.toHaveBeenCalled()
 
@@ -275,7 +284,7 @@ describe('IncidentPanel', () => {
   })
 
   it('refreshes on the coalesced counts push instead of polling', async () => {
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     const listener = api.onCountsChanged.mock.calls[0]?.[0] as (() => void) | undefined
     expect(listener).toBeTypeOf('function')
     const before = api.snapshot.mock.calls.length
@@ -299,7 +308,7 @@ describe('IncidentPanel', () => {
         })
       )
     )
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(container.textContent).toContain('refusing writes right now')
     expect(container.textContent).toContain('This is not "nothing happened"')
   })
@@ -308,20 +317,67 @@ describe('IncidentPanel', () => {
     api.snapshot.mockResolvedValue(
       ok(snapshotValue({ total: 40, incidents: [listItemFixture()] }))
     )
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(container.textContent).toContain('Showing 1 of 40 matching incidents')
   })
 
   it('keeps working without the bridge (a paired web client has no incident API)', async () => {
     ;(window as unknown as { api: unknown }).api = {}
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(container.textContent).toContain('The incident bridge is not available')
   })
 
   it('uses FIXTURE_NOW-independent relative times without crashing', async () => {
     // Guards the `formatUiRelativeTime` call path: a missing locale resolver used to throw here.
-    const container = await renderPanel()
+    const { container } = await renderPanel()
     expect(container.textContent).toContain('Agent process killed by signal 9')
     expect(FIXTURE_NOW).toBeGreaterThan(0)
+  })
+
+  // Review C7: the sidebar keeps this panel mounted while collapsed, so an unrefreshed-but-alive
+  // panel must not keep reading the 200-row snapshot on every coalesced store write.
+  it('reads nothing while collapsed, refetches once on open, and follows the push while visible', async () => {
+    const { container, show } = await renderPanel({ isVisible: false })
+    expect(api.snapshot).not.toHaveBeenCalled()
+
+    const listener = api.onCountsChanged.mock.calls[0]?.[0] as (() => void) | undefined
+    expect(listener).toBeTypeOf('function')
+    // A push while hidden is dropped, not queued into a read for a panel nobody can see.
+    await act(async () => {
+      listener?.()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.snapshot).not.toHaveBeenCalled()
+    expect(container.textContent).not.toContain('Agent process killed by signal 9')
+
+    await show(true)
+    expect(api.snapshot).toHaveBeenCalledTimes(1)
+    expect(container.textContent).toContain('Agent process killed by signal 9')
+
+    // …and while visible the push still refreshes, so there is no stale-forever path.
+    await act(async () => {
+      listener?.()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.snapshot).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops following the push again once the sidebar collapses', async () => {
+    const { show } = await renderPanel()
+    const listener = api.onCountsChanged.mock.calls[0]?.[0] as (() => void) | undefined
+    expect(api.snapshot).toHaveBeenCalledTimes(1)
+
+    await show(false)
+    await act(async () => {
+      listener?.()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(api.snapshot).toHaveBeenCalledTimes(1)
   })
 })

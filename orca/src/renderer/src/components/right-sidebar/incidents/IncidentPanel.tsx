@@ -84,7 +84,12 @@ function emptyStateMessage(
   }
 }
 
-export default function IncidentPanel(): React.JSX.Element {
+export default function IncidentPanel({
+  isVisible
+}: {
+  /** False while the right sidebar is collapsed: the panel stays mounted, so its reads must stop. */
+  isVisible: boolean
+}): React.JSX.Element {
   const [filters, setFilters] = useState<IncidentFilters>(DEFAULT_INCIDENT_FILTERS)
   const [view, setView] = useState<IncidentPanelView>('list')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -94,7 +99,7 @@ export default function IncidentPanel(): React.JSX.Element {
   const now = useNow(60_000)
 
   const request = useMemo(() => incidentListRequest(filters), [filters])
-  const { snapshot, loading, error, reload } = useIncidentSnapshot(request)
+  const { snapshot, loading, error, reload } = useIncidentSnapshot(request, isVisible)
   const detail = useIncidentDetail(selectedId)
   const paneClocks = useIncidentPaneClocks(view === 'paneClocks')
   const toolFailures = useIncidentToolFailures(view === 'toolFailures')

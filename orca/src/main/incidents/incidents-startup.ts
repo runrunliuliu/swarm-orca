@@ -14,24 +14,29 @@
 // of the process. A user who fixes the directory should not need a restart *and* the replay; this is
 // the natural moment to try again, because it is also the moment the replay needs the store.
 
+import { existsSync } from 'node:fs'
 import {
   listMirrorFeeds,
   syncIncidentMirror,
   type MirrorSyncSummary
 } from './incident-mirror-sync'
-import { closeIncidentShadowSink } from './incident-shadow'
+import { closeIncidentShadowSink, shadowFilePath } from './incident-shadow'
 import {
   reconcileIncidentShadow,
   recordShadowReconcileFailure,
   type ShadowReconcileSummary
 } from './incident-shadow-reconcile'
-import { incidentRuntimeStore, resetIncidentStoreCache } from './incident-writer'
+import {
+  incidentRuntimeStore,
+  incidentRuntimeStoreIfPresent,
+  resetIncidentStoreCache
+} from './incident-writer'
 import { drainEvidenceArchive, resolveArchiveRoot } from './incident-archive'
 import { mainProcessUserDataPath } from './incidents-paths'
 
 export type IncidentShadowStartupResult = {
   ran: boolean
-  reason?: 'no_user_data_path' | 'store_unavailable' | 'already_reconciled'
+  reason?: 'no_user_data_path' | 'no_shadow_file' | 'store_unavailable' | 'already_reconciled'
   summary?: ShadowReconcileSummary
   error?: string
 }
@@ -62,6 +67,13 @@ export function reconcileIncidentShadowAtStartup(options: {
   }
   // Flush first: the sink's buffered tail belongs in the file before we read the file family.
   closeIncidentShadowSink()
+  // A host that never wrote an incident has no shadow family, so there is nothing to replay — and
+  // resolving the store to discover that would create `<userData>/incidents/incidents.db` and run
+  // the schema on a host that only started Orca (review A3). The existence check therefore comes
+  // first, and the buffered-tail flush above is what makes it a truthful answer.
+  if (!existsSync(shadowFilePath(userDataPath))) {
+    return { ran: false, reason: 'no_shadow_file' }
+  }
   resetIncidentStoreCache()
   const runtime = incidentRuntimeStore()
   if (runtime === null) {
@@ -170,7 +182,11 @@ export function startEvidenceArchiveDrain(options: { intervalMs?: number } = {})
   }
   archiveDrainTimer = setInterval(() => {
     try {
-      const runtime = incidentRuntimeStore()
+      // "If present", not `incidentRuntimeStore()` (review A3): a background timer must not create
+      // the incidents directory and migrate the schema on a host that never wrote an incident — the
+      // same rule the counts push follows. Absence is not cached there, so a store created by a real
+      // write later in this process is drained by the next tick instead of being hidden forever.
+      const runtime = incidentRuntimeStoreIfPresent()
       if (runtime === null) {
         return
       }

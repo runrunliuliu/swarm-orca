@@ -43,7 +43,10 @@ type SnapshotState = {
   error: string | null
 }
 
-export function useIncidentSnapshot(request: IncidentListRequest): SnapshotState & {
+export function useIncidentSnapshot(
+  request: IncidentListRequest,
+  isVisible: boolean
+): SnapshotState & {
   reload: () => void
 } {
   const [state, setState] = useState<SnapshotState>({
@@ -52,6 +55,9 @@ export function useIncidentSnapshot(request: IncidentListRequest): SnapshotState
     error: null
   })
   const generation = useRef(0)
+  // Read through a ref so a visibility change does not re-subscribe the push listener below.
+  const visible = useRef(isVisible)
+  visible.current = isVisible
 
   const load = useCallback(() => {
     const bridge = incidentBridge()
@@ -85,12 +91,19 @@ export function useIncidentSnapshot(request: IncidentListRequest): SnapshotState
       })
   }, [request])
 
+  // The sidebar keeps this panel mounted while it is collapsed, so a read only happens for a panel a
+  // reader can actually see — and becoming visible is itself the refresh trigger, which is what keeps
+  // a long-hidden panel from showing a snapshot nobody updated (review C7).
   useEffect(() => {
-    load()
-  }, [load])
+    if (isVisible) {
+      load()
+    }
+  }, [load, isVisible])
 
   // Follow the coalesced store push: a decision made in the CLI, or a new crash, must not leave an open
   // panel showing yesterday's list. The main process already coalesced, so no timer is added here.
+  // While hidden the push is dropped on purpose: a 200-row snapshot read per coalesced write, for a
+  // panel nobody can see, is the cost this gate removes.
   useEffect(() => {
     const bridge = incidentBridge()
     if (bridge === null || typeof bridge.onCountsChanged !== 'function') {
@@ -98,7 +111,11 @@ export function useIncidentSnapshot(request: IncidentListRequest): SnapshotState
     }
     let unsubscribe: (() => void) | null = null
     try {
-      unsubscribe = bridge.onCountsChanged(() => load())
+      unsubscribe = bridge.onCountsChanged(() => {
+        if (visible.current) {
+          load()
+        }
+      })
     } catch {
       unsubscribe = null
     }
