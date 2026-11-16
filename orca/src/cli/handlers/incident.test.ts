@@ -42,6 +42,17 @@ function store(): IncidentStore {
   return createIncidentStore({ db: opened.db, fileSizeBytes: opened.fileSizeBytes, now: () => NOW })
 }
 
+/**
+ * How many rows this store holds.
+ *
+ * `countIncidents()` was removed as a dead export (A14); `listIncidents().total` is the same
+ * `COUNT(*)` over the same join, so the "nothing was written" assertions keep their meaning without
+ * a count method the product no longer has.
+ */
+function incidentRows(): number {
+  return store().listIncidents().total
+}
+
 function facts(overrides: Partial<PtyExitIncidentFacts> = {}): PtyExitIncidentFacts {
   return {
     ptyId: 'wt-1__pty-1',
@@ -362,7 +373,7 @@ describe('incident pane-clocks (M8-2)', () => {
     expect(text).toContain('These are facts, not a verdict')
     expect(text).not.toContain('would write')
     expect(text).not.toContain('wouldWriteIfEnabled')
-    expect(store().countIncidents()).toBe(0)
+    expect(incidentRows()).toBe(0)
   })
 
   it('reports an empty sample instead of failing when the store has none yet', async () => {
@@ -409,7 +420,7 @@ describe('incident tool-failures (M8-3)', () => {
       exitCode: null
     })
     expect(payload.rows[0]).not.toHaveProperty('code')
-    expect(store().countIncidents()).toBe(0)
+    expect(incidentRows()).toBe(0)
   })
 
   it('rejects an unparseable --since and a non-positive --limit', async () => {
@@ -419,6 +430,85 @@ describe('incident tool-failures (M8-3)', () => {
     await expect(
       INCIDENT_HANDLERS['incident tool-failures'](context('incident tool-failures', { limit: '0' }).ctx)
     ).rejects.toMatchObject({ code: 'invalid_argument' })
+  })
+})
+
+describe('numeric flags (C4/C5)', () => {
+  // One parser now (`intFlag` in incident-shared.ts). These cases pin the contract each call site
+  // keeps, so a future copy cannot drift back into accepting a different shape.
+  const LIMIT_HANDLERS = ['incident list', 'incident export', 'incident tool-failures'] as const
+
+  it.each(LIMIT_HANDLERS)('rejects a non-integer or negative limit on %s', async (handler) => {
+    for (const limit of ['-1', '1.5', 'many']) {
+      await expect(
+        INCIDENT_HANDLERS[handler](context(handler, { limit }).ctx)
+      ).rejects.toMatchObject({ code: 'invalid_argument' })
+    }
+  })
+
+  it('keeps each command documented minimum: list accepts 0, the stream commands refuse it', async () => {
+    recordPtyExitIncidentTo(store(), facts(), { hostId: 'host-a', now: NOW })
+    // `list` documents a page size, so the FLAG accepts 0 (the store floors the page at 1: what is
+    // pinned here is that the flag does not throw, not that the row disappears).
+    const list = context('incident list', { limit: '0' }, true)
+    await INCIDENT_HANDLERS['incident list'](list.ctx)
+    const listed = JSON.parse(list.output.join('\n')) as { incidents: { id: string }[] }
+    expect(listed.incidents).toHaveLength(1)
+
+    // The stream commands always print a meta line, so a zero-row bound is refused rather than
+    // silently describing a window they will not report.
+    await expect(
+      INCIDENT_HANDLERS['incident export'](context('incident export', { limit: '0' }).ctx)
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+    await expect(
+      INCIDENT_HANDLERS['incident tool-failures'](
+        context('incident tool-failures', { limit: '0' }).ctx
+      )
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+  })
+
+  it('rejects a negative retention window and a negative pointer index', async () => {
+    // 0 is a legal window (0 = the first pointer index); a negative one is not a window at all.
+    await expect(
+      INCIDENT_HANDLERS['incident prune'](
+        context('incident prune', { 'dry-run': true, 'keep-days': '-1' }).ctx
+      )
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+    await expect(
+      INCIDENT_HANDLERS['incident archive'](
+        context('incident archive', { 'retry-incomplete': 'inc_x', pointer: '-1' }).ctx
+      )
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+  })
+
+  it('reads --timeout-ms once and keeps --expect-exit signed (C5)', async () => {
+    // The timeout is read once, before the declaration object, so zero is refused by the flag rather
+    // than reaching the store's `invalid_timeout` and being rewrapped as "Invalid declaration".
+    await expect(
+      INCIDENT_HANDLERS['incident acceptance declare'](
+        context('incident acceptance declare', {
+          dispatch: 'disp_1',
+          rule: 'tests',
+          cwd: worktreeRoot,
+          'worktree-root': worktreeRoot,
+          command: `true${REPEATED}`,
+          'expect-exit': '0',
+          'timeout-ms': '0'
+        }).ctx
+      )
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+
+    // A negative exit code is a recorded fact (a wrapped tool can report one), not a count.
+    const signed = context('incident acceptance declare', {
+      dispatch: 'disp_2',
+      rule: 'signed',
+      cwd: worktreeRoot,
+      'worktree-root': worktreeRoot,
+      command: `true${REPEATED}`,
+      'expect-exit': '-1'
+    })
+    await INCIDENT_HANDLERS['incident acceptance declare'](signed.ctx)
+    expect(signed.output.join('\n')).toContain('Declared acceptance rule signed')
   })
 })
 
@@ -495,7 +585,7 @@ describe('incident acceptance (M5)', () => {
     expect(text).toContain('stdout_sha256=bbbbbbbbbbbb')
     expect(text).toContain('not stored')
     opened.db.close()
-    expect(store().countIncidents()).toBe(0)
+    expect(incidentRows()).toBe(0)
   })
 
   it('refuses to resolve without a stop, and requires an actor', async () => {
@@ -862,7 +952,7 @@ describe('incident prune', () => {
       deletedIds: [],
       candidateIdsTruncated: false
     })
-    expect(store().countIncidents()).toBe(2)
+    expect(incidentRows()).toBe(2)
 
     const text = context('incident prune', { 'dry-run': true })
     await INCIDENT_HANDLERS['incident prune'](text.ctx)
@@ -881,7 +971,7 @@ describe('incident prune', () => {
       deletedIdsTruncated: false
     })
     const after = store()
-    expect(after.countIncidents()).toBe(1)
+    expect(after.listIncidents().total).toBe(1)
     expect(after.getIncident(liveId)).not.toBeNull()
     expect(after.getIncident('inc_old_invalid')).toBeNull()
   })

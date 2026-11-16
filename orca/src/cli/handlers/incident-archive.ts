@@ -8,7 +8,7 @@
 // it appends a new `archive_pending` event (nothing is updated or deleted), and the drain — in the same
 // call when `--drain` is also given — republishes it.
 
-import type { CommandHandler, HandlerContext } from '../dispatch'
+import type { CommandHandler } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
 import { openIncidentStore } from '../incident-store-access'
 import {
@@ -18,26 +18,19 @@ import {
   retryIncompleteArchive,
   type ArchiveRetryResult
 } from '../../main/incidents/incident-archive'
-import { printIncidentJson, refuseNonLocalIncidentSelector, stringFlag } from './incident-shared'
-
-/** `--pointer` is an index, so it must be a non-negative integer (`0` is the first pointer). */
-function pointerFlag(ctx: HandlerContext): number | null {
-  const raw = stringFlag(ctx, 'pointer')
-  if (raw === null) {
-    return null
-  }
-  const parsed = Number(raw)
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new RuntimeClientError('invalid_argument', '`--pointer` must be a non-negative integer.')
-  }
-  return parsed
-}
+import {
+  intFlag,
+  printIncidentJson,
+  refuseNonLocalIncidentSelector,
+  stringFlag
+} from './incident-shared'
 
 export const archiveIncident: CommandHandler = async (ctx) => {
   refuseNonLocalIncidentSelector(ctx, 'orca incident archive')
   const drain = ctx.flags.get('drain') === true
   const retryIncidentId = stringFlag(ctx, 'retry-incomplete')
-  const pointer = pointerFlag(ctx)
+  // `--pointer` is an index, so `0` is the first pointer (non-negative), unlike `--limit`.
+  const pointer = intFlag(ctx, 'pointer', { min: 0 })
   if (pointer !== null && retryIncidentId === null) {
     // A silent no-op would look like a repair that happened: make the dependency explicit.
     throw new RuntimeClientError(

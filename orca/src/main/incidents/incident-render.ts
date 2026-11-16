@@ -40,7 +40,10 @@ function evidenceRows(evidence: IncidentEvidence): string[] {
   if (evidence.pointers.length === 0) {
     lines.push('- 未记录证据指针（M1 崩溃路径只收集运行时可得且仍在的指针）。')
   } else {
-    lines.push('| kind | path | sha256 | offsets | archived |', '| --- | --- | --- | --- | --- |')
+    lines.push(
+      '| kind | path | bytes | sha256 | offsets | archived |',
+      '| --- | --- | --- | --- | --- | --- |'
+    )
     for (const pointer of evidence.pointers) {
       const offsets =
         pointer.startOffset === undefined

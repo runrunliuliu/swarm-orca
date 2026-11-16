@@ -258,6 +258,32 @@ describe('incidentBadgeFromCounts', () => {
     expect(incidentBadgeFromCounts(fromDto)?.localGap).toBe(true)
   })
 
+  it('says the replay dropped rows instead of stating a clean count (C3)', () => {
+    // `gap` is set because a dropped replay line can never appear. Amber alone would still read as
+    // "3 known, maybe more"; the label has to name the permanent loss the coverage panel reports.
+    const dropped = counts({
+      coverage: { ...counts().coverage, shadowReplayDropped: 2, gap: true }
+    })
+    expect(incidentBadgeFromCounts(dropped)).toEqual({
+      kind: 'count',
+      count: 3,
+      tone: 'caution',
+      localGap: true,
+      remoteGap: false,
+      showCount: true,
+      label: '3 untriaged (some hint lines were dropped and will never appear)'
+    })
+  })
+
+  it('keeps the digit-free badge when a dropped row is the only hole', () => {
+    // The load-bearing rule survives C3: zero with a gap is never silent, and never claims "0".
+    const dropped = incidentBadgeFromCounts(
+      counts({ untriaged: 0, coverage: { ...counts().coverage, shadowReplayDropped: 2, gap: true } })
+    )
+    expect(dropped).toMatchObject({ kind: 'count', count: 0, tone: 'caution', showCount: false })
+    expect(dropped?.label).toBe('count may be incomplete')
+  })
+
   it('caps the rendered number so a 50k-row store cannot widen the strip', () => {
     const badge = incidentBadgeFromCounts(counts({ untriaged: 1_234 }))
     expect(badge?.count).toBe(1_234)

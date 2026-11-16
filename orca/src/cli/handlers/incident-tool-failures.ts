@@ -14,19 +14,12 @@ import {
   TOOL_ERROR_UNCOVERED_PROVIDERS
 } from '../../main/incidents/incident-tool-error-coverage'
 import { formatIncidentToolFailures } from '../incident-tool-failure-format'
-import { printIncidentJson, refuseNonLocalIncidentSelector, stringFlag } from './incident-shared'
-
-function positiveInt(ctx: HandlerContext, name: string): number | null {
-  const raw = stringFlag(ctx, name)
-  if (raw === null) {
-    return null
-  }
-  const parsed = Number(raw)
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new RuntimeClientError('invalid_argument', `\`--${name}\` must be a positive integer.`)
-  }
-  return parsed
-}
+import {
+  intFlag,
+  printIncidentJson,
+  refuseNonLocalIncidentSelector,
+  stringFlag
+} from './incident-shared'
 
 export const toolFailuresIncident = async (ctx: HandlerContext): Promise<void> => {
   refuseNonLocalIncidentSelector(ctx, 'orca incident tool-failures')
@@ -38,7 +31,7 @@ export const toolFailuresIncident = async (ctx: HandlerContext): Promise<void> =
       `Unsupported --since "${sinceRaw}". Use a duration such as 24h, 7d or 90m.`
     )
   }
-  const limit = positiveInt(ctx, 'limit')
+  const limit = intFlag(ctx, 'limit', { min: 1 })
   const now = Date.now()
   const opened = openIncidentStore({ requireExisting: false, readOnly: true })
   try {

@@ -22,24 +22,13 @@ import {
 } from '../incident-format'
 import { openIncidentStore } from '../incident-store-access'
 import {
+  intFlag,
   parseIncidentClass,
   printIncidentJson,
   refuseNonLocalIncidentSelector,
   stringFlag
 } from './incident-shared'
 
-
-function intFlag(ctx: HandlerContext, name: string): number | null {
-  const raw = stringFlag(ctx, name)
-  if (raw === null) {
-    return null
-  }
-  const parsed = Number(raw)
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new RuntimeClientError('invalid_argument', `\`--${name}\` must be a non-negative integer.`)
-  }
-  return parsed
-}
 function requireId(ctx: HandlerContext): string {
   const id = stringFlag(ctx, 'id')
   if (id === null) {
@@ -89,7 +78,9 @@ export const INCIDENT_BASIC_HANDLERS = {
     const opened = openIncidentStore({ requireExisting: false, readOnly: true })
     try {
       const result = opened.store.listIncidents({
-        limit: intFlag(ctx, 'limit') ?? 50,
+        // `list` documents a plain count, so 0 is a legal page ("show me none"), unlike the
+        // stream commands whose `--limit` bounds rows they must still print a header for.
+        limit: intFlag(ctx, 'limit', { min: 0 }) ?? 50,
         ...(status !== null ? { status: parseStatus(status, 'status') } : {}),
         ...(classFlag !== null ? { class: parseIncidentClass(classFlag) } : {})
       })
@@ -197,7 +188,8 @@ export const INCIDENT_BASIC_HANDLERS = {
         '`--dry-run` and `--apply` are mutually exclusive.'
       )
     }
-    const keepDays = intFlag(ctx, 'keep-days') ?? DEFAULT_INCIDENT_RETENTION_DAYS
+    // 0 days is a legal retention window ("everything eligible"); negative is not a window.
+    const keepDays = intFlag(ctx, 'keep-days', { min: 0 }) ?? DEFAULT_INCIDENT_RETENTION_DAYS
     const dryRun = ctx.flags.get('apply') !== true
     const opened = openIncidentStore({ requireExisting: true, readOnly: dryRun })
     try {

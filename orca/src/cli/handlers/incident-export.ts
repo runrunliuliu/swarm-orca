@@ -26,19 +26,7 @@ import {
   readIncidentExport,
   type IncidentExport
 } from '../../main/incidents/incident-export'
-import { refuseNonLocalIncidentSelector, stringFlag } from './incident-shared'
-
-function intFlag(ctx: HandlerContext, name: string): number | null {
-  const raw = stringFlag(ctx, name)
-  if (raw === null) {
-    return null
-  }
-  const parsed = Number(raw)
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new RuntimeClientError('invalid_argument', `\`--${name}\` must be a positive integer.`)
-  }
-  return parsed
-}
+import { intFlag, refuseNonLocalIncidentSelector, stringFlag } from './incident-shared'
 
 function emptyExport(coverage: IncidentExport['coverage'], windowMs: number): IncidentExport {
   const now = Date.now()
@@ -56,7 +44,9 @@ export async function exportIncident(ctx: HandlerContext): Promise<void> {
       `Unsupported --since "${sinceRaw}". Use a duration such as 24h, 7d or 90m.`
     )
   }
-  const limitRaw = intFlag(ctx, 'limit')
+  // The stream always prints its meta line, so `--limit 0` would claim a window it refuses to
+  // describe: this command's contract is a positive bound (the incident.test.ts pin predates C4).
+  const limitRaw = intFlag(ctx, 'limit', { min: 1 })
 
   const opened = openIncidentStore({ requireExisting: false, readOnly: true })
   try {

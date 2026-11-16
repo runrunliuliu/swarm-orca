@@ -227,8 +227,10 @@ export type IncidentWorktreeCountDto = {
  * The coverage facts a count depends on, and nothing else (§11.5).
  *
  * `gap` is the one field a badge should branch on: is the *local* count complete? It includes
- * `currentlyLimited`, an unfinished shadow replay, and `capacityLatchSet` — a past refusal still means
- * rows may be missing, so it is a lower-bound fact, not cosmetics. `remoteIncidentCapture` and the
+ * `currentlyLimited`, an unfinished shadow replay, replay lines the store dropped, and
+ * `capacityLatchSet` — a past refusal still means rows may be missing, so it is a lower-bound fact,
+ * not cosmetics. A dropped line is the strongest of the four: unlike a latch a prune can clear, that
+ * incident was never written and can never appear. `remoteIncidentCapture` and the
  * mirror stay out of it: a remote hole is graded separately (secondary) because it says the global
  * view is incomplete, not that this host's own count is doubtful.
  */
@@ -243,7 +245,11 @@ export type IncidentCoverageSummaryDto = {
   shadowReplayDropped: number
   /** Counts are this host's only; SSH/WSL incidents are not captured (never will be). */
   remoteIncidentCapture: 'unsupported'
-  /** Any *current* hole above: render `untriaged` as a lower bound. Local holes only. */
+  /**
+   * Any *current* hole above: render `untriaged` as a lower bound. Local holes only, and the dropped
+   * replay lines count: the badge and the coverage panel must not disagree about whether rows were
+   * lost permanently.
+   */
   gap: boolean
   /**
    * Remote-mirror coverage, when the host reports it (M7-C). Never folded into `gap`: a remote hole

@@ -126,6 +126,10 @@ export function incidentBadgeFromCounts(
   const qualifiers: string[] = []
   if (counts.coverage.currentlyLimited || counts.coverage.shadowReplayIncomplete) {
     qualifiers.push('count may be incomplete')
+  } else if (counts.coverage.shadowReplayDropped > 0) {
+    // C3: the replay dropped rows permanently. The `gap` flag already makes the tone amber, but an
+    // amber number with no reason is the same defect as a complete-looking count: say the loss.
+    qualifiers.push('some hint lines were dropped and will never appear')
   } else if (counts.coverage.capacityLatchSet) {
     // Same tone as a current hole, different wording: the latch is a past refusal, so saying "the
     // store is refusing writes right now" would be a different (and false) claim.

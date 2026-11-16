@@ -147,4 +147,41 @@ describe('renderIncidentMarkdown', () => {
     expect(markdown).toContain('| 12 |')
     expect(markdown).toContain('no (pointer only)')
   })
+
+  it('declares a column for every cell the evidence row emits (F12)', () => {
+    // The header used to list five columns while each row emitted six (kind, path, bytes, sha256,
+    // offsets, archived), so every reader shifted `sha256` into `offsets` and `bytes` had no name.
+    // Pinned as a whole table line: a header and a row must agree cell for cell.
+    const store = storeWith(
+      record({
+        evidence: {
+          pointers: [
+            {
+              kind: 'transcript',
+              path: '/tmp/example/transcript.jsonl',
+              sha256: 'b'.repeat(64),
+              startOffset: 10,
+              endOffset: 20,
+              lineWindow: 50,
+              bytes: 12
+            }
+          ],
+          unknownBoundaries: []
+        }
+      })
+    )
+    const markdown = renderIncidentMarkdown(store.getIncident('inc_render_1')!)
+    const evidenceHeader = '| kind | path | bytes | sha256 | offsets | archived |'
+    const evidenceSeparator = '| --- | --- | --- | --- | --- | --- |'
+    const evidenceRow =
+      '| transcript | `/tmp/example/transcript.jsonl` | 12 | ' +
+      `${'b'.repeat(64)} | 10..20 | no (pointer only) |`
+    expect(markdown).toContain(evidenceHeader)
+    expect(markdown).toContain(evidenceSeparator)
+    expect(markdown).toContain(evidenceRow)
+    // Same cell count on both sides: the header cannot drop a fact the row still states.
+    const cells = (line: string): number => line.split('|').length
+    expect(cells(evidenceHeader)).toBe(cells(evidenceRow))
+    expect(cells(evidenceSeparator)).toBe(cells(evidenceRow))
+  })
 })

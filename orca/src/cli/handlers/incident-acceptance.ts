@@ -26,6 +26,7 @@ import {
   formatAcceptanceShow
 } from '../incident-acceptance-format'
 import {
+  intFlag,
   printIncidentJson,
   refuseNonLocalIncidentSelector,
   stringFlag
@@ -38,18 +39,6 @@ function requireDispatch(ctx: HandlerContext): string {
     throw new RuntimeClientError('invalid_argument', 'Missing --dispatch <id>.')
   }
   return dispatch
-}
-
-function intFlag(ctx: HandlerContext, name: string): number | null {
-  const raw = stringFlag(ctx, name)
-  if (raw === null) {
-    return null
-  }
-  const parsed = Number(raw)
-  if (!Number.isSafeInteger(parsed)) {
-    throw new RuntimeClientError('invalid_argument', `--${name} must be an integer.`)
-  }
-  return parsed
 }
 
 export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
@@ -97,7 +86,7 @@ export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
         'root or a directory inside it (both resolved through realpath).'
     )
   }
-  const expectExit = intFlag(ctx, 'expect-exit')
+  const expectExit = intFlag(ctx, 'expect-exit', { min: 'any' })
   const expectStdout = stringFlag(ctx, 'expect-stdout')
   if (expectExit === null && expectStdout === null) {
     throw new RuntimeClientError(
@@ -106,6 +95,10 @@ export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
     )
   }
   const actor = stringFlag(ctx, 'actor') ?? 'unspecified'
+  // C5: read once, not test-then-read again inside the object literal (which needed an `as number`
+  // to re-narrow a second call). A timeout is a duration, so it must be positive: the store would
+  // refuse 0 with `invalid_timeout`, and the flag error says the same thing earlier.
+  const timeoutMs = intFlag(ctx, 'timeout-ms', { min: 1 })
   const opened = openIncidentStore({ requireExisting: false, readOnly: false, createIfMissing: true })
   try {
     if (opened.db === null) {
@@ -123,9 +116,7 @@ export const acceptanceDeclareIncident: CommandHandler = async (ctx) => {
           ...(expectExit === null ? {} : { exitCode: expectExit }),
           ...(expectStdout === null ? {} : { stdoutMatches: expectStdout })
         },
-        ...(intFlag(ctx, 'timeout-ms') === null
-          ? {}
-          : { timeoutMs: intFlag(ctx, 'timeout-ms') as number }),
+        ...(timeoutMs === null ? {} : { timeoutMs }),
         cwd: authorized.resolved.cwd,
         worktreeRoot: authorized.resolved.worktreeRoot,
         actor

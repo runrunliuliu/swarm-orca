@@ -110,8 +110,15 @@ export function readIncidentCounts(options: {
   // bound the same way an unfinished replay does. Keeping it out of this boolean (while the badge
   // OR'd it in itself) was a split brain — one question, two answers. §11.5 still keeps the two
   // capacity fields separate for *wording*; this flag is only "is the number complete?".
+  //
+  // Dropped shadow lines belong here for the same reason and one more: they are permanent. A latch
+  // can be cleared by a prune, but a line the replay dropped was never written, so leaving it out
+  // let the badge state a complete count while the panel said rows were lost for good (C3).
   const gap =
-    coverage.currentlyLimited || coverage.shadowReplay.incomplete || coverage.capacityLatchSet
+    coverage.currentlyLimited ||
+    coverage.shadowReplay.incomplete ||
+    coverage.shadowReplay.dropped > 0 ||
+    coverage.capacityLatchSet
   return {
     untriaged,
     total,

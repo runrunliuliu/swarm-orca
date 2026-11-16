@@ -251,6 +251,27 @@ describe('readIncidentCounts', () => {
     expect(value.untriaged).toBe(1)
     expect(value.coverage).toMatchObject({ shadowReplayIncomplete: true, gap: true })
   })
+
+  it('counts dropped replay lines as a local gap: those rows can never appear (C3)', () => {
+    const { store, opened } = openStore()
+    store.insertIncident(record())
+    // `shadow_dropped` is the durable count of lines the store refused for capacity. The replay is
+    // not `incomplete` and the latch is not set, so the dropped count is the only hole: without it
+    // the badge could state a complete number while the panel said rows were lost permanently.
+    opened.db.prepare(
+      "INSERT INTO incident_store_meta (key, value) VALUES ('shadow_dropped', '3') " +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+    ).run()
+    const value = counts(store, opened)
+    expect(value.untriaged).toBe(1)
+    expect(value.coverage).toMatchObject({
+      currentlyLimited: false,
+      capacityLatchSet: false,
+      shadowReplayIncomplete: false,
+      shadowReplayDropped: 3,
+      gap: true
+    })
+  })
 })
 
 describe('readIncidentCounts: one scan (A1/B-F3)', () => {
