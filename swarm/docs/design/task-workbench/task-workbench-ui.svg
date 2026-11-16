@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 860" width="1280" height="860" font-family="'Noto Sans CJK SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif">
+  <defs>
+    <style>
+      .t { fill: #111827; }
+      .m { fill: #6b7280; }
+      .s { fill: #94a3b8; }
+      .h1 { font-size: 17px; font-weight: 600; }
+      .h2 { font-size: 11px; font-weight: 600; }
+      .b { font-size: 11px; }
+      .sm { font-size: 10px; }
+      .xs { font-size: 9px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .panel { fill: #ffffff; stroke: #e4e7ec; stroke-width: 1; }
+      .card { fill: #ffffff; stroke: #e4e7ec; stroke-width: 1; }
+      .hair { stroke: #eef0f3; stroke-width: 1; }
+      .cap { font-size: 11px; font-weight: 600; fill: #475569; letter-spacing: .3px; }
+      .num { fill: #2563eb; }
+      .numtext { fill: #ffffff; font-size: 9px; font-weight: 700; }
+      .chip { font-size: 9px; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="860" fill="#f6f7f9"/>
+
+  <!-- ================= Panel A: wide workbench ================= -->
+  <text x="24" y="34" class="cap">① 工作台 · 宽屏基线（1 任务 = N 工作区 → Agent → 用量 → 交付）</text>
+  <rect x="24" y="44" width="744" height="440" rx="12" class="panel"/>
+
+  <text x="40" y="70" class="sm m">← Tasks</text>
+  <text x="40" y="98" class="h1 t">Add login auth</text>
+  <text x="40" y="118" class="sm m">GitHub #412 · open · web-app</text>
+  <text x="40" y="134" class="sm s">base 8f3c1ab → feature/add-login · PR #431 (draft · checks 5/6)</text>
+
+  <rect x="576" y="80" width="140" height="26" rx="6" fill="#111827"/>
+  <text x="592" y="97" class="sm" fill="#ffffff">Open workspace →</text>
+  <rect x="722" y="80" width="24" height="26" rx="6" fill="#ffffff" stroke="#e4e7ec"/>
+  <text x="731" y="97" class="sm m">⋯</text>
+
+  <path d="M 40 150 L 752 150" class="hair"/>
+
+  <!-- agents -->
+  <text x="40" y="172" class="h2 t">AGENTS (4)</text>
+  <rect x="594" y="160" width="78" height="18" rx="9" fill="#ffffff" stroke="#e4e7ec"/>
+  <text x="604" y="173" class="xs m">All agents</text>
+  <path d="M 656 166 L 662 166 L 659 170 Z" fill="#94a3b8"/>
+
+  <rect x="40" y="184" width="400" height="60" rx="8" class="card"/>
+  <circle cx="56" cy="202" r="4" fill="#0ea5e9"/>
+  <text x="68" y="205" class="b t">claude-sonnet-4.5 · add-login-impl</text>
+  <text x="68" y="220" class="sm m">“wire JWT middleware into auth routes”</text>
+  <text x="68" y="236" class="xs m">working · 12m · 412k tok</text>
+  <rect x="312" y="196" width="116" height="16" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+  <rect x="318" y="201" width="6" height="6" rx="1" fill="#3b82f6"/>
+  <text x="330" y="208" class="chip" fill="#1d4ed8">web-app · feature/x</text>
+
+  <rect x="40" y="250" width="400" height="60" rx="8" class="card"/>
+  <circle cx="56" cy="268" r="4" fill="#10b981"/>
+  <text x="68" y="271" class="b t">codex-5.1 · jwt-verify-fix</text>
+  <text x="68" y="286" class="sm m">done · 6m · 890k tok</text>
+  <rect x="312" y="262" width="116" height="16" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+  <rect x="318" y="267" width="6" height="6" rx="1" fill="#3b82f6"/>
+  <text x="330" y="274" class="chip" fill="#1d4ed8">api · feature/jwt</text>
+
+  <rect x="40" y="316" width="400" height="26" rx="6" fill="#fafafa" stroke="#e4e7ec"/>
+  <path d="M 52 325 L 60 325 L 56 331 Z" fill="#94a3b8"/>
+  <text x="68" y="334" class="xs m">archived &amp; history (2) · 61k tok · 2d</text>
+
+  <!-- workspaces -->
+  <text x="456" y="172" class="h2 t">WORKSPACES (2)</text>
+
+  <rect x="456" y="184" width="304" height="58" rx="8" class="card"/>
+  <text x="468" y="202" class="b t">web-app</text>
+  <text x="468" y="218" class="xs mono m">feature/add-login</text>
+  <text x="468" y="233" class="xs m">1 agent · 412k tok</text>
+  <text x="700" y="202" class="b t">$1.20</text>
+  <rect x="700" y="210" width="44" height="14" rx="7" fill="#ecfdf5"/>
+  <text x="707" y="220" class="xs" fill="#047857">primary</text>
+
+  <rect x="456" y="248" width="304" height="58" rx="8" class="card"/>
+  <text x="468" y="266" class="b t">api</text>
+  <text x="468" y="282" class="xs mono m">feature/jwt-verify</text>
+  <text x="468" y="297" class="xs m">2 agents · 890k tok</text>
+  <text x="700" y="266" class="b t">$0.62</text>
+
+  <rect x="456" y="312" width="304" height="24" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-dasharray="3 3"/>
+  <text x="468" y="328" class="xs m">+ create workspace from this task</text>
+
+  <!-- spend -->
+  <rect x="456" y="346" width="304" height="94" rx="8" fill="#fbfbfc" stroke="#e4e7ec"/>
+  <text x="468" y="362" class="xs s">SPEND · TASK LEVEL</text>
+  <text x="468" y="384" class="h1 t">1.36M tokens</text>
+  <text x="468" y="401" class="b t">est. $1.82</text>
+  <text x="468" y="418" class="xs m">claude 412k · $1.20     codex 890k · $0.62</text>
+  <circle cx="471" cy="430" r="4" fill="none" stroke="#f59e0b"/>
+  <text x="480" y="433" class="xs" fill="#b45309">1 session unattributed · agent rows: tokens only</text>
+
+  <!-- delivery -->
+  <path d="M 40 446 L 752 446" class="hair"/>
+  <text x="40" y="466" class="xs m">DELIVERY  commits 3 · PR #431 draft · checks 5/6 · review pending</text>
+  <text x="700" y="466" class="xs" fill="#2563eb">expand</text>
+
+  <circle cx="26" cy="348" r="9" class="num"/><text x="23" y="351" class="numtext">1</text>
+
+  <!-- ================= Panel B: zero workspaces ================= -->
+  <text x="784" y="34" class="cap">② 0 工作区：Workspaces 变主操作，Spend 先让位</text>
+  <rect x="784" y="44" width="472" height="440" rx="12" class="panel"/>
+
+  <text x="800" y="70" class="sm m">← Tasks</text>
+  <text x="800" y="94" class="h1 t">Add login auth</text>
+  <text x="800" y="112" class="sm m">GitHub #412 · open · web-app</text>
+
+  <text x="800" y="140" class="h2 t">WORKSPACES (0)</text>
+  <rect x="800" y="150" width="440" height="96" rx="8" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="4 4"/>
+  <text x="816" y="180" class="b t">Create workspace from this task</text>
+  <text x="816" y="198" class="sm m">branch from origin/main · base 8f3c1ab</text>
+  <rect x="816" y="210" width="120" height="24" rx="6" fill="#111827"/>
+  <text x="832" y="227" class="sm" fill="#ffffff">Create workspace</text>
+
+  <text x="800" y="272" class="h2 t">AGENTS</text>
+  <rect x="800" y="282" width="440" height="52" rx="8" fill="#fbfbfc" stroke="#e4e7ec"/>
+  <text x="816" y="302" class="sm m">No agents yet — a workspace gives the agent a cwd.</text>
+  <text x="816" y="320" class="xs s">不做“无 workspace 的漂浮 agent”（§7.9.5）</text>
+
+  <text x="800" y="356" class="h2 t">SPEND</text>
+  <rect x="800" y="366" width="440" height="44" rx="8" fill="#fffbeb" stroke="#fde68a"/>
+  <text x="816" y="386" class="sm" fill="#b45309">Usage unavailable · no workspace</text>
+  <text x="816" y="401" class="xs" fill="#b45309">显示原因，不显示 $0</text>
+
+  <text x="800" y="432" class="xs s">主操作只有一个：Create workspace（0 个工作区时 Open 不出现）</text>
+  <text x="800" y="450" class="xs s">Delivery 保留只读提示，不隐藏</text>
+  <circle cx="786" cy="200" r="9" class="num"/><text x="783" y="203" class="numtext">2</text>
+
+  <!-- ================= Panel C: degradation ================= -->
+  <text x="24" y="500" class="cap">③ 降级顺序：先牺牲 Delivery → Agent 历史 → Spend 细节</text>
+  <rect x="24" y="510" width="744" height="330" rx="12" class="panel"/>
+
+  <text x="40" y="532" class="xs m">窄窗 &lt; 1100px · 单列</text>
+  <rect x="40" y="540" width="340" height="180" rx="8" fill="#ffffff" stroke="#e4e7ec"/>
+  <rect x="52" y="552" width="316" height="28" rx="5" fill="#f8fafc" stroke="#eef0f3"/>
+  <text x="62" y="570" class="xs t">Add login auth · #412</text>
+  <rect x="52" y="586" width="316" height="26" rx="5" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text x="62" y="603" class="xs" fill="#1d4ed8">2 workspaces · primary web-app</text>
+  <rect x="52" y="618" width="316" height="52" rx="5" fill="#ffffff" stroke="#eef0f3"/>
+  <text x="62" y="634" class="xs m">AGENTS · 2 active + 2 collapsed</text>
+  <circle cx="64" cy="648" r="3" fill="#0ea5e9"/>
+  <text x="74" y="651" class="xs m">claude · working · 412k</text>
+  <circle cx="64" cy="662" r="3" fill="#10b981"/>
+  <text x="74" y="665" class="xs m">codex · done · 890k</text>
+  <rect x="52" y="676" width="316" height="20" rx="5" fill="#fbfbfc" stroke="#eef0f3"/>
+  <text x="62" y="690" class="xs m">SPEND 1.36M tok · $1.82</text>
+  <rect x="52" y="702" width="316" height="12" rx="4" fill="#f1f5f9"/>
+  <text x="62" y="711" class="xs s">DELIVERY (folded)</text>
+
+  <text x="396" y="532" class="xs m">矮窗 480px · 先折 Delivery 与历史</text>
+  <rect x="396" y="540" width="340" height="180" rx="8" fill="#ffffff" stroke="#e4e7ec"/>
+  <rect x="408" y="552" width="316" height="24" rx="5" fill="#f8fafc" stroke="#eef0f3"/>
+  <text x="418" y="568" class="xs t">Add login auth · #412</text>
+  <rect x="408" y="582" width="316" height="20" rx="5" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text x="418" y="596" class="xs" fill="#1d4ed8">2 workspaces · web-app</text>
+  <rect x="408" y="608" width="316" height="58" rx="5" fill="#ffffff" stroke="#eef0f3"/>
+  <circle cx="420" cy="622" r="3" fill="#0ea5e9"/>
+  <text x="430" y="625" class="xs m">claude · working · 412k</text>
+  <circle cx="420" cy="638" r="3" fill="#10b981"/>
+  <text x="430" y="641" class="xs m">codex · done · 890k</text>
+  <text x="430" y="656" class="xs s">+ 2 history collapsed</text>
+  <rect x="408" y="672" width="316" height="18" rx="5" fill="#fbfbfc" stroke="#eef0f3"/>
+  <text x="418" y="685" class="xs m">SPEND · 1.36M tok</text>
+  <rect x="408" y="694" width="316" height="14" rx="4" fill="#f1f5f9"/>
+  <text x="418" y="705" class="xs s">DELIVERY (folded to a strip)</text>
+
+  <text x="40" y="748" class="xs m">牺牲顺序（写进 task-workbench-layout.ts，逐条对应 §7.3.1）：</text>
+  <rect x="40" y="758" width="180" height="22" rx="5" fill="#fee2e2"/>
+  <text x="50" y="773" class="xs" fill="#b91c1c">1 先牺牲 Delivery 常驻</text>
+  <rect x="230" y="758" width="180" height="22" rx="5" fill="#fef3c7"/>
+  <text x="240" y="773" class="xs" fill="#b45309">2 再牺牲 Agent 历史</text>
+  <rect x="420" y="758" width="180" height="22" rx="5" fill="#e0e7ff"/>
+  <text x="430" y="773" class="xs" fill="#3730a3">3 最后 Spend 细节</text>
+  <rect x="610" y="758" width="140" height="22" rx="5" fill="#ecfdf5" stroke="#a7f3d0"/>
+  <text x="620" y="773" class="xs" fill="#047857">Workspaces 不牺牲</text>
+
+  <text x="40" y="806" class="xs s">P1a 只实现左图（单列 + Delivery 折叠）；右图是同一组件的 480px 结果。</text>
+  <circle cx="26" cy="560" r="9" class="num"/><text x="23" y="563" class="numtext">3</text>
+
+  <!-- ================= Panel D: rules ================= -->
+  <text x="784" y="500" class="cap">④ 判定规则（P1a 必须逐条显示，不许假 0）</text>
+  <rect x="784" y="510" width="472" height="330" rx="12" class="panel"/>
+
+  <rect x="800" y="526" width="440" height="104" rx="8" fill="#ecfdf5" stroke="#a7f3d0"/>
+  <text x="816" y="546" class="h2 t">Delivered = agent done（D12）</text>
+  <text x="816" y="566" class="sm m">· 任一活跃工作区有 agent 处于 done</text>
+  <text x="816" y="584" class="sm m">· 同任务同时有 working/blocked/waiting → 归 Working/Needs you</text>
+  <text x="816" y="602" class="sm m">· 忽略 sessionBoundary；failure / cancellation 不算</text>
+  <text x="816" y="620" class="xs" fill="#047857">语义是“这一轮做完了”，不是验收通过</text>
+
+  <rect x="800" y="642" width="440" height="104" rx="8" fill="#fbfbfc" stroke="#e4e7ec"/>
+  <text x="816" y="662" class="h2 t">用量三态</text>
+  <rect x="816" y="674" width="96" height="20" rx="10" fill="#dcfce7"/>
+  <text x="826" y="688" class="xs" fill="#15803d">available · $1.82</text>
+  <rect x="920" y="674" width="120" height="20" rx="10" fill="#f1f5f9"/>
+  <text x="930" y="688" class="xs" fill="#475569">off · Turn on CTA</text>
+  <rect x="1048" y="674" width="176" height="20" rx="10" fill="#fef3c7"/>
+  <text x="1058" y="688" class="xs" fill="#b45309">unavailable · reason</text>
+  <text x="816" y="716" class="sm m">· 未启用 → 空态 + CTA，不改默认值</text>
+  <text x="816" y="733" class="xs s">· 未定价 / 歧义 / 远端 → 显示原因；未知永不记 0</text>
+
+  <rect x="800" y="758" width="440" height="66" rx="8" fill="#eff6ff" stroke="#bfdbfe"/>
+  <text x="816" y="778" class="h2" fill="#1d4ed8">截图即验收（P1a 退出条件）</text>
+  <text x="816" y="796" class="xs" fill="#1d4ed8">1440×900 / 1100×800 / 1280×480 / 0 工作区 / 3+2 折叠</text>
+  <text x="816" y="811" class="xs" fill="#1d4ed8">fixture 编号与截图编号一一对应，进 PR 描述</text>
+  <circle cx="786" cy="662" r="9" class="num"/><text x="783" y="665" class="numtext">4</text>
+
+  <text x="24" y="836" class="xs s">设计示意（非实现截图）· 依据 README §6.4 / §7.2 / §7.3 / §7.3.1 与 p1a-ui-shell-plan.md · 2026-11-16</text>
+</svg>
