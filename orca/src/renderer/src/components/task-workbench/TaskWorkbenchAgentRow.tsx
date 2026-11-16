@@ -15,9 +15,18 @@ import type { TaskWorkbenchRowView } from './task-workbench-row-projection'
  * but that component takes the store-shaped `DashboardAgentRowData` (entry/tab/
  * state) and reads `useAppStore` through `useAgentRowConversationName`, so it
  * cannot render a `DashboardCard` without inventing store data. `AgentKanbanCard`
- * is the only existing store-free renderer that accepts `DashboardCard`, so it
- * is the base here and this file is the only place that names it — a later switch
- * is a one-file change.
+ * is the only existing renderer that accepts `DashboardCard` and whose checked
+ * dependency graph has no `@/store` edge, so it is the base here and this file is
+ * the only place that names it.
+ *
+ * What that does NOT buy, per the read-only review (`archive/reports/r-codex-ark-base.md`):
+ * no store import is not the same as no resource loading — `AgentIcon` can fall
+ * back to a remote favicon `<img>` (`lib/agent-catalog.tsx`), so the shell is not
+ * a zero-network claim; and a `DashboardCard` carries no model, tool preview or
+ * rich agent state, so this base is an explicit interim visual deviation from
+ * R18 rather than fidelity. The later switch to a dashboard-shaped base is a
+ * one-file edit only once an approved store-free row renderer exists and the
+ * overlay can adapt from the unchanged row input; it is not proven today.
  */
 
 function rowKeys(key: string): string {
