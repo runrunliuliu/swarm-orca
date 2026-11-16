@@ -99,7 +99,7 @@ export default function IncidentPanel({
   const now = useNow(60_000)
 
   const request = useMemo(() => incidentListRequest(filters), [filters])
-  const { snapshot, loading, error, reload } = useIncidentSnapshot(request, isVisible)
+  const { snapshot, loading, error, availability, reload } = useIncidentSnapshot(request, isVisible)
   const detail = useIncidentDetail(selectedId)
   const paneClocks = useIncidentPaneClocks(view === 'paneClocks')
   const toolFailures = useIncidentToolFailures(view === 'toolFailures')
@@ -196,6 +196,20 @@ export default function IncidentPanel({
       )
     }
 
+    if (availability === 'unsupported') {
+      // Why a separate state: an older host authenticates and simply has no incident read. Rendering
+      // that as an empty list would claim "no incidents" about data nobody can see.
+      return (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+          <AlertTriangle size={24} className="opacity-50" />
+          <p className="text-xs text-muted-foreground">
+            {translate('auto.components.right.sidebar.incidents.IncidentPanel.unsupported',
+              'The selected host does not serve incident reads, so this is not a claim that it has no incidents.'
+            )}
+          </p>
+        </div>
+      )
+    }
     if (error !== null) {
       return (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
@@ -224,10 +238,16 @@ export default function IncidentPanel({
         selectedId={selectedId}
         now={now}
         onOpen={(item) => setSelectedId(item.id)}
-        empty={emptyStateMessage(emptyStateKind, {
-          shown: snapshot.incidents.length,
-          total: snapshot.total
-        })}
+        empty={
+          snapshot.availability === 'store-not-created'
+            ? translate('auto.components.right.sidebar.incidents.IncidentPanel.storeNotCreated',
+                'This host has never recorded an incident yet. Nothing is missing and nothing was read.'
+              )
+            : emptyStateMessage(emptyStateKind, {
+                shown: snapshot.incidents.length,
+                total: snapshot.total
+              })
+        }
       />
     )
   }

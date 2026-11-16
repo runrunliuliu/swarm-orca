@@ -113,6 +113,8 @@ export function detailFixture(overrides: Partial<IncidentDetailDto> = {}): Incid
         createdAt: FIXTURE_NOW - 30_000
       }
     ],
+    // Local by default: every fixture is a desktop read until a test says otherwise.
+    source: { kind: 'local' },
     ...overrides
   }
 }
@@ -198,6 +200,8 @@ export function countsFixture(overrides: Partial<IncidentCountsDto> = {}): Incid
       gap: false
     },
     readAt: FIXTURE_NOW,
+    source: { kind: 'local' },
+    availability: 'supported',
     ...overrides
   }
 }

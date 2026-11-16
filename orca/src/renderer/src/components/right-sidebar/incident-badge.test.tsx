@@ -63,6 +63,8 @@ function counts(overrides: Partial<IncidentCountsDto> = {}): IncidentCountsDto {
       gap: false
     },
     readAt: 1_700_000_000_000,
+    source: { kind: 'local' },
+    availability: 'supported',
     ...overrides
   }
 }

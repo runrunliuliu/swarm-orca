@@ -16,6 +16,10 @@ import type { IncidentRecord } from '../incidents/incident-types'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../incidents/incidents-database'
 import { createIncidentStore, type IncidentStore } from '../incidents/incident-store'
 import {
+  __configureIncidentReadStoreForTests,
+  __resetIncidentReadStoreForTests
+} from '../incidents/incident-read-service'
+import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests
 } from '../incidents/incident-writer'

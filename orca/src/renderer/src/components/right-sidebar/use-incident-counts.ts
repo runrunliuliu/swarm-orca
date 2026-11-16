@@ -20,8 +20,11 @@
 // quiet week). The timer is the *only* clock in this hook: it is armed once per reading, at the moment
 // that reading expires, and disposed with the reading.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { IncidentCountsDto } from '../../../../shared/incident-api-types'
+import { incidentReadTarget, readIncidentCounts } from '../../runtime/incident-read-client'
+import type { RuntimeClientTarget } from '../../runtime/runtime-client-target'
+import { useAppStore } from '../../store'
 
 /**
  * How long a reading stays citable, measured from its own `readAt`.
@@ -61,6 +64,14 @@ function newer(
 
 export function useIncidentCounts(): IncidentCountsState {
   const [counts, setCounts] = useState<IncidentCountsDto | null>(null)
+  // Why the selection is part of the key: the badge must count the host the panel is showing, and a
+  // switch must invalidate the previous host's number instead of leaving it on screen.
+  const activeEnvironmentId = useAppStore((s) => s.settings?.activeRuntimeEnvironmentId ?? null)
+  const target = useMemo(
+    () => incidentReadTarget({ activeRuntimeEnvironmentId: activeEnvironmentId }),
+    [activeEnvironmentId]
+  )
+  const targetKey = target.kind === 'local' ? 'local' : `environment:${target.environmentId}`
   // Kept separate from `counts` on purpose: "the read failed" must survive a failure that carries no
   // payload, and must clear the moment a reading (pull or push) actually arrives.
   const [failed, setFailed] = useState(false)
@@ -74,38 +85,39 @@ export function useIncidentCounts(): IncidentCountsState {
   useEffect(() => {
     let live = true
     let unsubscribe: (() => void) | null = null
-    // One guarded access for both calls: a renderer without the incident bridge (paired web client,
-    // or a component test that mocks a partial `window.api`) must still render, but it must say the
-    // count is unavailable rather than imply the store is empty.
-    const api = (() => {
+    // The pull goes through the runtime the panel is showing (local or a paired environment). The push
+    // below stays local-only on purpose: `incidents:countsChanged` is a main-process broadcast, so a
+    // remote host's writes reach us on the next bounded pull, not as a live push.
+    const subscribeLocalPush = (current: RuntimeClientTarget): (() => void) | null => {
+      if (current.kind !== 'local') {
+        return null
+      }
       const incidents = window.api?.incidents
-      return incidents && typeof incidents.counts === 'function' ? incidents : null
-    })()
-    if (api === null) {
-      setFailed(true)
-      return
+      if (!incidents || typeof incidents.onCountsChanged !== 'function') {
+        return null
+      }
+      try {
+        return incidents.onCountsChanged((next) => {
+          if (live) {
+            accept(next)
+          }
+        })
+      } catch {
+        return null
+      }
     }
-    try {
-      unsubscribe = api.onCountsChanged((next) => {
-        if (live) {
-          accept(next)
-        }
-      })
-    } catch {
-      // A bridge that cannot subscribe is still a bridge that can read: the pull below decides.
-      unsubscribe = null
-    }
-    void api
-      .counts()
-      .then((result) => {
+    unsubscribe = subscribeLocalPush(target)
+    void readIncidentCounts(target)
+      .then((outcome) => {
         if (!live) {
           return
         }
-        if (result.ok) {
-          accept(result.value)
+        if (outcome.availability === 'supported') {
+          accept(outcome.value)
         } else {
-          // A closed failure (no store on this host yet, store unavailable) is a stated absence — not
-          // an empty store. The marker says "unavailable"; it never draws a zero.
+          // `unsupported` and `unavailable` are both a stated absence, never a zero: the badge draws
+          // its marker and the panel says why.
+          setCounts(null)
           setFailed(true)
         }
       })
@@ -118,10 +130,10 @@ export function useIncidentCounts(): IncidentCountsState {
       live = false
       unsubscribe?.()
     }
-    // Mount-only on purpose: the counts are host-global, so no store field can change the answer and
-    // re-subscribing on every state write would churn listeners for no new information.
+    // Re-read when the selected host changes; nothing else can change the answer, so the effect stays
+    // keyed on the target and not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [targetKey])
 
   // Arm the staleness deadline for the newest reading; a new push replaces it (and clears the flag).
   useEffect(() => {

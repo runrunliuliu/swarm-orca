@@ -10,7 +10,7 @@
 // `ageBasis`, provider coverage). Keeping them apart makes the "this cannot write" property readable.
 
 import type { IncidentIpcResult } from './incidents'
-import { incidentRuntimeStore } from '../incidents/incident-writer'
+import { openIncidentReadStore } from '../incidents/incident-read-service'
 import { readPaneClocks } from '../incidents/incident-pane-clocks'
 import {
   TOOL_ERROR_COVERED_PROVIDERS,
@@ -22,12 +22,25 @@ import type {
   IncidentToolFailuresViewDto
 } from '../../shared/incident-gray-types'
 
-function unavailable<T>(): IncidentIpcResult<T> {
+function unavailable<T>(error?: string): IncidentIpcResult<T> {
   return {
     ok: false,
     code: 'incident_store_unavailable',
     error:
+      error ??
       'The incident store is not available on this host yet. It is created by the running Orca runtime.'
+  }
+}
+
+/**
+ * A host that has never written an incident is a *stated* empty answer for these two fact tables: no
+ * rows were ever recorded, which is not the same as "the store is broken".
+ */
+function notCreated<T>(): IncidentIpcResult<T> {
+  return {
+    ok: false,
+    code: 'incident_store_not_created',
+    error: 'This host has never recorded an incident, so there are no facts to show.'
   }
 }
 
@@ -38,16 +51,24 @@ function unavailable<T>(): IncidentIpcResult<T> {
  * one connection (including its capacity latch) instead of a second opener that could disagree.
  */
 export function readIncidentPaneClocksView(): IncidentIpcResult<IncidentPaneClocksViewDto> {
-  const runtime = incidentRuntimeStore()
-  if (runtime === null) {
-    return unavailable()
+  // Why the read-only opener: a diagnostics tab must not be the reason `<userData>/incidents/` appears.
+  const handle = openIncidentReadStore()
+  if (handle.availability === 'unavailable') {
+    return unavailable(handle.error)
   }
-  return {
-    ok: true,
-    value: {
-      rows: readPaneClocks(runtime.db, Date.now()),
-      coverage: runtime.store.coverage()
+  if (handle.availability === 'store-not-created') {
+    return notCreated<IncidentPaneClocksViewDto>()
+  }
+  try {
+    return {
+      ok: true,
+      value: {
+        rows: readPaneClocks(handle.db, Date.now()),
+        coverage: handle.store.coverage()
+      }
     }
+  } finally {
+    handle.close()
   }
 }
 
@@ -58,26 +79,32 @@ export function readIncidentPaneClocksView(): IncidentIpcResult<IncidentPaneCloc
  * here is a fact and the panel cannot imply that a row is (or is about to become) an incident.
  */
 export function readIncidentToolFailuresView(): IncidentIpcResult<IncidentToolFailuresViewDto> {
-  const runtime = incidentRuntimeStore()
-  if (runtime === null) {
-    return unavailable()
+  const handle = openIncidentReadStore()
+  if (handle.availability === 'unavailable') {
+    return unavailable(handle.error)
   }
-  const now = Date.now()
-  const snapshot = readToolFailures(runtime.db, {
-    now,
-    windowMs: 7 * 24 * 60 * 60 * 1000,
-    limit: 200
-  })
-  return {
-    ok: true,
-    value: {
-      since: snapshot.since,
-      rows: snapshot.rows,
-      total: snapshot.total,
-      truncated: snapshot.truncated,
-      dropped: snapshot.dropped,
-      coveredProviders: [...TOOL_ERROR_COVERED_PROVIDERS],
-      uncoveredProviders: [...TOOL_ERROR_UNCOVERED_PROVIDERS]
+  if (handle.availability === 'store-not-created') {
+    return notCreated<IncidentToolFailuresViewDto>()
+  }
+  try {
+    const snapshot = readToolFailures(handle.db, {
+      now: Date.now(),
+      windowMs: 7 * 24 * 60 * 60 * 1000,
+      limit: 200
+    })
+    return {
+      ok: true,
+      value: {
+        since: snapshot.since,
+        rows: snapshot.rows,
+        total: snapshot.total,
+        truncated: snapshot.truncated,
+        dropped: snapshot.dropped,
+        coveredProviders: [...TOOL_ERROR_COVERED_PROVIDERS],
+        uncoveredProviders: [...TOOL_ERROR_UNCOVERED_PROVIDERS]
+      }
     }
+  } finally {
+    handle.close()
   }
 }

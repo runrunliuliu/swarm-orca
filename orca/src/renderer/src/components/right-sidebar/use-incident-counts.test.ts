@@ -64,10 +64,12 @@ function installBridge(options: {
 }
 
 async function settle(): Promise<void> {
-  // The pull resolves on a microtask; a couple of flushes turn it into committed state.
+  // The pull goes through the read adapter (one hop to the bridge, then the hook's own `then`), so it
+  // needs a few microtask flushes rather than one; the assertions are about state, not about depth.
   await act(async () => {
-    await Promise.resolve()
-    await Promise.resolve()
+    for (let i = 0; i < 6; i += 1) {
+      await Promise.resolve()
+    }
   })
 }
 

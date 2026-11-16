@@ -11,6 +11,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../incidents/incidents-database'
 import { createIncidentStore, type IncidentStore } from '../incidents/incident-store'
 import {
+  __configureIncidentReadStoreForTests,
+  __resetIncidentReadStoreForTests
+} from '../incidents/incident-read-service'
+import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests
 } from '../incidents/incident-writer'
@@ -137,15 +141,17 @@ describe('readIncidentToolFailuresView', () => {
 })
 
 describe('unavailable store', () => {
-  it('returns a closed failure from both views, not a thrown bridge', () => {
+  it('returns a closed "never recorded" answer from both views, never a thrown bridge', () => {
+    // A host that never wrote an incident has no facts to show; that is a stated answer with its own
+    // code, not the same failure as an unreadable store.
     __configureIncidentStoreForTests(null)
     expect(readIncidentPaneClocksView()).toMatchObject({
       ok: false,
-      code: 'incident_store_unavailable'
+      code: 'incident_store_not_created'
     })
     expect(readIncidentToolFailuresView()).toMatchObject({
       ok: false,
-      code: 'incident_store_unavailable'
+      code: 'incident_store_not_created'
     })
   })
 })

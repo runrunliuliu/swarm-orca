@@ -177,7 +177,31 @@ export type IncidentDetailDto = {
   decisionCount: number
   lastDecisionAt: number | null
   decisions: IncidentDecisionDto[]
+  /** Who answered: a detail opened from a remote target must be labelled as remote. */
+  source: IncidentSourceDto
 }
+
+/**
+ * Where a read came from (A-fix: the panel must not silently show one host's rows as another's).
+ *
+ * Set by whoever served the read, never inferred in the renderer: `local` is this machine's own
+ * runtime, `environment` is a paired runtime the client dialled over runtime RPC. The desktop panel
+ * labels the source; the CLI stays local-only (§19.1) and is not on this path.
+ */
+export type IncidentSourceDto =
+  | { kind: 'local' }
+  | { kind: 'environment'; environmentId: string }
+
+/**
+ * Whether the read answered at all, and if not, why (never collapsed into an empty list).
+ *
+ *   * `supported` — the store was read; `incidents: []` then really means "no incidents here".
+ *   * `store-not-created` — the host has never written an incident. A real answer, not a failure.
+ *   * `unsupported` — the target does not serve this read (an older host, or a non-incident build).
+ *     Callers must render "not wired on that host", never an empty list.
+ *   * `unavailable` — the store exists but could not be read right now. Distinct from both above.
+ */
+export type IncidentAvailabilityDto = 'supported' | 'store-not-created' | 'unsupported' | 'unavailable'
 
 export type IncidentListRequest = {
   limit?: number
@@ -189,6 +213,9 @@ export type IncidentSnapshotDto = {
   incidents: IncidentListItemDto[]
   total: number
   coverage: IncidentCoverageDto
+  /** Who answered this read; the panel prints it instead of assuming it is local. */
+  source: IncidentSourceDto
+  availability: IncidentAvailabilityDto
 }
 
 /**
@@ -216,6 +243,9 @@ export type IncidentCountsDto = {
   coverage: IncidentCoverageSummaryDto
   /** When this reading was taken (ms since epoch). */
   readAt: number
+  /** Same vocabulary as the snapshot: a badge for an unreachable host must not read as zero. */
+  source: IncidentSourceDto
+  availability: IncidentAvailabilityDto
 }
 
 export type IncidentWorktreeCountDto = {

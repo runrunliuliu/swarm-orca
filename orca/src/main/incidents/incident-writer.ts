@@ -29,6 +29,10 @@ import {
   resolveMainProcessIncidentsDatabaseFile
 } from './incidents-paths'
 import { appendShadowRecord, appendShadowRecordFromCli } from './incident-shadow'
+import {
+  __configureIncidentReadStoreForTests,
+  __resetIncidentReadStoreForTests
+} from './incident-read-service'
 
 export type RecordPtyExitIncidentInput = PtyExitIncidentFacts
 
@@ -272,10 +276,18 @@ export function __configureIncidentStoreForTests(
     store === null
       ? null
       : { store, db: db ?? (null as unknown as RuntimeIncidentStore['db']), path: ':test:' }
+  // Why the read mirror of this seam: reads no longer resolve through this cache, and a suite that
+  // already owns a store pair should be testing the projection, not the userData path resolver. A suite
+  // that removes the store is modelling "this host never had one", which the read vocabulary calls
+  // `store-not-created` — not `unavailable`.
+  __configureIncidentReadStoreForTests(
+    store === null ? { availability: 'store-not-created' } : { availability: 'supported', store, db: db as never, close: () => undefined }
+  )
 }
 
 export function __resetIncidentWriterForTests(): void {
   cached = undefined
+  __resetIncidentReadStoreForTests()
 }
 
 /** Exported for the path test; production code resolves through the functions above. */

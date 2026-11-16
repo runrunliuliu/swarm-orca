@@ -321,10 +321,16 @@ describe('IncidentPanel', () => {
     expect(container.textContent).toContain('Showing 1 of 40 matching incidents')
   })
 
-  it('keeps working without the bridge (a paired web client has no incident API)', async () => {
+  it('states that this window cannot read incidents when there is no bridge', async () => {
+    // Why the wording changed: without a bridge the local read cannot run at all, so the panel must say
+    // the host read is unavailable — never that the host has no incidents.
     ;(window as unknown as { api: unknown }).api = {}
     const { container } = await renderPanel()
-    expect(container.textContent).toContain('The incident bridge is not available')
+    expect(container.textContent).toContain('does not serve incident reads')
+    // The sentence says "not a claim that it has no incidents"; what must not appear is a list empty-state
+    // that reads as a finding ("No incidents match …").
+    expect(container.textContent).not.toContain('No incidents')
+    expect(container.textContent).not.toContain('no matching incidents')
   })
 
   it('uses FIXTURE_NOW-independent relative times without crashing', async () => {

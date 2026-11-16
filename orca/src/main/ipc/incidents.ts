@@ -5,22 +5,17 @@
 // exposes exactly what `orca incident list/show/decide` already does, from the same store, so the two
 // cannot drift.
 //
-// Why the handler opens the store instead of taking one: the incident store is per-host user data
-// resolved lazily from the app environment (same as the PTY-exit writer), and the read model must
-// see the same connection the writer uses — including its capacity latch.
+// Why reads go through `openIncidentReadService()` (2026-11-16): the IPC read paths used the *creating*
+// resolver, so merely opening the panel made `<userData>/incidents/` and migrated the schema on a host
+// that had never written an incident. The read service opens read-only and never creates; the write
+// path (`decide`) keeps the writer's resolver because it must see the same connection.
 
 import { BrowserWindow, ipcMain } from 'electron'
+import { isIncidentStatus } from '../incidents/incident-types'
 import {
-  isIncidentClass,
-  isIncidentStatus,
-  type IncidentClass,
-  type IncidentStatus,
-  type IncidentView
-} from '../incidents/incident-types'
-import { incidentRuntimeStore } from '../incidents/incident-writer'
-import type { IncidentListItem } from '../incidents/incident-store'
+  incidentRuntimeStoreIfPresent
+} from '../incidents/incident-writer'
 import type {
-  IncidentClassDto,
   IncidentCountsDto,
   IncidentCountsRequest,
   IncidentDecideFailureDto,
@@ -32,13 +27,12 @@ import type {
   IncidentSnapshotDto,
   IncidentStatusDto
 } from '../../shared/incident-api-types'
-import { readIncidentCounts as readIncidentCountsFrom } from '../incidents/incident-counts'
+import {
+  openIncidentReadService,
+  type IncidentReadOutcome
+} from '../incidents/incident-read-service'
 import { startIncidentCountsPush } from './incident-counts-push'
 import { readIncidentPaneClocksView, readIncidentToolFailuresView } from './incident-gray-views'
-import {
-  attachIncidentRemoteMirrorToCounts,
-  attachIncidentRemoteMirrorToCoverage
-} from './incident-mirror-coverage'
 
 /** The push channel the preload bridge listens on (`incidents.onCountsChanged`). */
 export const INCIDENT_COUNTS_CHANGED_CHANNEL = 'incidents:countsChanged'
@@ -46,133 +40,62 @@ export const INCIDENT_COUNTS_CHANGED_CHANNEL = 'incidents:countsChanged'
 /** A closed channel result: the renderer renders `ok: false` instead of throwing over IPC. */
 export type IncidentIpcResult<T> = { ok: true; value: T } | { ok: false; error: string; code: string }
 
-function unavailable<T>(): IncidentIpcResult<T> {
+function unavailable<T>(error?: string): IncidentIpcResult<T> {
   return {
     ok: false,
     code: 'incident_store_unavailable',
     error:
+      error ??
       'The incident store is not available on this host yet. It is created by the running Orca runtime.'
   }
 }
 
-function listItem(item: IncidentListItem): IncidentSnapshotDto['incidents'][number] {
-  return {
-    id: item.id,
-    class: item.class as IncidentClassDto,
-    sourceKind: item.sourceKind,
-    facet: item.facet,
-    hostId: item.hostId,
-    worktreeId: item.worktreeId,
-    agentSessionId: item.agentSessionId,
-    status: item.status as IncidentStatusDto,
-    effectiveStatus: item.effectiveStatus as IncidentStatusDto,
-    exitCause: item.exitCause,
-    fingerprint: item.fingerprint,
-    summary: item.summary,
-    createdAt: item.createdAt,
-    decisionCount: item.decisionCount
+/**
+ * Map one read outcome onto the closed IPC result.
+ *
+ * `store-not-created` is *not* an error: the read service answers it with a real empty view whose
+ * `availability` says why, so the panel can print "this host never recorded an incident" instead of an
+ * unavailable banner or — worse — a zero that looks like health.
+ */
+function fromRead<T>(outcome: IncidentReadOutcome<T>): IncidentIpcResult<T> {
+  if (outcome.availability === 'supported') {
+    return { ok: true, value: outcome.value }
   }
-}
-
-export function incidentDetailFromView(view: IncidentView): IncidentDetailDto {
-  return {
-    id: view.id,
-    sourceKind: view.sourceKind,
-    sourceId: view.sourceId,
-    facet: view.facet,
-    hostId: view.hostId,
-    worktreeId: view.worktreeId,
-    runId: view.runId,
-    taskId: view.taskId,
-    dispatchId: view.dispatchId,
-    agentSessionId: view.agentSessionId,
-    ptyIncarnationId: view.ptyIncarnationId,
-    class: view.class as IncidentClassDto,
-    status: view.status as IncidentStatusDto,
-    effectiveStatus: view.effectiveStatus as IncidentStatusDto,
-    exitCause: view.exitCause,
-    fingerprint: view.fingerprint,
-    evidence: {
-      pointers: view.evidence.pointers,
-      unknownBoundaries: view.evidence.unknownBoundaries,
-      ...(view.evidence.agentIdentityDigest
-        ? { agentIdentityDigest: view.evidence.agentIdentityDigest }
-        : {}),
-      ...(view.evidence.code ? { code: view.evidence.code } : {}),
-      ...(view.evidence.repro ? { repro: view.evidence.repro } : {})
-    },
-    summary: view.summary,
-    createdAt: view.createdAt,
-    decisionCount: view.decisionCount,
-    lastDecisionAt: view.lastDecisionAt,
-    decisions: view.decisions.map((decision) => ({
-      id: decision.id,
-      incidentId: decision.incidentId,
-      fromStatus: decision.fromStatus as IncidentStatusDto,
-      toStatus: decision.toStatus as IncidentStatusDto,
-      actor: decision.actor,
-      reason: decision.reason,
-      createdAt: decision.createdAt
-    }))
+  if (outcome.availability === 'store-not-created') {
+    // Only a detail can land here: the service answers snapshot/counts for a missing store with a real
+    // empty view whose `availability` says `store-not-created`.
+    return { ok: false, code: 'incident_store_not_created', error: 'No incident store on this host yet.' }
   }
-}
-
-function statusFilter(value: unknown): IncidentStatus | undefined | null {
-  if (value === undefined) {
-    return undefined
-  }
-  return isIncidentStatus(value) ? value : null
-}
-
-function classFilter(value: unknown): IncidentClass | undefined | null {
-  if (value === undefined) {
-    return undefined
-  }
-  return isIncidentClass(value) ? value : null
+  return unavailable(outcome.error)
 }
 
 export function readIncidentSnapshot(
   request: IncidentListRequest | undefined
 ): IncidentIpcResult<IncidentSnapshotDto> {
-  const runtime = incidentRuntimeStore()
-  if (runtime === null) {
-    return unavailable()
-  }
-  const status = statusFilter(request?.status)
-  const incidentClass = classFilter(request?.class)
-  if (status === null || incidentClass === null) {
-    return { ok: false, code: 'invalid_argument', error: 'Unknown status or class filter.' }
-  }
-  const result = runtime.store.listIncidents({
-    ...(request?.limit === undefined ? {} : { limit: request.limit }),
-    ...(status === undefined ? {} : { status }),
-    ...(incidentClass === undefined ? {} : { class: incidentClass })
-  })
-  return {
-    ok: true,
-    value: {
-      incidents: result.incidents.map(listItem),
-      total: result.total,
-      // The mirror's coverage is attached here, not computed: absent means the read failed or the
-      // mirror has nothing to report, which the panel renders as a stated fact rather than as
-      // completeness (M7-C).
-      coverage: attachIncidentRemoteMirrorToCoverage(runtime.db, result.coverage)
-    }
+  const reader = openIncidentReadService()
+  try {
+    return fromRead(reader.snapshot(request, { kind: 'local' }))
+  } finally {
+    reader.close()
   }
 }
 
 export function readIncidentDetail(
   request: IncidentDetailRequest
 ): IncidentIpcResult<IncidentDetailDto> {
-  const runtime = incidentRuntimeStore()
-  if (runtime === null) {
-    return unavailable()
+  const reader = openIncidentReadService()
+  try {
+    const outcome = reader.detail(request?.incidentId ?? '', { kind: 'local' })
+    if (outcome.availability !== 'supported') {
+      return fromRead<IncidentDetailDto>(outcome as IncidentReadOutcome<IncidentDetailDto>)
+    }
+    if (outcome.value === null) {
+      return { ok: false, code: 'not_found', error: `Incident ${request?.incidentId} not found.` }
+    }
+    return { ok: true, value: outcome.value }
+  } finally {
+    reader.close()
   }
-  const view = runtime.store.getIncident(request?.incidentId ?? '')
-  if (view === null) {
-    return { ok: false, code: 'not_found', error: `Incident ${request?.incidentId} not found.` }
-  }
-  return { ok: true, value: incidentDetailFromView(view) }
 }
 
 /**
@@ -182,7 +105,7 @@ export function readIncidentDetail(
 export function decideIncident(
   request: IncidentDecideRequest
 ): IncidentIpcResult<IncidentDecideResultDto | IncidentDecideFailureDto> {
-  const runtime = incidentRuntimeStore()
+  const runtime = incidentRuntimeStoreIfPresent()
   if (runtime === null) {
     return unavailable()
   }
@@ -235,19 +158,12 @@ export function decideIncident(
 export function readIncidentCountsSnapshot(
   request: IncidentCountsRequest | undefined
 ): IncidentIpcResult<IncidentCountsDto> {
-  const runtime = incidentRuntimeStore()
-  if (runtime === null) {
-    return unavailable()
+  const reader = openIncidentReadService()
+  try {
+    return fromRead(reader.counts(request, { kind: 'local' }))
+  } finally {
+    reader.close()
   }
-  const counts = readIncidentCountsFrom({
-    db: runtime.db,
-    coverage: runtime.store.coverage(),
-    ...(request?.topWorktrees === undefined ? {} : { topWorktrees: request.topWorktrees })
-  })
-  // The badge's secondary hint rides on the same read (M7-C seam): `coverage.gap` stays local and the
-  // mirror is attached beside it. Done here, not inside `readIncidentCounts`, so that module stays free
-  // of the IPC seam — and the push uses the same helper, so the two payloads cannot disagree.
-  return { ok: true, value: attachIncidentRemoteMirrorToCounts(runtime.db, counts) }
 }
 
 export function registerIncidentHandlers(): void {

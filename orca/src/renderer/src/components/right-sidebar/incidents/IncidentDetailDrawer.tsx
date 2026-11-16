@@ -352,7 +352,19 @@ export function IncidentDetailDrawer({
                     </dd>
                   </dl>
                 </Section>
-                <IncidentTriageActions incidentId={detail.id} onDecide={onDecide} />
+                {detail.source.kind === 'local' ? (
+                  <IncidentTriageActions incidentId={detail.id} onDecide={onDecide} />
+                ) : (
+                  // Why hidden instead of disabled-looking: `decide` mutates the store of the host a
+                  // person owns, and the local-only IPC cannot reach it. Offering a button that cannot
+                  // work is worse than saying where triage happens.
+                  <p className="text-xs text-muted-foreground">
+                    {translate(
+                      'auto.components.right.sidebar.incidents.IncidentDetailDrawer.remoteTriage',
+                      'Triage for another host runs there: `orca incident decide` on that machine (the CLI is local-only).'
+                    )}
+                  </p>
+                )}
               </>
             )}
           </div>

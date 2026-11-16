@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IncidentRecord } from '../incidents/incident-types'
 import { closeStorePairs, openStorePair, record } from '../incidents/incident-test-fixture'
 import {
+  __configureIncidentReadStoreForTests,
+  __resetIncidentReadStoreForTests
+} from '../incidents/incident-read-service'
+import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests
 } from '../incidents/incident-writer'
@@ -197,16 +201,27 @@ describe('readIncidentSnapshot', () => {
     expect('remoteMirror' in pushed.coverage).toBe(false)
   })
 
-  it('rejects an unknown filter and an unavailable store with a closed result', () => {
+  it('rejects an unknown filter with a closed result', () => {
     const store = sharedStore()
     __configureIncidentStoreForTests(store)
-    expect(readIncidentSnapshot({ status: 'nope' as never })).toMatchObject({ ok: false })
-
-    __configureIncidentStoreForTests(null)
-    expect(readIncidentSnapshot({})).toMatchObject({
+    expect(readIncidentSnapshot({ status: 'nope' as never })).toMatchObject({
       ok: false,
       code: 'incident_store_unavailable'
     })
+  })
+
+  it('answers a host with no store as store-not-created, not as a failure', () => {
+    // Why this changed (A-fix): "this host has never written an incident" is a real answer with a real
+    // empty view. Rendering it as `incident_store_unavailable` told the panel the read had failed.
+    __configureIncidentStoreForTests(null)
+    const result = readIncidentSnapshot({})
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      throw new Error('unreachable')
+    }
+    expect(result.value.availability).toBe('store-not-created')
+    expect(result.value.incidents).toEqual([])
+    expect(result.value.source).toEqual({ kind: 'local' })
   })
 })
 
@@ -301,11 +316,16 @@ describe('readIncidentCountsSnapshot', () => {
     expect(result.value.byWorktree).toEqual([{ worktreeId: 'wt-1', untriaged: 1 }])
     expect(result.value.coverage.gap).toBe(false)
 
+    // A host that never wrote an incident still answers, with zeros and the reason: a badge over an
+    // empty store must not be mistaken for a failed read.
     __configureIncidentStoreForTests(null)
-    expect(readIncidentCountsSnapshot(undefined)).toMatchObject({
-      ok: false,
-      code: 'incident_store_unavailable'
-    })
+    const empty = readIncidentCountsSnapshot(undefined)
+    expect(empty.ok).toBe(true)
+    if (empty.ok) {
+      expect(empty.value.availability).toBe('store-not-created')
+      expect(empty.value.untriaged).toBe(0)
+      expect(empty.value.coverage.gap).toBe(false)
+    }
   })
 })
 

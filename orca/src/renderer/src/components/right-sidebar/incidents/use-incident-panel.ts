@@ -6,12 +6,14 @@
 // otherwise be re-fetched (and could resolve out of order) on every list refresh.
 //
 // Two rules repeated from `use-incident-counts.ts`:
-//   * a renderer without the bridge degrades to a stated error, never a crash. `window.api.incidents`
-//     is guarded once per call, so a paired web client or a partial test mock renders;
+//   * reads go through `runtime/incident-read-client` (local or a paired environment) and never through
+//     `window.api.incidents`, which is local-only; the decide/gray paths stay on the bridge because they
+//     mutate or project the local store (§19.1). A renderer without the bridge still renders, stating
+//     which of those it cannot do;
 //   * a slow response must not overwrite a newer one. Each hook keeps a generation counter and drops
 //     any result that is not from its own last request.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   IncidentDecideRequest,
   IncidentDecideResultDto,
@@ -25,6 +27,8 @@ import type {
   IncidentToolFailuresViewDto
 } from '../../../../../shared/incident-gray-types'
 import type { IncidentDecideReply } from './IncidentTriageActions'
+import { incidentReadTarget, readIncidentDetail, readIncidentSnapshot } from '../../../runtime/incident-read-client'
+import { useAppStore } from '../../../store'
 
 type IncidentBridge = NonNullable<Window['api']>['incidents']
 
@@ -41,6 +45,12 @@ type SnapshotState = {
   snapshot: IncidentSnapshotDto | null
   loading: boolean
   error: string | null
+  /**
+   * Why the list is empty, when it is: `idle` before the first read, `unsupported` when the selected
+   * host serves no incident read at all, `unavailable` when it does but could not answer. Only `ok`
+   * with zero rows may be described as "no incidents".
+   */
+  availability: 'idle' | 'ok' | 'unsupported' | 'unavailable'
 }
 
 export function useIncidentSnapshot(
@@ -52,32 +62,43 @@ export function useIncidentSnapshot(
   const [state, setState] = useState<SnapshotState>({
     snapshot: null,
     loading: true,
-    error: null
+    error: null,
+    availability: 'idle'
   })
+  // Why the target is read here and not passed in: the panel is host-scoped, and the selection can
+  // change while the sidebar stays mounted. Reading it in the hook keeps the list, the detail and the
+  // counts on one selection instead of three call sites that could disagree.
+  const activeEnvironmentId = useAppStore((s) => s.settings?.activeRuntimeEnvironmentId ?? null)
+  // Why memoized on the id and not on `settings`: `getActiveRuntimeTarget` returns a fresh object, and an
+  // unstable target would re-run `load` on every render (an unbounded read loop, which is exactly what
+  // the panel test surfaced).
+  const target = useMemo(
+    () => incidentReadTarget({ activeRuntimeEnvironmentId: activeEnvironmentId }),
+    [activeEnvironmentId]
+  )
   const generation = useRef(0)
   // Read through a ref so a visibility change does not re-subscribe the push listener below.
   const visible = useRef(isVisible)
   visible.current = isVisible
 
   const load = useCallback(() => {
-    const bridge = incidentBridge()
     const current = ++generation.current
-    if (bridge === null) {
-      setState({ snapshot: null, loading: false, error: NO_BRIDGE_MESSAGE })
-      return
-    }
     setState((previous) => ({ ...previous, loading: true, error: null }))
-    void bridge
-      .snapshot(request)
-      .then((result) => {
+    void readIncidentSnapshot(target, request)
+      .then((outcome) => {
         if (current !== generation.current) {
           return
         }
-        setState(
-          result.ok
-            ? { snapshot: result.value, loading: false, error: null }
-            : { snapshot: null, loading: false, error: result.error }
-        )
+        if (outcome.availability === 'supported') {
+          setState({ snapshot: outcome.value, loading: false, error: null, availability: 'ok' })
+          return
+        }
+        setState({
+          snapshot: null,
+          loading: false,
+          error: outcome.availability === 'unavailable' ? outcome.error : null,
+          availability: outcome.availability
+        })
       })
       .catch((error: unknown) => {
         if (current !== generation.current) {
@@ -86,10 +107,11 @@ export function useIncidentSnapshot(
         setState({
           snapshot: null,
           loading: false,
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          availability: 'unavailable'
         })
       })
-  }, [request])
+  }, [request, target])
 
   // The sidebar keeps this panel mounted while it is collapsed, so a read only happens for a panel a
   // reader can actually see — and becoming visible is itself the refresh trigger, which is what keeps
@@ -136,6 +158,11 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
 } {
   const [state, setState] = useState<DetailState>({ detail: null, loading: false, error: null })
   const generation = useRef(0)
+  const activeEnvironmentId = useAppStore((s) => s.settings?.activeRuntimeEnvironmentId ?? null)
+  const target = useMemo(
+    () => incidentReadTarget({ activeRuntimeEnvironmentId: activeEnvironmentId }),
+    [activeEnvironmentId]
+  )
 
   const load = useCallback(() => {
     if (incidentId === null) {
@@ -143,23 +170,24 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
       setState({ detail: null, loading: false, error: null })
       return
     }
-    const bridge = incidentBridge()
     const current = ++generation.current
-    if (bridge === null) {
-      setState({ detail: null, loading: false, error: NO_BRIDGE_MESSAGE })
-      return
-    }
     setState((previous) => ({ ...previous, loading: true, error: null }))
-    void bridge
-      .detail({ incidentId })
-      .then((result) => {
+    void readIncidentDetail(target, incidentId)
+      .then((outcome) => {
         if (current !== generation.current) {
           return
         }
         setState(
-          result.ok
-            ? { detail: result.value, loading: false, error: null }
-            : { detail: null, loading: false, error: result.error }
+          outcome.availability === 'supported'
+            ? { detail: outcome.value, loading: false, error: null }
+            : {
+                detail: null,
+                loading: false,
+                error:
+                  outcome.availability === 'unavailable'
+                    ? outcome.error
+                    : 'This host does not serve incident reads.'
+              }
         )
       })
       .catch((error: unknown) => {
@@ -172,7 +200,7 @@ export function useIncidentDetail(incidentId: string | null): DetailState & {
           error: error instanceof Error ? error.message : String(error)
         })
       })
-  }, [incidentId])
+  }, [incidentId, target])
 
   useEffect(() => {
     load()

@@ -25,6 +25,10 @@ import { openIncidentsDatabase, type OpenIncidentsDatabase } from '../incidents/
 import { createIncidentStore, type IncidentStore } from '../incidents/incident-store'
 import { ensureMirrorLink, recordMirrorProbeSuccess } from '../incidents/incident-mirror-store'
 import {
+  __configureIncidentReadStoreForTests,
+  __resetIncidentReadStoreForTests
+} from '../incidents/incident-read-service'
+import {
   __configureIncidentStoreForTests,
   __resetIncidentWriterForTests
 } from '../incidents/incident-writer'
