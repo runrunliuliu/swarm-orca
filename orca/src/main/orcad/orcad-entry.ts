@@ -360,6 +360,16 @@ async function startOrcadRuntime(
   })
   pushService?.start()
   getAppEnvironment().onWillQuit(() => pushService?.stop())
+
+  // Why here: the desktop main process starts this interval in `initializeReadyFoundation`, and orcad
+  // never calls that path — so a headless host staged evidence and left it `archive_pending` forever,
+  // with the help text still promising the runtime retries. Unref'd and store-optional, so it neither
+  // holds the process open nor creates an incidents directory on a host that never wrote one.
+  {
+    const { startEvidenceArchiveDrain } = await import('../incidents/incidents-startup')
+    startEvidenceArchiveDrain()
+  }
+
   console.error(`[orcad] ${describeOrcadBindExposure(bindHost)}`)
 
   // Why here and not at the top of startup: the pointer promises that bare `orca` runs the CLI of
