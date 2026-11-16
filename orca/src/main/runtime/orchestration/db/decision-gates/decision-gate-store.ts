@@ -24,9 +24,13 @@ export function createGate(
      * Opening a gate settles the Task's active Dispatches, so the acceptance answer has to be a value
      * produced before `SAVEPOINT create_gate`: the gate writes incidents and an acceptance stop into a
      * second database, outside the lifecycle write transaction (`incidents/acceptance-gate.ts:10-17`).
-     * The RPC call site (`orchestration.gateCreate`) computes the map; a direct caller that omits it
-     * gets the same guarantee from the fallback, which also runs after validation and before the
-     * savepoint. A Dispatch with no entry is left unsettled (reported through `log`), never allowed.
+     *
+     * OPTIONAL, and deliberately not a mandatory argument. The RPC call site
+     * (`orchestration.gateCreate`) passes a map it computed itself. A direct caller may omit it and
+     * still gets the invariant from the fallback below: `precomputeActiveDispatchAcceptance` runs after
+     * the guards and BEFORE the savepoint, so the gate decides outside the lifecycle write transaction
+     * on both paths. A Dispatch with no entry is left unsettled (reported through `log`), never
+     * allowed.
      */
     acceptanceDecisions?: AcceptanceDecisions
     /** Convenience for direct callers: applied by the fallback precompute. */

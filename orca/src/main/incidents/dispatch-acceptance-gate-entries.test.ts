@@ -118,7 +118,8 @@ describe('the settlement sink itself', () => {
       dispatchId,
       outcome: 'succeeded',
       result: 'ok',
-      acceptance: { action: 'blocked', reason: 'blocked', dispatchId }
+      acceptance: { action: 'blocked', reason: 'blocked', dispatchId },
+      siblingDecisions: new Map()
     })
     db.db.exec('COMMIT')
 
@@ -141,7 +142,8 @@ describe('the settlement sink itself', () => {
       dispatchId,
       outcome: 'succeeded',
       result: 'ok',
-      acceptance: { action: 'blocked', reason: 'store_unavailable', dispatchId }
+      acceptance: { action: 'blocked', reason: 'store_unavailable', dispatchId },
+      siblingDecisions: new Map()
     })
     db.db.exec('COMMIT')
     expect(settlement).toMatchObject({ action: 'acceptance_pending', reason: 'store_unavailable' })
@@ -229,7 +231,8 @@ describe('an incidents store that cannot be read (C3)', () => {
       dispatchId,
       outcome: 'succeeded',
       result: 'ok',
-      acceptance: decideWorkerReportAcceptance(dispatchId)
+      acceptance: decideWorkerReportAcceptance(dispatchId),
+      siblingDecisions: new Map()
     })
     db.db.exec('COMMIT')
     expect(settlement).toMatchObject({ action: 'acceptance_pending', reason: 'store_unavailable' })

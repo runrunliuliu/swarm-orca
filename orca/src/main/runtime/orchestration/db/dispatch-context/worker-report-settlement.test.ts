@@ -219,7 +219,8 @@ describe('a report that cannot settle writes no acceptance evidence (F7)', () =>
       dispatchId,
       outcome: 'succeeded',
       result: 'ok',
-      acceptance: null
+      acceptance: null,
+      siblingDecisions: new Map()
     })
     db.db.exec('COMMIT')
 
@@ -346,7 +347,8 @@ describe('the pre-admission predicate and the transaction agree (F7)', () => {
     const inTransaction = db.settleWorkerReportInTransaction({
       ...params,
       result: 'ok',
-      acceptance: null
+      acceptance: null,
+      siblingDecisions: new Map()
     })
     db.db.exec('COMMIT')
 

@@ -46,6 +46,11 @@ type WorkerReportSettlementParams = {
  * funnels through the gate" was a comment rather than a constraint. Now a caller that forgets it does
  * not compile, and every call site computes the decision BEFORE it opens its write transaction.
  *
+ * `siblingDecisions` is required for the same reason (review nit): it used to be optional with an
+ * empty-map fallback, so an omitted map silently settled the reporting Dispatch while deciding no
+ * sibling. Now the pair is one value at every call site: a caller that cannot settle (the `null`
+ * preflight-rejected case below, F7) passes an explicit empty map instead of relying on a fallback.
+ *
  * `null` is the second, equally explicit case (F7): the caller's admission preflight already answered
  * this report (duplicate / stale / inactive), so there is no settlement for the gate to decide and the
  * transaction must not decide one for itself. If the state moved between the two evaluations and the
@@ -57,13 +62,9 @@ type AcceptanceGateInput = {
    * The maintenance acceptance answers for the sibling Dispatches this settlement also settles, read
    * before the transaction for the same reason (F1): `settleActiveDispatchesForTask` may not call the
    * gate inside the lifecycle write transaction, so it can only apply what it was handed. A sibling
-   * with no entry here stays unsettled — never allowed.
-   *
-   * Optional only so this Task's seam does not force edits outside its own files: every caller in this
-   * module passes a complete map, and a caller that omits it settles no sibling at all rather than
-   * deciding one in the transaction.
+   * with no entry here stays unsettled — never allowed — so the map is required even when it is empty.
    */
-  siblingDecisions?: AcceptanceDecisions
+  siblingDecisions: AcceptanceDecisions
 }
 
 const WORKER_REPORT_TRANSACTION_SAVEPOINT = 'worker_report_transaction'
@@ -476,7 +477,9 @@ export function settleWorkerReportInTransaction(
     params.taskId,
     expectedDispatchStatus,
     params.outcome === 'failed' ? params.result : undefined,
-    { decisions: params.siblingDecisions ?? new Map<string, AcceptanceDecision>() }
+    // Required by `AcceptanceGateInput`: there is no empty-map fallback to hide an omitted map, so
+    // the sibling answers this settlement applies are always the ones the caller computed.
+    { decisions: params.siblingDecisions }
   )
   this.closeQuestionsForDispatch(params.dispatchId)
   for (const siblingDispatchId of siblingDispatchIds) {
