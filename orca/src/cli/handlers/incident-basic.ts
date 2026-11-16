@@ -14,6 +14,7 @@ import { RuntimeClientError } from '../runtime/types'
 import { DEFAULT_INCIDENT_RETENTION_DAYS } from '../../main/incidents/incident-store'
 import { isIncidentStatus, type IncidentStatus } from '../../main/incidents/incident-types'
 import { renderIncidentMarkdown } from '../../main/incidents/incident-render'
+import { readIncidentArchiveDetail } from '../../main/incidents/incident-archive'
 import {
   formatIncidentDecision,
   formatIncidentList,
@@ -103,8 +104,14 @@ export const INCIDENT_BASIC_HANDLERS = {
       if (!view) {
         throw new RuntimeClientError('invalid_argument', `Incident ${id} not found.`)
       }
+      // Why read the archive states here: `show` must state what actually happened to the pointers.
+      // The store may not be open (`db` null on a stub), and then the renderer says "unknown" rather
+      // than claiming durable=false as it used to.
+      const archive = opened.db
+        ? readIncidentArchiveDetail(opened.db, id, view.evidence.pointers.length)
+        : undefined
       if (ctx.flags.get('md') === true) {
-        const markdown = renderIncidentMarkdown(view)
+        const markdown = renderIncidentMarkdown(view, { archive })
         if (ctx.json) {
           printIncidentJson({ incidentId: view.id, markdown })
           return
@@ -116,7 +123,7 @@ export const INCIDENT_BASIC_HANDLERS = {
         printIncidentJson({ incident: view, coverage: opened.store.coverage() })
         return
       }
-      console.log(formatIncidentShow(view, { coverage: opened.store.coverage() }))
+      console.log(formatIncidentShow(view, { coverage: opened.store.coverage(), archive }))
     } finally {
       opened.close()
     }

@@ -12,6 +12,7 @@ import type {
   IncidentStatus,
   IncidentView
 } from '../main/incidents/incident-types'
+import type { IncidentArchiveDetail } from '../main/incidents/incident-archive'
 import { formatPaneClockNote } from '../main/incidents/incident-pane-clocks'
 import { formatBytes, isoTimestamp as iso, pad } from './incident-format-shared'
 
@@ -144,9 +145,54 @@ function decisionLine(decision: IncidentDecision): string {
   )
 }
 
+function evidenceLines(
+  pointers: IncidentView['evidence']['pointers'],
+  archive: IncidentArchiveDetail | undefined
+): string[] {
+  const statesByIndex = new Map<number, string>(
+    (archive?.states ?? []).map((state) => [
+      state.pointerIndex,
+      state.state === 'archive_pending' ? 'pending' : state.state
+    ])
+  )
+  const summary = archive?.summary
+  const lines = [
+    `Evidence (pointers, durable=${summary === undefined ? 'unknown' : String(summary.durable)}):`
+  ]
+  if (pointers.length === 0) {
+    lines.push('  (none collected)')
+  } else {
+    for (const [index, pointer] of pointers.entries()) {
+      const offsets =
+        pointer.startOffset === undefined
+          ? ''
+          : ` [${pointer.startOffset}..${pointer.endOffset ?? '?'}]`
+      const state = statesByIndex.get(index) ?? 'not staged'
+      lines.push(
+        `  - ${pointer.kind}: ${pointer.path}${offsets}${
+          pointer.sha256 ? ` sha256=${pointer.sha256}` : ''
+        }  [${state}]`
+      )
+    }
+  }
+  if (pointers.length === 0) {
+    lines.push('  durable=false 意为“未提供证据”，不是“归档失败”。')
+  } else if (summary === undefined) {
+    lines.push('  归档状态未读取：durable 未知，不得当作已归档证据。')
+  } else if (summary.durable) {
+    lines.push(`  全部 ${summary.pointers} 个指针已归档且回读 sha256 相符。`)
+  } else {
+    lines.push(
+      `  未全部归档：archived=${summary.archived}/${summary.pointers} pending=${summary.pending} ` +
+        `staged=${summary.staged} incomplete=${summary.incomplete}。`
+    )
+  }
+  return lines
+}
+
 export function formatIncidentShow(
   view: IncidentView,
-  options: { coverage?: IncidentCoverage } = {}
+  options: { coverage?: IncidentCoverage; archive?: IncidentArchiveDetail } = {}
 ): string {
   const lines: string[] = []
   lines.push(`${view.id}  ${view.class}  ${view.effectiveStatus}`)
@@ -176,18 +222,7 @@ export function formatIncidentShow(
     }
   }
   lines.push('')
-  lines.push('Evidence (pointers, durable=false):')
-  if (view.evidence.pointers.length === 0) {
-    lines.push('  (none collected)')
-  } else {
-    for (const pointer of view.evidence.pointers) {
-      const offsets =
-        pointer.startOffset === undefined
-          ? ''
-          : ` [${pointer.startOffset}..${pointer.endOffset ?? '?'}]`
-      lines.push(`  - ${pointer.kind}: ${pointer.path}${offsets}${pointer.sha256 ? ` sha256=${pointer.sha256}` : ''}`)
-    }
-  }
+  lines.push(...evidenceLines(view.evidence.pointers, options.archive))
   lines.push('')
   lines.push('Decisions:')
   if (view.decisions.length === 0) {

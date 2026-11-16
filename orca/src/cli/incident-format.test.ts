@@ -187,6 +187,70 @@ describe('formatIncidentShow', () => {
     expect(text).toContain('remote_incident_capture=unsupported')
   })
 
+  it('states durability from the archive states, not a constant', () => {
+    const pointer = {
+      kind: 'transcript' as const,
+      path: '/tmp/run.log',
+      sha256: 'c'.repeat(64),
+      bytes: 20
+    }
+    const withPointer = view({ evidence: { pointers: [pointer], unknownBoundaries: [] } })
+
+    const archived = formatIncidentShow(withPointer, {
+      archive: {
+        summary: { pointers: 1, staged: 0, pending: 0, archived: 1, incomplete: 0, durable: true },
+        states: [
+          {
+            incidentId: 'inc_1',
+            pointerIndex: 0,
+            state: 'archived',
+            stagingPath: '/tmp/staging/0.bin',
+            archivePath: '/tmp/archive/0.bin',
+            sha256: 'c'.repeat(64),
+            bytes: 20,
+            error: null,
+            createdAt: 1_700_000_000_000
+          }
+        ]
+      }
+    })
+    expect(archived).toContain('durable=true')
+    expect(archived).toContain('[archived]')
+    expect(archived).not.toContain('durable=false')
+
+    const pending = formatIncidentShow(withPointer, {
+      archive: {
+        summary: { pointers: 1, staged: 0, pending: 1, archived: 0, incomplete: 0, durable: false },
+        states: [
+          {
+            incidentId: 'inc_1',
+            pointerIndex: 0,
+            state: 'archive_pending',
+            stagingPath: '/tmp/staging/0.bin',
+            archivePath: null,
+            sha256: 'c'.repeat(64),
+            bytes: 20,
+            error: null,
+            createdAt: 1_700_000_000_000
+          }
+        ]
+      }
+    })
+    expect(pending).toContain('durable=false')
+    expect(pending).toContain('[pending]')
+    expect(pending).toContain('未全部归档：archived=0/1')
+
+    // No archive detail: unknown, not a verdict either way.
+    const unknown = formatIncidentShow(withPointer)
+    expect(unknown).toContain('durable=unknown')
+    expect(unknown).toContain('归档状态未读取')
+
+    // A crash row offers no evidence at all: that is not an archive failure.
+    const none = formatIncidentShow(view())
+    expect(none).toContain('durable=false')
+    expect(none).toContain('不是“归档失败”')
+  })
+
   it('marks an absent unknown list as a gap rather than printing an empty heading', () => {
     const text = formatIncidentShow(
       view({ evidence: { pointers: [], unknownBoundaries: [] } })

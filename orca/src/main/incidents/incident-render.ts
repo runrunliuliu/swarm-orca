@@ -11,6 +11,8 @@
 //     suspicious than one that lists them.
 
 import { describeTerminalExitCause, type TerminalExitCause } from '../../shared/terminal-exit-cause'
+import type { IncidentArchiveDetail } from './incident-archive'
+import type { EvidenceArchiveState } from './incident-archive'
 import type { IncidentEvidence, IncidentView } from './incident-types'
 
 function iso(ms: number): string {
@@ -35,7 +37,55 @@ function describeExitCause(cause: unknown): string {
   return '未记录（exit_cause 缺失）'
 }
 
-function evidenceRows(evidence: IncidentEvidence): string[] {
+function archiveStateLabel(state: EvidenceArchiveState | undefined): string {
+  if (state === undefined) {
+    return 'not staged'
+  }
+  if (state === 'archive_pending') {
+    return 'pending'
+  }
+  if (state === 'archive_incomplete') {
+    return 'incomplete'
+  }
+  return state
+}
+
+/**
+ * What the renderer may say about durability.
+ *
+ * Why this is computed and not asserted: M8-4 gave a pointer a state machine, so "durable=false" written
+ * as a constant became a false statement the moment a drain archived the excerpt. When the caller
+ * supplies no archive detail (a view built without the store) the renderer says the state is unknown
+ * rather than claiming either answer.
+ */
+function archiveVerdict(
+  pointerCount: number,
+  archive: IncidentArchiveDetail | undefined
+): string[] {
+  if (pointerCount === 0) {
+    return ['本记录没有证据指针：`durable=false` 表示“未提供证据”，不是“归档失败”（§16）。']
+  }
+  if (archive === undefined) {
+    return ['未读取归档状态：`durable` 未知，不得作为已归档证据使用（§16）。']
+  }
+  const { summary } = archive
+  if (summary.durable) {
+    return [`全部 ${summary.pointers} 个证据指针已归档且回读 sha256 相符：\`durable=true\`。`]
+  }
+  return [
+    `证据未全部归档：archived=${summary.archived}/${summary.pointers}、pending=${summary.pending}、` +
+      `staged=${summary.staged}、incomplete=${summary.incomplete} → \`durable=false\`，` +
+      '不得作为已归档证据使用（§16）。'
+  ]
+}
+
+function evidenceRows(
+  evidence: IncidentEvidence,
+  archive: IncidentArchiveDetail | undefined
+): string[] {
+  const statesByIndex = new Map<number, EvidenceArchiveState>(
+    (archive?.states ?? []).map((state) => [state.pointerIndex, state.state])
+  )
   const lines: string[] = []
   if (evidence.pointers.length === 0) {
     lines.push('- 未记录证据指针（M1 崩溃路径只收集运行时可得且仍在的指针）。')
@@ -44,7 +94,7 @@ function evidenceRows(evidence: IncidentEvidence): string[] {
       '| kind | path | bytes | sha256 | offsets | archived |',
       '| --- | --- | --- | --- | --- | --- |'
     )
-    for (const pointer of evidence.pointers) {
+    for (const [index, pointer] of evidence.pointers.entries()) {
       const offsets =
         pointer.startOffset === undefined
           ? '—'
@@ -53,14 +103,11 @@ function evidenceRows(evidence: IncidentEvidence): string[] {
             }`
       lines.push(
         `| ${pointer.kind} | \`${pointer.path}\` | ${pointer.bytes ?? '—'} | ` +
-          `${pointer.sha256 ?? '—'} | ${offsets} | no (pointer only) |`
+          `${pointer.sha256 ?? '—'} | ${offsets} | ${archiveStateLabel(statesByIndex.get(index))} |`
       )
     }
   }
-  lines.push(
-    '',
-    '本记录的证据是本地指针，未与 Run 归档对账：`durable=false`，不得作为已归档证据使用（§16）。'
-  )
+  lines.push('', ...archiveVerdict(evidence.pointers.length, archive))
   return lines
 }
 
@@ -89,7 +136,10 @@ function decisionRows(view: IncidentView): string[] {
  * Render a single incident. Deterministic: same row + same decisions produce the same markdown, so
  * `--md` output can be diffed across runs.
  */
-export function renderIncidentMarkdown(view: IncidentView): string {
+export function renderIncidentMarkdown(
+  view: IncidentView,
+  options: { archive?: IncidentArchiveDetail } = {}
+): string {
   const lines: string[] = []
   lines.push(`# Incident \`${view.id}\``, '')
   lines.push(`- class: \`${view.class}\``)
@@ -140,7 +190,7 @@ export function renderIncidentMarkdown(view: IncidentView): string {
   lines.push('')
 
   lines.push('## 6. 证据与 pin', '')
-  lines.push(...evidenceRows(view.evidence))
+  lines.push(...evidenceRows(view.evidence, options.archive))
   lines.push('')
 
   lines.push('## 7. 防复发项', '')

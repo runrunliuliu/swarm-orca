@@ -140,12 +140,38 @@ describe('renderIncidentMarkdown', () => {
         }
       })
     )
-    const markdown = renderIncidentMarkdown(store.getIncident('inc_render_1')!)
+    const markdown = renderIncidentMarkdown(store.getIncident('inc_render_1')!, {
+      archive: {
+        summary: {
+          pointers: 1,
+          staged: 0,
+          pending: 0,
+          archived: 1,
+          incomplete: 0,
+          durable: true
+        },
+        states: [
+          {
+            incidentId: 'inc_render_1',
+            pointerIndex: 0,
+            state: 'archived',
+            stagingPath: '/tmp/example/staging/0-excerpt.bin',
+            archivePath: '/tmp/archive/inc_render_1/0-excerpt.bin',
+            sha256: 'b'.repeat(64),
+            bytes: 12,
+            error: null,
+            createdAt: 1_700_000_000_000
+          }
+        ]
+      }
+    })
     expect(markdown).toContain('`/tmp/example/transcript.jsonl`')
     expect(markdown).toContain('10..20')
     // Digest and size read as one checkable pair (M2 pointers carry `bytes`).
     expect(markdown).toContain('| 12 |')
-    expect(markdown).toContain('no (pointer only)')
+    // The archived column names the state the drain recorded, not a constant.
+    expect(markdown).toContain('| archived |')
+    expect(markdown).not.toContain('no (pointer only)')
   })
 
   it('declares a column for every cell the evidence row emits (F12)', () => {
@@ -175,9 +201,77 @@ describe('renderIncidentMarkdown', () => {
     const evidenceSeparator = '| --- | --- | --- | --- | --- | --- |'
     const evidenceRow =
       '| transcript | `/tmp/example/transcript.jsonl` | 12 | ' +
-      `${'b'.repeat(64)} | 10..20 | no (pointer only) |`
+      `${'b'.repeat(64)} | 10..20 | not staged |`
     expect(markdown).toContain(evidenceHeader)
     expect(markdown).toContain(evidenceSeparator)
     expect(markdown).toContain(evidenceRow)
+    // No archive detail supplied: the cell must not invent a state or a verdict.
+    expect(markdown).toContain('| not staged |')
+    expect(markdown).toContain('`durable` 未知')
+  })
+
+  it('says durable only when every pointer is archived', () => {
+    const pointer = {
+      kind: 'transcript' as const,
+      path: '/tmp/example/transcript.jsonl',
+      sha256: 'b'.repeat(64),
+      bytes: 12
+    }
+    const store = storeWith(
+      record({ evidence: { pointers: [pointer, { ...pointer, path: '/tmp/example/2.jsonl' }], unknownBoundaries: [] } })
+    )
+    const view = store.getIncident('inc_render_1')!
+
+    const oneOfTwo = renderIncidentMarkdown(view, {
+      archive: {
+        summary: { pointers: 2, staged: 0, pending: 1, archived: 1, incomplete: 0, durable: false },
+        states: [
+          {
+            incidentId: 'inc_render_1',
+            pointerIndex: 0,
+            state: 'archived',
+            stagingPath: null,
+            archivePath: '/tmp/archive/0.bin',
+            sha256: 'b'.repeat(64),
+            bytes: 12,
+            error: null,
+            createdAt: 1_700_000_000_000
+          },
+          {
+            incidentId: 'inc_render_1',
+            pointerIndex: 1,
+            state: 'archive_pending',
+            stagingPath: '/tmp/staging/1.bin',
+            archivePath: null,
+            sha256: 'b'.repeat(64),
+            bytes: 12,
+            error: null,
+            createdAt: 1_700_000_000_000
+          }
+        ]
+      }
+    })
+    expect(oneOfTwo).toContain('archived=1/2')
+    expect(oneOfTwo).toContain('`durable=false`')
+    expect(oneOfTwo).toContain('| pending |')
+
+    const both = renderIncidentMarkdown(view, {
+      archive: {
+        summary: { pointers: 2, staged: 0, pending: 0, archived: 2, incomplete: 0, durable: true },
+        states: []
+      }
+    })
+    expect(both).toContain('`durable=true`')
+    expect(both).not.toContain('archived=1/2')
+  })
+
+  it('separates "no evidence offered" from "not archived"', () => {
+    const noPointers = renderIncidentMarkdown(
+      storeWith(record()).getIncident('inc_render_1')!,
+      { archive: { summary: { pointers: 0, staged: 0, pending: 0, archived: 0, incomplete: 0, durable: false }, states: [] } }
+    )
+    expect(noPointers).toContain('没有证据指针')
+    expect(noPointers).toContain('不是“归档失败”')
+    expect(noPointers).not.toContain('证据未全部归档')
   })
 })

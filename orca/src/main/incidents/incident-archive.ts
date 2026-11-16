@@ -820,3 +820,21 @@ export function summarizeArchive(
   return summary
 }
 
+/**
+ * The archive truth a reader may state for one incident: the compact summary plus the per-pointer
+ * state, so `show` names `archived` per pointer instead of asserting one flat verdict.
+ */
+export type IncidentArchiveDetail = {
+  summary: ArchiveSummary
+  /** Latest state per pointer index; a pointer with no row here was never staged. */
+  states: readonly EvidenceArchiveRow[]
+}
+
+export function readIncidentArchiveDetail(
+  db: Database.Database,
+  incidentId: string,
+  pointerCount: number
+): IncidentArchiveDetail {
+  const states = readEvidenceArchiveState(db, incidentId)
+  return { summary: summarizeArchive(states, pointerCount), states }
+}
