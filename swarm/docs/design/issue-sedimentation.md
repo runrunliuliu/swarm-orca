@@ -639,6 +639,29 @@ liveness verdict / dispatch failure 多条顺序约束。因此接线必须是�
 
 这三条确定后，M1（§13）可开工；不加身份校验意味着 incident 的"关闭"不具备审计强度，不得用于对外声称验收完成。
 
+### 19.6 A-fix：面板读所选 runtime（2026-11-16 live 验证之后）
+
+live 验证暴露的第三层问题不是"面板没做"，而是**面板只读本机**：`preload/api/incident-bridge.ts`
+全走 `ipcRenderer.invoke`，`main/ipc/incidents.ts` 用 `incidentRuntimeStore()`（会建库并迁移），
+远端 mirror 又无生产传输。也就是说：Server 上已有 7 条记录、3 份 NAS 归档，桌面右侧仍然只能看到
+本机库。
+
+处置（`04e2ac66`、`540fe7f7`，已部署 `0.1.0+3aef7953f369`）：
+
+1. **读语义下沉**：新增 `main/incidents/incident-read-service.ts`，严格只读打开（不建目录、不迁移），
+   snapshot/detail/counts 由 IPC 与 runtime RPC 共用一份投影；`store-not-created` 返回带
+   `availability` 的真实空视图。**此前"打开面板"会创建 `<userData>/incidents/` 并迁移 schema**，
+   这不是推断，是读路径调用 creating resolver 的直接后果。
+2. **传输**：`incidents.snapshot|detail|counts` 三个 runtime RPC（zod 参数），**不提供** decide/prune/
+   archive —— triage 仍只在本机（§19.1）。`not_found` 提为结构化错误码。
+3. **客户端**：`renderer/runtime/incident-read-client.ts` 显式目标（本地 preload / 配对环境 RPC），
+   答案带来源，`method_not_found → unsupported`，无静默回退；面板与角标跟随所选 runtime，
+   三种空/不可用状态分别措辞，远端目标隐藏 triage 按钮。
+
+与 §17 的关系：这是对 §17 #24/#29 的**路线修正**（客户端直读所选 runtime，而不是先补 mirror 复制）。
+mirror 仍缺传输，且其 feed 只有事实行、没有 decision/archive 复制语义，故 #29 保持缺口。
+仍未验证：桌面端渲染（需从本分支构建客户端）、配对环境分支的实机回调、UI 截图/e2e（#30）。
+
 ### 19.2 未决
 
 1. R1 triage owner 的指定方式与配额（人 / 独立会话 / 轮值）；
