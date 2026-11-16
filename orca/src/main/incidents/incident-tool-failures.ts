@@ -9,7 +9,8 @@
 // The table is bounded both ways, because a long-lived host produces these continuously:
 //   * rows older than TOOL_FAILURE_RETENTION_MS are pruned at most once a minute;
 //   * a hard row cap refuses new rows and increments a visible `dropped` counter instead of silently
-//     discarding the oldest evidence. Both numbers are read by the CLI and the panel.
+//     discarding the oldest evidence. Both numbers are read by the CLI and the panel, and `dropped`
+//     means what it says: only a fact that is not already recorded is refused by capacity.
 //
 // The cap reads the durable `tool_failure_rows` counter (see its comment), not `SELECT COUNT(*)`: the
 // count ran over the whole table on the journal append path for every failed tool call.
@@ -110,6 +111,25 @@ function pruneIfDue(db: Database.Database, now: number): void {
 }
 
 /**
+ * Whether this exact fact is already recorded, by its real primary key `(session_id, item_key,
+ * ordinal)`.
+ *
+ * Only the cap path asks. Below the cap `INSERT OR IGNORE` answers the same question for free; at the
+ * cap there is no insert to ask, and a duplicate is not evidence lost to capacity. The lookup is a
+ * primary-key index seek for one row (the PK is this table's unique index), not a count and not a scan:
+ * a single bounded probe, on a path that is rare by construction.
+ */
+function isRecorded(db: Database.Database, fact: ToolFailureFact): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS present FROM incident_tool_failures
+        WHERE session_id = ? AND item_key = ? AND ordinal = ?`
+    )
+    .get(fact.sessionId, fact.itemKey, fact.ordinal)
+  return row !== undefined
+}
+
+/**
  * Record one failed tool call. Never throws into the journal append: the caller wraps this, and a
  * diagnostics counter must not be able to fail a session's write.
  */
@@ -118,6 +138,11 @@ export function recordToolFailure(db: Database.Database, fact: ToolFailureFact):
     pruneIfDue(db, fact.observedAt)
     const rows = countedRows(db)
     if (rows >= MAX_TOOL_FAILURE_ROWS) {
+      // A fact already in the table adds no row, so capacity is not what refused it: classify it the
+      // same way the below-cap `INSERT OR IGNORE` does, and let `dropped` count only real loss.
+      if (isRecorded(db, fact)) {
+        return 'duplicate'
+      }
       bumpMetaNumber(db, TOOL_FAILURE_DROPPED_META)
       return 'dropped'
     }

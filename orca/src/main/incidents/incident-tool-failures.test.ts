@@ -6,6 +6,8 @@
  *   * an insert increments the counter — otherwise the cap never closes;
  *   * a duplicate does not — `INSERT OR IGNORE` added no row, so counting it would drift the counter
  *     high and drop new facts early (the failure mode trae called out);
+ *   * the cap refuses with `dropped`, but only a fact that is *not* already recorded: at the cap the
+ *     same fact again is still a `duplicate`, because capacity did not refuse it;
  *   * prune recounts after its DELETE — the one place the table shrinks;
  *   * a store written before this counter existed recovers from a real count on first use, and the
  *     counter survives a close/reopen (a durable fact, not process state);
@@ -82,6 +84,35 @@ describe('tool-failure row counter', () => {
     // A genuinely new fact still fits under the cap; nothing was refused because of duplicate drift.
     expect(recordToolFailure(opened.db, fact({ ordinal: 1 }))).toBe('inserted')
     expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBeNull()
+    expect(realCount(opened.db)).toBe(2)
+
+    closeStorePairs()
+  })
+
+  it('at the cap, repeats a recorded fact as `duplicate` and only a new fact as `dropped`', () => {
+    const { opened } = openStorePair()
+    // Two durable rows; the counter is forced to the cap so the test names exact rows instead of
+    // staging twenty thousand of them. The boundary is the counter, which is what production reads.
+    recordToolFailure(opened.db, fact())
+    recordToolFailure(opened.db, fact({ ordinal: 1 }))
+    expect(rowsMeta(opened.db)).toBe(2)
+    writeMeta(opened.db, TOOL_FAILURE_ROWS_META, String(MAX_TOOL_FAILURE_ROWS))
+    // A dropped counter that already has a value, so "unchanged" is an exact number and not just null.
+    writeMeta(opened.db, TOOL_FAILURE_DROPPED_META, '7')
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(recordToolFailure(opened.db, fact())).toBe('duplicate')
+    }
+    // Nothing was lost to capacity: the fact was already recorded, so `dropped` must not move, and no
+    // row may appear. Before this fix this path returned `dropped` and inflated the visible counter.
+    expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBe('7')
+    expect(rowsMeta(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
+    expect(realCount(opened.db)).toBe(2)
+
+    // A genuinely new fact is the only thing the cap may refuse, and it is counted exactly once.
+    expect(recordToolFailure(opened.db, fact({ ordinal: 9 }))).toBe('dropped')
+    expect(readMeta(opened.db, TOOL_FAILURE_DROPPED_META)).toBe('8')
+    expect(rowsMeta(opened.db)).toBe(MAX_TOOL_FAILURE_ROWS)
     expect(realCount(opened.db)).toBe(2)
 
     closeStorePairs()

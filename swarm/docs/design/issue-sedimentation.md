@@ -665,7 +665,7 @@ M1–M6 每轮都由两个独立评审（codex-ark、trae）先出结论、必�
 | --- | --- |
 | 分支 | A = `issue-sediment`（`da866553`）；B = `issue-sediment-ui`（`5821059a`）；C = `issue-sediment-remote`（`4924a07c`）；合并 `a1353bd5` / `1f0c511e`；接缝 `763a91f2` / `1c0a045a`；stale 角标 `4e7298d9` |
 | 评审 | B: codex `APPROVE-WITH-CHANGES` + trae `ADDITIONS`；C: codex `CHANGES_REQUIRED` + trae 反驳 2 条并补 2 条；A 合并前补审；接缝 codex `APPROVE`；trae 只留 stale badge 一条。明细见轮次索引 R10/R11 |
-| 关键修正 | 远端缺口不得并入 `gap`（接缝注册 `registerIncidentMirrorCoverageReader`）；`0 + 缺口` 必须可见但无数字；`counts=null` 分 `unavailable`/`stale`；C 的 incident+provenance 同事务、provenance UNIQUE、`nextSeq` 无 gap reason 不推进 |
+| 关键修正 | 远端缺口不得并入 `gap`（接缝注册 `registerIncidentMirrorCoverageReader`；该注册器已在简化轮删除，现行实现为 `main/ipc/incident-mirror-coverage.ts` 的单一直接适配器，见 11.1）；`0 + 缺口` 必须可见但无数字；`counts=null` 分 `unavailable`/`stale`；C 的 incident+provenance 同事务、provenance UNIQUE、`nextSeq` 无 gap reason 不推进 |
 | 测试（外层复跑） | `right-sidebar` + `src/main/ipc` + `src/main/incidents`：770 files passed / 3 failed，7,428 passed / 4 failed；4 条失败与全检出基线完全一致（环境/flaky），无新增失败 |
 | 过程缺口 | trae 首版预合并评审卡死（约 1 小时无输出），用最小版重发才拿到结论；C 在评审期间改写提交，导致 codex 两条结论过时——此后约定评审先钉 SHA |
 | 仍未验证 | 无 live 崩溃→重启演练；mirror 只有 fake host；UI 只有组件测试，无截图/e2e |
