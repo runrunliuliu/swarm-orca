@@ -1,5 +1,6 @@
 import type { CommandSpec } from '../args'
 import { GLOBAL_FLAGS } from '../args'
+import { GATE_CREATE_FLAGS, OVERRIDE_NOTE, TASK_UPDATE_FLAGS } from './acceptance-flags'
 import { ORCHESTRATION_WORKER_COMMAND_SPECS } from './orchestration-worker-specs'
 import { ORCHESTRATION_RUN_COMMAND_SPECS } from './orchestration-run-specs'
 
@@ -158,12 +159,13 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'task-update'],
     summary: 'Update a task status',
     usage:
-      'orca orchestration task-update --id <task_id> --status <status> [--result <text>] [--run <run_id>] [--from <handle>] [--retry-request <id>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'id', 'status', 'result', 'run', 'from', 'retry-request'],
+      'orca orchestration task-update --id <task_id> --status <status> [--result <text>] [--override-acceptance --actor <name> --reason <text>] [--run <run_id>] [--from <handle>] [--retry-request <id>] [--json]',
+    allowedFlags: TASK_UPDATE_FLAGS,
     identityFlagRoles: { from: 'caller' },
     notes: [
       'Valid --status values: pending, ready, dispatched, completed, failed, blocked.',
-      'To cancel a Task, stop or abandon its worker, then set --status failed --result cancelled; a later worker-start --retry-of reopens it.'
+      'To cancel a Task, stop or abandon its worker, then set --status failed --result cancelled; a later worker-start --retry-of reopens it.',
+      OVERRIDE_NOTE
     ]
   },
   ...ORCHESTRATION_WORKER_COMMAND_SPECS,
@@ -261,9 +263,10 @@ export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
     path: ['orchestration', 'gate-create'],
     summary: 'Create a decision gate blocking a task',
     usage:
-      'orca orchestration gate-create --task <task_id> --question <text> [--options <json_array>] [--from <handle>] [--retry-request <id>] [--json]',
-    allowedFlags: [...GLOBAL_FLAGS, 'task', 'question', 'options', 'from', 'retry-request'],
-    identityFlagRoles: { from: 'caller' }
+      'orca orchestration gate-create --task <task_id> --question <text> [--options <json_array>] [--override-acceptance --actor <name> --reason <text>] [--from <handle>] [--retry-request <id>] [--json]',
+    allowedFlags: GATE_CREATE_FLAGS,
+    identityFlagRoles: { from: 'caller' },
+    notes: [OVERRIDE_NOTE]
   },
   {
     path: ['orchestration', 'gate-resolve'],

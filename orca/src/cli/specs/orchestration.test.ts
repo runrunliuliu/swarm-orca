@@ -1,6 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import { ORCHESTRATION_COMMAND_SPECS } from './orchestration'
 
+describe('orchestration acceptance override flags', () => {
+  // M5 C1: the two handlers already read `--override-acceptance --actor --reason`, but the flags
+  // were missing from both specs, so `cli/args.ts` refused them as unknown before any handler ran.
+  // The behaviour is covered end-to-end in `handlers/orchestration-acceptance-override-cli.test.ts`;
+  // this pins the spec surface `--help` and the flag gate are built from.
+  const commandSpec = (path: string): (typeof ORCHESTRATION_COMMAND_SPECS)[number] | undefined =>
+    ORCHESTRATION_COMMAND_SPECS.find((spec) => spec.path.join(' ') === path)
+
+  it.each(['orchestration task-update', 'orchestration gate-create'])(
+    'declares the override and its two required companions on %s',
+    (path) => {
+      const spec = commandSpec(path)
+      expect(spec).toBeDefined()
+      expect(spec?.allowedFlags).toEqual(
+        expect.arrayContaining(['override-acceptance', 'actor', 'reason'])
+      )
+      expect(spec?.usage).toContain('--override-acceptance --actor <name> --reason <text>')
+    }
+  )
+
+  it.each(['orchestration task-update', 'orchestration gate-create'])(
+    'states the requirement and the recorded incident on %s',
+    (path) => {
+      const notes = (commandSpec(path)?.notes ?? []).join('\n')
+      expect(notes).toContain('--actor and --reason are required with it')
+      expect(notes).toContain('acceptance_overridden incident')
+    }
+  )
+})
+
 describe('orchestration send command spec', () => {
   it('documents valid message types and the question reply path', () => {
     const sendSpec = ORCHESTRATION_COMMAND_SPECS.find(
