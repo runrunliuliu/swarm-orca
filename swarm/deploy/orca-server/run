@@ -68,6 +68,14 @@ if [ -n "${ORCA_WORKTREE_ADD_TIMEOUT_MS:-}" ]; then
   worktree_add_timeout_env="ORCA_WORKTREE_ADD_TIMEOUT_MS=$ORCA_WORKTREE_ADD_TIMEOUT_MS"
 fi
 
+# Why the archive root is forwarded too: it is deployment input (§M8-4), and while this file having it
+# exported is not enough — a name the `env` line below does not list never reaches orcad, so evidence
+# stayed archive_pending forever with nothing saying why. Unset stays unset (no archive on this host).
+archive_root_env=""
+if [ -n "${ORCA_INCIDENT_ARCHIVE_ROOT:-}" ]; then
+  archive_root_env="ORCA_INCIDENT_ARCHIVE_ROOT=$ORCA_INCIDENT_ARCHIVE_ROOT"
+fi
+
 # shellcheck disable=SC2086  # each *_env is one NAME=value argument or empty; never contains spaces.
 exec sudo -n -H -u "$ORCAD_SERVICE_USER" env \
   -u DISPLAY -u ORCA_CLI_COMMAND -u ORCA_ENVIRONMENT -u ORCA_PAIRING_CODE \
@@ -77,7 +85,7 @@ exec sudo -n -H -u "$ORCAD_SERVICE_USER" env \
   ORCA_USER_DATA="$ORCA_USER_DATA" \
   ORCA_VERSION="$ORCA_VERSION" ORCA_APP_VERSION="$ORCA_APP_VERSION" \
   ORCA_BACKGROUND_LAUNCH=1 \
-  $gh_env $worktree_add_timeout_env \
+  $gh_env $worktree_add_timeout_env $archive_root_env \
   "$artifact/bun-runtime" "$artifact/orcad.js" \
   --bind "$ORCAD_BIND" --port "$ORCAD_PORT" \
   --pairing-address "$ORCAD_PAIRING_ADDRESS" --json
