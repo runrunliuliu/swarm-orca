@@ -35,6 +35,49 @@ describe('lightweight Run CLI handlers', () => {
     })
   })
 
+  it('routes --grant to the granted RPC and refuses it without --strict-coordinator', async () => {
+    const client = new RuntimeClient('/tmp/orca-grant-cli-unused')
+    const call = vi.spyOn(client, 'call').mockResolvedValue({
+      id: 'granted-create',
+      ok: true,
+      _meta: { runtimeId: 'runtime-test' },
+      result: { run: { id: 'run_granted' }, coordinatorPolicy: 'strict-v1', effectsApplied: true }
+    })
+    await ORCHESTRATION_HANDLERS['orchestration run-create']({
+      flags: new Map<string, string | boolean>([
+        ['objective', 'Coordinate work'],
+        ['strict-coordinator', true],
+        ['grant', '2f6f2b0e-3a4c-4b6f-9a9f-1f0f9c3f5d21'],
+        ['from', 'term_coord']
+      ]),
+      client,
+      cwd: '/tmp/repo',
+      json: true
+    })
+    expect(call).toHaveBeenCalledExactlyOnceWith('orchestration.runCreateGranted', {
+      objective: 'Coordinate work',
+      from: 'term_coord',
+      grant: '2f6f2b0e-3a4c-4b6f-9a9f-1f0f9c3f5d21'
+    })
+
+    // A grant only covers a strict Run: accepting the flag on the plain path would mint an uncapped Run.
+    const plain = new RuntimeClient('/tmp/orca-grant-cli-unused-2')
+    const plainCall = vi.spyOn(plain, 'call')
+    await expect(
+      ORCHESTRATION_HANDLERS['orchestration run-create']({
+        flags: new Map<string, string | boolean>([
+          ['objective', 'Coordinate work'],
+          ['grant', '2f6f2b0e-3a4c-4b6f-9a9f-1f0f9c3f5d21'],
+          ['from', 'term_coord']
+        ]),
+        client: plain,
+        cwd: '/tmp/repo',
+        json: true
+      })
+    ).rejects.toThrow(/--grant requires --strict-coordinator/)
+    expect(plainCall).not.toHaveBeenCalled()
+  })
+
   it.each([false, true])(
     'uses the distinct strict RPC without downgrade (unsupported=%s)',
     async (unsupported) => {

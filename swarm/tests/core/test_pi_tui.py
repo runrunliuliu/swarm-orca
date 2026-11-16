@@ -8,7 +8,6 @@ and the real Pi transcript reader run against ordinary files.
 import copy
 from datetime import datetime, timedelta, timezone
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -17,8 +16,6 @@ import uuid
 from unittest.mock import patch
 
 from coordinator_io import canonical, digest, file_ref, now, publish_new, timestamp
-from coordinator_strict_request import observed_coordinator
-from coordinator_startup import identity, validate
 from pi_tui import observe
 import pi_policy
 import pi_transcript
@@ -253,10 +250,10 @@ class PiTuiTests(PiTuiFixture):
     def test_a_completed_turn_requires_the_harness_end_record(self):
         """`completed_turn` is a recorded agent_end/done, never an idle pane."""
         self.write_log()
-        entry = self.write_hook_row("tool_execution_end", "working")
+        self.write_hook_row("tool_execution_end", "working")
         # "Not completed yet" is a wait, exactly like the Trae reader (None), not a stop.
         self.assertIsNone(self.observe(completed_turn=True))
-        entry = self.write_hook_row("agent_end", "done")
+        self.write_hook_row("agent_end", "done")
         observation = self.observe(completed_turn=True)
         self.assertEqual(observation["kind"], "pi_tui_completed_turn_observation")
         self.assertLessEqual(timestamp(observation["completed_turn"]["context_at"]),
@@ -369,17 +366,6 @@ class PiStartupContractTests(operator_startup.OperatorStartupTests):
 
 
 class PiObservationConsumerTests(PiTuiFixture):
-    def test_observed_coordinator_accepts_pi_kinds_and_rejects_a_foreign_adapter(self):
-        observation = self.observe()
-        ref = self.ref("pi-observation.json", observation)
-        initial = self.caller()
-        value = dict(runtime=self.RUNTIME_ID, workspace={"id": self.WORKSPACE_ID, "path": str(self.cwd)},
-                     caller_receipt=self.caller_ref)
-        result = observed_coordinator(dict(value, session_observation=ref), initial)
-        self.assertEqual(result["session"], self.sid)
-        forged = self.ref("pi-observation-forged.json", dict(observation, adapter="trae-tui-runtime-v1"))
-        with self.assertRaisesRegex(ValueError, "strict_config_observation_binding_mismatch"):
-            observed_coordinator(dict(value, session_observation=forged), initial)
 
     def test_validate_exposes_the_pi_tui_binding(self):
         contract = {"adapter": "pi-tui-runtime-v1"}

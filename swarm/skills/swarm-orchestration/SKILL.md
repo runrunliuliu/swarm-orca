@@ -40,7 +40,35 @@ implementation protocols):
 | Continuation or external-operation handoff | [Continuation](references/continuation.md) |
 
 
-## 1. Discover the runtime and choose a supported execution path
+## 1. Resolve the control plane, discover the runtime and choose an execution path
+
+Before choosing anything, resolve the control plane from one explicit entry only: `SWARM_CONTROL_PLANE`
+when the task sets it, otherwise the machine pointer `/opt/swarm/current`. Never search parent
+directories, and never substitute a source checkout that happens to be nearby: a missing pointer is a
+reported gap, not a licence to guess which code and configuration are current.
+
+If the pointer is missing or unusable, name the fix instead of improvising one: a host gets its control
+plane from the repository's `deploy/install.sh` (see [deploy/README.md](../../deploy/README.md)).
+Show the read-only command first, and never run it with `--apply` unless the user asked for a
+deployment — publishing, switching the pointer and relinking skills are deploy actions, not setup.
+
+Run the read-only readiness check for the target project and keep its output as evidence:
+
+```bash
+python3 -B <control-plane>/code/control_plane_readiness.py --project <target-project>
+# from a source checkout: python3 -B <source>/swarm-orca/swarm/control_plane_readiness.py --project <target-project>
+```
+
+The relative form works in both layouts: `../../control_plane_readiness.py` from this file.
+
+`ready: yes` is a fact about inputs, not authorization: it starts no Run, and `max_workers` stays
+unconfirmed until the user states a positive integer. Every `blocked:` line is an explicit blocker —
+stop and report it instead of choosing another path, config or checkout. A `dev-checkout` control
+plane, or a published one whose source was dirty or unpinned, is usable for local trials only and is
+never a pin source; keep `--require-pin` in force for anything that will be resumed or audited.
+
+This check does not replace reading the deployment policy in §2, and it does not make the missing
+host override layer exist: private paths, adapters and `max_workers` still come from the task.
 
 Load the selected executable's version-matched guides with `orca skills get orca-cli` and
 `orca skills get orchestration`; use `--help` for uncovered commands. Do not invent flags. Resolve the
@@ -79,12 +107,15 @@ unless the task explicitly selects an existing workspace. Continuations retain t
 read-only tasks may share it. Verify full returned IDs and canonical paths, not names or cwd alone.
 Never stash, reset or overwrite unrelated changes. Follow the selected CLI for worktree operations.
 
-Read [Operator preparation](../../operator-prepare.md),
-[strict startup](../../coordinator-strict-start.md) and
-[the two-stage startup gate](../../coordinator-startup.md). Use their supported helpers and pinned
-references, not an ad hoc launch sequence. Verify an independent real Coordinator session before
-it creates the Run; before first dispatch verify owner/generation, then have that Coordinator
-recheck in its own context. Reading a role skill is not proof of identity or actual handoff.
+Read [start grant](../../docs/design/start-grant.md) for how a Run's start authorisation is issued
+(`start-grant-mint` → `run-create --grant` → `worker-start`, with every check inside the server
+transaction) and [Operator preparation](../../operator-prepare.md) for the materials and Operator
+identity. The S0–S5 handshake, its stage waiter and the two-stage startup gate that read its markers
+are retired: [strict startup](../../coordinator-strict-start.md) and
+[the two-stage startup gate](../../coordinator-startup.md) are history, not launch procedures.
+Verify an independent real Coordinator session before it creates the Run; before first dispatch
+verify owner/generation, then have that Coordinator recheck in its own context. Reading a role
+skill is not proof of identity or actual handoff.
 
 Operator owns authorized preparation/recovery and evidence delivery. Coordinator owns decomposition,
 dispatch and adoption of results. Workers act only on their native Dispatch. Do not borrow handles,
@@ -179,6 +210,42 @@ An event may only shorten this wait; the deadline decides. Exit 0 = the path app
 immediately and never retried into a timeout; 2 = usage or transport. After 0, re-read the bytes
 with `file_ref` and the schema: a non-atomic writer is visible here before it is complete, and
 `--mode change` cannot see a rewrite that keeps both size and timestamp.
+
+The strict-bootstrap stage waiter (`strict-bootstrap-wait-stage`), its stage slots **and the
+read-only attempt reader** were removed with the protocol they served: the current design issues
+**one** start grant instead of a chain of evidence markers, so there is no stage file to wait for and
+no archived attempt to read. Start a new Run with `start-grant-mint` → `run-create --grant`.
+A `sleep` micro-loop (`for`/`while` plus `sleep`, whatever the single duration) is a forbidden
+waiting form too: the `N >= 60` rule only ever covered one call, and a loop of 8 s sleeps still
+reads "slow" as "dead".
+
+### Handoff delivery: the mailbox by default, steering is not the fast path
+
+This is the one part of a strict attempt that actually failed: pins and bytes were correct, the text
+went in through `terminal send --enter`, and the receiver was sitting inside `check --wait`.
+
+1. **The default and only regular channel is the mailbox**: `orca orchestration send --type handoff`,
+   received with `check --wait`. Delivery is durable and independent of where the receiver is; a live
+   wait wakes immediately, an absent one keeps the message for the next check.
+2. **`terminal send --enter` (steering) has exactly two uses left**: the native launch turn's short
+   prompt (fixed by the launch contract, part of the plan hash) and a human interaction
+   (`interaction_required`). It is **not** a premise for a handoff: steering is only committed after
+   the current tool call returns, so it cannot interrupt a running `check --wait`.
+3. **Do not use `turn_started` as a handoff receipt.** Measured here: both pi and trae answer
+   `terminal send --wait-submit` with only `input_accepted` and `provider: "unsupported"`. When a
+   provider reports unsupported the only options are the mailbox or a human.
+4. **A mis-send is not repaired by re-sending.** Only a **same-handoff copy** is allowed:
+   `handoff_id`, `payload_sha256`, `refs` and `subject` byte-identical to the original (normally the
+   same payload moved onto the mailbox), plus one turn-boundary wait. Never mint a new `handoff_id`
+   or new text. The receiver de-duplicates by that identity; the same id with different bytes (or a
+   different sending pane) is a conflict, not "take the newer one".
+5. The receiver checks what the protocol calls the handoff envelope: **the pin assertion and the
+   sender assertion are two independent assertions**, and the sender one is a consistency check that
+   stops a mis-fill or an accident — it does not stop impersonation and must never be called
+   authentication or a security boundary.
+
+Implementation and acceptance state: [handoff channel design](../../docs/design/strict-handoff-channel.md)
+— offline regression only, **no live acceptance**.
 
 These are the only two additions. `--for output-change` is not an option in this repo (PTY output
 is token-level noise, not a decision point), and none of the three channels covers a human

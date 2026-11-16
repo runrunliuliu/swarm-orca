@@ -37,6 +37,28 @@ class OperatorInputPending(ValueError):
     """Original Operator must handle exact input; not a role identity change."""
 
 
+class NativeIdentityChanged(ValueError):
+    """A role no longer matches its registration; `diagnostics` says which field.
+
+    Why it carries fields: the bare code forced the caller to read this module to learn whether
+    the session id, the incarnation or the pane key drifted. Values are truncated to a recognisable
+    prefix - the point is "which field", never a transcript of the evidence.
+    """
+
+    def __init__(self, code, **diagnostics):
+        super().__init__(code)
+        self.diagnostics = diagnostics
+
+
+def identity_pair(expected, observed):
+    """A short, comparable pair: prefixes plus the verdict, never the whole identifier."""
+    def short(value):
+        text = "" if value is None else str(value)
+        return text[:8] + "\u2026" if len(text) > 8 else text
+    return {"expected": short(expected), "observed": short(observed),
+            "equal": expected == observed}
+
+
 def process(pid):
     require(type(pid) is int and pid > 1, "bootstrap_process_required")
     root = Path("/proc") / str(pid)
@@ -189,15 +211,29 @@ class NativeIdentity:
             observed = evidence["identity"]
             # The declared capability must also hold for what was observed.
             self.role_capability(role, observed=observed)
-            require(observed["terminal"]["incarnationId"] == identity["incarnation"]
-                    and observed["session_id"] == registered["session"], "bootstrap_native_identity_changed")
+            observed_incarnation = observed["terminal"]["incarnationId"]
+            if observed_incarnation != identity["incarnation"] or \
+                    observed["session_id"] != registered["session"]:
+                raise NativeIdentityChanged(
+                    "bootstrap_native_identity_changed", role=role,
+                    incarnation=identity_pair(identity["incarnation"], observed_incarnation),
+                    session=identity_pair(registered["session"], observed["session_id"]),
+                    pane=identity_pair(registered.get("terminal"), identity["terminal"]))
             if role == "operator":
-                require(registered["session"] == identity["session"], "bootstrap_operator_session_changed")
+                if registered["session"] != identity["session"]:
+                    raise NativeIdentityChanged(
+                        "bootstrap_operator_session_changed", role=role,
+                        session=identity_pair(identity["session"], registered["session"]))
             else:
                 t = observed["terminal"]
-                require(t["ptyId"] + ":" + t["incarnationId"] == identity["process_incarnation"]
-                        and t["tabId"] + ":" + t["leafId"] == identity["pane_key"],
-                        "bootstrap_coordinator_process_changed")
+                if t["ptyId"] + ":" + t["incarnationId"] != identity["process_incarnation"] or \
+                        t["tabId"] + ":" + t["leafId"] != identity["pane_key"]:
+                    raise NativeIdentityChanged(
+                        "bootstrap_coordinator_process_changed", role=role,
+                        process_incarnation=identity_pair(
+                            identity["process_incarnation"], t["ptyId"] + ":" + t["incarnationId"]),
+                        pane_key=identity_pair(identity["pane_key"],
+                                               t["tabId"] + ":" + t["leafId"]))
             # Inspect only the registered original process. Never print/store env.
             env = dict(item.split(b"=", 1) for item in
                        (Path("/proc") / str(anchor["pid"]) / "environ").read_bytes().split(b"\0") if b"=" in item)

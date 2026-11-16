@@ -1,5 +1,6 @@
 import { ORCHESTRATION_RUN_METHODS } from './orchestration/runs/runs'
 import { STRICT_RUN_CREATE_METHODS } from './orchestration/runs/strict-run-create'
+import { START_GRANT_METHODS } from './orchestration/runs/start-grant-methods'
 import { STRICT_RUN_RETIRE_METHODS } from './orchestration/runs/strict-run-retire'
 import { ORCHESTRATION_WORKER_METHODS } from './orchestration/worker/worker-methods'
 import { ORCHESTRATION_FEDERATION_METHODS } from './orchestration/federation/federation-methods'
@@ -23,6 +24,7 @@ export const ORCHESTRATION_METHODS = [
       return plannedRestartMaintenance(params.request, ctx)
     } }),
   ...STRICT_RUN_CREATE_METHODS,
+  ...START_GRANT_METHODS,
   ...STRICT_RUN_RETIRE_METHODS,
   ...ORCHESTRATION_RUN_METHODS,
   ...ORCHESTRATION_WORKER_METHODS,

@@ -92,6 +92,7 @@ async function gitExecFileAsyncUnlocked(
           signal: options.signal,
           terminationBarrier: options.terminationBarrier,
           admissionTier: options.admissionTier,
+          keepRunningOnTimeout: options.keepRunningOnTimeout,
           onChildTerminated: reportTerminated,
           ...(timeoutMs === undefined
             ? {}

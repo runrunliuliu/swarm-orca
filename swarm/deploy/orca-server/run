@@ -61,7 +61,14 @@ if [ -n "${ORCAD_GH_CONFIG_DIR:-}" ]; then
   gh_env="GH_CONFIG_DIR=$ORCAD_GH_CONFIG_DIR"
 fi
 
-# shellcheck disable=SC2086  # gh_env is one NAME=value argument or empty; never contains spaces.
+# Why forwarded by name: the service runs under `sudo` with env_reset, so a value this file exports
+# reaches orcad only when it is named on the env command line below.
+worktree_add_timeout_env=""
+if [ -n "${ORCA_WORKTREE_ADD_TIMEOUT_MS:-}" ]; then
+  worktree_add_timeout_env="ORCA_WORKTREE_ADD_TIMEOUT_MS=$ORCA_WORKTREE_ADD_TIMEOUT_MS"
+fi
+
+# shellcheck disable=SC2086  # each *_env is one NAME=value argument or empty; never contains spaces.
 exec sudo -n -H -u "$ORCAD_SERVICE_USER" env \
   -u DISPLAY -u ORCA_CLI_COMMAND -u ORCA_ENVIRONMENT -u ORCA_PAIRING_CODE \
   -u ORCA_DEV_REPO_ROOT -u ORCA_USER_DATA -u ORCA_USER_DATA_PATH \
@@ -70,7 +77,7 @@ exec sudo -n -H -u "$ORCAD_SERVICE_USER" env \
   ORCA_USER_DATA="$ORCA_USER_DATA" \
   ORCA_VERSION="$ORCA_VERSION" ORCA_APP_VERSION="$ORCA_APP_VERSION" \
   ORCA_BACKGROUND_LAUNCH=1 \
-  $gh_env \
+  $gh_env $worktree_add_timeout_env \
   "$artifact/bun-runtime" "$artifact/orcad.js" \
   --bind "$ORCAD_BIND" --port "$ORCAD_PORT" \
   --pairing-address "$ORCAD_PAIRING_ADDRESS" --json

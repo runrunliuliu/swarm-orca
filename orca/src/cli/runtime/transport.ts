@@ -74,7 +74,7 @@ export async function sendRequest<TResult>(
         ok: false,
         // Why: a sandbox denying the socket/pipe is not a dead app, so restart advice would mislead.
         error:
-          runtimeAccessDeniedError(error, metadata.pid) ??
+          runtimeAccessDeniedError(error, metadata.pid, transport) ??
           new RuntimeClientError(
             'runtime_unavailable',
             'Could not connect to the running Orca app. Restart Orca and try again.'

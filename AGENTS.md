@@ -4,6 +4,19 @@ Guidance for agents working in this repository; all paths below are repository-r
 This checkout is self-contained. If embedded in another workspace, also follow its applicable
 instructions and explicit deployment policy; no particular private parent repository is required.
 
+## Fresh host
+
+Installing or cloning this repository changes no host state. Before planning swarm work on a host,
+run the read-only entry point and report its verdict instead of assuming the control plane exists:
+
+```bash
+swarm/deploy/install.sh --source-root <workspace holding swarm-orca/, swarm/, skills/>
+```
+
+`0` converged, `3` changes pending (tell the user the command above with `--apply`), `78` a
+precondition failed (the message names it). Never run it with `--apply` unless the user asked for a
+deployment; publishing, switching the pointer and relinking skills are deploy actions.
+
 ## Two layers, two contracts
 
 | Path | Origin | How to treat it |
@@ -13,6 +26,11 @@ instructions and explicit deployment policy; no particular private parent reposi
 
 When a change spans both layers, keep the upstream diff minimal and put the reasoning in the
 commit message: it has to survive the next upstream upgrade.
+
+`swarm/AGENTS.md` is the same kind of guidance written for the `swarm/` layer alone. Read it when
+working inside `swarm/`, and keep it true in both places: the publisher copies it to the artifact's
+`code/AGENTS.md`, where `swarm/` **is** the root, so its paths must resolve there and not only here
+(see [deploy publish](swarm/docs/deploy/control-plane-publish.md#23-入口文档按目标布局书写)).
 
 ## Directory and artifact landing
 
@@ -190,10 +208,12 @@ Before deciding *whether* a task should use the task sparse workspace mode, use 
 --sparse-task-dir` triggers it today), and using it for a small repo or a one-line fix buys friction
 rather than safety.
 
-For the strict bootstrap path, the known gaps (exit-classification, progression ownership, gate
-proportionality) and the draft repair plan live in
-[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md); it is a draft and
-authorizes nothing.
+For the retired strict bootstrap path, the historical gaps (exit-classification, progression
+ownership, gate proportionality) are recorded in
+[strict bootstrap liveness](swarm/docs/design/strict-bootstrap-liveness.md); the design that
+**replaces** that protocol is [start grant](swarm/docs/design/start-grant.md). Implementation status
+and remaining closeout live only in start grant §4 — read it there instead of restating it here.
+These design records authorize no deployment, restart, Agent startup, migration or gate change.
 
 For the Orca-side view of a task (workspaces, agents, spend), read
 [the Tasks workbench design](swarm/docs/design/task-workbench/README.md) and its

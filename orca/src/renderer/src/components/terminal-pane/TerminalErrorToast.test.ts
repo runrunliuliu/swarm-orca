@@ -101,6 +101,32 @@ describe('humanizeTerminalError', () => {
     expect(humanizeTerminalError('Paste failed.')).toBe('Paste failed.')
   })
 
+  it('explains an unresolvable worktree selector instead of echoing the RPC code', () => {
+    const humanized = humanizeTerminalError('selector_not_found')
+
+    expect(humanized).not.toContain('selector_not_found')
+    expect(humanized).toContain("Orca couldn't resolve this workspace on its host right now")
+    expect(humanized).toContain('refresh the workspace list')
+    // A deleted workspace is a known cause, so this must not also invite an issue report.
+    expect(isExplainedTerminalError('selector_not_found')).toBe(true)
+  })
+
+  it('humanizes an IPC-wrapped selector code and keeps the rest of an aggregated error', () => {
+    const wrapped = "Error invoking remote method 'pty:spawn': Error: selector_not_found"
+    const humanized = humanizeTerminalError(`Paste failed.\n${wrapped}`)
+
+    expect(humanized).toContain('Paste failed.')
+    expect(humanized).not.toContain('selector_not_found')
+    expect(humanized).toContain("Orca couldn't resolve this workspace on its host right now")
+  })
+
+  it('does not rewrite prose that merely mentions the selector code', () => {
+    const prose = 'Access denied after a prior selector_not_found diagnostic'
+
+    expect(humanizeTerminalError(prose)).toBe(prose)
+    expect(isExplainedTerminalError(prose)).toBe(false)
+  })
+
   it('replaces the terminal-host-gone code with copy that explains the loss', () => {
     const humanized = humanizeTerminalError('terminal_host_gone')
     expect(humanized).not.toContain('terminal_host_gone')

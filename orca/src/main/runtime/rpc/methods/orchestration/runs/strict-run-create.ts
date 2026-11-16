@@ -1,5 +1,6 @@
 import { defineMethod } from '../../../core'
 import {
+  RunCreateGrantedParams,
   RunCreateParams,
   RunCurrentParams
 } from '../../../../../../shared/rpc-contract/orchestration-runs-params'
@@ -32,6 +33,38 @@ export const STRICT_RUN_CREATE_METHODS = [
         },
         checkedAt: new Date().toISOString(),
         effectsApplied: false as const
+      }
+    }
+  }),
+  defineMethod({
+    name: 'orchestration.runCreateGranted',
+    params: RunCreateGrantedParams,
+    handler: (params, ctx) => {
+      const authority = requireStrictTerminalCaller(
+        ctx.runtime,
+        ctx.orchestrationCompatibilityEvidence,
+        params.from
+      )
+      const db = ctx.runtime.getOrchestrationDb()
+      const priorRun = db.getCurrentRunForPane(authority.paneKey)
+      const { run, replayed } = db.createGrantedRun({
+        objective: params.objective,
+        coordinatorHandle: authority.terminalHandle,
+        coordinatorPaneKey: authority.paneKey,
+        strictCoordinator: authority,
+        startGrant: { grantId: params.grant, authority }
+      })
+      // A replay wrote nothing, so waking waiters would be the only effect it had.
+      if (!replayed) {
+        ctx.runtime.cancelMessageWaiters(authority.terminalHandle)
+        if (priorRun) {
+          ctx.runtime.cancelMessageWaiters(`run:${priorRun.id}`)
+        }
+      }
+      return {
+        run: exposeRun(run),
+        coordinatorPolicy: 'strict-v1' as const,
+        effectsApplied: !replayed
       }
     }
   }),

@@ -15,15 +15,23 @@ Orca does not copy standard Codex overrides, inject `--no-daemon` or choose an O
 for Ark. Configure those provider-specific settings through the installed wrapper. The
 Codex project link in settings describes the underlying CLI, not an Ark installer.
 
-Workspace trust is the one exception, and only for dispatched Workers: the wrapper forces
+Workspace trust is the one exception: the wrapper forces
 `CODEX_HOME` to its own install root, so the `[projects."<path>"] trust_level` record Orca
-writes for Codex under `~/.codex` is not the one Ark reads. An orchestration launch of
+writes for Codex under `~/.codex` is not the one Ark reads. A fresh launch of
 `codex-ark` therefore appends the same record to
 `${CODEX_ARK_HOME:-<home>/.codex-ark}/config.toml` — the file the wrapper validates at
-startup — before the PTY spawns. Manual launches, floating terminals, reattaches and
-restores still ask, and the `agentWorkspaceTrustEnabled` setting turns the grant off.
+startup — before the PTY spawns, whichever surface started it (a dispatched Worker, a
+workspace Orca just created, or a pane opened by hand). Answering Ark's own trust menu
+writes that same record, so pre-writing it only removes the question. Reattaches and
+restores still ask, a start folder that is a home or a disk root is never written, and
+the `agentWorkspaceTrustEnabled` setting turns the grant off.
 Orca never creates that config: an unreadable wrapper home leaves the CLI to ask, since a
 config without the wrapper's provider/model/catalog keys makes `codex-ark` refuse to start.
+
+Trusting a hand-opened pane is a deliberate product decision, accepted by the repository owner
+when the orchestration-only gate was removed: what the menu writes and what this code writes are
+the same record, so the only thing the gate changed was who answered. There is no per-surface or
+per-launch switch — the single control is the global `agentWorkspaceTrustEnabled` setting.
 
 The wrapper may exec a process named `codex`. Explicit Ark launch ownership is retained
 when compatible process evidence arrives; an ordinary Codex process without that owner

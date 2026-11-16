@@ -876,6 +876,13 @@
               }
             }
           }
+        },
+        "selector": {
+          "not": {
+            "found": {
+              "worktreeUnresolved": "Orca couldn't resolve this workspace on its host right now. It may have been deleted; refresh the workspace list, or remove it from Orca if it is gone."
+            }
+          }
         }
       },
       "folderWorkspacePathStatus": {

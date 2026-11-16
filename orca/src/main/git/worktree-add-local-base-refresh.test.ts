@@ -90,7 +90,7 @@ describe('addWorktree', () => {
           '/repo-feature',
           'refs/remotes/origin/main'
         ],
-        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
+        { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS, keepRunningOnTimeout: true }
       ],
       [
         [

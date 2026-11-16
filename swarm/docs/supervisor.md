@@ -43,7 +43,9 @@ python3 -m supervisor --config config.example.json validate
 
 ## Trae：启动前自动登记精确工作目录
 
-这是**逐工作区信任**，不是全局自动信任。仅在角色的原生 Agent ID 为 `trae` 且 `trae_workspace_trust.enabled:true` 时启用；示例仍默认关闭，不影响其他 Agent 或已有配置。初始 Coordinator 由操作者启动，不在这个 Worker 启动钩子覆盖范围内。
+这是**逐工作区登记与审计**，不是“Trae 是否会被预信任”的开关。仅在角色的原生 Agent ID 为 `trae` 且 `trae_workspace_trust.enabled:true` 时执行本节流程；示例仍默认关闭，不影响其他 Agent 或已有配置。初始 Coordinator 由操作者启动，不在这个 Worker 启动钩子覆盖范围内。
+
+Orca 自身也会在 fresh 启动前预写同一 `[projects."<path>"]` 条目（自包含该修复的 Orca 构建起，对所有启动来源生效，不再限于 orchestration），所以 `enabled:false` 不再意味着 Trae 会停在信任门。本节的显式登记仍是可审计的授权路径：它按已批准基线逐工作区写入、落盘回读并要求失败即停止，未登记的工作区不因原生预写而被视为已批准。真正的全局开关只有 `agentWorkspaceTrustEnabled:false`（或使用不含该预写的构建）。
 
 在远端私有配置中填写该节的 `hostname`（远端 `hostname` 原样输出）、`username`（Worker Unix 账号）、`trae_home`（实际配置目录），并在确认下列条件后设置 `launch_context_confirmed:true` 和 `enabled:true`：
 

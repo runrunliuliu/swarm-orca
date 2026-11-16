@@ -1,7 +1,12 @@
 import { windowsLongPathGitArgs } from '../../shared/windows-long-path-git-args'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree/base-ref'
 import type { AddWorktreeOptions, AddWorktreeResult, GitWorktreeExecOptions } from './worktree'
-import { gitExecOptions, type GitExecOptionsForWorktree } from './worktree-operation-options'
+import { GitCommandTimeoutError } from './command-runner/git-command-timeout'
+import {
+  gitExecOptions,
+  type GitExecOptionsForWorktree,
+  warnWorktreeCheckoutExceeded
+} from './worktree-operation-options'
 import {
   configurePushAutoSetupRemote,
   notifyPreparedWorktreeMutation,
@@ -64,6 +69,9 @@ export async function prepareWorktreeCreateCheckout(
         const effectiveBase = await resolveWorktreeAddBaseRef(baseBranch, (qualifiedRef) =>
           hasWorktreeBaseCommitRef(repoPath, qualifiedRef, options)
         )
+        // Why the caller's budget wins, as in finalizePreparedWorktree: one knob bounds both halves.
+        const addTimeoutMs = options.timeout ?? resolveWorktreeAddTimeoutMs()
+        let deadlineStep = 'git worktree add --no-checkout'
         try {
           await gitExecFileAsync(
             [
@@ -75,15 +83,17 @@ export async function prepareWorktreeCreateCheckout(
               worktreePath,
               effectiveBase
             ],
-            { ...gitExecOptions(repoPath, options), timeout: resolveWorktreeAddTimeoutMs() }
+            // Why no keepRunningOnTimeout: `--no-checkout` writes metadata only, so a deadline here
+            // has no materialized work to protect and the discard below keeps no row unowned.
+            { ...gitExecOptions(repoPath, options), timeout: addTimeoutMs }
           )
           // The add just wrote the marker; drop any pre-create route before the reset routes Git.
           invalidateWslLinkedWorktreeGitRouting(worktreePath)
-          // Why: reset materializes files without running user post-checkout hooks before submit.
-          await gitExecFileAsync(
-            [...windowsLongPathGitArgs(worktreePath), 'reset', '--hard', effectiveBase],
-            { ...gitExecOptions(worktreePath, options), timeout: resolveWorktreeAddTimeoutMs() }
-          )
+          deadlineStep = 'git worktree lock'
+          // Why the lock precedes materialization: a mid-reset row then reads as locked and owned,
+          // the same "locked means unfinished" signal the direct path gets from `initializing`, and
+          // a crash mid-reset leaves a lock the stale sweep can reclaim by owner pid instead of an
+          // unlocked row nobody is allowed to delete.
           await gitExecFileAsync(
             [
               ...windowsLongPathGitArgs(repoPath),
@@ -93,9 +103,29 @@ export async function prepareWorktreeCreateCheckout(
               lockReason,
               worktreePath
             ],
-            { ...gitExecOptions(repoPath, options), timeout: resolveWorktreeAddTimeoutMs() }
+            { ...gitExecOptions(repoPath, options), timeout: addTimeoutMs }
+          )
+          deadlineStep = 'git reset --hard'
+          // Why: reset materializes files without running user post-checkout hooks before submit.
+          await gitExecFileAsync(
+            [...windowsLongPathGitArgs(worktreePath), 'reset', '--hard', effectiveBase],
+            {
+              ...gitExecOptions(worktreePath, options),
+              timeout: addTimeoutMs,
+              // Why: this is the step that writes the whole tree, and Git deletes the tree it is
+              // writing when killed — so the deadline must end the wait alone and leave it running.
+              keepRunningOnTimeout: true
+            }
           )
         } catch (error) {
+          // Why: a deadlined materialization is unresolved, not failed. Its Git is still filling a
+          // locked, owner-pid row that the stale sweep reclaims once this process is gone, so no
+          // cleanup here may delete it. Add and lock write metadata only: a deadline there fails
+          // the attempt and the usual discard keeps an unowned checkout from leaking.
+          if (error instanceof GitCommandTimeoutError && deadlineStep === 'git reset --hard') {
+            warnWorktreeCheckoutExceeded(deadlineStep, addTimeoutMs, worktreePath)
+            throw error
+          }
           await performDiscardPreparedWorktree(repoPath, worktreePath, options).catch(() => {})
           throw error
         }

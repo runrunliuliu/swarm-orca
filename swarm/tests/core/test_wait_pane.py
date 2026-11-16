@@ -87,12 +87,23 @@ def terminal_body(handle=TERMINAL, pty=PTY, incarnation=INCARNATION):
 
 
 def send_receipt(stages=("input_accepted", "turn_started"), terminal=TERMINAL,
-                 incarnation=PROCESS, request_id="req_1"):
+                 incarnation=INCARNATION, request_id="req_1",
+                 handle_on="send", prompt_handle=None):
+    """A `terminal send --wait-submit` receipt in the shape the runtime really emits.
+
+    Why the default is the *bare* `incarnationId`: that is what `terminal send` writes today
+    (`getTerminalPromptRequestBinding().processIncarnation`), while orchestration records write
+    `ptyId:incarnationId`. The old fixture defaulted to the composed spelling on both sides of the
+    comparison, so it could not see the two producers disagree - which is exactly what happened.
+    """
     prompt = {"requestId": request_id, "stages": list(stages),
               "processIncarnation": incarnation}
-    if terminal is not None:
-        prompt["terminalHandle"] = terminal
-    return {"ok": True, "result": {"send": {"accepted": True, "prompt": prompt}}}
+    if prompt_handle is not None:
+        prompt["terminalHandle"] = prompt_handle
+    send = {"accepted": True, "prompt": prompt}
+    if handle_on == "send" and terminal is not None:
+        send["handle"] = terminal
+    return {"ok": True, "result": {"send": send}}
 
 
 class WaitPaneTests(unittest.TestCase):
@@ -180,6 +191,51 @@ class WaitPaneTests(unittest.TestCase):
         self.assertNotIn(["terminal", "wait"],
                          [command[:2] for command in self.cli.commands()])
 
+    def test_a_real_send_receipt_shape_binds_by_handle_and_bare_incarnation(self):
+        # The shape `terminal send --wait-submit` emits today: `send.handle` names the pane and
+        # `prompt.processIncarnation` is the bare `incarnationId`. Before this case existed the
+        # wrapper compared a locally composed `ptyId:incarnationId` to that bare id, so every real
+        # pane exited 4 and the offline suite stayed green.
+        completed = self.run_wrapper("--terminal", TERMINAL,
+                                     "--turn-evidence", str(self.evidence()))
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+
+    def test_both_incarnation_spellings_are_accepted(self):
+        for incarnation in (INCARNATION, PROCESS):
+            with self.subTest(incarnation=incarnation):
+                completed = self.run_wrapper(
+                    "--terminal", TERMINAL,
+                    "--turn-evidence", str(self.evidence(send_receipt(incarnation=incarnation))))
+                self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+
+    def test_a_bare_incarnation_without_a_pane_handle_is_unbound(self):
+        # A bare id says "some pane's process", not "this pane": without a handle the receipt
+        # cannot be tied to the terminal we would wait on, so it must not start a wait.
+        completed = self.run_wrapper(
+            "--terminal", TERMINAL,
+            "--turn-evidence", str(self.evidence(send_receipt(handle_on=None))))
+        self.assertEqual(completed.returncode, 4, completed.stdout + completed.stderr)
+        self.assertIn("unbound", completed.stderr)
+        self.assertNotIn(["terminal", "wait"],
+                         [command[:2] for command in self.cli.commands()])
+
+    def test_a_composed_incarnation_binds_without_a_handle(self):
+        # The composed spelling embeds the ptyId, so it identifies the pane by itself.
+        completed = self.run_wrapper(
+            "--terminal", TERMINAL,
+            "--turn-evidence", str(self.evidence(send_receipt(incarnation=PROCESS,
+                                                             handle_on=None))))
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+
+    def test_a_degraded_runtime_incarnation_is_never_accepted(self):
+        # `runtimeId:ptyId:generation` is what the runtime writes when a pty has no incarnation id.
+        # A generation number is not an incarnation: accepting it would be the fail-open case.
+        completed = self.run_wrapper(
+            "--terminal", TERMINAL,
+            "--turn-evidence", str(self.evidence(send_receipt(incarnation=f"rt_1:{PTY}:3"))))
+        self.assertEqual(completed.returncode, 4, completed.stdout + completed.stderr)
+        self.assertIn("incarnation_mismatch", completed.stderr)
+
     def test_the_pane_live_incarnation_must_match_the_receipt(self):
         self.cli.show(terminal_body(incarnation="inc_2"))
         completed = self.run_wrapper("--terminal", TERMINAL,
@@ -187,11 +243,13 @@ class WaitPaneTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 4, completed.stdout + completed.stderr)
 
     def test_evidence_naming_another_terminal_is_unverifiable(self):
-        completed = self.run_wrapper(
-            "--terminal", TERMINAL,
-            "--turn-evidence", str(self.evidence(send_receipt(terminal="term_other"))))
-        self.assertEqual(completed.returncode, 4, completed.stdout + completed.stderr)
-        self.assertIn("other_terminal", completed.stderr)
+        for receipt in (send_receipt(terminal="term_other"),
+                        send_receipt(handle_on=None, prompt_handle="term_other")):
+            with self.subTest(receipt=receipt["result"]["send"].get("handle", "prompt")):
+                completed = self.run_wrapper(
+                    "--terminal", TERMINAL, "--turn-evidence", str(self.evidence(receipt)))
+                self.assertEqual(completed.returncode, 4, completed.stdout + completed.stderr)
+                self.assertIn("other_terminal", completed.stderr)
 
     def test_a_rejected_or_unshaped_receipt_is_unverifiable(self):
         payloads = {

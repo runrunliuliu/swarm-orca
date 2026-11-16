@@ -3,6 +3,7 @@ import { OrcaRuntimeWithResolveBrowserNetworkExecutionHostForWorktree } from './
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 import { splitWorktreeIdForFilesystem, worktreeIdComparisonKey } from '../../shared/worktree/id'
 import { branchSelectorMatches, runtimePathsEqual } from './runtime-worktree-path-identity'
+import { matchLocalWorktreesByResolvedSelectorPath } from './runtime-worktree-selector-realpath'
 import { getRepoExecutionHostId, getWorktreeExecutionHostId } from '../../shared/execution-host'
 import type {
   WorktreeLineageInput,
@@ -56,12 +57,24 @@ export class OrcaRuntimeWithResolveWorktreeSelector extends OrcaRuntimeWithResol
             : null
         if (fallback !== null) {
           candidates = [fallback]
+        } else if (parsed) {
+          // Why: a stored id keeps the repo registration's exact spelling, while the caller may
+          // have addressed the same directory through a symlink.
+          candidates = matchLocalWorktreesByResolvedSelectorPath(
+            worktrees,
+            parsed.worktreePath,
+            (repoId) => this.store?.getRepo(repoId)
+          ).filter((worktree) => worktree.repoId === parsed.repoId)
         }
       }
     } else if (selector.startsWith('path:')) {
-      candidates = worktrees.filter((worktree) =>
-        runtimePathsEqual(worktree.path, selector.slice(5))
-      )
+      const selectorPath = selector.slice(5)
+      candidates = worktrees.filter((worktree) => runtimePathsEqual(worktree.path, selectorPath))
+      if (candidates.length === 0) {
+        candidates = matchLocalWorktreesByResolvedSelectorPath(worktrees, selectorPath, (repoId) =>
+          this.store?.getRepo(repoId)
+        )
+      }
       if (candidates.length > 1) {
         const hostIds = new Set(
           candidates.map((worktree) => {
@@ -94,6 +107,11 @@ export class OrcaRuntimeWithResolveWorktreeSelector extends OrcaRuntimeWithResol
           runtimePathsEqual(worktree.path, selector) ||
           branchSelectorMatches(worktree.branch, selector)
       )
+      if (candidates.length === 0) {
+        candidates = matchLocalWorktreesByResolvedSelectorPath(worktrees, selector, (repoId) =>
+          this.store?.getRepo(repoId)
+        )
+      }
     }
 
     if (candidates.length === 1) {

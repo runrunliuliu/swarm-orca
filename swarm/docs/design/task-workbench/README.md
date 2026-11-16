@@ -8,7 +8,7 @@
 本文只记录"代码里有什么 / 能怎么改"。不修改任何 schema、启动器、已装技能或既有会话；不构成实施、合并、
 部署、重启或创建 worktree / Agent 的授权。文中行号与文件路径均为只读观察值，改动前需重新核对 HEAD。
 
-本文遵守本仓库的 [public-repository boundary](../../../../AGENTS.md) 与本层约定：不含组织配置、主机名、
+本文遵守本仓库的 [public-repository boundary](../../../AGENTS.md) 与本层约定：不含组织配置、主机名、
 真实 Run / Task / terminal ID、部署路径或凭据。
 
 关联：[任务与工作区模型](../task-workspaces.md)（一个任务如何绑定 worktree、如何续做）、

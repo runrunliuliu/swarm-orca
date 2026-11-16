@@ -1,5 +1,10 @@
 # 投递台账（delivery ledger）开发计划
 
+> **历史（2026-11-13）**：本文引用的实现（`bootstrap_*`、`coordinator_strict_{delivery,start,request,prepare}`、
+> `startup_handoff`）已随旧握手删除；现行启动授权见 [start grant](../../docs/design/start-grant.md)。
+> 设计与测量结论保留，文中的模块名与命令不再可执行。
+
+
 状态：**草案，未开始**。本文只是计划与退出条件，不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权；
 §5 的各工作包开始前仍需按既有规则取得当前任务授权与并发上限。
 
@@ -17,7 +22,7 @@
    的 outbox + `request-show` 对账 + `--retry-request` 幂等 + `entry["delivery"] = receipt(...)`
    （`operator_monitor.py:227-257`）；`coordinator_tui_scheduler` 的 pre-send 竞争检测与
    `incomplete_continuation`（已投递但未提交的回合只记录、不重发）；`operator-monitor.md:251-253`
-   对"已投递但未 ACK 的批次"的筛选；以及 `coordinator_strict_delivery.py:132` 已写下的
+   对"已投递但未 ACK 的批次"的筛选；以及 monitor 侧已经写下的
    `terminal text is not delivery`。缺的是把它们合成**一份可查询的、带游标的投递结局台账**。
 2. **不新建消息总线。** 台账是现有 outbox/journal/receipt 的投影与补充字段，不是第二个真相源。
    冲突时以原生回执为准，台账只记账、不仲裁。

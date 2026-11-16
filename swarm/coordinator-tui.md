@@ -1,5 +1,10 @@
 # 常驻 Coordinator TUI（显式试验路径）
 
+> **部分历史（2026-11-13）**：continuation/TUI 续跑本身仍是现行路径；本文中依赖旧握手产物
+> （`ready.json`、`strict-config-*`、`startup_handoff`）的部分已删除，见
+> [start grant](docs/design/start-grant.md)。
+
+
 本次修复的是一次性 `trae exec` 结束后留下 shell、后续文本无法进入 Coordinator 的
 生命周期断点。TUI 能在模型回合结束后保留原生 Agent 进程，并通过 Orca 原生 Run
 mailbox 接收消息。**常驻进程不等于任务完成，也不等于服务/崩溃恢复。**
@@ -44,8 +49,10 @@ replacement 和非 strict TUI 启动。权限保持 workspace-write/on-request/a
 
 TUI 计划另含一条进程级目录信任覆盖：`-c 'projects={"<已解析 cwd>"={trust_level="trusted"}}'`。
 Trae 对没见过的目录会先问 "Do you trust the contents of this directory?"，非 yolo 启动会停在
-人工按键上；Orca 只在 `launch_source=orchestration` 时预写 `~/.trae/traecli.toml` 的
-`[projects."<path>"]`，而 strict 走 CLI `terminal create`（无该 source），所以这一侧必须自带覆盖。
+人工按键上。Orca 现已在**任何 fresh 启动**（含 CLI `terminal create`）前预写
+`~/.trae/traecli.toml` 的 `[projects."<path>"]`，不再限于 `launch_source=orchestration`
+（自包含该修复的 Orca 构建起）；本侧仍自带覆盖，因为 strict 路径不能依赖目标构建是否已含
+该修复，也不能假设预写一定成功。
 覆盖只作用于本进程：不写用户级配置、不改变 sandbox/approval/权限，只允许本次启动加载项目本地
 配置/hook；`json.dumps` 保证含点号的绝对路径仍是单个带引号 TOML key（点分写法会被按 `.` 拆开并报错）。
 未启用该覆盖的 `exec` 计划保持原 argv 不变。实测（0.214.1）：同一 cwd 无覆盖→弹 trust；有覆盖→
@@ -342,7 +349,7 @@ readiness、嵌套 TUI 观察和 bootstrap owner 查询。每次 I/O 使用原�
 这表示**合法结束审计未完成**，不是回合已经结束，也不推翻之前已确认的提交、ACK 或释放。
 保留原回执并核查阻塞阶段；不得据此重放业务或 ACK。需再次审计时仍须具备原身份、
 原 pins 和当前合法 checkpoint，不自动重试或跳过最后一次身份/head/journal 复查。
-非只读 owner RPC 仍使用 `bootstrap_tool_timeout_requires_reconciliation` 的未知结果语义：
+非只读 owner RPC 仍按未知结果语义处理（原先那个拒绝码由 `bootstrap_tool.py` 抛出，已随旧握手删除）：
 不能仅凭该错误判断失败或重试同一 mutation，owner 仍可能完成已接纳工作。
 
 预算对文件读取是合作式检查，日志读取在分段边界检查；不能强行取消阻塞中的文件系统

@@ -1,6 +1,6 @@
 # Orca 测试怎么跑：本机资源约定
 
-配套文件：[reliability.md](reliability.md)（Swarm 侧验收口径）、[AGENTS.md](../../../AGENTS.md)（Tests 章节）。
+配套文件：[reliability.md](reliability.md)（Swarm 侧验收口径）、[AGENTS.md](../../AGENTS.md)（Tests 章节）。
 
 本文只约定**在开发机上跑 `orca/` 的 vitest 测试时如何不把机器跑挂**，是一次运行方式的约定，
 不是某次运行结果，也不放宽 `orca/AGENTS.md` 或验收口径。它不授权安装依赖、重装运行时、

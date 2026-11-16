@@ -1,9 +1,13 @@
-# Trae workspace trust for Swarm Workers
+# Trae workspace trust for fresh launches
 
-Fresh Trae Worker launches with `launch_source: orchestration` pre-trust their
-resolved start directory before spawning the PTY. This uses the existing
-`agentWorkspaceTrustEnabled` setting: absent means enabled, `false` disables it.
-Manual launches, floating terminals, reattaches and restores do not get this grant.
+A fresh Trae launch pre-trusts its resolved start directory before spawning the
+PTY, whatever surface asked for it: a dispatched Worker, a workspace Orca just
+created, or a pane opened by hand all park on the same `Do you trust the
+contents of this directory?` menu, and answering it writes the same record. This
+uses the existing `agentWorkspaceTrustEnabled` setting: absent means enabled,
+`false` disables it. Reattaches and restores do not get this grant. A start
+directory that is a home or a disk root is still refused (see below), so a floating
+pane opens at `~` by default and asks there.
 
 Trae's [documented project trust configuration](https://docs.trae.cn/cli_config-file)
 is a `[projects."/exact/path"]` table with `trust_level = "trusted"` in
@@ -34,3 +38,9 @@ Tests cover 16 concurrent grants, local and SSH spawn routing, the opt-out,
 restores, broad-path refusal, config/workspace symlinks and file-lock contention.
 These tests do not establish a successful live Worker run; the change must be built
 and deployed before the running Orca service can use it.
+
+Trusting a pane a person opened by hand, in a folder that person named, is a
+deliberate product decision accepted by the repository owner when the
+orchestration-only gate was removed: the menu and this writer produce the same
+record, so the gate only decided who answered. The single control is the global
+`agentWorkspaceTrustEnabled` setting; there is no per-surface switch.

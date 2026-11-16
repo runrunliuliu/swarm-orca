@@ -285,7 +285,12 @@ describe('Task/Dispatch invariant transactions', () => {
     const prepare = sqlite.prepare.bind(sqlite)
     let injected = false
     vi.spyOn(sqlite, 'prepare').mockImplementation((sql) => {
-      if (!injected && sql.includes('INSERT INTO dispatch_contexts')) {
+      // Why this statement and not the claim INSERT: the claim transaction now opens with the start
+      // grant admission read, so the claim INSERT is prepared after that read has taken a read lock,
+      // and the concurrent write would deadlock instead of racing. Injecting at the admission read
+      // keeps the race the test is about — a failure that lands after readiness was observed, before
+      // the Dispatch row is written.
+      if (!injected && sql.includes('FROM start_grant_runs')) {
         injected = true
         concurrent.db.updateTaskStatus(task.id, 'failed', 'failure won')
       }
@@ -315,7 +320,8 @@ describe('Task/Dispatch invariant transactions', () => {
     const prepare = sqlite.prepare.bind(sqlite)
     let winnerId: string | undefined
     vi.spyOn(sqlite, 'prepare').mockImplementation((sql) => {
-      if (!winnerId && sql.includes('INSERT INTO dispatch_contexts')) {
+      // Same trigger move as above: the claim transaction's first statement is the grant admission.
+      if (!winnerId && sql.includes('FROM start_grant_runs')) {
         winnerId = createRootDispatch(
           concurrent.db,
           secondTask.id,

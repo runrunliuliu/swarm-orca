@@ -76,7 +76,7 @@ cd "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 # one module needed 577 s (694,875 source re-reads, no RPC). Same 40 tests, same assertions.
 # Those re-reads are now reused per process identity, which is why the floor is no longer a
 # multi-minute module.
-SLOW='bootstrap.test_bootstrap_production bootstrap.test_bootstrap_workflow core.test_startup_handoff core.test_startup_handoff_prepare core.test_startup_handoff_trigger core.test_startup_handoff_monitor bootstrap.test_bootstrap_failures'
+SLOW='coordinator.test_coordinator_driver coordinator.test_coordinator_prepare publish.test_install_entry core.test_monitor_stop_signals coordinator.test_coordinator_background operators.test_operator_monitor_recovery coordinator.test_coordinator_operator'
 
 mode=full
 list_only=0

@@ -13,6 +13,11 @@ that goes stale between releases; a line range can be verified, so `--check` ver
 Why `--check` fails instead of warning: a stale index is worse than no index. A wrong line range
 sends the reader to unrelated code and removes the reason to search, which is exactly the failure
 this is meant to prevent.
+
+The layout section exists for the same reason as the symbol table: a reader that cannot tell where
+`entry-paths.md` lives starts a filesystem-wide search for it (measured: one pane on this host ran
+`find / -maxdepth 8`, which walks the NFS mounts). Stating the directory map in the file such a
+reader already opens costs one table and removes that turn.
 """
 
 from __future__ import annotations
@@ -75,7 +80,7 @@ def named_in_docs(index: dict[str, list[tuple[str, int, int]]]) -> list[str]:
     """
     text = "\n".join((ROOT / name).read_text(encoding="utf-8")
                      for name in SOURCES_OF_TRUTH if (ROOT / name).exists())
-    # Every identifier that appears inside a backticked span, so `bootstrap_protocol.layout(...)`,
+    # Every identifier that appears inside a backticked span, so `coordinator_io.file_ref(...)`,
     # `OperatorScheduler.submit/query` and `payload.submission` all name their symbol. Matching the
     # whole span against the bare name missed every dotted reference, which is how most of the
     # protocol points at code.
@@ -101,13 +106,8 @@ def named_in_docs(index: dict[str, list[tuple[str, int, int]]]) -> list[str]:
 
 
 def render() -> str:
-    from bootstrap_actions import command
-
     index = defined_symbols()
     names = named_in_docs(index)
-    owner = {"path": "<owner.json>", "sha256": "<owner-sha256>"}
-    intent = {"path": "<intent.json>", "sha256": "<intent-sha256>"}
-    script = str(ROOT / "coordinator_launch.py")
 
     lines = [
         "# ORIENTATION（生成文件，不要手改）",
@@ -117,22 +117,41 @@ def render() -> str:
         "",
         "## 最短必读顺序",
         "",
-        "1. 本文件「入口 argv」——先知道这一步跑什么。",
-        "2. `strict-bootstrap-protocol.md` §1–§9：规范与准入（离线材料不在必读内）。",
-        "3. `operator-runbook.md`：阶段、owner、槽位。",
+        "1. 本文件「目录布局」与「入口 argv」——先知道文件在哪、这一步跑什么。",
+        "2. `docs/design/start-grant.md`：现行启动凭据设计；实现状态只见该文 §4。",
+        "3. 旧握手的阶段/槽位正文已移出本仓：`strict-bootstrap-protocol.md` 与 `coordinator-strict-start.md`"
+        " 只保留归档提示，`operator-runbook.md` 已删除，不再是必读入口。",
         "4. 需要看实现时，用下面「符号索引」里的行区间直接读，**不要先 grep 名字**。",
+        "",
+        "## 目录布局（文件在哪）",
+        "",
+        "本目录是产物的 `code/`，也是源码仓库的 `swarm-orca/swarm/`：同一份文件、同一套相对路径，",
+        "两处都成立。下面的路径都相对本目录，**不要到主机别处或全盘 `find` 里找**。",
+        "",
+        "| 要查什么 | 位置 |",
+        "| --- | --- |",
+        "| 入口选择、测试与验收、设计、度量 | `docs/`（`entry-paths.md`、`testing/`、`design/`、`measurement/`） |",
+        "| 协议与历史入口 | 现行启动授权是 `docs/design/start-grant.md`；本目录顶层的 "
+        "`strict-bootstrap-protocol.md`、`coordinator-strict-start.md` 只保留归档提示，`operator-runbook.md` 已删除 |",
+        "| 启动器与工具 | 本目录顶层 `*.py`（平铺同级，按裸模块名 import） |",
+        "| 运行时输入（模型、runtime、白名单） | 同级的 `*.json`（`worker-model-profiles.json`、`coordinator-model.json`） |",
+        "| 角色技能 | 项目技能在 `skills/`（`swarm-orchestration`、`software-development`、`worktree-delivery`）；"
+        "`orca-cli`、`orchestration` 由所选 `orca` 可执行文件通过 `orca skills get ...` 提供，本仓不复制正文 |",
+        "| 安装、发布、下位服务 | `deploy/`（`install.sh`、`publish_control_plane.py`）；`supervisor/`、`swarm_ledger/`、`release_radar/`、`field-guide/` |",
+        "| 符号在哪一行 | 本文件「符号索引」 |",
+        "",
+        "不在本目录的：上游 `orca/` 快照、`tests/`（只在源码检出里，产物不带）、私有政策 `swarm/`",
+        "（产物里是同级 `../private/`）。产物根还有 `../overlay/`、`../workspace/`、`../MANIFEST.sha256`、",
+        "`../.swarm-build.json`，由部署方读取。",
         "",
         "## 入口 argv",
         "",
         "```bash",
     ]
-    for mode in ("pull", "produce", "submit", "complete", "inspect-action"):
-        argv = [token.replace(script, "<swarm>/coordinator_launch.py")
-                for token in command(owner, "<role>", mode, intent)]
-        argv[0] = "python3"
-        if mode != "inspect-action" and "--execute" not in argv:
-            argv.append("--execute")
-        lines.append(" ".join(argv))
+    # Two entry points remain: the start-grant verbs, and the non-strict goal loop.
+    lines.append("python3 -B <swarm>/coordinator_launch.py start-grant-mint --record-file <path> "
+                 "--from <handle> --json")
+    lines.append("python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --json")
     lines += [
         "```",
         "",

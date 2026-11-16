@@ -147,6 +147,7 @@ export async function startFederatedWorker(args: {
     taskDeps: parseTaskDeps(params.deps),
     taskParentId: params.parent,
     taskRunId: runId,
+    federated: true,
     retryOf: params.retryOf,
     startOptions: {
       on: server.environmentId,

@@ -45,8 +45,9 @@ const EXACT_OR_SELF_LIMITING_PRESETS: readonly AgentTrustPreset[] = [
   'cursor',
   'antigravity'
 ]
-// Why: granted only to dispatched Workers, so these refuse a home or a root like an inheriting one.
-const ORCHESTRATION_ONLY_PRESETS: readonly AgentTrustPreset[] = ['trae', 'codex-ark']
+// Why: these match the exact folder they are given, but a grant that names a home or a root still
+// covers everything below it for the agent's own lookup, so they refuse one like an inheriting preset.
+const EXACT_FOLDER_PRESETS_REFUSING_A_HOME: readonly AgentTrustPreset[] = ['trae', 'codex-ark']
 
 let root: string
 
@@ -113,7 +114,7 @@ describe('applyWorkspaceTrustOnThisHost', () => {
     ]
   ]
   describe.each(tooBroad)('for %s', (_label, arrange) => {
-    it.each([...INHERITING_PRESETS, ...ORCHESTRATION_ONLY_PRESETS] as const)(
+    it.each([...INHERITING_PRESETS, ...EXACT_FOLDER_PRESETS_REFUSING_A_HOME] as const)(
       'writes no %s trust',
       async (preset) => {
         const { workspace, homes } = arrange()
@@ -204,7 +205,7 @@ describe('applyWorkspaceTrustOnThisHost', () => {
     )
   })
 
-  it.each([...INHERITING_PRESETS, ...ORCHESTRATION_ONLY_PRESETS] as const)(
+  it.each([...INHERITING_PRESETS, ...EXACT_FOLDER_PRESETS_REFUSING_A_HOME] as const)(
     'writes no %s trust when the host knows no home',
     async (preset) => {
       const workspace = join(root, 'projects', 'app')

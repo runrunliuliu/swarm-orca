@@ -12,16 +12,33 @@ claim to be a deployable implementation.
   baseline verification.
 - `swarm/` contains reusable Swarm orchestration code and public-safe examples.
 
+`ARTIFACT.md` is the README of the published control plane artifact: the publisher copies it to the
+artifact root. It is written for that layout, so its links resolve there and not in this repository.
+
 ## Scope
 
 Only reviewed, general-purpose code, documentation, and examples belong here.
 Organization-specific integrations, private configuration, credentials, and
 runtime data must remain outside this repository.
 
+## First install on a host
+
+Installing this repository changes nothing on the host: no hook runs, no configuration moves. The
+control plane (tooling + private policy + the four skills) is a separate, authorized step:
+
+```bash
+swarm/deploy/install.sh --source-root /path/to/workspace          # read-only plan, exit 3 if pending
+swarm/deploy/install.sh --source-root /path/to/workspace --apply  # publish, link, verify
+```
+
+See [deploy/README.md](swarm/deploy/README.md) for the host-local values file every new host needs
+once, and for the readiness check that answers "can this project start swarm work here?".
+
 ## Integration
 
 Other repositories may consume this project as a Git submodule pinned to a
-specific commit. Deployment instructions will be added with the implementation.
+specific commit. Deploying the control plane on a host is described under
+[First install on a host](#first-install-on-a-host).
 
 ## Agent entry points
 

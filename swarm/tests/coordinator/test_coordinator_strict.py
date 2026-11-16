@@ -75,15 +75,16 @@ class StrictCoordinatorTests(unittest.TestCase):
     def plan(self):
         return build_plan(**self.trae.args, strict_coordinator=True)
 
-    def test_contract_states_the_s0_before_plan_ordering(self):
-        # Why: a Coordinator that ran `strict-bootstrap plan` before publishing S0 hit
-        # bootstrap_operation_unverifiable (no owner yet) and waited — while the launcher
-        # waits for S0. The ordering rule belongs to the contract, not to each brief.
+    def test_contract_states_the_grant_before_any_run_creation(self):
+        # Why: a Coordinator that creates the Run before the Operator hands down the
+        # grant has no launch authorisation, and the retired S0-S5 chain used to sit
+        # where the grant sentence now is.
         prompt = shlex.split(self.plan()["native_launch"]["agent_args"])[-1]
-        self.assertIn("publish your own S0 skill-read evidence", prompt)
-        self.assertIn("bootstrap_operation_unverifiable", prompt)
-        self.assertLess(prompt.index("publish your own S0 skill-read evidence"),
-                        prompt.index("with the independently pinned --owner"))
+        self.assertIn("Startup authorisation is ONE start grant", prompt)
+        self.assertLess(prompt.index("Startup authorisation is ONE start grant"),
+                        prompt.index("run-create --grant"))
+        self.assertNotIn("publish your own S0 skill-read evidence", prompt)
+        self.assertNotIn("bootstrap_operation_unverifiable", prompt)
 
     def test_helper_root_pins_the_helper_tree_in_fragment_and_prompt(self):
         # Why: the plan names the helper tree in the prompt. Left implicit, that is
@@ -94,17 +95,19 @@ class StrictCoordinatorTests(unittest.TestCase):
 
         root = Path(tempfile.mkdtemp(prefix="helper-root-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
-        for name in ("coordinator_launch.py", "coordinator-strict-start.md",
+        for name in ("coordinator_launch.py",
                      "coordinator-worker-plan.md", "coordinator_tui_continue.py"):
             (root / name).write_text("# pinned helper fixture\n")
 
         plan = build_plan(**self.trae.args, strict_coordinator=True, helper_root=str(root))
         self.assertIn(str(root / "coordinator_launch.py"), plan["prompt_fragment"])
-        self.assertIn(str(root / "coordinator-strict-start.md"), plan["prompt_fragment"])
         args = shlex.split(plan["native_launch"]["agent_args"])
         prompt = args[-1]
         self.assertIn(str(root / "coordinator_launch.py"), prompt)
+        self.assertIn(str(root / "ORIENTATION.md"), prompt)
         self.assertIn(str(root / "coordinator-worker-plan.md"), plan["prompt_fragment"])
+        # The archived handshake document is not a pinned helper any more.
+        self.assertNotIn("coordinator-strict-start.md", plan["prompt_fragment"])
 
         # A tree without the helpers is refused rather than pinned half-populated.
         (root / "coordinator_launch.py").unlink()
@@ -141,54 +144,49 @@ class StrictCoordinatorTests(unittest.TestCase):
         self.assertEqual(plan["startup_delivery"]["mode"], "continuous-native-file-v1")
         self.assertEqual(plan["startup_delivery"]["publication_path"],
                          str(self.trae.bootstrap / "strict-config-ready.json"))
-        self.assertIn(plan["startup_delivery"]["request_path"], args[-1])
-        self.assertIn("strict-config-request", args[-1])
-        self.assertIn("strict-config-plan", args[-1])
-        self.assertIn("Use input schema v4", args[-1])
-        self.assertIn("it generates request schema v5", args[-1])
-        self.assertNotIn("Use input schema v3", args[-1])
+        # The delivery layout survives as an inert plan field; the prompt must not ask
+        # anyone to produce a request or wait on a gate file for it.
+        self.assertNotIn(plan["startup_delivery"]["request_path"], args[-1])
+        for gone in ("strict-config-request", "strict-config-plan", "Use input schema v4",
+                     "it generates request schema v5"):
+            self.assertNotIn(gone, args[-1])
+        self.assertIn("run-create --grant", args[-1])
+        self.assertIn("legacy fields imply", args[-1])
+        self.assertIn("START_GRANT_REQUIRED", args[-1])
         self.assertIn("worker-plan --request", args[-1])
         self.assertIn("Do not end the exec turn for terminal follow-up", args[-1])
 
-    def test_native_prompt_reads_protocol_before_saving_caller_outside_strict_start(self):
+    def test_native_prompt_reads_the_brief_before_saving_caller_receipt(self):
         plan = self.plan()
         prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
-        # Why the runbook is in this sentence: the stage table it carries is generated, so a
-        # launch that skips it falls back to re-deriving stages that the tool already named.
-        read_first = (
-            "First, read the prompt file, the strict startup protocol and the operator runbook in "
-            "full; verify the supplied pins before caller-check or any filesystem writes.")
+        read_first = ("First, read the prompt file in full and verify the supplied pins before "
+                      "caller-check or any filesystem writes.")
         reserved = (
             "Protocol-owned directory (not an evidence directory): "
             + str(self.trae.bootstrap / "strict-start")
-            + ". Leave it absent for Operator's strict-start-prepare; "
-            "do not create it or write caller/status/raw evidence there.")
+            + ". Leave it absent: its config/ready/transfer slots belonged to the retired "
+            "chain, so do not create it and do not write caller/status/raw evidence there.")
         caller = (
-            "HISTORICAL PATH, only when this attempt has neither attempt-binding.json nor control/owner.json: "
-            "run orchestration strict-caller-check in this live Coordinator context "
-            "and preserve the raw receipt at: " + str(self.trae.bootstrap / "initial-caller.json"))
-        registered_slot = (
-            "Once an attempt-binding or control/owner.json exists, that same path is the "
-            "registered caller slot owned by commit_owner: never write or replace it yourself, take the "
-            "caller-intent/complete actions instead, because a self-written slot stays unconfirmed forever.")
-        for instruction in (read_first, reserved, caller, registered_slot):
+            "Run orchestration strict-caller-check in this live Coordinator context and preserve "
+            "the raw receipt at: " + str(self.trae.bootstrap / "initial-caller.json")
+            + ". Do not write or replace an existing receipt there; a self-written slot stays "
+            "unconfirmed forever.")
+        for instruction in (read_first, reserved, caller):
             self.assertIn(instruction, prompt)
         self.assertLess(prompt.index(read_first), prompt.index(caller))
         self.assertLess(prompt.index(reserved), prompt.index(caller))
         self.assertNotIn("First action: run", prompt)
-        self.assertIn("For an explicitly registered strict-bootstrap attempt", prompt)
-        self.assertIn("Do not bypass that path with direct strict-config-request", prompt)
-        self.assertIn("retain the same owner pin on every S5 command", prompt)
-        self.assertIn("owner.json only registers the owner", prompt)
-        self.assertIn("pending/awaiting_arm", prompt)
-        self.assertIn("Read-only poll expiry is pending with unverified current liveness", prompt)
-        self.assertIn("heartbeat never confirms a commit or extends the attempt deadline", prompt)
+        self.assertIn("Startup authorisation is ONE start grant", prompt)
+        self.assertIn("run-create --grant", prompt)
+        for gone in ("S0 skill-read evidence", "Use strict-config-request", "commit_owner",
+                     "lifecycle v2", "publish readiness evidence including"):
+            self.assertNotIn(gone, prompt)
         self.assertEqual(plan["native_launch"]["short_prompt_sha256"], digest(prompt.encode("utf-8")))
 
-    def test_registered_attempt_forbids_the_historical_direct_write_branch(self):
-        # A live attempt wrote initial-caller.json from the short prompt's
-        # historical branch before its binding existed, which made the S1 slot
-        # permanently unconfirmed. A registered launch must not offer it.
+    def test_registered_and_plain_prompts_carry_one_caller_rule(self):
+        # The S0-S5 attempt chain, its owner slot and commit_owner actions are retired,
+        # so the short prompt no longer has a registered variant: one caller receipt per
+        # live Coordinator, whatever the plan's legacy registered_bootstrap flag says.
         from coordinator_strict import strict_plan
         base = build_plan(**self.trae.args)
         unregistered = strict_plan(base)
@@ -196,18 +194,15 @@ class StrictCoordinatorTests(unittest.TestCase):
                                  reviewed_inputs=self.prepared_manifest())
         self.assertTrue(registered["registered_bootstrap"])
         self.assertFalse(unregistered["registered_bootstrap"])
-        self.assertIn("registered_bootstrap", registered)
-        for plan, forbidden, required in (
-                (unregistered, "REGISTERED ATTEMPT", "HISTORICAL PATH, only when"),
-                (registered, "HISTORICAL PATH, only when", "REGISTERED ATTEMPT")):
+        caller = ("Run orchestration strict-caller-check in this live Coordinator context and "
+                  "preserve the raw receipt at: " + str(self.trae.bootstrap / "initial-caller.json"))
+        for plan in (unregistered, registered):
             prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
-            self.assertIn(required, prompt)
-            self.assertNotIn(forbidden, prompt)
+            self.assertIn(caller, prompt)
+            self.assertNotIn("REGISTERED ATTEMPT", prompt)
+            self.assertNotIn("HISTORICAL PATH, only when", prompt)
             self.assertEqual(plan["native_launch"]["short_prompt_sha256"],
                              digest(prompt.encode("utf-8")))
-        self.assertIn(str(self.trae.bootstrap / "initial-caller.json"),
-                      shlex.split(registered["native_launch"]["agent_args"])[-1])
-        self.assertIn("commit_owner", shlex.split(registered["native_launch"]["agent_args"])[-1])
 
     def test_registration_evidence_requires_the_registered_flag(self):
         # Fail closed: once an attempt has a binding/owner slot, a plan that does
@@ -222,15 +217,14 @@ class StrictCoordinatorTests(unittest.TestCase):
         self.assertTrue(strict_plan(base, registered_bootstrap=True,
                                     reviewed_inputs=prepared)["registered_bootstrap"])
 
-    def test_build_plan_passes_the_registered_flag_into_the_prompt(self):
-        # The production planning entry, not only strict_plan(), must be able to
-        # produce the registered prompt; otherwise "registered" is unreachable.
+    def test_build_plan_passes_the_registered_flag_into_the_plan(self):
+        # The production planning entry, not only strict_plan(), must still accept the
+        # flag: materials pipelines pass it, even though the prompt no longer branches.
         plan = build_plan(**self.trae.args, strict_coordinator=True, registered_bootstrap=True,
                           reviewed_inputs=self.prepared_manifest())
         self.assertTrue(plan["registered_bootstrap"])
         prompt = shlex.split(plan["native_launch"]["agent_args"])[-1]
-        self.assertIn("REGISTERED ATTEMPT", prompt)
-        self.assertNotIn("HISTORICAL PATH, only when", prompt)
+        self.assertIn("Do not write or replace an existing receipt", prompt)
         self.assertEqual(plan["native_launch"]["short_prompt_sha256"],
                          digest(prompt.encode("utf-8")))
 

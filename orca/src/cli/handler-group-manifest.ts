@@ -106,6 +106,9 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     name: 'orchestration',
     keys: [
       'orchestration run-create',
+      'orchestration start-grant-mint',
+      'orchestration start-grant-show',
+      'orchestration start-grant-revoke',
       'orchestration strict-caller-check',
       'orchestration planned-restart',
       'orchestration run-retire-strict',

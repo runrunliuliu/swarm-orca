@@ -54,6 +54,22 @@ afterEach(async () => {
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
+/** Poll a real Git/filesystem condition: the deadline path deliberately hands work to a child. */
+async function waitFor(condition: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      if (condition()) {
+        return
+      }
+    } catch {
+      // A half-written Git command may still hold its index lock.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  expect(condition()).toBe(true)
+}
+
 describe('prepared worktree creation with real Git', () => {
   it.each([false, true])(
     'attaches the prepared HEAD and runs the hook (base advanced: %s)',
@@ -331,13 +347,80 @@ describe('prepared worktree creation with real Git', () => {
         )
       ).rejects.toThrow()
       expect(observedMaterialization).toBe(true)
-      expect(calls.some((args) => args[args.indexOf('worktree') + 1] === 'lock')).toBe(false)
+      // Why: the lock now precedes materialization, so this also pins that the discard can remove a
+      // locked preparation — an aborted reset must still leave no row and no directory behind.
+      expect(calls.some((args) => args.includes('lock'))).toBe(true)
       expect(existsSync(preparedPath)).toBe(false)
       expect(await listWorktrees(repoPath, { includeCreatePreparations: true })).toHaveLength(1)
     } finally {
       watcher?.close()
       spy.mockRestore()
     }
+  })
+
+  // Why: this is the deadline defect on the prepared path — killing the reset threw away the
+  // materialization, and discarding the row threw away what was left of it.
+  it('leaves a deadlined materialization running, locked and owned', async () => {
+    const { repoPath, root } = await createRepo()
+    // A smudge filter makes `reset --hard` the slow step, so a small budget lands mid-checkout.
+    git(repoPath, ['config', 'filter.slow.smudge', 'sh -c "sleep 0.3; cat"'])
+    await writeFile(join(repoPath, '.gitattributes'), '*.txt filter=slow\n')
+    await writeFile(join(repoPath, 'payload-0.txt'), 'payload\n')
+    git(repoPath, ['add', '.gitattributes', 'payload-0.txt'])
+    git(repoPath, ['commit', '--quiet', '-m', 'slow materialization fixture'])
+    const preparationRoot = join(root, WORKTREE_CREATE_PREPARATION_DIRECTORY)
+    const preparedPath = join(preparationRoot, `${process.pid}-deadline`)
+    await mkdir(preparationRoot, { recursive: true })
+    const lockReason = createWorktreePreparationLockReason('deadline-test')
+
+    await expect(
+      prepareWorktreeCreateCheckout(repoPath, preparedPath, 'main', lockReason, { timeout: 400 })
+    ).rejects.toThrow('git timed out.')
+
+    // Why: the rejection is the deadline, not the checkout — the tree must keep appearing after it.
+    await waitFor(() => existsSync(join(preparedPath, 'payload-0.txt')), 10_000)
+    await waitFor(() => git(preparedPath, ['status', '--porcelain']) === '', 10_000)
+    expect(existsSync(join(preparedPath, 'version.txt'))).toBe(true)
+
+    const prepared = (await listWorktrees(repoPath, { includeCreatePreparations: true })).find(
+      (worktree) => areWorktreePathsEqual(worktree.path, preparedPath)
+    )
+    expect(prepared).toBeDefined()
+    expect(prepared?.locked).toBe(true)
+    expect(prepared?.lockReason).toBe(lockReason)
+    // Why: an unfinished preparation must never surface as a workspace the user can open.
+    expect(await listWorktrees(repoPath)).toHaveLength(1)
+
+    await discardPreparedWorktree(repoPath, preparedPath)
+    expect(existsSync(preparedPath)).toBe(false)
+  })
+
+  it('discards the preparation when materialization fails for real', async () => {
+    const { repoPath, root } = await createRepo()
+    // Why a smudge that fails: the reset must exit non-zero (not time out) to take the failure path.
+    git(repoPath, ['config', 'filter.broken.clean', 'cat'])
+    git(repoPath, ['config', 'filter.broken.smudge', 'sh -c "exit 1"'])
+    git(repoPath, ['config', 'filter.broken.required', 'true'])
+    await writeFile(join(repoPath, '.gitattributes'), '*.txt filter=broken\n')
+    git(repoPath, ['add', '.gitattributes'])
+    git(repoPath, ['commit', '--quiet', '-m', 'broken filter fixture'])
+    const preparationRoot = join(root, WORKTREE_CREATE_PREPARATION_DIRECTORY)
+    const preparedPath = join(preparationRoot, `${process.pid}-failed`)
+    await mkdir(preparationRoot, { recursive: true })
+
+    await expect(
+      prepareWorktreeCreateCheckout(
+        repoPath,
+        preparedPath,
+        'main',
+        createWorktreePreparationLockReason('failure-test')
+      )
+    ).rejects.toThrow()
+
+    // Why all three: the directory, the admin registration and any branch must be gone together.
+    expect(existsSync(preparedPath)).toBe(false)
+    expect(await listWorktrees(repoPath, { includeCreatePreparations: true })).toHaveLength(1)
+    expect(git(repoPath, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/'])).toBe('main')
   })
 
   it('cleans up when the create signal is canceled', async () => {

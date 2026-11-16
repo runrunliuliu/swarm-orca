@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runProcess } from '../../shared/child-process/run-process'
+import { runProcess, type ProcessResult } from '../../shared/child-process/run-process'
 import {
   ORCA_BUILD_CLI_ARGV_FILENAME,
   ORCA_BUILD_IDENTITY_FILENAME,
@@ -89,7 +89,7 @@ function runScript(
   program: string,
   args: string[] = [],
   env: NodeJS.ProcessEnv = {}
-): Promise<{ code: number; stdout: string; stderr: string }> {
+): Promise<ProcessResult> {
   return runProcess({
     program,
     args,

@@ -62,6 +62,8 @@ vi.mock('@/runtime/web-runtime-session', () => ({
   isWebTerminalSurfaceTabId: vi.fn(() => false)
 }))
 
+import { toast } from 'sonner'
+
 describe('launchAgentInNewTab paired web runtime', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -171,5 +173,23 @@ describe('launchAgentInNewTab paired web runtime', () => {
       viewMode: 'terminal'
     })
     expect(mocks.createTab).not.toHaveBeenCalled()
+  })
+
+  it('shows an actionable message instead of the raw selector code when the host cannot resolve the worktree', async () => {
+    mocks.createWebRuntimeSessionTerminal.mockResolvedValue({
+      status: 'failed',
+      message: 'selector_not_found'
+    })
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    launchAgentInNewTab({ agent: 'claude', worktreeId: 'wt-1' })
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("Orca couldn't resolve this workspace on its host right now")
+    )
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalledWith(
+      expect.stringContaining('selector_not_found')
+    )
   })
 })

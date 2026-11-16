@@ -147,13 +147,10 @@ export async function applyWorkspaceTrustOnThisHost(
 ): Promise<void> {
   try {
     const host = describeHost()
-    // Why: orchestration-only grants (Trae, Codex Ark) must never target a home or a root either,
-    // even though those agents match the exact folder they are given.
-    if (
-      AGENT_TRUST_INHERITS_FROM_A_HOME[preset] ||
-      preset === 'trae' ||
-      preset === 'codex-ark'
-    ) {
+    // Why: Trae and Codex Ark must never target a home or a root either, even though those agents
+    // match the exact folder they are given. Their grants cover every fresh launch, so this refusal —
+    // not the launch source — is what keeps a launch that names a home from trusting the whole home.
+    if (AGENT_TRUST_INHERITS_FROM_A_HOME[preset] || preset === 'trae' || preset === 'codex-ark') {
       const homes = host.homes.filter((home): home is string => Boolean(home))
       if (homes.length === 0 || wouldTrustAHome(workspacePath, homes)) {
         return

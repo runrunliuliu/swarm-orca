@@ -7,8 +7,9 @@
 
 ## 1. 范围与版本
 
-默认验证对象是 **strict bootstrap → Coordinator TUI → Operator lifecycle / monitor / scheduler**
-的核心控制链，以及真实 Worker 协作与交付。角色规则由部署方交付，见[私有政策接入](../../configuration.md#部署政策与历史材料)，
+默认验证对象是 **start grant 启动授权 → Coordinator TUI → Operator lifecycle / monitor / scheduler**
+的核心控制链（strict bootstrap 握手已于 2026-11-13 退役，见[start grant](../design/start-grant.md)），
+以及真实 Worker 协作与交付。角色规则由部署方交付，见[私有政策接入](../../configuration.md#部署政策与历史材料)，
 运行契约见[启动门](../../coordinator-startup.md)、[生命周期](../../operator-startup.md)、
 [TUI](../../coordinator-tui.md)和 [monitor](../../operator-monitor.md)。测试标准不替代或改写运行契约。
 
@@ -40,7 +41,7 @@
 
 | 能力或风险 | 必测层 / 用例 | 主要判据及现有回归入口 |
 | --- | --- | --- |
-| bootstrap 到运行期的责任交接 | D-contract、L-flow | 缺 Operator gate、提前 idle、缺 continuation/monitor 时准确阻断；正常路径有责任接收证据。[handoff](../../tests/core/test_startup_handoff.py)、[bootstrap](../../tests/bootstrap/test_bootstrap_production.py) |
+| bootstrap 到运行期的责任交接 | D-contract、L-flow | **旧握手已删除（2026-11-13）**：现行启动授权是 [start grant](../design/start-grant.md)，交接面只剩 Run 建好后的 continuation（`tests/core/test_startup_cli.py`、`tests/coordinator/test_coordinator_tui_continue.py`） |
 | 身份、授权、模式隔离与首派时效 | D-contract、I-gate-expiry；全部 L 的准入 | 原身份/pins 不变；过期、STOP、错误角色/路径、缺 lifecycle 不产生非法副作用。[native preflight](../../tests/core/test_native_preflight.py) |
 | 并发、依赖汇合、独立审查与集成 | D-control、L-collaboration | 不超上限；乱序完成不提前集成；拒绝后返工、单写入者集成并复测。[worker plan](../../tests/coordinator/test_coordinator_worker_plan.py) |
 | 忙时消息、空闲原生唤醒 | I-pending-history、L-events 的三个子项 | 不丢消息；逐条处理后完整 ACK；两种 idle 唤醒独立归因。 |
@@ -48,7 +49,8 @@
 | 自动续跑、停滞止损与恢复 | D-control、L-flow、L-safety 的三个子项 | 有真实进展和合法 checkpoint；无进展有界停止；monitor 恢复后可继续且不重复。[recovery](../../tests/operators/test_operator_monitor_recovery.py)、[STOP](../../tests/core/test_monitor_stop_signals.py) |
 | 业务验收、结算、释放与用量 | 全部 I/L 的共享收尾；L-flow/collaboration 正常完成 | 独立业务判据、完整资源盘点、角色/尝试台账及归档回读；失败/安全停止也必须交代资源去向。 |
 
-**完整核心 suite PASS** 要求：D-contract、D-control 的全部必测分支，五项 I 的全部子场景，
+**完整核心 suite PASS** 要求：§5 列出的 D-contract、D-control 全部必测分支（启动授权面已由
+start grant 取代，断言正文在[start grant §4.1](../design/start-grant.md)，此处不复述），五项 I 的全部子场景，
 以及 L-flow、L-collaboration、L-events 的三个子项、L-safety 的三个子项均 PASS；
 所有参与尝试完成适用的独立证据审查、资源收尾、台账和归档核验。下面各组不是“任选其一”。
 任何必测项缺失均不能称完整通过；定向回归只报告所测范围。未获并发或故障注入授权时，
@@ -93,7 +95,9 @@ monitor 健康、允许发送、允许自主等待、验收通过是四个不同
 
 必须证明同一 Run/Coordinator 会话内：
 
-1. 真实双方 strict bootstrap、owner 确认候选、创建 Run；随后 Operator 首派 gate、Coordinator 自身复查和真实派发。
+1. 真实双方：Operator mint 并 hand 一条 start grant，Coordinator 用该 grant 绑定创建 Run（`start-grant-create`），
+   随后首派 gate、Coordinator 自身复查和真实派发。grant 的断言正文在[start grant §4.1](../design/start-grant.md)；
+   M5 收口前若实际走的是旧 strict create 路径，报告必须写明用的是哪一条，不得事后重述为“已是 grant 路径”。
 2. 首派后及时发布合法领域 checkpoint、receipt 和最终 continuation 引用；不先进入长时间 Worker 等待。
    lifecycle 准确投影后续责任，固定非 Agent sender 接收观察/获准调度职责，具备部署、首 tick 和当前 readiness 证据。
 3. 同一 strict 身份至少三个已完成真实回合，其中包含两次完整 scheduler 自动续跑：
@@ -202,11 +206,15 @@ I 层使用真实 runtime 的受支持入口，触发者与执行者仍须满足
 
 以下 D 分支全部必测；每个分支须在报告映射到实际测试 ID/结果，不能仅给整目录退出码：
 
-- **D-contract：** 双方身份及独立审查、candidate/final 的 owner 发布、过期身份重验与心跳边界；
-  错误角色/路径/hash/generation、STOP/截止期拒绝；Run 已创建而 Operator gate 缺失时正确指向 Operator；
+- **D-contract：** 双方身份与 mint/hand 分离（独立审查的替代前提见[start grant §8](../design/start-grant.md)，未实现前不得声称已强制）；
+  过期身份重验与心跳边界；错误角色/路径/hash/generation、STOP/截止期拒绝；
+  Run 已创建而 Operator 首派 gate 缺失时正确指向 Operator；
   Coordinator 提前 idle、continuation 缺失、monitor 未启动/首 tick 后退出时不得误报 runtime_ready；
   显式无 Worker 分支；autonomous 缺 lifecycle 初始化失败，native-event/manual 始终不发送且原生窗口过期不转自主。
-  bootstrap 具体观测点见[附录](#bootstrap-regressions)。
+  已退役的候选/最终发布面（candidate/final 的 owner 发布、六动作 `complete_argv`）不再是本层必测项：
+  它在 2026-11-13 随旧握手删除，现行替代物是 start grant 的不可变记录与幂等（该文档 §4.1 的 C1/C8），
+  两者**不是同一能力**，不得把 grant 断言写成对旧项的“覆盖”。
+  [附录](#bootstrap-regressions)保留的是历史观测点，不再作为本段所需分支。
 - **D-control：** 并发上限、依赖未满足、审查拒绝/返工和单写入者约束；pending/ACK 顺序、历史分页、
   wait 超时和全部 pre-send 竞争；创建/派发/发送的已确认、确定未发生和仍未知分支及防重；
   Worker 失败/失联/卡住、身份变化、STOP、各适用截止期和预算耗尽，重试耗尽后停止；
@@ -233,7 +241,8 @@ I 层使用真实 runtime 的受支持入口，触发者与执行者仍须满足
 4. **预检触发与取证。** 明确操作者、实际命令/cwd、观察点、预计新增证据和有界等待。
    先验证屏障、真实消息入口、故障窗口和领域 checkpoint 链可用，再启动受其依赖的 L 场景。
    首派 TTL 必须在首次派发前规划；正常收尾放在兼容场景结束后；用量从准备时采集。
-5. **绑定真实会话。** Operator 先核验独立 Coordinator，Coordinator 自身创建 Run；首派双方分别检查。
+5. **绑定真实会话。** Operator 先核验独立 Coordinator 并 mint/hand start grant，Coordinator 用该 grant 绑定创建 Run；
+   首派双方分别检查。
    保存 terminal/incarnation、provider session、owner/consumer generation 和 monitor sender/state。
    观察快照不替代当前 caller 检查，runtime-state 不冒充宿主进程 attestation。复用/恢复按原契约核验
    身份、未决动作和证据范围，不因续验换会话、工作区或协议 pin。
@@ -359,12 +368,40 @@ L-flow、L-collaboration、L-events.busy/worker-idle/external-idle、L-safety.wo
 pin 一致才能作为续验输入。缺少匹配原件时报告证据缺口，不用本文或其他 Run 的标准替代。
 上述映射不恢复一份旧规范，也不自动将旧契约升级为 v2。
 
+## 9.1 启动凭据（start grant）的验收位置
+
+start grant 的断言不写在这里，写在设计文档自己那一节：
+[start grant §4.1](../../docs/design/start-grant.md)。原因很简单——矩阵必须和它断言的字段、拒绝码、
+计数口径住在同一份文件里，否则任何一处改动都会让两份文档给出两个答案。
+
+已实现部分的验证口径（M1–M4，全部**离线**，不是 live 验收）：
+
+| 层 | 断言所在 | 已执行 |
+| --- | --- | --- |
+| 存储与记录 | `orca/src/main/runtime/orchestration/{start-grant-policy,db/schema/start-grant-schema}.test.ts` | 20 例 |
+| create 绑定 | `orca/…/rpc/methods/orchestration/runs/start-grant-create.test.ts` | 11 例（含双连接幂等/冲突） |
+| mint/show/revoke | 同目录 `start-grant-mint.test.ts` | 10 例 |
+| spawn 计数与范围 | `orca/src/main/runtime/orchestration/start-grant-spawn.test.ts` | 12 例（两处插入点、含收养路径） |
+| Python mint/hand/state | `swarm/tests/core/test_start_grant.py` | 14 例 |
+
+**live 进展（2026-11-14，定向）**：在 `orcad buildId dc15becfaf9c` 上跑过一次 grant 切片——mint、
+hand、`strict-caller-check`、grant 绑定 `run-create`、同 grant 重放（`effectsApplied:false`、同一 Run）、
+一个 Worker spawn（grant 投影 `workers{active:0,max:4}`）、撤销后再 spawn 被 `start_grant_revoked` 拒绝。
+报告与原始读数在部署方归档，**不是** §2 的完整核心 suite。
+
+**仍未验收**：`START_GRANT_REQUIRED` 打开后的迁移行为、deadline 自然过期、
+`phantom{intent-without-output}` 投影、上限打满时的真实进程计数。上面每一行仍是离线信号；"第 9 个
+Worker 被拒且没有终端进程"这类断言在离线层只能证明"没有请求创建终端"，真实进程计数必须另做 live 观察。
+本文其它章节的 strict bootstrap 观测点仍然有效，但它们描述的实现路径已被
+[start grant](../../docs/design/start-grant.md) 取代（协议正文的弃用横幅写明了范围）。
+
 <a id="bootstrap-regressions"></a>
 
 ## 附录：strict bootstrap 定向回归观测点
 
 以下保留原指南的修复复验要求，作为 D-contract 的具体分支和受影响 L-flow 的取证提示，
-不另加一套 live suite，也不授权线上故障注入。运行行为以[bootstrap 协议](../../strict-bootstrap-protocol.md)为准。
+不另加一套 live suite，也不授权线上故障注入。本节只作历史观测点；现行启动授权以
+[start grant](../design/start-grant.md) 为准（旧协议正文已归档）。
 
 ### 心跳与身份租期
 

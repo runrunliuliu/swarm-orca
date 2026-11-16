@@ -4,6 +4,10 @@ import { resolveClientEnvironmentFooter } from '@/lib/client-environment-info'
 import { Button } from '@/components/ui/button'
 import { hasClientEnvironmentFooter } from '../../../../shared/client-environment-info'
 import {
+  isWorktreeSelectorNotFoundMessage,
+  replaceWorktreeSelectorNotFoundCode
+} from '@/lib/worktree-selector-not-found-notice'
+import {
   localizeTerminalSpawnHints,
   withoutTerminalSpawnIssueRequest
 } from './terminal-spawn-error-display'
@@ -86,15 +90,18 @@ export function shouldOfferDaemonRestart(error: string): boolean {
 }
 
 export function isExplainedTerminalError(error: string): boolean {
-  return error
-    .split('\n')
-    .some(
-      (line) =>
-        TERMINAL_HOST_GONE_PATTERN.test(line) ||
-        LEGACY_TERMINAL_HOST_GONE_PATTERN.test(line) ||
-        SOURCE_RESTORE_REQUIRED_PATTERN.test(line) ||
-        UNREATTACHABLE_SESSION_PATTERNS.some((pattern) => pattern.test(line))
-    )
+  return (
+    isWorktreeSelectorNotFoundMessage(error) ||
+    error
+      .split('\n')
+      .some(
+        (line) =>
+          TERMINAL_HOST_GONE_PATTERN.test(line) ||
+          LEGACY_TERMINAL_HOST_GONE_PATTERN.test(line) ||
+          SOURCE_RESTORE_REQUIRED_PATTERN.test(line) ||
+          UNREATTACHABLE_SESSION_PATTERNS.some((pattern) => pattern.test(line))
+      )
+  )
 }
 
 export function isPaneOwnerUnverifiedError(error: string): boolean {
@@ -116,7 +123,7 @@ function humanizeUnreattachableSession(error: string): string {
 
 /** Swaps raw daemon-boundary codes for copy a user can act on. */
 export function humanizeTerminalError(error: string): string {
-  let humanized = localizeTerminalSpawnHints(error)
+  let humanized = replaceWorktreeSelectorNotFoundCode(localizeTerminalSpawnHints(error))
   if (humanized.includes(PANE_OWNER_UNVERIFIED_MARKER)) {
     const explanation = isPaneOwnerUnverifiedError(humanized)
       ? translate(

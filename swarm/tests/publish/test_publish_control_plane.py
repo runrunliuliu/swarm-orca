@@ -1,0 +1,396 @@
+import json
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from deploy import publish_control_plane as publisher
+
+
+def write(path, text="x\n"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        self.directories = []
+
+    def tearDown(self):
+        for directory in self.directories:
+            shutil.rmtree(directory, ignore_errors=True)
+
+    def temporary(self):
+        directory = tempfile.mkdtemp()
+        self.directories.append(directory)
+        return Path(directory)
+
+    def source(self, stubs=True):
+        root = self.temporary() / "orca_src"
+        if stubs:
+            write(root / "swarm-orca" / "orca" / "skills" / "orca-cli" / "SKILL.md",
+                  "---\nname: orca-cli\n---\n")
+            write(root / "swarm-orca" / "orca" / "skills" / "orchestration" / "SKILL.md",
+                  "---\nname: orchestration\n---\n")
+        write(root / "AGENTS.md")
+        write(root / "swarm-private-integration.md")
+        write(root / "workspaces.json", "{}\n")
+        write(root / "workspace-directory-policy.md")
+        write(root / "swarm-orca" / "NOTICE.md")
+        write(root / "swarm-orca" / "MIGRATION_STATUS.md")
+        write(root / "swarm-orca" / "ARTIFACT.md", "# artifact\n")
+        write(root / "swarm-orca" / "swarm" / "AGENTS.md", "# code layer\n")
+        write(root / "swarm-orca" / "swarm" / "coordinator_launch.py")
+        write(root / "swarm-orca" / "swarm" / "docs" / "entry-paths.md")
+        write(root / "swarm-orca" / "swarm" / "tests" / "test_launch.py")
+        write(root / "swarm-orca" / "swarm" / "__pycache__" / "launch.pyc")
+        write(root / "swarm-orca" / "swarm" / ".pytest_cache" / "CACHEDIR.TAG")
+        write(root / "swarm" / "coordinator-model.json", "{}\n")
+        write(root / "swarm" / "docs" / "validation" / "report.md")
+        write(root / "swarm" / "trials" / "trial.md")
+        write(root / "swarm" / "__pycache__" / "model.pyc")
+        write(root / "skills" / "runtime-selection.md")
+        return root
+
+    def plan_report(self, source):
+        return publisher.plan(SimpleNamespace(source_root=str(source), artifact_root=None))
+
+
+class PlanTests(Fixture):
+    def test_plan_excludes_tests_caches_and_validation_and_counts_the_rest(self):
+        report = self.plan_report(self.source())
+        self.assertEqual(report["fileCount"], 14)
+        self.assertIn("code/tests", report["excluded"])
+        self.assertIn("private/docs/validation", report["excluded"])
+        self.assertIn("private/trials", report["excluded"])
+        self.assertNotIn("code/.pytest_cache/CACHEDIR.TAG", report["included"])
+        self.assertNotIn("code/tests/test_launch.py", report["included"])
+        self.assertIn("code/coordinator_launch.py", report["included"])
+
+    def test_plan_carries_the_two_orca_stubs_into_code_skills(self):
+        report = self.plan_report(self.source())
+        self.assertIn("code/skills/orca-cli/SKILL.md", report["included"])
+        self.assertIn("code/skills/orchestration/SKILL.md", report["included"])
+
+    def test_a_missing_stub_directory_is_refused(self):
+        with self.assertRaises(publisher.Failure):
+            self.plan_report(self.source(stubs=False))
+
+    def test_plan_is_read_only(self):
+        source = self.source()
+        before = sorted(path.as_posix() for path in source.rglob("*"))
+        self.plan_report(source)
+        self.assertEqual(before, sorted(path.as_posix() for path in source.rglob("*")))
+
+    def test_the_entry_documents_come_from_the_layout_they_document(self):
+        report = self.plan_report(self.source())
+        self.assertIn("code/AGENTS.md", report["included"])
+        self.assertIn("README.md", report["included"])
+
+    def test_a_document_that_links_into_the_source_layout_is_refused(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[entry](swarm/docs/entry-paths.md)\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("source-layout-link", str(caught.exception))
+        self.assertIn("code/AGENTS.md -> swarm/docs/entry-paths.md", str(caught.exception))
+
+    def test_a_link_that_resolves_inside_the_artifact_is_accepted(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[entry](docs/entry-paths.md) [up](../README.md)\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_relative_spellings_of_a_dead_link_are_refused_too(self):
+        for target in ("./swarm/docs/entry-paths.md", "../swarm/docs/entry-paths.md"):
+            with self.subTest(target=target):
+                source = self.source()
+                write(source / "swarm-orca" / "swarm" / "AGENTS.md", "[x](%s)\n" % target)
+                with self.assertRaises(publisher.Failure) as caught:
+                    self.plan_report(source)
+                self.assertIn("source-layout-link", str(caught.exception))
+
+    def test_a_target_that_climbs_out_of_the_artifact_is_refused(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md", "[x](../../README.md)\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("outside the artifact", str(caught.exception))
+
+    def test_a_reference_style_link_is_checked(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[entry][e]\n\n[e]: swarm/docs/entry-paths.md\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("source-layout-link", str(caught.exception))
+
+    def test_a_link_inside_a_fenced_block_is_not_a_link(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "```markdown\n[example](swarm/docs/entry-paths.md)\n```\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_a_link_that_is_only_documented_as_syntax_is_not_judged(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "Use `](swarm/docs/x.md)` inside a span, not a link.\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_the_published_layers_own_test_suite_is_an_excluded_target(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "docs" / "testing" / "reliability.md",
+              "[case](../../tests/core/test_launch.py)\n")
+        self.assertIn("code/docs/testing/reliability.md", self.plan_report(source)["included"])
+
+    def test_a_reference_into_an_excluded_tree_is_allowed(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md",
+              "[test](../../tests/test_launch.py) [upstream](../../orca/docs/x.md)\n")
+        self.assertIn("code/AGENTS.md", self.plan_report(source)["included"])
+
+    def test_a_document_that_is_not_utf8_is_refused(self):
+        source = self.source()
+        (source / "swarm-orca" / "swarm" / "AGENTS.md").write_bytes(b"[x](docs/\xff.md)\n")
+        with self.assertRaises(publisher.Failure) as caught:
+            self.plan_report(source)
+        self.assertIn("document-not-utf8", str(caught.exception))
+
+    def test_each_staged_tree_is_exempt_from_the_in_place_check(self):
+        source = self.source()
+        write(source / "AGENTS.md", "[ledger](swarm/ledger.md)\n")
+        write(source / "swarm" / "artifact-storage.md", "[ledger](../swarm/ledger.md)\n")
+        write(source / "skills" / "runtime-selection.md", "[policy](../../swarm/x.md)\n")
+        report = self.plan_report(source)
+        for name in ("workspace/AGENTS.md", "private/artifact-storage.md",
+                     "overlay/runtime-selection.md"):
+            self.assertIn(name, report["included"])
+
+    def test_build_id_is_content_addressed(self):
+        source = self.source()
+        first = self.plan_report(source)["buildId"]
+        self.assertRegex(first, r"^[0-9a-f]{12}$")
+        self.assertEqual(first, self.plan_report(source)["buildId"])
+        write(source / "swarm-orca" / "swarm" / "coordinator_launch.py", "changed\n")
+        self.assertNotEqual(first, self.plan_report(source)["buildId"])
+
+
+class PublishTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.artifacts = self.temporary()
+
+    def publish(self, source, *extra):
+        return publisher.main(["publish", "--source-root", str(source),
+                               "--artifact-root", str(self.artifacts)] + list(extra))
+
+    def artifact_directories(self):
+        return [path for path in self.artifacts.iterdir()
+                if path.is_dir() and not path.is_symlink()]
+
+    def test_publish_requires_an_artifact_root(self):
+        with self.assertRaises(SystemExit) as caught:
+            publisher.main(["publish", "--source-root", str(self.source())])
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_unpinned_source_is_refused_until_allowed(self):
+        source = self.source()
+        self.assertEqual(self.publish(source), publisher.EXIT_PRECONDITION)
+        self.assertEqual(list(self.artifacts.iterdir()), [])
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+
+    def test_dirty_source_is_refused_until_allowed(self):
+        state = {"sourceRoot": "s", "orcaSrcCommit": "a", "orcaSrcBranch": "b",
+                 "swarmOrcaCommit": "c", "swarmOrcaBranch": "d",
+                 "dirty": True, "dirtyPaths": ["M docs/README.md"], "unpinned": False}
+        with mock.patch.object(publisher, "source_state", return_value=state):
+            self.assertEqual(self.publish(self.source()), publisher.EXIT_PRECONDITION)
+            self.assertEqual(list(self.artifacts.iterdir()), [])
+            self.assertEqual(self.publish(self.source(), "--allow-dirty"), 0)
+
+    def test_publish_writes_identity_and_manifest_and_switches_the_pointer(self):
+        pointer = self.artifacts / "current"
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source",
+                                      "--switch-pointer", str(pointer)), 0)
+        artifact = self.artifact_directories()[0]
+        identity = json.loads((artifact / publisher.IDENTITY).read_text(encoding="utf-8"))
+        self.assertEqual(identity["artifact"], publisher.ARTIFACT)
+        self.assertEqual(identity["installDir"], str(artifact.resolve()))
+        self.assertTrue(identity["source"]["unpinned"])
+        self.assertEqual(identity["copyRuleVersion"], 4)
+        self.assertEqual(len((artifact / publisher.MANIFEST).read_text().splitlines()), 14)
+        self.assertFalse((artifact / "code" / "tests").exists())
+        self.assertEqual(pointer.resolve(), artifact.resolve())
+        self.assertEqual(publisher.main(["verify", "--artifact", str(artifact)]), 0)
+
+    def test_the_identity_binds_the_source_state(self):
+        clean = {"sourceRoot": "s", "orcaSrcCommit": "a", "orcaSrcBranch": "b",
+                 "swarmOrcaCommit": "c", "swarmOrcaBranch": "d",
+                 "dirty": False, "dirtyPaths": [], "unpinned": False}
+        dirty = dict(clean, dirty=True, dirtyPaths=["M docs/README.md"])
+        source = self.source()
+        with mock.patch.object(publisher, "source_state", return_value=clean):
+            self.assertEqual(self.publish(source), 0)
+        with mock.patch.object(publisher, "source_state", return_value=dirty):
+            self.assertEqual(self.publish(source, "--allow-dirty"), 0,
+                             "different provenance must not collide")
+        names = sorted(path.name for path in self.artifact_directories())
+        self.assertEqual(len(names), 2)
+        self.assertNotEqual(names[0], names[1])
+
+    def test_a_rewritten_dirty_flag_is_detected(self):
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        path = artifact / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        self.assertIsNone(identity["source"]["dirty"])
+        identity["source"]["dirty"] = True
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(publisher.main(["verify", "--artifact", str(artifact)]),
+                         publisher.EXIT_PRECONDITION)
+
+    def test_a_legacy_content_only_identity_is_reported_not_trusted(self):
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        manifest = publisher.read_manifest(artifact)
+        legacy = publisher.legacy_build_id(manifest)
+        renamed = artifact.with_name("%s-%s" % (publisher.ARTIFACT, legacy))
+        artifact.rename(renamed)
+        path = renamed / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        identity["buildId"] = legacy
+        identity["copyRuleVersion"] = 2
+        identity["installDir"] = str(renamed)
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(publisher.main(["verify", "--artifact", str(renamed)]), 0)
+        report = publisher.inspect_artifact(renamed)
+        self.assertEqual(report["identityKind"], "legacy-content-only")
+
+    def test_publish_refuses_an_existing_artifact(self):
+        source = self.source()
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+
+    def test_a_failure_after_copying_retains_the_staging_tree(self):
+        source = self.source()
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        before = sorted(path.name for path in self.artifacts.iterdir())
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+        after = sorted(path.name for path in self.artifacts.iterdir())
+        self.assertEqual(len(after), len(before) + 1)
+        self.assertTrue(any(name.startswith(".%s-staging-" % publisher.ARTIFACT)
+                            for name in after))
+
+    def test_the_artifact_entry_documents_are_the_staged_originals(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md", "# code layer\nbody\n")
+        write(source / "swarm-orca" / "ARTIFACT.md", "# artifact\nbody\n")
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        self.assertEqual((artifact / "code" / "AGENTS.md").read_text(),
+                         "# code layer\nbody\n")
+        self.assertEqual((artifact / "README.md").read_text(), "# artifact\nbody\n")
+        self.assertFalse((artifact / "AGENTS.md").exists())
+
+    def test_publish_writes_nothing_when_a_document_links_into_the_source_layout(self):
+        source = self.source()
+        write(source / "swarm-orca" / "swarm" / "AGENTS.md", "[x](swarm/README.md)\n")
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+        self.assertEqual(list(self.artifacts.iterdir()), [])
+
+    def test_a_symbolic_link_in_the_source_is_refused(self):
+        source = self.source()
+        outside = self.temporary() / "secret.txt"
+        write(outside)
+        (source / "swarm-orca" / "swarm" / "linked.py").symlink_to(outside)
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"),
+                         publisher.EXIT_PRECONDITION)
+        self.assertEqual(list(self.artifacts.iterdir()), [])
+
+    def test_the_executable_bit_survives_the_copy(self):
+        source = self.source()
+        script = source / "swarm-orca" / "swarm" / "deploy-script.sh"
+        write(script, "#!/bin/sh\n")
+        script.chmod(0o755)
+        self.assertEqual(self.publish(source, "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        self.assertEqual((artifact / "code" / "deploy-script.sh").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((artifact / "code" / "coordinator_launch.py").stat().st_mode & 0o777, 0o644)
+
+    def test_private_files_do_not_inherit_the_umask(self):
+        self.assertEqual(self.publish(self.source(), "--allow-unpinned-source"), 0)
+        artifact = self.artifact_directories()[0]
+        self.assertEqual((artifact / "private" / "coordinator-model.json").stat().st_mode & 0o777,
+                         0o640)
+        self.assertEqual((artifact / "private").stat().st_mode & 0o777, 0o750)
+        self.assertEqual((artifact / "code" / "coordinator_launch.py").stat().st_mode & 0o777,
+                         0o644)
+        self.assertEqual((artifact / publisher.MANIFEST).stat().st_mode & 0o777, 0o644)
+
+
+class VerifyTests(Fixture):
+    def setUp(self):
+        super().setUp()
+        self.artifacts = self.temporary()
+        self.assertEqual(publisher.main(["publish", "--source-root", str(self.source()),
+                                         "--artifact-root", str(self.artifacts),
+                                         "--allow-unpinned-source"]), 0)
+        self.artifact = next(path for path in self.artifacts.iterdir()
+                             if path.is_dir() and not path.is_symlink())
+
+    def verify(self, artifact=None):
+        return publisher.main(["verify", "--artifact", str(artifact or self.artifact)])
+
+    def test_verify_accepts_a_freshly_published_artifact(self):
+        self.assertEqual(self.verify(), 0)
+
+    def test_verify_rejects_a_changed_file(self):
+        write(self.artifact / "code" / "coordinator_launch.py", "tampered\n")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_missing_file(self):
+        (self.artifact / "private" / "coordinator-model.json").unlink()
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_an_extra_file(self):
+        write(self.artifact / "code" / "injected.py")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_changed_identity_build_id(self):
+        path = self.artifact / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        identity["buildId"] = "000000000000"
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_changed_included_list(self):
+        path = self.artifact / publisher.IDENTITY
+        identity = json.loads(path.read_text(encoding="utf-8"))
+        identity["included"].append("code/not-copied.py")
+        path.write_text(json.dumps(identity), encoding="utf-8")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_symbolic_link_inside_the_artifact(self):
+        (self.artifact / "code" / "linked.py").symlink_to("/etc/hostname")
+        self.assertEqual(self.verify(), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_renamed_artifact_directory(self):
+        renamed = self.artifacts / "renamed"
+        self.artifact.rename(renamed)
+        self.assertEqual(self.verify(renamed), publisher.EXIT_PRECONDITION)
+
+    def test_verify_rejects_a_relocated_artifact(self):
+        moved = self.temporary() / "elsewhere"
+        shutil.copytree(self.artifact, moved)
+        self.assertEqual(self.verify(moved), publisher.EXIT_PRECONDITION)
+
+
+if __name__ == "__main__":
+    unittest.main()

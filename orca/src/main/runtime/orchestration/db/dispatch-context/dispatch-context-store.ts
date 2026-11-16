@@ -10,6 +10,7 @@ import type { OrchestrationDb } from '../orchestration-db'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
 import { taskNotFoundError, taskNotStartableError } from '../../task-dispatch-refusal'
 import { dispatchAssigneeOrcaSessionId } from '../../dispatch-assignee-orca-session-id'
+import { assertSpawnAdmissible, START_GRANT_REQUIRED } from '../../start-grant-spawn'
 
 export function createDispatchContext(
   this: OrchestrationDb,
@@ -24,6 +25,9 @@ export function createDispatchContext(
     /** Who is dispatching, for nesting depth. Required so a new caller must decide. */
     creator: DispatchCreator
     maxDepth: number
+    /** The adopted terminal's repo/worktree; see start-grant-policy.SpawnScope. */
+    repoId?: string | null
+    worktreeId?: string | null
   }
 ): DispatchContextRow {
   const { taskId, assigneeHandle, assigneePaneKey, launchTokenHash, processIncarnation } = params
@@ -61,6 +65,13 @@ export function createDispatchContext(
   const creatorDispatchId = this.resolveCreatorDispatchId(params.creator)
   this.db.exec('SAVEPOINT create_dispatch_context')
   try {
+    // Same rule as worker-start: before the row this savepoint exists to write.
+    assertSpawnAdmissible(this, {
+      runId: task.run_id,
+      repoId: params.repoId ?? null,
+      worktreeId: params.worktreeId ?? null,
+      startGrantRequired: START_GRANT_REQUIRED
+    })
     const inserted = claimDispatchContextRow(this.db, {
       id,
       contractVersion: CURRENT_CONTRACT_VERSION,
