@@ -70,6 +70,10 @@ export type AgentRowView = {
   base: DashboardCard
   tokens: AgentTokenView
   outcome?: AgentOutcome
+  /** The row's status reports a session boundary (D12: a boundary is not a
+   *  completed turn). Additive and renderer-local: `DashboardCard` carries no
+   *  such fact, and the F8 overlay owns the boundary presentation. */
+  sessionBoundary?: boolean
   /** Set when the task spans more than one workspace; the row must then say which. */
   workspaceLabel?: string
 }
