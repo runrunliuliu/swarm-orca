@@ -36,7 +36,7 @@ export function useTaskDraftCreateActions(args: {
   state: TaskDraftState
   activeDraftRef: RefObject<ActiveTaskDraft | null>
   setState: (state: TaskDraftState) => void
-  setErrorMessage: (message: string | null) => void
+  setErrorMessage: React.Dispatch<React.SetStateAction<string | null>>
   setProviderError: (message: string | null) => void
   setInstruction: (instruction: string) => void
   setNewJiraIssueTitle: (title: string) => void

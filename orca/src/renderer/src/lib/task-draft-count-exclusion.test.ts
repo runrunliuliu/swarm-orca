@@ -13,9 +13,10 @@ describe('task draft count exclusion', () => {
   })
 
   it('removes only task drafts and preserves the remaining items', () => {
-    const normal = { id: 'normal', taskDraft: false }
-    const legacy = { id: 'legacy' }
-    const draft = { id: 'draft', taskDraft: true }
+    type Candidate = { id: string; taskDraft?: boolean }
+    const normal: Candidate = { id: 'normal', taskDraft: false }
+    const legacy: Candidate = { id: 'legacy' }
+    const draft: Candidate = { id: 'draft', taskDraft: true }
 
     expect(excludeDraftsFromCounts([normal, draft, legacy])).toEqual([normal, legacy])
   })
