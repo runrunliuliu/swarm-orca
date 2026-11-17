@@ -8,10 +8,14 @@
  * then Spend detail.
  */
 
-/** Design assumption, to be calibrated by screenshots S1–S3: no measurement. */
+/** Design assumption, calibrated by P1a's S1–S3 plus the 900×700 and 1280×479
+ *  probes: S2/S3 prove the inclusive boundary (exactly 1100 is still double
+ *  column, exactly 480 is not yet short), the probes prove the degraded
+ *  branches. README §7.3.1 is the normative rule; the value did not change. */
 export const TASK_WORKBENCH_NARROW_WIDTH = 1100
 
-/** Design assumption, to be calibrated by screenshots S1–S3: no measurement. */
+/** See `TASK_WORKBENCH_NARROW_WIDTH`: calibrated, unchanged, and inclusive —
+ *  exactly 480 is not short. */
 export const TASK_WORKBENCH_SHORT_HEIGHT = 480
 
 export type TaskWorkbenchLayoutInput = {
