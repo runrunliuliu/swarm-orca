@@ -120,13 +120,19 @@ export type UsageSelectorInput = {
   attribution?: { kind: 'ambiguous' } | { kind: 'none' } | null
   /** Sessions the attribution could not place on any worktree. */
   unattributedSessions?: number
+  /** Per-agent retained-session attribution, when the caller resolved it.
+   *  A worktree rollup cannot be split per agent, so this is the only source of
+   *  a per-agent number; an absent entry stays unavailable, never a share. */
+  agents?: readonly { paneKey: string; session?: { tokens: number; caveat?: string } }[]
 }
 
 export type WorkspaceUsage = {
   worktreeId: string
+  /** `available`/`unpriced` carry numbers; every other status carries nulls. */
   status: WorkspaceUsageStatus
-  tokens: number
-  /** Null whenever a contributing model is unpriced, never 0. */
+  /** Null when unknown (disabled, remote, or no matching key). Never 0. */
+  tokens: number | null
+  /** Null when unknown or unpriced; `unpriced` still has `tokens`. Never 0. */
   costUsd: number | null
   byProvider: readonly { provider: UsageProviderId; tokens: number; costUsd: number | null }[]
 }
