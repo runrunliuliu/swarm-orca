@@ -147,6 +147,9 @@ export type RepoSlice = {
   projectGroups: readonly ProjectGroup[]
   folderWorkspaces: readonly FolderWorkspace[]
   folderWorkspacePathStatuses: Record<string, FolderWorkspacePathStatusCacheEntry>
+  /** Renderer-only, in-memory: the linked issue read came back gone. Not persisted. */
+  taskDraftLinkMissing?: Record<string, true>
+  markTaskDraftLinkMissing?: (folderWorkspaceId: string) => void
   activeRepoId: string | null
   // Monotonic sequence so overlapping catalog fetches can drop stale same-host results (#7020).
   reposFetchGeneration: number

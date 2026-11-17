@@ -11,6 +11,7 @@ import {
   getFolderWorkspacePathStatusForPath
 } from '../project-groups/folder-workspace-path-status'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
+import { removeTaskDraftDirectory } from '../ipc/task-draft-directory'
 import type { RuntimeStore } from './runtime-store-contract'
 import { folderWorkspaceKey } from '../../shared/workspace-scope'
 
@@ -218,6 +219,16 @@ export class RuntimeProjectGroupController {
     }
     const workspace = store.getFolderWorkspaces?.().find((entry) => entry.id === folderWorkspaceId)
     if (workspace) {
+      // Why before the row (and before PTY teardown): a refused or failed leaf delete must
+      // leave the row untouched so the user can retry instead of losing the draft silently.
+      if (
+        workspace.taskDraft === true &&
+        typeof workspace.folderPath === 'string' &&
+        workspace.folderPath.trim().length > 0 &&
+        !(await removeTaskDraftDirectory(workspace.folderPath))
+      ) {
+        throw new Error('folder_draft_directory_delete_failed')
+      }
       const worktreeId = folderWorkspaceKey(folderWorkspaceId)
       // Why: a mixed-host group has no single PTY target; forgetting the
       // workspace must still succeed, so skip the sweep instead of failing.

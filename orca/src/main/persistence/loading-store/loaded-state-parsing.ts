@@ -23,6 +23,7 @@ import {
   gcStaleWorktreeMeta,
   normalizeWorktreeLinkedItemMetadata
 } from '../tracking-repos/worktree-metadata-normalization'
+import { archiveInactiveTaskDrafts } from '../tracking-repos/task-draft-archive-sweep'
 import { backfillLegacyAutomationContexts } from '../scheduling-automations/automation-context-migration'
 import { migrateAutomationOwners } from '../../automations/automation-owner-migration'
 import {
@@ -266,6 +267,10 @@ export class LoadedStateParsingOperations {
     }
 
     if (gcStaleWorktreeMeta(result) > 0) {
+      this.runtime.loadNeedsSave = true
+    }
+
+    if (archiveInactiveTaskDrafts(result) > 0) {
       this.runtime.loadNeedsSave = true
     }
 
