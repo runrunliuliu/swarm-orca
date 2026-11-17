@@ -18,6 +18,8 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 - Every `data-testid` in contract §4.3 is present exactly when its condition holds, with the expected
   count, asserted by name. The expectation is derived from the fixture data plus
   `computeTaskWorkbenchLayout` and `countRowBuckets`, not copied from a testid list.
+- F8's failed row has exactly one overlay dot with `data-dot-state="failed"`, its outcome badge says
+  `Failed`, and the view does not claim `Delivered`.
 - The rendered `data-wb-layout-json` equals that derivation, and `window.innerWidth/innerHeight`
   equals the requested size, so a screenshot of the wrong size cannot pass as evidence.
 - Degradation copy: an unavailable figure is `—` (never `0`/`$0`), Spend prints its reason token
@@ -29,8 +31,9 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 
 ## What it does not prove
 
-- A screenshot proves layout, not behaviour. There is no click, keyboard, resize or interaction
-  path; the collapsible and archived toggles are only asserted in their initial state.
+- Screenshots prove layout; the named DOM assertions are the pass/fail verdict. There is no click,
+  keyboard, resize or interaction path; the collapsible and archived toggles are only asserted in
+  their initial state.
 - No store, selector, RPC, persistence or locale switching is exercised. `i18n.ts` serves the
   English defaults; no locale file is fetched.
 - The 1100/480 thresholds are design assumptions. S2 (1100×800) and S3 (1280×480) sit exactly on the

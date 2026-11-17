@@ -156,6 +156,10 @@ export function derive(fixtureKey, width, height) {
       historyExpanded && counts.historyAgents > 0 ? 1 : 0,
     'task-workbench-agent-row': visibleRows.length,
     'task-workbench-agent-row-tokens': visibleRows.length,
+    'task-workbench-agent-row-dot': visibleRows.filter(
+      ({ outcome, sessionBoundary }) =>
+        outcome === 'failure' || outcome === 'cancellation' || sessionBoundary === true
+    ).length,
     'task-workbench-agent-row-outcome': outcomes.length,
     'task-workbench-agent-row-workspace-pill':
       view.workspaces.length > 1
@@ -371,6 +375,8 @@ async function collectDom(page) {
           }
         : null,
       tokenChips: texts('[data-testid="task-workbench-agent-row-tokens"]'),
+      agentRowDotStates: [...document.querySelectorAll('[data-testid="task-workbench-agent-row-dot"]')]
+        .map((element) => element.getAttribute('data-dot-state')),
       outcomeBadges: texts('[data-testid="task-workbench-agent-row-outcome"]'),
       spendStatus: text(document.querySelector('[data-testid="task-workbench-spend-status"]')),
       spendTotal: text(document.querySelector('[data-testid="task-workbench-spend-total"]')),
@@ -471,7 +477,9 @@ async function runOne(entry, builds) {
       expected: expectation.found ? expectation.semantic : null,
       actual: {
         tokenChips: dom.tokenChips,
+        agentRowDotStates: dom.agentRowDotStates,
         outcomeBadges: dom.outcomeBadges,
+        deliveredText: dom.bodyText.includes('Delivered'),
         spendStatus: dom.spendStatus,
         spendTotal: dom.spendTotal,
         headerTitle: dom.headerTitle,
@@ -503,6 +511,11 @@ async function runOne(entry, builds) {
       const semantic = expectation.semantic
       compare(failures, 'semantic:token-chips', [...dom.tokenChips].sort(), semantic.tokenChips)
       compare(failures, 'semantic:outcome-badges', [...dom.outcomeBadges].sort(), semantic.outcomeBadges)
+      if (entry.fixture === 'f8_failure_outcome') {
+        compare(failures, 'semantic:f8-dot-states', dom.agentRowDotStates, ['failed'])
+        compare(failures, 'semantic:f8-outcome-badges', dom.outcomeBadges, ['Failed'])
+        compare(failures, 'semantic:f8-delivered-text', dom.bodyText.includes('Delivered'), false)
+      }
       const statusText = dom.spendStatus === '' ? null : dom.spendStatus
       if (semantic.spendStatusReason === null) {
         compare(failures, 'semantic:spend-status-reason', statusText, null)
