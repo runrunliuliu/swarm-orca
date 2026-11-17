@@ -5621,7 +5621,9 @@
           "deleteWorktree": "ワークツリーを削除",
           "sleepWithDescendants": "子孫と一緒に寝る ({{value0}})",
           "sleepWithDescendantsDescription": "このワークスペースとすべてのネストされた子孫のアクティブなパネルを閉じて、メモリと CPU を解放します。",
-          "deleteWithDescendants": "子孫と一緒に削除…"
+          "deleteWithDescendants": "子孫と一緒に削除…",
+          "archiveDraft": "下書きをアーカイブ",
+          "deleteDraft": "下書きを削除"
         },
         "WorktreeList": {
           "d880ea0744": "グループを作成し、このプロジェクトをそのグループに移動します。",

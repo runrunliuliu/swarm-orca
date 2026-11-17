@@ -4,13 +4,11 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Copy,
   Bell,
@@ -19,7 +17,6 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Trash2,
   Unlink,
   Workflow,
   FolderInput,
@@ -30,6 +27,8 @@ import { cn } from '@/lib/utils'
 import { WorktreeOpenInSubMenu } from './WorktreeOpenInMenu'
 import { WorktreeDeveloperMenu } from './WorktreeDeveloperMenu'
 import { WorkspaceSleepMenuItems } from './WorkspaceSleepMenuItems'
+import { WorktreeContextMenuArchiveDraftItem } from './WorktreeContextMenuDraftAction'
+import { WorktreeContextMenuDeleteItem } from './WorktreeContextMenuDeleteItem'
 import { isEventTargetInsideCurrentTarget } from './worktree-card-dom-events'
 import { translate } from '@/i18n/i18n'
 import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
@@ -61,6 +60,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     eligibleParentCount,
     effectiveSelectedWorktrees,
     folderWorkspaceId,
+    handleArchiveDraft,
     handleAssignWorkspaceStatus,
     handleCloseAutoFocus,
     handleCloseTerminals,
@@ -81,6 +81,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     hasParentLink,
     isDeleting,
     isMultiContext,
+    isTaskDraft,
     lineageDescendantCount,
     menuOpen,
     menuPoint,
@@ -313,79 +314,25 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
             onSleep={handleCloseTerminals}
             onSleepSubtree={handleSleepSubtree}
           />
-          {/* Why: primary checkout rows can't be git-worktree-removed, so keep a
-             disabled Delete Worktree for parity with non-primary cards and pair
-             it with the enabled Remove Project action below. */}
-          {!isMultiContext && removesProject ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <DropdownMenuItem variant="destructive" disabled>
-                    <Trash2 className="size-3.5" />
-                    {translate(
-                      'auto.components.sidebar.WorktreeContextMenu.deleteWorktree',
-                      'Delete Worktree'
-                    )}
-                  </DropdownMenuItem>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={8} className="max-w-[200px] text-pretty">
-                {translate(
-                  'auto.components.sidebar.WorktreeContextMenu.primaryDeleteDisabled',
-                  "Primary worktree — can't be deleted. Remove the project instead."
-                )}
-              </TooltipContent>
-            </Tooltip>
+          {isTaskDraft ? (
+            <WorktreeContextMenuArchiveDraftItem
+              disabled={isDeleting}
+              onSelect={handleArchiveDraft}
+            />
           ) : null}
-          {/* Why: primary checkout rows remove the project from Orca instead of
-             invoking git worktree deletion. Radix forwards unknown props to the
-             DOM element, so `title` works directly without a wrapper span —
-             this preserves Radix's flat roving-tabindex keyboard navigation. */}
-          <DropdownMenuItem
-            variant="destructive"
+          <WorktreeContextMenuDeleteItem
+            batchDeleteCount={batchDeleteWorktrees.length}
+            contextDeletePending={contextDeletePending}
+            deleteLabel={deleteLabel}
+            deleteShortcut={deleteShortcut}
+            folderWorkspaceId={folderWorkspaceId}
+            isMultiContext={isMultiContext}
+            isTaskDraft={isTaskDraft}
+            lineageDescendantCount={lineageDescendantCount}
             onSelect={handleDelete}
-            disabled={
-              contextDeletePending ||
-              (!isMultiContext && worktree.isMainWorktree && !removesProject) ||
-              (isMultiContext && batchDeleteWorktrees.length === 0)
-            }
-            title={
-              !isMultiContext && worktree.isMainWorktree && !removesProject
-                ? translate(
-                    'auto.components.sidebar.WorktreeContextMenu.e091caab15',
-                    'The project could not be found'
-                  )
-                : undefined
-            }
-          >
-            <Trash2 className="size-3.5" />
-            {contextDeletePending
-              ? translate('auto.components.sidebar.WorktreeContextMenu.b42391d8bf', 'Deleting…')
-              : isMultiContext
-                ? deleteLabel
-                : folderWorkspaceId
-                  ? translate(
-                      'auto.components.sidebar.WorktreeContextMenu.250de158fd',
-                      'Remove Workspace'
-                    )
-                  : removesProject
-                    ? translate(
-                        'auto.components.sidebar.WorktreeContextMenu.f5ac91531d',
-                        'Remove Project from Orca'
-                      )
-                    : lineageDescendantCount > 0
-                      ? translate(
-                          'auto.components.sidebar.WorktreeContextMenu.deleteWithDescendants',
-                          'Delete with Descendants…'
-                        )
-                      : translate(
-                          'auto.components.sidebar.WorktreeContextMenu.f4475537d8',
-                          'Delete'
-                        )}
-            {!isMultiContext && !removesProject && deleteShortcut ? (
-              <DropdownMenuShortcut>{deleteShortcut}</DropdownMenuShortcut>
-            ) : null}
-          </DropdownMenuItem>
+            removesProject={removesProject}
+            worktree={worktree}
+          />
         </DropdownMenuContent>
       </DropdownMenu>
       <WorktreeContextMenuOverlays model={model} />

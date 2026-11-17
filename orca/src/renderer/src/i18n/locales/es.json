@@ -4858,7 +4858,9 @@
           "setParentWorkspace": "Establecer worktree padre...",
           "workspaceSection": "Espacio de trabajo",
           "primaryDeleteDisabled": "El worktree principal no se puede eliminar. Quita el proyecto en su lugar.",
-          "deleteWorktree": "Eliminar worktree"
+          "deleteWorktree": "Eliminar worktree",
+          "archiveDraft": "Archivar borrador",
+          "deleteDraft": "Eliminar borrador"
         },
         "WorktreeList": {
           "d880ea0744": "Crea un grupo y mueve este proyecto a él.",

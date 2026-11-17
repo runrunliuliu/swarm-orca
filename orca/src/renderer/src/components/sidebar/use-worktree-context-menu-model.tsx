@@ -31,6 +31,7 @@ import {
 import { useWorktreeContextMenuCommands } from './use-worktree-context-menu-commands'
 import { useWorktreeParentPickerTransition } from './use-worktree-parent-picker-transition'
 import { useWorktreeContextMenuSecondaryActions } from './use-worktree-context-menu-secondary-actions'
+import { getDraftContextMenuState } from './worktree-context-menu-draft-actions'
 
 export type WorktreeContextMenuProps = {
   worktree: Worktree
@@ -130,6 +131,12 @@ export function useWorktreeContextMenuModel({
   const workspaceScope = parseWorkspaceKey(worktree.id)
   const folderWorkspaceId =
     workspaceScope?.type === 'folder' ? workspaceScope.folderWorkspaceId : null
+  const folderWorkspace = useAppStore((s) =>
+    folderWorkspaceId
+      ? s.folderWorkspaces.find((workspace) => workspace.id === folderWorkspaceId)
+      : undefined
+  )
+  const { isDraft: isTaskDraft } = getDraftContextMenuState(folderWorkspace)
   const sleepableWorktrees = useMemo(
     () =>
       activeContextWorktrees.filter((item) =>
@@ -236,6 +243,14 @@ export function useWorktreeContextMenuModel({
     },
     [onOpenChange]
   )
+
+  const handleArchiveDraft = useCallback(() => {
+    if (!folderWorkspaceId || !isTaskDraft) {
+      return
+    }
+    void useAppStore.getState().updateFolderWorkspace(folderWorkspaceId, { isArchived: true })
+    setMenuOpenState(false)
+  }, [folderWorkspaceId, isTaskDraft, setMenuOpenState])
 
   useEffect(() => {
     if (!onLifecycleComplete) {
@@ -361,6 +376,7 @@ export function useWorktreeContextMenuModel({
     eligibleParentCount,
     effectiveSelectedWorktrees,
     folderWorkspaceId,
+    handleArchiveDraft,
     handleCloseAutoFocus,
     handleOpenParentPicker,
     handleParentPickerOpenChange,
@@ -369,6 +385,7 @@ export function useWorktreeContextMenuModel({
     hasParentLink,
     isDeleting,
     isMultiContext,
+    isTaskDraft,
     lineageDescendantCount,
     menuOpen,
     menuPoint,

@@ -5766,7 +5766,9 @@
           "deleteWorktree": "Supprimer le worktree",
           "sleepWithDescendants": "Mettre en veille avec les descendants ({{value0}})",
           "sleepWithDescendantsDescription": "Fermez les panneaux actifs de cet espace de travail et de chaque descendant imbriqué pour libérer de la mémoire et du CPU.",
-          "deleteWithDescendants": "Supprimer avec les descendants…"
+          "deleteWithDescendants": "Supprimer avec les descendants…",
+          "archiveDraft": "Archiver le brouillon",
+          "deleteDraft": "Supprimer le brouillon"
         },
         "WorktreeList": {
           "7a8b9c0d1e": "Mise à jour requise",

@@ -5847,7 +5847,9 @@
           "deleteWorktree": "Delete Worktree",
           "sleepWithDescendants": "Sleep with Descendants ({{value0}})",
           "sleepWithDescendantsDescription": "Close active panels in this workspace and every nested descendant to free up memory and CPU.",
-          "deleteWithDescendants": "Delete with Descendants…"
+          "deleteWithDescendants": "Delete with Descendants…",
+          "archiveDraft": "Archive draft",
+          "deleteDraft": "Delete draft"
         },
         "WorktreeList": {
           "7a8b9c0d1e": "Update required",

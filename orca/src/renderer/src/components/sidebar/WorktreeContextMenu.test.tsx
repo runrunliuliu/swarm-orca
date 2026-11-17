@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest'
-import {
+/**
+ * @vitest-environment happy-dom
+ */
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
+import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-worktree'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import WorktreeContextMenu, {
   isContextWorktreeDeletable,
   shouldUseNativeContextMenu,
   shouldIgnoreNestedWorktreeContextMenuScope,
@@ -18,6 +26,149 @@ import { getDeleteStateForWorktreeHost } from './worktree-delete-state-host-matc
 import type { WorktreeLineage } from '../../../../shared/worktree/lineage-types'
 import type { WorkspaceStatusDefinition, Worktree } from '../../../../shared/worktree/types'
 import { getWorktreeHostIdentity } from '../../../../shared/worktree/host-qualified-identity'
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
+
+const noFolderWorkspaces: FolderWorkspace[] = []
+
+const state = {
+  updateWorktreeMeta: vi.fn(),
+  setWorktreesPinnedAndReveal: vi.fn(),
+  workspaceStatuses: [],
+  openModal: vi.fn(),
+  projectGroups: [],
+  createProjectGroup: vi.fn(),
+  moveProjectToGroup: vi.fn(),
+  deleteStateByWorktreeId: {},
+  worktreeLineageById: {},
+  workspaceLineageByChildKey: {},
+  updateWorktreeLineage: vi.fn(),
+  tabsByWorktree: {},
+  ptyIdsByTabId: {},
+  browserTabsByWorktree: {},
+  keybindings: {},
+  settings: { activeRuntimeEnvironmentId: null, openInApplications: [] },
+  openSettingsPage: vi.fn(),
+  openSettingsTarget: vi.fn(),
+  folderWorkspaces: noFolderWorkspaces,
+  updateFolderWorkspace: vi.fn().mockResolvedValue(true)
+}
+
+vi.mock('@/store', () => ({
+  useAppStore: Object.assign((selector: (s: typeof state) => unknown) => selector(state), {
+    getState: () => state
+  })
+}))
+
+vi.mock('@/store/selectors', () => ({
+  useAllWorktrees: () => [],
+  useRepoById: (repoId?: string) =>
+    repoId ? { id: repoId, name: repoId, displayName: repoId, projectGroupId: null } : undefined,
+  useRepoMap: () => new Map(),
+  useWorktreeMap: () => new Map()
+}))
+
+vi.mock('@/i18n/i18n', () => ({
+  translate: (_key: string, fallback: string) => fallback,
+  i18n: { language: 'en', on: () => {}, off: () => {} }
+}))
+
+// Why: the real catalog imports resources/*.png, which a sparse checkout cannot resolve.
+vi.mock('@/lib/agent-catalog', () => ({
+  AGENT_CATALOG: [],
+  AgentIcon: () => null,
+  agentTypeToIconAgent: (agentType: string) => agentType,
+  getAgentCatalog: () => [],
+  getAgentLabel: (agent: string) => agent
+}))
+
+vi.mock('@/hooks/useShortcutLabel', () => ({
+  useOptionalShortcutLabel: () => null,
+  formatShortcutLabel: () => '',
+  formatOptionalShortcutLabel: () => null
+}))
+
+vi.mock('./ProjectGroupNameDialog', () => ({ ProjectGroupNameDialog: () => null }))
+vi.mock('./WorktreeParentPickerPopover', () => ({ WorktreeParentPickerPopover: () => null }))
+
+const runtimeCall = vi.fn()
+const mounted: { container: HTMLDivElement; root: Root }[] = []
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  state.folderWorkspaces = []
+  Object.defineProperty(window, 'api', {
+    configurable: true,
+    value: { ui: { writeClipboardText: vi.fn() }, runtime: { call: runtimeCall } }
+  })
+})
+
+afterEach(() => {
+  for (const { root, container } of mounted) {
+    act(() => root.unmount())
+    container.remove()
+  }
+  mounted.length = 0
+})
+
+function folderWorkspaceFixture(overrides: Partial<FolderWorkspace> = {}): FolderWorkspace {
+  return {
+    id: 'folder-1',
+    projectGroupId: 'group-1',
+    name: 'Draft task',
+    folderPath: '/tmp/task-drafts/draft-1',
+    linkedTask: null,
+    comment: '',
+    isArchived: false,
+    isUnread: false,
+    isPinned: false,
+    sortOrder: 0,
+    lastActivityAt: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    ...overrides
+  }
+}
+
+function openMenu(worktree: Worktree): void {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  mounted.push({ container, root })
+  act(() => {
+    root.render(
+      <TooltipProvider>
+        <WorktreeContextMenu worktree={worktree}>
+          <div>Card</div>
+        </WorktreeContextMenu>
+      </TooltipProvider>
+    )
+  })
+  const scope = container.querySelector('[data-worktree-context-menu-scope]')
+  act(() => {
+    scope?.dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+    )
+  })
+}
+
+function menuItemLabels(): string[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).map(
+    (element) => element.textContent ?? ''
+  )
+}
+
+function clickMenuItem(label: string): void {
+  const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+    (element) => element.textContent === label
+  )
+  expect(item, `menu item "${label}"`).toBeTruthy()
+  // Why: the menu swallows clicks until a primary pointerdown proves they aren't the opening right-click.
+  act(() => {
+    item?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))
+    item?.click()
+  })
+}
 
 describe('shouldRevealWorktreeDeveloperMenu', () => {
   it('stays hidden for an ordinary right-click', () => {
@@ -312,5 +463,44 @@ describe('planWorkspaceStatusAssignment (context-menu "Move to Status" routing)'
         false
       )
     ).toEqual({ kind: 'local-only', localWriteIds: [] })
+  })
+})
+
+describe('draft lifecycle context-menu actions', () => {
+  it('offers Archive draft and Delete draft on a draft row', () => {
+    const workspace = folderWorkspaceFixture({ taskDraft: true })
+    state.folderWorkspaces = [workspace]
+
+    openMenu(folderWorkspaceToWorktree(workspace))
+
+    const labels = menuItemLabels()
+    expect(labels).toContain('Archive draft')
+    expect(labels).toContain('Delete draft')
+  })
+
+  it('archives the draft once, closes the menu, and makes no tracker or file call', () => {
+    const workspace = folderWorkspaceFixture({ taskDraft: true })
+    state.folderWorkspaces = [workspace]
+    openMenu(folderWorkspaceToWorktree(workspace))
+
+    clickMenuItem('Archive draft')
+
+    expect(state.updateFolderWorkspace).toHaveBeenCalledExactlyOnceWith('folder-1', {
+      isArchived: true
+    })
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  })
+
+  it('keeps the generic menu for a plain folder row', () => {
+    const workspace = folderWorkspaceFixture()
+    state.folderWorkspaces = [workspace]
+    openMenu(folderWorkspaceToWorktree(workspace))
+
+    const labels = menuItemLabels()
+    expect(labels).not.toContain('Archive draft')
+    expect(labels).not.toContain('Delete draft')
+    expect(labels).toContain('Remove Workspace')
+    expect(state.updateFolderWorkspace).not.toHaveBeenCalled()
   })
 })

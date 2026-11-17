@@ -5621,7 +5621,9 @@
           "deleteWorktree": "작업 트리 삭제",
           "sleepWithDescendants": "자손과 동침({{value0}})",
           "sleepWithDescendantsDescription": "메모리와 CPU를 확보하려면 이 워크스페이스과 모든 중첩 하위 항목의 활성 패널을 닫으세요.",
-          "deleteWithDescendants": "하위 항목과 함께 삭제…"
+          "deleteWithDescendants": "하위 항목과 함께 삭제…",
+          "archiveDraft": "초안 보관",
+          "deleteDraft": "초안 삭제"
         },
         "WorktreeList": {
           "d880ea0744": "그룹을 만들고 이 프로젝트를 그룹으로 이동하세요.",
