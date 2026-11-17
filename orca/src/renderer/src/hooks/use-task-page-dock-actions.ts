@@ -73,7 +73,10 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
     setErrorMessage(null)
     try {
       const active = activeDraftRef.current
-      if (active) {
+      // Why both fields: a draft is remembered before its launch so a failed launch cannot create a
+      // second row, but that also means "draft exists" is not "session exists". Retry the launch on
+      // the same scratch directory instead of trying to talk to a session that was never started.
+      if (active?.primaryTabId && active.agent) {
         await deliverToActiveDraft(active, text)
         setHasSession(true)
         setInstruction('')
@@ -102,36 +105,39 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
           translate('auto.components.TaskPage.taskDockLocalRepoRequired', 'Drafts need a local repository.')
         )
       }
-      const draftKey = draftKeyRef.current ?? createBrowserUuid()
-      draftKeyRef.current = draftKey
-      const folderPath = await window.api.app.getTaskDraftDirectory({ draftKey })
-      const name = getTaskDraftName({
-        instruction: text,
-        provider: taskSource,
-        existingNames: folderWorkspaces.map((workspace) => workspace.name)
-      }).displayName
-      const workspace = await appState.createFolderWorkspace(
-        { projectGroupId: group.id, name, folderPath, taskDraft: true },
-        // Why: a draft must land on this host even when the focused runtime is an environment.
-        { runtimeEnvironmentId: null }
-      )
-      if (!workspace) {
-        throw new Error(
-          translate(
-            'auto.components.TaskPage.taskDockCreateWorkspaceFailed',
-            'Could not create the draft workspace.'
-          )
+      let draft = active
+      if (!draft) {
+        const draftKey = draftKeyRef.current ?? createBrowserUuid()
+        draftKeyRef.current = draftKey
+        const folderPath = await window.api.app.getTaskDraftDirectory({ draftKey })
+        const name = getTaskDraftName({
+          instruction: text,
+          provider: taskSource,
+          existingNames: folderWorkspaces.map((workspace) => workspace.name)
+        }).displayName
+        const workspace = await appState.createFolderWorkspace(
+          { projectGroupId: group.id, name, folderPath, taskDraft: true },
+          // Why: a draft must land on this host even when the focused runtime is an environment.
+          { runtimeEnvironmentId: null }
         )
+        if (!workspace) {
+          throw new Error(
+            translate(
+              'auto.components.TaskPage.taskDockCreateWorkspaceFailed',
+              'Could not create the draft workspace.'
+            )
+          )
+        }
+        // Why: remembered before the launch so a failed launch never creates a second draft row.
+        draft = {
+          folderWorkspaceId: workspace.id,
+          folderPath,
+          draftKey,
+          primaryTabId: null,
+          agent: null
+        }
+        activeDraftRef.current = draft
       }
-      // Why: remembered before the launch so a failed launch never creates a second draft row.
-      const draft: ActiveTaskDraft = {
-        folderWorkspaceId: workspace.id,
-        folderPath,
-        draftKey,
-        primaryTabId: null,
-        agent: null
-      }
-      activeDraftRef.current = draft
       await launchDraftAgent({
         draft,
         group,
@@ -167,7 +173,6 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
         return
       }
       const read = await readTaskDockTranscript({
-        settings: useAppStore.getState().settings,
         folderWorkspaceId: draft.folderWorkspaceId,
         primaryTabId: draft.primaryTabId,
         limit: TRANSCRIPT_LINE_LIMIT

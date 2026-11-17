@@ -210,4 +210,23 @@ describe('useTaskPageDockActions', () => {
     expect(getTaskDraftDirectory).not.toHaveBeenCalled()
     expect(createFolderWorkspace).not.toHaveBeenCalled()
   })
+
+  it('retries the launch on the same draft when the first launch failed', async () => {
+    // First attempt: no agent enabled, so the launch throws after the scratch workspace exists.
+    useAppStore.setState({ detectedAgentIds: [] })
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await submit(hook, 'Add a retry button')
+    expect(createFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(hook.result.current.taskDock.errorMessage).toBeTruthy()
+    expect(mocks.activateAndRevealFolderWorkspace).not.toHaveBeenCalled()
+
+    // Second attempt after the user enables an agent: same draft, one more workspace? No — the
+    // scratch is reused, so the row count stays at one and the launch finally happens.
+    useAppStore.setState({ detectedAgentIds: ['claude'] })
+    await submit(hook, 'Add a retry button')
+    expect(createFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(mocks.activateAndRevealFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+    expect(hook.result.current.taskDock.errorMessage).toBeNull()
+  })
 })

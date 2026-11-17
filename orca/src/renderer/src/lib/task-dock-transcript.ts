@@ -1,6 +1,5 @@
-import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
 import { toRuntimeTerminalWorktreeSelector } from '@/runtime/runtime-worktree-selector'
-import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { RuntimeTerminalListResult, RuntimeTerminalRead } from '../../../shared/runtime-types'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 
@@ -22,7 +21,6 @@ const TRANSCRIPT_TIMEOUT_MS = 10_000
  * A poll must never turn a transient read into a dock error.
  */
 export async function readTaskDockTranscript(args: {
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   folderWorkspaceId: string
   primaryTabId: string | null
   limit?: number
@@ -30,7 +28,10 @@ export async function readTaskDockTranscript(args: {
   if (!args.primaryTabId) {
     return null
   }
-  const target = getActiveRuntimeTarget(args.settings)
+  // Why pinned to local: the dock only creates a draft when the project group is local
+  // (`runtimeEnvironmentId: null`), so reading through the active runtime would query a remote host
+  // for a workspace that only exists here — and silently stop updating when the user switches away.
+  const target = { kind: 'local' } as const
   const worktree = toRuntimeTerminalWorktreeSelector(folderWorkspaceKey(args.folderWorkspaceId))
   try {
     const listing = await callRuntimeRpc<RuntimeTerminalListResult>(
@@ -53,9 +54,10 @@ export async function readTaskDockTranscript(args: {
     )
     return {
       lines: read.terminal.tail,
-      // Why both signals: a detached summary means the host lost the PTY, an exited status means
-      // the agent process is gone. Either way the tail is final, not merely stale.
-      ended: summary.connected === false || read.terminal.status === 'exited'
+      // Why the status and not `connected`: the runtime reports `unknown` (not `exited`) for a
+      // terminal it cannot confirm, and a detach can be transient during startup. Only a real exit
+      // makes the tail final; treating `unknown` as final would stop following a live agent.
+      ended: read.terminal.status === 'exited'
     }
   } catch {
     return null

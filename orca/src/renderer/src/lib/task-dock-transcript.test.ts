@@ -31,11 +31,7 @@ function summary(overrides: Record<string, unknown> = {}): Record<string, unknow
   }
 }
 
-const baseArgs = {
-  settings: null,
-  folderWorkspaceId: 'workspace-1',
-  primaryTabId: 'tab-agent'
-}
+const baseArgs = { folderWorkspaceId: 'workspace-1', primaryTabId: 'tab-agent' }
 
 describe('readTaskDockTranscript', () => {
   it('reads nothing and asks the runtime nothing before a session exists', async () => {
@@ -77,18 +73,33 @@ describe('readTaskDockTranscript', () => {
     )
   })
 
-  it('marks the tail final when the host detached the terminal or the agent exited', async () => {
+  it('keeps following a detached-but-running terminal', async () => {
+    // Why: a transient detach during startup must not end the tail; only a real exit does.
     callRuntimeRpcMock.mockReset()
     callRuntimeRpcMock
       .mockResolvedValueOnce(listing([summary({ connected: false })]))
       .mockResolvedValueOnce({
-        terminal: { handle: 'terminal-1', status: 'running', tail: ['bye'], truncated: false }
+        terminal: { handle: 'terminal-1', status: 'unknown', tail: ['starting'], truncated: false }
       })
-    await expect(readTaskDockTranscript(baseArgs)).resolves.toEqual({ lines: ['bye'], ended: true })
+      .mockResolvedValueOnce(listing([summary()]))
+      .mockResolvedValueOnce({
+        terminal: { handle: 'terminal-1', status: 'running', tail: ['starting', 'ready'], truncated: false }
+      })
 
+    await expect(readTaskDockTranscript(baseArgs)).resolves.toEqual({
+      lines: ['starting'],
+      ended: false
+    })
+    await expect(readTaskDockTranscript(baseArgs)).resolves.toEqual({
+      lines: ['starting', 'ready'],
+      ended: false
+    })
+  })
+
+  it('marks the tail final only when the agent exited', async () => {
     callRuntimeRpcMock.mockReset()
     callRuntimeRpcMock
-      .mockResolvedValueOnce(listing([summary()]))
+      .mockResolvedValueOnce(listing([summary({ connected: false })]))
       .mockResolvedValueOnce({
         terminal: { handle: 'terminal-1', status: 'exited', tail: ['done'], truncated: false }
       })

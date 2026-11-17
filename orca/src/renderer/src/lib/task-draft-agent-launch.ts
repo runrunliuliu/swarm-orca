@@ -118,15 +118,6 @@ export async function deliverToActiveDraft(
   }
 }
 
-function withModel(agentArgs: string, model: string): string {
-  const trimmed = model.trim()
-  if (!trimmed) {
-    return agentArgs
-  }
-  const flag = `--model ${JSON.stringify(trimmed)}`
-  return agentArgs ? `${agentArgs} ${flag}` : flag
-}
-
 function buildDockAgentStartup(args: {
   agent: TuiAgent
   prompt: string
@@ -139,10 +130,11 @@ function buildDockAgentStartup(args: {
     agent: args.agent,
     prompt: args.prompt,
     cmdOverrides: args.settings?.agentCmdOverrides ?? {},
-    agentArgs: withModel(
-      resolveTuiAgentLaunchArgs(args.agent, args.settings?.agentDefaultArgs),
-      args.model
-    ),
+    agentArgs: resolveTuiAgentLaunchArgs(args.agent, args.settings?.agentDefaultArgs),
+    // Why the session-option channel and not an appended `--model`: the shared launch code strips a
+    // configured model flag first, keeps `--` terminators intact, and reports a command override that
+    // conflicts with the request. Appending by hand would duplicate `--model`, or land after `--`.
+    ...(args.model.trim() ? { sessionOptions: { model: args.model.trim() } } : {}),
     agentEnv: resolveTuiAgentLaunchEnv(args.agent, args.settings?.agentDefaultEnv),
     platform,
     shell: resolveLocalWindowsAgentStartupShell({
