@@ -61,12 +61,9 @@ function FolderDraftMarkerLine({
 }: {
   workspace: FolderWorkspace
 }): React.JSX.Element | null {
-  const taskRemoved = useAppStore((state) => {
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: w7-lifecycle adds this optional field to the store slice; absent until it lands.
-    const missing = (state as AppState & { taskDraftLinkMissing?: Record<string, true> })
-      .taskDraftLinkMissing
-    return missing?.[workspace.id] ?? false
-  })
+  const taskRemoved = useAppStore(
+    (state) => state.taskDraftLinkMissing?.[workspace.id] ?? false
+  )
   const marker = getFolderDraftMarker(workspace, taskRemoved)
   if (!marker) {
     return null
