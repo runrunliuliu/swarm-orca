@@ -28,7 +28,7 @@
 | 路标 | 目标 | 看得到什么 | 主要工作包 | 不做 |
 | --- | --- | --- | --- | --- |
 | **P1 工作台 UI** | 先钉住那一屏 | 详情页 `Orca` tab：工作区、agent 行（带所属工作区）、token、用量三态、证据摘要 | WP1/WP2/WP3 的只读部分；P1a 明细见 [静态壳计划](p1a-ui-shell-plan.md) | 列表主轴、持久化、dock |
-| **P2 输入入口** | 任务"说得出来" | 列表页 dock + 侧栏草稿行 + 三 provider 建任务 | WP-T2a–d；2026-11-17 起先做 a+b | 任务行、分组 |
+| **P2 输入入口** | 任务"说得出来" | 列表页 dock（选模型 + 输指令）+ 侧栏草稿行，建单由草稿会话里的 agent 完成 | WP-T2a/WP-T2b（已实现）+ WP-T2d（除 `linked to #…`）；WP-T2c 已撤销 | 任务行、分组、app 侧建单链 |
 | **P3 列表主轴** | 任务"排得开" | 分组（Delivered = agent done）、`◇` 徽标、一任务多工作区 | WP1/WP5 + M2b 的 renderer 部分 | 持久化 |
 | **P4 持久化** | 任务"记得住" | primary、归档、结算快照、意图层 | WP0、WP4a–c（M2a → M2b） | 跨端 |
 
@@ -40,9 +40,11 @@
   `taskRecords`（P4 且以 M2a 判决为门槛）。
 - **顺序变化**：T2（dock）从"可先做"改为 P2，排在 P1 之后——因为 dock 建出的任务需要 P1 那一屏才能看；
   T2 本身仍不依赖 `taskRecords`。
-- **P2 的第一刀（2026-11-17）**：先交 WP-T2a（`TaskDock`）+ WP-T2b（`taskDraft` 草稿工作区与 agent），
-  让列表页输入框可用；WP-T2c（预览确认、三 provider 闭环、§7.9.7 状态机）与 WP-T2d（徽标与计数排除）随后。
-  第一刀完成只报"输入框可用"，不报 T2 交付——"写 tracker 前必有预览确认"是 T2 的退出条件。
+- **P2 的两刀变成了"一刀 + 一个待办"（2026-11-17）**：第一刀（WP-T2a `TaskDock` + WP-T2b `taskDraft`
+  草稿工作区与 agent）已实现；第二刀 WP-T2c（预览确认、三 provider 闭环、§7.9.7 状态机）**撤销**，
+  改为让 agent 在自己的会话里用既有 skills 建单（设计文档 D14/D16），WP-T2d 除 `linked to #…`（D17）外
+  已完成。因此 **T2 不报"写 tracker 前必有预览确认"这条退出条件**——它已随方向变更撤销；
+  剩下未做的是 `linked to #…` 回写与真机端到端验证。
 
 ## 1. 目标与非目标
 
@@ -125,39 +127,39 @@
 
 ### T2 列表页 dock + 任务草稿行（2–4 天，路标 P2；排在 P1 之后，仍独立于 `taskRecords`）
 
-需求与形态见[设计文档 §7.9](README.md#79-列表页底部-dock-与任务草稿行2026-11-16)。这条**不依赖**
+需求与形态见[设计文档 §7.9](README.md)（位置、草稿行、目录与会话、生命周期仍然有效）与 §7.10
+（**当前实现形态**）。这条**不依赖**
 `taskRecords`，也**不需要 M2a 判决**：它只新增一个输入入口和一种"草稿工作区"用法，
 持久物仍是 provider 侧的 tracker 任务。
 
-**2026-11-17 切分决定**（用户）：第一刀只做 WP-T2a + WP-T2b——列表页 dock 提交后建 `taskDraft`
-folder workspace 并在其中启动 agent；第二刀做 WP-T2c（预览卡片、三 provider 创建闭环、§7.9.7 状态机、
-`orca github create-issue` 动词）与 WP-T2d（草稿徽标、`linked to #…`、计数/Recent 排除）。
-退出条件不变：第一刀完成只报"输入框可用"，**不得报 T2 交付**（"写 tracker 前必有预览确认"属 T2 退出条件）。
-评审基线仍为 [讨论记录](discussion-record-t2-dock.md) 与设计文档 §6.2/§7.9。
+**2026-11-17 方向变更（用户）**：第二刀（WP-T2c）**取消**。dock 改为 TUI 式 agent 输入框：
+选模型 + 输指令 → 发送后在新建的 `taskDraft` 草稿工作区里起 agent，agent 用 Orca 既有 tracker
+skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、没有状态机（设计文档 D13–D16）。
+`linked to #…` 回写推迟为独立待办（D17）。第一刀（WP-T2a + WP-T2b）已实现，见 §9。
 
-- 范围：Tasks 列表页底部 dock；发送后建 `taskDraft` folder workspace 并在其中起 agent；
-  agent 把任务写成 tracker issue（Linear 走 `linear.issueCreate` RPC、GitHub 主通道走已有
-  `github.createIssue` RPC + 新增薄 CLI 动词、`gh` 仅作备通道、Jira 只出草稿由预填表单落库）。
-  **零新 RPC、零新 domain、无 DDL**（新增的只是 CLI 动词，不是 RPC）。
+- 范围：Tasks 列表页底部 dock（折叠/展开、目标 chip、模型 select 或自由文本、Send/Close）；
+  发送后建 `taskDraft` folder workspace 并在其中起 agent；第二条指令投同一会话。
+  **零新 RPC、零新 domain、无 DDL**；app 侧不写 tracker。
 - 交付：
-  - WP-T2a dock：`task-page/TaskDock.tsx`（折叠/展开、provider·repo chip、提交、进度与失败态），
+  - WP-T2a dock：`task-page/TaskDock.tsx`（两态：折叠行、展开态；`⌘↵` 发送、`Esc` 折叠），
     插在 `task-page/Frame.tsx` 的列表卡片外、frame 内边距里。
-  - WP-T2b 草稿工作区：`taskDraft` additive 字段 + `createFolderWorkspace` 调用（**必须显式传
-    `folderPath`**，缺省会回落到 `projectGroup.parentPath`）+ agent 启动与 prompt
-    （新 `use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`）；目录放 userData scratch，**不**是仓库 checkout。
-  - WP-T2c 创建闭环：`lib/task-draft-issue-create.ts`（纯函数提议/预览模型）+ 预览卡片 + 三 provider 执行
-    + **状态机**（README §7.9.7，含 `issue-created-link-failed` / `duplicate-suspected` / `agent-crashed`）；
-    新增 CLI 动词 `orca github create-issue`（转发现有 `github.createIssue`），`gh` 只作显式备通道。
-  - WP-T2d 侧栏与计数：草稿徽标、`linked to #…`、一个统一的计数/Recent 排除 selector
-    （独立模块 `task-draft-count-exclusion.ts`）。
-- 退出：
-  - 三个 provider 各能建出一条任务（Jira 走预填表单确认）；写 tracker 前必有预览确认；
+  - WP-T2b 草稿工作区：`taskDraft` additive 字段 + `getTaskDraftDirectory` + `createFolderWorkspace`
+    调用（**必须显式传 `folderPath`**，缺省会回落到 `projectGroup.parentPath`）+ agent 启动与 prompt
+    （`use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`、`lib/task-draft-agent-launch.ts`）；
+    模型以 `--model` 追加。目录放 userData scratch，**不**是仓库 checkout。
+  - WP-T2c ~~创建闭环（三 provider 提议/预览/状态机）~~：**撤销**，相关模块已删除。
+    保留 `orca github create-issue` / `orca linear create` 作为 **agent 通道**。
+  - WP-T2d 侧栏与计数：草稿徽标、一个统一的计数/Recent 排除 selector
+    （`task-draft-count-exclusion.ts`）、草稿菜单动作。**已完成**；`linked to #…` 未做（D17）。
+- 退出（按新方向重写）：
+  - dock 能选模型并发送，发送建出草稿工作区并起 agent，agent 收到"自己用 skills 建单并回报 URL"的指令；
   - 草稿行在每种 Group by 模式下可见，且不计入工作区计数 / Needs you / Recent；
-  - GitHub 主通道（RPC）可用；备通道 `gh` 缺失/未登录、以及远端宿主不可用时的行为是明确的不可用态，不是静默降级；
   - 命名走 `getWorkspaceIntentName` 且改名只走显式动作；
-  - `pnpm tc`、定向 `pnpm test`、`verify:rpc-params-catalog`、i18n 抽取与覆盖、
-    `check:code-quality:changed` 通过；有 CDP 截图。
-- 不做：`taskRecords` 落库、一句话多任务、跨 repo 批量、无盘"虚拟工作区"、移动端 / 配对端。
+  - `pnpm tc`、定向 `pnpm test`、i18n 抽取与覆盖、`check:code-quality:changed` 通过；有 CDP 截图。
+  - **不再要求**"写 tracker 前必有预览确认"与"三个 provider 各建出一条任务"——那两条随 D16/修正后的
+    D14 一起撤销；agent 是否确实建单目前只能靠真实会话验证，fixture 级证据不覆盖。
+- 不做：`taskRecords` 落库、一句话多任务、跨 repo 批量、无盘"虚拟工作区"、移动端 / 配对端、
+  app 侧 tracker 写入与预览卡/状态机。
 
 ### M2a 存储兼容验证（1–2 天，只读；P4 的门槛）
 
@@ -278,10 +280,10 @@ folder workspace 并在其中启动 agent；第二刀做 WP-T2c（预览卡片�
 | WP-T1a | Agent 派生来源记录（tab additive 字段） | `orca/src/shared/terminal-tab-types.ts`、terminal create 路径 | M0（只锁定义） | 与 T1b/T1c 并行 |
 | WP-T1b | 层级渲染（复用 lineage / child row 模型） | `orca/src/renderer/src/components/sidebar/*` | WP-T1a | 否（串行收口） |
 | WP-T1c | 折叠、计数、关闭父 tab 的上提语义 | 同上 + Dashboard 行模型 | WP-T1b | 否 |
-| WP-T2a | 列表页 dock（折叠/展开、chip、进度与失败态） | `orca/src/renderer/src/components/task-page/TaskDock.tsx`、`task-page/Frame.tsx` | 无（P2 内部） | 与 T2b 并行 |
-| WP-T2b | 草稿工作区：`taskDraft` 字段 + folder workspace 创建 + agent/prompt | `orca/src/shared/folder-workspace-types.ts`、`shared/rpc-contract/folder-workspace-params.ts`、新 `use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts` | WP-T2a 的接口 | 与 T2a 并行 |
-| WP-T2c | 任务创建闭环（Linear RPC / `gh` / Jira 草稿）+ 预览确认 | 新 `lib/task-draft-issue-create.ts`、dock 预览卡片 | WP-T2b | 否（串行收口） |
-| WP-T2d | 侧栏草稿行与计数排除 | `sidebar/worktree-list/rows/folder-row.tsx`、计数 selector | WP-T2b | 与 T2c 并行 |
+| WP-T2a | 列表页 dock（两态：折叠行 / 展开态；目标 chip、模型 select、Send/Close） | `orca/src/renderer/src/components/task-page/TaskDock.tsx`、`task-page/Frame.tsx` | 无（P2 内部） | 已实现 |
+| WP-T2b | 草稿工作区：`taskDraft` 字段 + folder workspace 创建 + agent/prompt + 模型参数 | `orca/src/shared/folder-workspace-types.ts`、`shared/rpc-contract/folder-workspace-params.ts`、`hooks/use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`、`lib/task-draft-agent-launch.ts` | WP-T2a 的接口 | 已实现 |
+| ~~WP-T2c~~ | ~~任务创建闭环（Linear RPC / `gh` / Jira 草稿）+ 预览确认 + 状态机~~ | ~~`lib/task-draft-issue-create.ts`、dock 预览卡片~~ | — | **撤销（2026-11-17，D16）；相关模块已删除** |
+| WP-T2d | 侧栏草稿行与计数排除（`linked to #…` 未做，见 D17） | `sidebar/worktree-list/rows/folder-row.tsx`、`lib/task-draft-count-exclusion.ts`、`sidebar/WorktreeContextMenuDraftAction.tsx` | WP-T2b | 除 `linked to #…` 外已实现 |
 | WP6 | 测试与基准 | 与各项同目录 `*.test.ts` | 全程 | 是 |
 
 约束：
@@ -308,7 +310,7 @@ folder workspace 并在其中启动 agent；第二刀做 WP-T2c（预览卡片�
 | i18n / 样式 | 全部新文案进 catalog；只用 `components/ui/` primitive；无 raw 色值 |
 | Agent 派生树 | 从 A 启动 B/C 的两层渲染与折叠计数；CLI 启动的 D 保持平级；关闭 A 后 B/C 上提并带"来源已关闭"；provider subagent 与用户派生共存不重复计数；旧 build 忽略未知字段仍能恢复 tab |
 | UX 验收 | 分组优先级与 `Delivered` 定义；loading/未授权/部分失败/过期/scan failed 态；三态文案不被读成 0；动作在已归档/不可恢复时禁用并有说明；迁移后 `conversation/checks/files` 可发现；键盘与焦点返回；屏幕阅读器名称与非颜色表达；窄桌面/长标题/大数字布局边界；primary fallback 标识；Agent 内容隐私遮蔽 |
-| T2 dock 与草稿行 | 发送 → 创建参数（provider/repo/name/`taskDraft`/**显式 `folderPath`**）；三 provider 各建一条（GitHub 走 RPC，`gh` 备通道单独用例）；预览确认前不执行写；状态机每一态至少一条用例（含 `issue-created-link-failed`、`duplicate-suspected`、`agent-crashed`）；`gh` 缺失/未登录/远端宿主 fail-closed；草稿行每种 Group by 下可见且不计入计数/Needs you/Recent；`linked to #…` + `linkedTaskSourceContext` 回写；中文指令命名 fallback 与重名后缀；归档/删除不级联删任务；旧 build 忽略 `taskDraft` 未知字段 |
+| T2 dock 与草稿行 | 发送 → 创建参数（name / `taskDraft` / **显式 `folderPath`** / 模型作为 `--model`）；`⌘↵` 发送、`Esc` 折叠且文本与模型不丢；模型 select 选中值进入 onSubmit；第二条指令投同一会话而不新建行；草稿行每种 Group by 下可见且不计入计数/Needs you/Recent；中文指令命名 fallback 与重名后缀；归档/删除不级联删任务；旧 build 忽略 `taskDraft` 未知字段。**不包含**：预览确认、状态机逐态用例、三 provider 建单——已随 D16 撤销 |
 
 命令：`pnpm tc`、`pnpm test <path>`、`pnpm run check:code-quality:changed`、
 `pnpm run verify:rpc-params-catalog`（仅若动契约）、`pnpm run verify:localization-extraction`。
@@ -355,8 +357,11 @@ folder workspace 并在其中启动 agent；第二刀做 WP-T2c（预览卡片�
 ## 8. 未决输入
 
 - D1/D3/D5/D6（设计文档 §6）尚未拍板；D4 已由 R1 定。
-- D7–D11（设计文档 §6.2，列表页 dock 与任务草稿行）已于 2026-11-16 定；
-  该节的四项遗留（一行多任务、草稿名规则、Jira 表单交接形态、远端宿主文案）仍未决，见设计文档 §7.9.13。
+- D7–D9、D11（设计文档 §6.2，列表页 dock 与任务草稿行）已于 2026-11-16 定；**D10（任务写通道）已被
+  D14 取代（2026-11-17）：app 侧不写 tracker，建单由草稿会话里的 agent 完成**；R9 的 16 态状态机随
+  D16 撤销。D17（`linked to #…` 回写）未实现，需要薄 CLI 动词转发 `folderWorkspace.update`，需单独授权。
+  该节其余遗留（一行多任务、草稿名规则、Jira 表单交接形态、远端宿主文案）中，Jira 表单与远端宿主两条
+  已随 app 侧创建链一起失效；一行多任务与草稿名规则仍未决，见设计文档 §7.9.13。
 - 移动端是否在一期之后做（D5）未知。
 - 是否允许真机渲染验收与远端/计费场景验证，需单独授权。
 
@@ -365,11 +370,11 @@ folder workspace 并在其中启动 agent；第二刀做 WP-T2c（预览卡片�
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
 | **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 1a、1b 已合入（2026-11-17）；真机交互验收未做 | `swarm-orca` main `42232cbd`（P1a）→ `e91e115d`（P1b）；父仓库 pin `36e06e3a`、`dev_liuliu` merge `08ce3fa7`；线上构件 `0.1.0+39a6ecbc2818` 于 2026-11-17 重启后核验（`buildId` 一致、`source=pointer`、`pointer.state=ok`）。缺口：只有 `tests/tools/task-workbench-rendered` 的渲染证据，无交互验收；仓库内未找到 P1b 独立评审回执 |
-| **P2 输入入口**（= T2） | 分两刀（2026-11-17 定）；第一刀（T2a+T2b）未开始 | 切分见 §T2 |
+| **P2 输入入口**（= T2） | 第一刀已实现（2026-11-17，分支 `task-workbench-p2a` 的 `891989fd`，未合入 `main`）；第二刀已取消（D16） | dock 两态 + 模型 select；harness 18/18 + 侧栏行 1/1；定向 vitest 10 文件 85 passed（第 11 个文件因稀疏检出缺 `orca/resources` 在套件级失败）、task-page/task-workbench 51 文件 494 passed、main IPC/archive sweep/cli github 31 passed；`tc:web` rc 0；六份 oxlint 改动集干净；`check-max-lines-ratchet` 与两个 localization 脚本 rc 0。缺口：无真机端到端（未验"agent 真的用 skill 建出 issue"）、`linked to #…` 未做（D17）、5 份 locale 的 3 个新串未翻译 |
 | **P3 列表主轴**（= M2b renderer） | 未开始 | — |
 | **P4 持久化**（= M2a + M2b main） | 未开始 | — |
 | T1 Agent 派生树（旁路） | 未开始 | — |
-| T2 列表页 dock + 任务草稿行（= P2） | 第一刀（WP-T2a + WP-T2b）未开始；第二刀（WP-T2c + WP-T2d）未开始 | 切分决定见 §T2 |
+| T2 列表页 dock + 任务草稿行（= P2） | 第一刀（WP-T2a + WP-T2b）已实现，待合入；第二刀（WP-T2c）**撤销**；WP-T2d 除 `linked to #…` 外已实现 | 见 §T2 与设计文档 §6.5 / §7.10 |
 | M0 决策冻结 | 部分（D7–D12 已定，D1/D3/D5/D6 待定） | — |
 | M1 只读面板 | 未开始 | — |
 | M2a 存储兼容验证 | 未开始 | — |

@@ -1,5 +1,12 @@
 # T2 评审记录（2026-11-16，列表页 dock 与任务草稿行）
 
+> **已被 2026-11-17 的方向变更局部取代**：本文件评审的对象是 README §7.9 的"app 侧创建链"提案
+> （预览确认 + 16 态状态机 + 三 provider 通道）。产品 owner 已改为"dock 只是 agent 输入框，建单由
+> 草稿会话里的 agent 用既有 skills 自己完成"（README §6.5 / §7.10），D10 与 R9 随之撤销。
+> 本文件保留为**评审时点的原始记录**（含结论"接受但需改"），不再作为实现依据；其中仍成立的部分
+> （R10 显式 `folderPath`、R11 命名 fallback、R12 计数排除 selector、R14 归档 sweep、R15
+> `linkedTaskSourceContext`）继续有效，分别落在 README §7.9.5 / §7.9.8 与 §7.10。
+
 本轮是**只读独立 panel**（两票，互不可见），不是 debate：只有一份设计（README §7.9），不存在互相对立的
 既有主张。协议来源：`swarm-orchestration/references/discussion.md`；本工作区的私有策略文件
 （`skills/orchestration/references/discussion-policy.md`）不在本仓库，故本轮按共享默认值执行，
