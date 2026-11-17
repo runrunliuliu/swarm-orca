@@ -2,7 +2,6 @@ import React from 'react'
 import type { VirtualItem } from '@tanstack/react-virtual'
 import { Badge } from '@/components/ui/badge'
 import { translate } from '@/i18n/i18n'
-import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import type { FolderWorkspace } from '../../../../../../shared/folder-workspace-types'
 import type { Repo } from '../../../../../../shared/repo-types'
@@ -61,10 +60,7 @@ function FolderDraftMarkerLine({
 }: {
   workspace: FolderWorkspace
 }): React.JSX.Element | null {
-  const taskRemoved = useAppStore(
-    (state) => state.taskDraftLinkMissing?.[workspace.id] ?? false
-  )
-  const marker = getFolderDraftMarker(workspace, taskRemoved)
+  const marker = getFolderDraftMarker(workspace)
   if (!marker) {
     return null
   }
@@ -73,14 +69,7 @@ function FolderDraftMarkerLine({
       <Badge variant="secondary" data-testid="folder-draft-badge">
         {translate('auto.components.sidebar.FolderRow.draft', 'draft')}
       </Badge>
-      {marker.state === 'task-removed' ? (
-        <span
-          className="text-[11px] leading-none text-muted-foreground"
-          data-testid="folder-draft-task-removed"
-        >
-          {translate('auto.components.sidebar.FolderRow.taskRemoved', 'task removed')}
-        </span>
-      ) : marker.linkLabel ? (
+      {marker.linkLabel ? (
         <span
           className="text-[11px] leading-none text-muted-foreground"
           data-testid="folder-draft-link"

@@ -6461,7 +6461,6 @@
         },
         "FolderRow": {
           "draft": "brouillon",
-          "taskRemoved": "tâche supprimée",
           "linkedTo": "lié à {{value0}}"
         }
       },

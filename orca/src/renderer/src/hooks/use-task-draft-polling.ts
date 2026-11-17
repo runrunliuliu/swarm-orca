@@ -4,16 +4,9 @@ import type {
   TaskDraftProposal,
   TaskDraftState
 } from '@/lib/task-draft-issue-create'
-import {
-  parseTaskDraftProposalEnvelope,
-  type TaskDraftReceipt
-} from '@/lib/task-draft-receipt'
+import { parseTaskDraftProposalEnvelope, type TaskDraftReceipt } from '@/lib/task-draft-receipt'
 import { findDuplicates, type ActiveTaskDraft } from '@/lib/task-draft-create-flow'
-import {
-  outcomeUnknownMessage,
-  readDraftFile,
-  readDraftReceipt
-} from '@/lib/task-draft-create-rpc'
+import { outcomeUnknownMessage, readDraftFile, readDraftReceipt } from '@/lib/task-draft-execute'
 import { translate } from '@/i18n/i18n'
 
 const PROPOSAL_POLL_MS = 1_500
@@ -160,7 +153,15 @@ export function useTaskDraftPolling(args: {
       cancelled = true
       clearInterval(interval)
     }
-  }, [state, activeDraftRef, setProposal, setDuplicates, setDuplicateCheckUnavailable, setState, setErrorMessage])
+  }, [
+    state,
+    activeDraftRef,
+    setProposal,
+    setDuplicates,
+    setDuplicateCheckUnavailable,
+    setState,
+    setErrorMessage
+  ])
 
   useEffect(() => {
     if (state !== 'creating-issue') {

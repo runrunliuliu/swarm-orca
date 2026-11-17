@@ -6542,7 +6542,6 @@
         },
         "FolderRow": {
           "draft": "draft",
-          "taskRemoved": "task removed",
           "linkedTo": "linked to {{value0}}"
         }
       },

@@ -239,3 +239,18 @@ export function getTaskDraftRetryAction(state: TaskDraftState): TaskDraftRetryAc
       return 'none'
   }
 }
+
+/** Provider errors arrive as thrown values or as `{error:{message}}`; one string, either way. */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** `ENG-412` → 412, for providers whose receipt carries an identifier instead of a number. */
+export function trailingNumber(identifier: string): number | null {
+  const match = /(\d+)\s*$/.exec(identifier)
+  if (!match) {
+    return null
+  }
+  const value = Number(match[1])
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}

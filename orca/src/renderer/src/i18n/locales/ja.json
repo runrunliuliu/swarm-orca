@@ -6358,7 +6358,6 @@
         },
         "FolderRow": {
           "draft": "下書き",
-          "taskRemoved": "タスク削除済み",
           "linkedTo": "{{value0}} にリンク済み"
         }
       },

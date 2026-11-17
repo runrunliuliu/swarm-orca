@@ -3,7 +3,9 @@
  * formatting. Pure helpers shared by the dock hook and its action/poll hooks.
  */
 import {
+  errorText,
   findDuplicateCandidates,
+  trailingNumber,
   type TaskDraftCandidate,
   type TaskDraftDuplicateCandidate,
   type TaskDraftProposal,
@@ -11,10 +13,7 @@ import {
   type TaskDraftState,
   type TaskDraftTarget
 } from '@/lib/task-draft-issue-create'
-import {
-  buildGhFallbackInvocation,
-  type TaskDraftReceipt
-} from '@/lib/task-draft-receipt'
+import { buildGhFallbackInvocation, type TaskDraftReceipt } from '@/lib/task-draft-receipt'
 import { getTaskPageRepoSourceContext } from '@/components/task-page-source-context'
 import { translate } from '@/i18n/i18n'
 import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../../shared/execution-host'
@@ -26,7 +25,6 @@ import {
   type TaskSourceContext
 } from '../../../shared/task-source-context'
 import type { TuiAgent } from '../../../shared/tui-agent'
-import { errorText, trailingNumber } from '@/lib/task-draft-create-rpc'
 
 export type DraftRequestResolution =
   | {
@@ -147,9 +145,7 @@ export function buildDraftTarget(args: {
   const repo = identity?.provider === 'github' ? identity.repo : (args.repo.upstream?.repo ?? null)
   const linearWorkspaceId =
     args.linearTeam?.workspaceId ??
-    (args.linearWorkspaceId && args.linearWorkspaceId !== 'all'
-      ? args.linearWorkspaceId
-      : null)
+    (args.linearWorkspaceId && args.linearWorkspaceId !== 'all' ? args.linearWorkspaceId : null)
   return {
     provider: args.provider,
     label: getDockTargetLabel(args.repo, args.provider),

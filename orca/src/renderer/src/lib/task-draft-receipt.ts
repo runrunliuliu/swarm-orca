@@ -3,6 +3,7 @@
  * `gh` fallback argv (contract D1/D2/D8). Pure: no window, store or DOM.
  */
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
+import { isRecord } from '../../../shared/unknown-record'
 import {
   parseTaskDraftProposal,
   type TaskDraftDuplicateCandidate,
@@ -222,10 +223,6 @@ function isProposalWithinBounds(proposal: TaskDraftProposal): boolean {
     proposal.labels.length <= LABEL_COUNT_MAX &&
     proposal.labels.every((label) => label.length <= LABEL_MAX)
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function isPositiveInteger(value: unknown): value is number {

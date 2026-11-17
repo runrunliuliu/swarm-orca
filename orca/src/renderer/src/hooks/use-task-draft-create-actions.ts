@@ -4,6 +4,7 @@ import { deliverLaunchPromptToAgentTab } from '@/lib/agent-launch-prompt-deliver
 import { toFolderWorkspaceLinkedTask } from '@/components/sidebar/folder-workspace-composer-helpers'
 import {
   buildTaskDraftCreateRequest,
+  errorText,
   type TaskDraftState
 } from '@/lib/task-draft-issue-create'
 import { buildLinkedWorkItem, type TaskDraftReceipt } from '@/lib/task-draft-receipt'
@@ -14,14 +15,14 @@ import {
 } from '@/lib/task-draft-create-flow'
 import {
   callCreateRpc,
-  errorText,
   isProviderRejection,
   outcomeUnknownMessage,
   readCreateReceipt,
+  runTaskDraftRetry,
   writeDraftFile
-} from '@/lib/task-draft-create-rpc'
+} from '@/lib/task-draft-execute'
 import { formatCommandLine } from '@/lib/task-draft-agent-launch'
-import { runTaskDraftRetry } from '@/lib/task-draft-retry'
+
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import type { Repo } from '../../../shared/repo-types'
@@ -90,12 +91,13 @@ export function useTaskDraftCreateActions(args: {
         return
       }
       setState('issue-created-link-failed')
-      setErrorMessage((current) =>
-        current ??
-        translate(
-          'auto.hooks.useTaskPageDockActions.taskDraftLinkFailed',
-          'The issue was created, but the draft link was not saved.'
-        )
+      setErrorMessage(
+        (current) =>
+          current ??
+          translate(
+            'auto.hooks.useTaskPageDockActions.taskDraftLinkFailed',
+            'The issue was created, but the draft link was not saved.'
+          )
       )
     },
     [linkTaskItem, setErrorMessage, setInstruction, setState]
@@ -159,7 +161,7 @@ export function useTaskDraftCreateActions(args: {
         return
       }
       active.channel = 'primary-rpc'
-        try {
+      try {
         await writeDraftFile(
           active.folderPath,
           'task-draft-receipt.json',
@@ -280,4 +282,3 @@ export function useTaskDraftCreateActions(args: {
     }
   }
 }
-

@@ -1,21 +1,17 @@
 import type { FolderWorkspace } from '../../../../../../shared/folder-workspace-types'
 
-export type TaskDraftRowState = 'draft' | 'linked' | 'task-removed' | 'archived'
+export type TaskDraftRowState = 'draft' | 'linked' | 'archived'
 
 export function resolveFolderDraftState(args: {
   taskDraft: boolean
   isArchived: boolean
   hasLinkedTask: boolean
-  taskRemoved: boolean
 }): TaskDraftRowState | null {
   if (!args.taskDraft) {
     return null
   }
   if (args.isArchived) {
     return 'archived'
-  }
-  if (args.taskRemoved) {
-    return 'task-removed'
   }
   return args.hasLinkedTask ? 'linked' : 'draft'
 }
@@ -37,15 +33,11 @@ export type FolderDraftMarker = {
   state: TaskDraftRowState
 }
 
-export function getFolderDraftMarker(
-  workspace: FolderWorkspace,
-  taskRemoved: boolean
-): FolderDraftMarker | null {
+export function getFolderDraftMarker(workspace: FolderWorkspace): FolderDraftMarker | null {
   const state = resolveFolderDraftState({
     taskDraft: workspace.taskDraft === true,
     isArchived: workspace.isArchived,
-    hasLinkedTask: workspace.linkedTask !== null,
-    taskRemoved
+    hasLinkedTask: workspace.linkedTask !== null
   })
   if (!state) {
     return null

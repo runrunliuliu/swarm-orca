@@ -41,25 +41,22 @@ function linkedTask(overrides: Partial<WorkspaceLinkedItem> = {}): WorkspaceLink
 }
 
 describe('resolveFolderDraftState', () => {
-  const base = { taskDraft: true, isArchived: false, hasLinkedTask: false, taskRemoved: false }
+  const base = { taskDraft: true, isArchived: false, hasLinkedTask: false }
 
   it('returns null for a workspace that is not a draft', () => {
     expect(resolveFolderDraftState({ ...base, taskDraft: false })).toBeNull()
   })
 
-  it('reports draft, linked, task-removed and archived', () => {
+  it('reports draft, linked and archived', () => {
     expect(resolveFolderDraftState(base)).toBe('draft')
     expect(resolveFolderDraftState({ ...base, hasLinkedTask: true })).toBe('linked')
-    expect(resolveFolderDraftState({ ...base, hasLinkedTask: true, taskRemoved: true })).toBe(
-      'task-removed'
-    )
     expect(resolveFolderDraftState({ ...base, isArchived: true })).toBe('archived')
   })
 
   it('keeps archive above a stale removal marker', () => {
-    expect(
-      resolveFolderDraftState({ ...base, isArchived: true, hasLinkedTask: true, taskRemoved: true })
-    ).toBe('archived')
+    expect(resolveFolderDraftState({ ...base, isArchived: true, hasLinkedTask: true })).toBe(
+      'archived'
+    )
   })
 })
 
@@ -82,11 +79,11 @@ describe('getTaskDraftLinkLabel', () => {
 
 describe('getFolderDraftMarker', () => {
   it('returns null for a non-draft workspace', () => {
-    expect(getFolderDraftMarker(makeWorkspace({ taskDraft: undefined }), false)).toBeNull()
+    expect(getFolderDraftMarker(makeWorkspace({ taskDraft: undefined }))).toBeNull()
   })
 
   it('marks an unlinked draft without a link label', () => {
-    expect(getFolderDraftMarker(makeWorkspace(), false)).toEqual({
+    expect(getFolderDraftMarker(makeWorkspace())).toEqual({
       badge: 'draft',
       linkLabel: null,
       state: 'draft'
@@ -94,7 +91,7 @@ describe('getFolderDraftMarker', () => {
   })
 
   it('labels a linked GitHub draft with its number', () => {
-    expect(getFolderDraftMarker(makeWorkspace({ linkedTask: linkedTask() }), false)).toEqual({
+    expect(getFolderDraftMarker(makeWorkspace({ linkedTask: linkedTask() }))).toEqual({
       badge: 'draft',
       linkLabel: '#412',
       state: 'linked'
@@ -105,20 +102,17 @@ describe('getFolderDraftMarker', () => {
     const workspace = makeWorkspace({
       linkedTask: linkedTask({ provider: 'linear', number: 9, linearIdentifier: 'ENG-9' })
     })
-    expect(getFolderDraftMarker(workspace, false)?.linkLabel).toBe('ENG-9')
+    expect(getFolderDraftMarker(workspace)?.linkLabel).toBe('ENG-9')
   })
 
   it('labels a linked Jira draft with its identifier', () => {
     const workspace = makeWorkspace({
       linkedTask: linkedTask({ provider: 'jira', number: 3, jiraIdentifier: 'OPS-3' })
     })
-    expect(getFolderDraftMarker(workspace, false)?.linkLabel).toBe('OPS-3')
+    expect(getFolderDraftMarker(workspace)?.linkLabel).toBe('OPS-3')
   })
 
   it('reports the removal marker and archive state', () => {
-    expect(getFolderDraftMarker(makeWorkspace({ linkedTask: linkedTask() }), true)?.state).toBe(
-      'task-removed'
-    )
-    expect(getFolderDraftMarker(makeWorkspace({ isArchived: true }), false)?.state).toBe('archived')
+    expect(getFolderDraftMarker(makeWorkspace({ isArchived: true }))?.state).toBe('archived')
   })
 })

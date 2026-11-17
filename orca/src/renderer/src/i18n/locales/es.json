@@ -5442,7 +5442,6 @@
         },
         "FolderRow": {
           "draft": "borrador",
-          "taskRemoved": "tarea eliminada",
           "linkedTo": "vinculado a {{value0}}"
         }
       },

@@ -1,12 +1,19 @@
 /**
- * The confirmed-create transport and the draft's two durable files: the
- * provider call outcome, the receipt written before the link, and the
- * proposal/receipt readers the dock polls.
+ * Everything the dock executes after a confirmation: the one provider call, the
+ * draft's durable files, and the one retry router the state table names.
  */
 import { joinPath } from '@/lib/path'
 import { translate } from '@/i18n/i18n'
+import { isRecord } from '../../../shared/unknown-record'
 import { parseTaskDraftReceipt, type TaskDraftReceipt } from '@/lib/task-draft-receipt'
 import type { ActiveTaskDraft } from '@/lib/task-draft-create-flow'
+import { relaunchDraftAgent } from '@/lib/task-draft-agent-launch'
+import {
+  errorText,
+  getTaskDraftRetryAction,
+  trailingNumber,
+  type TaskDraftState
+} from '@/lib/task-draft-issue-create'
 
 export type CreateCallOutcome =
   | { kind: 'ok'; result: unknown }
@@ -108,15 +115,6 @@ export async function writeDraftFile(
   await window.api.fs.writeFile({ filePath: joinPath(folderPath, name), content })
 }
 
-export function trailingNumber(identifier: string): number | null {
-  const match = /(\d+)\s*$/.exec(identifier)
-  if (!match) {
-    return null
-  }
-  const value = Number(match[1])
-  return Number.isSafeInteger(value) && value > 0 ? value : null
-}
-
 export function outcomeUnknownMessage(): string {
   return translate(
     'auto.hooks.useTaskPageDockActions.taskDraftOutcomeUnknown',
@@ -126,14 +124,6 @@ export function outcomeUnknownMessage(): string {
 
 export function isProviderRejection(result: unknown): result is { ok: false; error?: string } {
   return typeof result === 'object' && result !== null && 'ok' in result && result.ok === false
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-export function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -150,4 +140,59 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       }
     )
   })
+}
+
+/**
+ * One retry control, routed by the state table (README §7.9.7 retry owner).
+ * `link-only` retries the write-back and never re-creates; `create` is the
+ * provider-rejected path the user re-confirms; unknown states do nothing.
+ */
+export async function runTaskDraftRetry(args: {
+  state: TaskDraftState
+  active: ActiveTaskDraft | null
+  submit: () => Promise<void>
+  reopenDraft: (active: ActiveTaskDraft) => Promise<void>
+  finishLink: (active: ActiveTaskDraft, receipt: TaskDraftReceipt) => Promise<void>
+  createIssue: () => Promise<void>
+  setState: (state: TaskDraftState) => void
+  setErrorMessage: (message: string | null) => void
+}): Promise<void> {
+  const action = getTaskDraftRetryAction(args.state)
+  if (action === 'none') {
+    return
+  }
+  if (action === 'resubmit') {
+    await args.submit()
+    return
+  }
+  const active = args.active
+  if (!active) {
+    return
+  }
+  if (action === 'relaunch-agent') {
+    args.setErrorMessage(null)
+    try {
+      await relaunchDraftAgent(active)
+      args.setState('drafting')
+    } catch (error) {
+      args.setState('agent-launch-failed')
+      args.setErrorMessage(errorText(error))
+    }
+    return
+  }
+  if (action === 'reopen') {
+    if (active.frozenProposal) {
+      args.setState('preview-ready')
+      return
+    }
+    await args.reopenDraft(active)
+    return
+  }
+  if (action === 'link-only') {
+    if (active.receipt) {
+      await args.finishLink(active, active.receipt)
+    }
+    return
+  }
+  await args.createIssue()
 }

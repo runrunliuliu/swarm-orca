@@ -6358,7 +6358,6 @@
         },
         "FolderRow": {
           "draft": "초안",
-          "taskRemoved": "작업 제거됨",
           "linkedTo": "{{value0}}에 연결됨"
         }
       },

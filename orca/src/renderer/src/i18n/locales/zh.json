@@ -6358,7 +6358,6 @@
         },
         "FolderRow": {
           "draft": "草稿",
-          "taskRemoved": "任务已移除",
           "linkedTo": "已链接到 {{value0}}"
         }
       },
