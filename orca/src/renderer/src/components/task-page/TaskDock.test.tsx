@@ -6,17 +6,34 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { TaskDock, type TaskDockModel } from './TaskDock'
+import { TaskDock, type TaskDockDraftModel, type TaskDockModel } from './TaskDock'
 
 afterEach(cleanup)
 
 function renderDock(overrides: Partial<TaskDockModel> = {}): TaskDockModel {
+  const draft: TaskDockDraftModel = {
+    state: 'idle',
+    provider: 'github',
+    proposal: null,
+    duplicates: [],
+    duplicateCheckUnavailable: false,
+    providerError: null,
+    createdIssueNumber: null,
+    onConfirmCreate: vi.fn(),
+    onCancelPreview: vi.fn(),
+    onReuseCandidate: vi.fn(),
+    onCreateAnyway: vi.fn(),
+    onRetry: vi.fn(),
+    onReopenAgent: vi.fn(),
+    onChooseGhFallback: vi.fn()
+  }
   const model: TaskDockModel = {
     instruction: 'add a login retry',
     expanded: false,
     targetLabel: 'GitHub · orca/repo',
     submitting: false,
     errorMessage: null,
+    draft,
     onInstructionChange: vi.fn(),
     onExpandedChange: vi.fn(),
     onSubmit: vi.fn(),
@@ -109,5 +126,51 @@ describe('TaskDock', () => {
     expect(screen.getByTestId('task-dock-error')).toHaveTextContent('boom')
     expect(input).not.toBeDisabled()
     expect(input).toHaveValue('add a login retry')
+  })
+
+  it('renders the preview through the dock and confirms only from its create action', async () => {
+    const user = userEvent.setup()
+    const draft: TaskDockDraftModel = {
+      ...renderDock().draft,
+      state: 'preview-ready',
+      proposal: { title: 'Retry login', body: 'Keep the session alive.', labels: ['bug'] }
+    }
+    cleanup()
+
+    const model = renderDock({ expanded: true, draft })
+    expect(screen.getByTestId('task-draft-state-preview-ready')).toHaveTextContent('Retry login')
+
+    await user.click(screen.getByRole('button', { name: 'Create issue' }))
+    expect(model.draft.onConfirmCreate).toHaveBeenCalledTimes(1)
+    expect(model.onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('uses the state heading and keeps the hook error as its detail', () => {
+    const cases: Array<[TaskDockDraftModel['state'], string]> = [
+      ['agent-launch-failed', 'The agent could not start.'],
+      ['provider-rejected', 'The provider rejected the issue.'],
+      ['issue-created-link-failed', 'Issue #412 was created, but the link was not saved.']
+    ]
+
+    for (const [state, heading] of cases) {
+      const idleDraft = renderDock().draft
+      cleanup()
+      renderDock({
+        expanded: true,
+        errorMessage: 'specific detail',
+        draft: {
+          ...idleDraft,
+          state,
+          createdIssueNumber: state === 'issue-created-link-failed' ? 412 : null
+        }
+      })
+
+      expect(screen.getByText(heading)).toBeInTheDocument()
+      expect(screen.getByTestId('task-dock-error')).toHaveTextContent('specific detail')
+      expect(screen.getByTestId('task-dock-error')).not.toHaveTextContent(
+        'Could not create the draft.'
+      )
+      cleanup()
+    }
   })
 })

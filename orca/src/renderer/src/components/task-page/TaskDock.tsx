@@ -5,6 +5,31 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { translate } from '@/i18n/i18n'
+import type {
+  TaskDraftDuplicateCandidate,
+  TaskDraftProposal,
+  TaskDraftProvider,
+  TaskDraftState
+} from '@/lib/task-draft-issue-create'
+
+import { TaskDraftPreviewCard } from './task-draft-preview-card'
+
+export type TaskDockDraftModel = {
+  state: TaskDraftState
+  provider: TaskDraftProvider | null
+  proposal: TaskDraftProposal | null
+  duplicates: readonly TaskDraftDuplicateCandidate[]
+  duplicateCheckUnavailable: boolean
+  providerError: string | null
+  createdIssueNumber: number | null
+  onConfirmCreate: () => void
+  onCancelPreview: () => void
+  onReuseCandidate: (candidate: TaskDraftDuplicateCandidate) => void
+  onCreateAnyway: () => void
+  onRetry: () => void
+  onReopenAgent: () => void
+  onChooseGhFallback: () => void
+}
 
 export type TaskDockModel = {
   instruction: string
@@ -13,6 +38,7 @@ export type TaskDockModel = {
   targetLabel: string | null
   submitting: boolean
   errorMessage: string | null
+  draft: TaskDockDraftModel
   onInstructionChange: (value: string) => void
   onExpandedChange: (expanded: boolean) => void
   onSubmit: () => void
@@ -164,12 +190,9 @@ export function TaskDock({ model }: { model: TaskDockModel }): React.JSX.Element
           )}
         </p>
       ) : null}
+      <TaskDraftPreviewCard draft={model.draft} provider={model.draft.provider} />
       {model.errorMessage === null ? null : (
         <p data-testid="task-dock-error" role="alert" className="text-xs text-destructive">
-          {translate(
-            'auto.components.TaskPage.taskDockCreateFailed',
-            'Could not create the draft.'
-          )}{' '}
           {model.errorMessage}
         </p>
       )}
