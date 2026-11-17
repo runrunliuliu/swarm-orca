@@ -70,6 +70,8 @@ export const appApi = {
     ipcRenderer.invoke('app:getFloatingTerminalCwd', args),
   getFloatingMarkdownDirectory: (): Promise<string> =>
     ipcRenderer.invoke('app:getFloatingMarkdownDirectory'),
+  getTaskDraftDirectory: (args: { draftKey: string }): Promise<string> =>
+    ipcRenderer.invoke('app:getTaskDraftDirectory', args),
   pickFloatingMarkdownDocument: (): Promise<MarkdownDocument | null> =>
     ipcRenderer.invoke('app:pickFloatingMarkdownDocument'),
   pickFloatingWorkspaceDirectory: (): Promise<string | null> =>

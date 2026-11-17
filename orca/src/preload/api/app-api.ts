@@ -64,6 +64,9 @@ export type AppApi = {
   /** Resolves Orca's app-owned directory for auto-created Floating Workspace
    *  markdown notes. */
   getFloatingMarkdownDirectory: () => Promise<string>
+  /** Resolves a per-draft scratch directory under app-owned userData. It is not
+   *  a repository checkout and has no git worktree. */
+  getTaskDraftDirectory: (args: { draftKey: string }) => Promise<string>
   /** Opens a native picker for markdown documents, rooted in the floating
    *  workspace, and authorizes the selected file for editor reads/writes. */
   pickFloatingMarkdownDocument: () => Promise<MarkdownDocument | null>

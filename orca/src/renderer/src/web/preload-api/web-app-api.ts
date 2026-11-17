@@ -45,6 +45,11 @@ export function createWebAppApi(): Partial<PreloadApi> {
       setUnreadDockBadgeCount: () => Promise.resolve(),
       getFloatingTerminalCwd: () => Promise.resolve(''),
       getFloatingMarkdownDirectory: () => Promise.resolve(''),
+      // Browser fallback has no app-owned data dir; reject rather than resolve '' so no draft can claim a scratch path.
+      getTaskDraftDirectory: () =>
+        Promise.reject(
+          new Error('Task draft directories are unavailable in the browser fallback.')
+        ),
       pickFloatingMarkdownDocument: () => Promise.resolve(null),
       pickFloatingWorkspaceDirectory: () => Promise.resolve(null),
       // Browser fallback has no app-owned userData dir; reject so the sentinel can't claim sensitive evidence was persisted.

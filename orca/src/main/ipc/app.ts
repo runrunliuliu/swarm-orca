@@ -21,6 +21,7 @@ import {
   grantFloatingWorkspaceDirectory,
   resolveFloatingTerminalCwd
 } from './floating-workspace-directory'
+import { ensureTaskDraftDirectory } from './task-draft-directory'
 import { isMarkdownDocumentName, markdownDocumentFromFilePath } from './markdown-documents'
 import { registerMacSymbolicHotkeysProbeHandler } from './macos-symbolic-hotkeys-probe'
 import { registerRendererShutdownCheckpointHandler } from './renderer-shutdown-checkpoint'
@@ -319,6 +320,10 @@ export function registerAppHandlers(store: Store, options: RegisterAppHandlersOp
   )
 
   ipcMain.handle('app:getFloatingMarkdownDirectory', () => ensureDefaultFloatingWorkspacePath())
+
+  ipcMain.handle('app:getTaskDraftDirectory', (_event, args: { draftKey: string }) =>
+    ensureTaskDraftDirectory(args?.draftKey)
+  )
 
   ipcMain.handle('app:pickFloatingMarkdownDocument', (event) => pickFloatingMarkdownDocument(event))
 
