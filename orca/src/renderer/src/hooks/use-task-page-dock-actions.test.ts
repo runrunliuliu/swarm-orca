@@ -447,10 +447,15 @@ describe('useTaskPageDockActions', () => {
   })
 
   it('never emits a state the card does not render', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'src/renderer/src/hooks/use-task-page-dock-actions.ts'),
-      'utf8'
-    )
+    // Why: three modules emit draft states, so scanning only the page hook would
+    // call an unrendered state covered.
+    const source = [
+      'src/renderer/src/hooks/use-task-page-dock-actions.ts',
+      'src/renderer/src/hooks/use-task-draft-create-actions.ts',
+      'src/renderer/src/hooks/use-task-draft-polling.ts'
+    ]
+      .map((file) => readFileSync(join(process.cwd(), file), 'utf8'))
+      .join('\n')
     const card = readFileSync(
       join(process.cwd(), 'src/renderer/src/components/task-page/task-draft-preview-card.tsx'),
       'utf8'
