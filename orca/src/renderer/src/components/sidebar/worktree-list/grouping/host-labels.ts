@@ -17,6 +17,7 @@ import {
 } from './project-grouping'
 import { getFolderWorkspaceHostId } from '../../folder-workspace-host-id'
 import type { RenderableFolderWorkspace } from './folder-workspace-lanes'
+import { isDraftExcludedFromCounts } from '@/lib/task-draft-count-exclusion'
 
 function getRepoHostId(repoId: string, repoMap: Map<string, Repo>): ExecutionHostId | null {
   const repo = repoMap.get(repoId)
@@ -212,6 +213,9 @@ export function getLaneHostWorktreeCounts(
   }
   const counts = getHostWorktreeCounts(worktrees, repoMap, defaultHostId) ?? new Map()
   for (const { folderWorkspace, projectGroup } of folderWorkspaces) {
+    if (isDraftExcludedFromCounts(folderWorkspace)) {
+      continue
+    }
     const hostId = getFolderWorkspaceHostId(folderWorkspace, projectGroup, defaultHostId)
     counts.set(hostId, (counts.get(hostId) ?? 0) + 1)
   }
@@ -237,6 +241,9 @@ export function getLaneHostWorktreeIds(
   }
   const idsByHost = getHostWorktreeIds(worktrees, repoMap, defaultHostId) ?? new Map()
   for (const { folderWorkspace, projectGroup } of folderWorkspaces) {
+    if (isDraftExcludedFromCounts(folderWorkspace)) {
+      continue
+    }
     const hostId = getFolderWorkspaceHostId(folderWorkspace, projectGroup, defaultHostId)
     if (!idsByHost.has(hostId)) {
       idsByHost.set(hostId, [])

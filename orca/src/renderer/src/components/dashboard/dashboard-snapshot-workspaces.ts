@@ -18,6 +18,7 @@ import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-w
 import { getHostDisplayLabelOverrides } from '../../../../shared/host-setting-overrides'
 import { isFolderRepo } from '../../../../shared/repo-kind'
 import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
+import { excludeDraftsFromCounts } from '@/lib/task-draft-count-exclusion'
 
 export type ActiveDashboardWorkspace = {
   projectId: string
@@ -117,7 +118,7 @@ export function collectActiveDashboardWorkspaces(
   const projectGroupsById = new Map(
     (state.projectGroups ?? []).map((projectGroup) => [projectGroup.id, projectGroup])
   )
-  for (const folderWorkspace of state.folderWorkspaces ?? []) {
+  for (const folderWorkspace of excludeDraftsFromCounts(state.folderWorkspaces ?? [])) {
     const worktree = folderWorkspaceToWorktree(folderWorkspace)
     if (folderWorkspace.isArchived || seenWorkspaceIds.has(worktree.id)) {
       continue

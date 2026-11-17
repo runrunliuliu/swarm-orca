@@ -4,6 +4,10 @@ import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import type { Row } from './worktree-list/grouping/row-types'
 import { addHostSectionRows, type HostSectionOption } from './host-section-rows'
+import {
+  getLaneHostWorktreeCounts,
+  getLaneHostWorktreeIds
+} from './worktree-list/grouping/host-labels'
 
 const LOCAL_REPO: Repo = {
   id: 'local-repo',
@@ -65,6 +69,14 @@ const PROJECT_GROUP: ProjectGroup = {
   updatedAt: 1
 }
 
+const LOCAL_PROJECT_GROUP: ProjectGroup = {
+  ...PROJECT_GROUP,
+  id: 'group-local',
+  name: 'Local folder',
+  parentPath: '/local',
+  connectionId: null
+}
+
 const FOLDER_ROW: Extract<Row, { type: 'folder-workspace' }> = {
   type: 'folder-workspace',
   key: 'folder-workspace:folder-1',
@@ -87,6 +99,21 @@ const FOLDER_ROW: Extract<Row, { type: 'folder-workspace' }> = {
   projectGroup: PROJECT_GROUP,
   depth: 0,
   groupDepth: 0
+}
+
+const DRAFT_FOLDER_ROW: Extract<Row, { type: 'folder-workspace' }> = {
+  ...FOLDER_ROW,
+  key: 'folder-workspace:draft-1',
+  folderWorkspace: {
+    ...FOLDER_ROW.folderWorkspace,
+    id: 'draft-1',
+    projectGroupId: LOCAL_PROJECT_GROUP.id,
+    name: 'Task draft',
+    folderPath: '/local/task-draft',
+    connectionId: null,
+    taskDraft: true
+  },
+  projectGroup: LOCAL_PROJECT_GROUP
 }
 
 function hostCounts(rows: readonly Row[]) {
@@ -123,5 +150,29 @@ describe('folder workspace host counts', () => {
       { hostId: 'local', count: 1 },
       { hostId: 'ssh:builder', count: 1 }
     ])
+  })
+
+  it('renders an expanded draft without adding it to the host workspace count', () => {
+    expect(hostCounts([DRAFT_FOLDER_ROW, FOLDER_ROW])).toEqual([
+      { hostId: 'local', count: 0 },
+      { hostId: 'ssh:builder', count: 1 }
+    ])
+  })
+
+  it('omits a draft host from lane counts and its explicit empty id list', () => {
+    const folderWorkspaces = [
+      {
+        folderWorkspace: DRAFT_FOLDER_ROW.folderWorkspace,
+        projectGroup: DRAFT_FOLDER_ROW.projectGroup
+      },
+      { folderWorkspace: FOLDER_ROW.folderWorkspace, projectGroup: FOLDER_ROW.projectGroup }
+    ]
+
+    expect(
+      getLaneHostWorktreeCounts([], folderWorkspaces, new Map(), 'local')
+    ).toEqual(new Map([['ssh:builder', 1]]))
+    expect(getLaneHostWorktreeIds([], folderWorkspaces, new Map(), 'local')).toEqual(
+      new Map([['ssh:builder', []]])
+    )
   })
 })

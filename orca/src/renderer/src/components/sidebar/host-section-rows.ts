@@ -14,6 +14,7 @@ import type { SshConnectionStatus } from '../../../../shared/ssh-types'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Row } from './worktree-list/grouping/row-types'
 import { getFolderWorkspaceHostId } from './folder-workspace-host-id'
+import { isDraftExcludedFromCounts } from '@/lib/task-draft-count-exclusion'
 
 export type HostHeaderRow = {
   type: 'host-header'
@@ -123,7 +124,9 @@ function countWorkspaceRows(rows: readonly Row[]): number {
       continue
     }
     if (row.type === 'folder-workspace') {
-      count += 1
+      if (!isDraftExcludedFromCounts(row.folderWorkspace)) {
+        count += 1
+      }
       pendingHeaderHadWorkspaces = pendingHeader !== null
     }
   }
