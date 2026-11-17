@@ -61,6 +61,7 @@ export class FolderWorkspacePersistenceOperations {
     creatorProvenance?: FolderWorkspace['creatorProvenance']
     createdWithAgent?: FolderWorkspace['createdWithAgent']
     pendingFirstAgentMessageRename?: boolean
+    taskDraft?: boolean
   }): FolderWorkspace {
     const group = (this.state.projectGroups ?? []).find(
       (entry) => entry.id === input.projectGroupId
@@ -93,6 +94,7 @@ export class FolderWorkspacePersistenceOperations {
       isPinned: false,
       sortOrder: now,
       ...(input.createdWithAgent ? { createdWithAgent: input.createdWithAgent } : {}),
+      ...(input.taskDraft === true ? { taskDraft: true } : {}),
       ...(input.pendingFirstAgentMessageRename === true && input.createdWithAgent
         ? { pendingFirstAgentMessageRename: true }
         : {}),

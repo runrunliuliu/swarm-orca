@@ -27,6 +27,13 @@ export type FolderWorkspace = {
   creatorProvenance?: WorkspaceCreatorProvenance
   linkedTask: WorkspaceLinkedItem | null
   linkedTaskSourceContext?: TaskSourceContext | null
+  /**
+   * Created by the Tasks list-page dock to draft one task. Its `folderPath` is a
+   * userData scratch directory, never a repository checkout, and it has no git
+   * worktree. Additive: absent reads exactly like before, and older builds
+   * ignore it.
+   */
+  taskDraft?: boolean
   comment: string
   isArchived: boolean
   isUnread: boolean

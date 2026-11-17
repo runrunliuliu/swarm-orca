@@ -136,7 +136,8 @@ export const FolderWorkspaceCreateArgs = z
     linkedTask: FolderWorkspaceLinkedTaskArgs.optional(),
     linkedTaskSourceContext: TaskSourceContextSchema.nullable().optional(),
     createdWithAgent: z.string().refine(isTuiAgent).optional(),
-    pendingFirstAgentMessageRename: z.boolean().optional()
+    pendingFirstAgentMessageRename: z.boolean().optional(),
+    taskDraft: z.boolean().optional()
   })
   .superRefine(assertFolderWorkspaceLinkedSourceContextMatch)
 

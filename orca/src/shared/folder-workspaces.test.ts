@@ -60,3 +60,42 @@ describe('normalizeFolderWorkspaces host attribution', () => {
     expect(inherited.connectionId).toBe('ssh-group')
   })
 })
+
+describe('normalizeFolderWorkspaces taskDraft marker', () => {
+  it('keeps an explicit draft marker across a load/save round trip', () => {
+    const [draft] = normalizeFolderWorkspaces(
+      [
+        {
+          id: 'ws-draft',
+          projectGroupId: 'group-1',
+          name: 'add-login-retry',
+          folderPath: '/tmp/app-data/task-drafts/add-login-retry',
+          taskDraft: true
+        }
+      ],
+      [folderGroup]
+    )
+
+    expect(draft.taskDraft).toBe(true)
+    expect(draft.folderPath).toBe('/tmp/app-data/task-drafts/add-login-retry')
+  })
+
+  it('does not invent the field for an ordinary folder workspace', () => {
+    const [plain] = normalizeFolderWorkspaces(
+      [
+        {
+          id: 'ws-plain',
+          projectGroupId: 'group-1',
+          name: 'Notes',
+          folderPath: '/tmp/projects/notes'
+        }
+      ],
+      [folderGroup]
+    )
+
+    // Additive field: absent must stay absent, not become `false`, so an older build's
+    // record reads exactly as it did before this field existed.
+    expect(plain.taskDraft).toBeUndefined()
+    expect(Object.keys(plain)).not.toContain('taskDraft')
+  })
+})

@@ -156,6 +156,7 @@ export type FolderWorkspacesApi = {
     linkedTask?: FolderWorkspace['linkedTask']
     createdWithAgent?: FolderWorkspace['createdWithAgent']
     pendingFirstAgentMessageRename?: boolean
+    taskDraft?: boolean
   }) => Promise<FolderWorkspace>
   update: (args: {
     folderWorkspaceId: string

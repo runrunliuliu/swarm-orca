@@ -206,6 +206,7 @@ export type RepoSlice = {
       linkedTaskSourceContext?: FolderWorkspace['linkedTaskSourceContext']
       createdWithAgent?: FolderWorkspace['createdWithAgent']
       pendingFirstAgentMessageRename?: boolean
+      taskDraft?: boolean
     },
     options?: FolderWorkspacePathStatusRouteOptions
   ) => Promise<FolderWorkspace | null>

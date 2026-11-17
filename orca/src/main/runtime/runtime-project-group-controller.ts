@@ -129,6 +129,7 @@ export class RuntimeProjectGroupController {
     linkedTaskSourceContext?: FolderWorkspace['linkedTaskSourceContext']
     createdWithAgent?: FolderWorkspace['createdWithAgent']
     pendingFirstAgentMessageRename?: boolean
+    taskDraft?: boolean
   }): Promise<FolderWorkspace> {
     const store = this.deps.getStore()
     if (!store?.createFolderWorkspace) {

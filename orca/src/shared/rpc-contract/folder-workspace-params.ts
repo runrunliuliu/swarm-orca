@@ -36,7 +36,9 @@ export const FolderWorkspaceCreate = z
     linkedTask: FolderWorkspaceLinkedTask.optional(),
     linkedTaskSourceContext: TaskSourceContextSchema.nullable().optional(),
     createdWithAgent: z.string().refine(isTuiAgent).optional(),
-    pendingFirstAgentMessageRename: z.boolean().optional()
+    pendingFirstAgentMessageRename: z.boolean().optional(),
+    /** Tasks list-page dock draft; see FolderWorkspace.taskDraft. */
+    taskDraft: z.boolean().optional()
   })
   .superRefine(assertLinkedTaskSourceContextMatch)
 

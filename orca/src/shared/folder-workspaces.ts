@@ -92,6 +92,9 @@ export function normalizeFolderWorkspaces(
         ? { workspaceStatus: raw.workspaceStatus }
         : {}),
       ...(isTuiAgent(raw.createdWithAgent) ? { createdWithAgent: raw.createdWithAgent } : {}),
+      // Why: a persisted draft must load back as one, otherwise the next save silently
+      // drops the marker and the sidebar can no longer tell a draft from a real folder.
+      ...(raw.taskDraft === true ? { taskDraft: true } : {}),
       ...(raw.pendingFirstAgentMessageRename === true
         ? { pendingFirstAgentMessageRename: true }
         : {}),
