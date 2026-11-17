@@ -198,7 +198,8 @@ export function useTaskDraftPolling(args: {
       if (Date.now() >= deadline) {
         cancelled = true
         clearInterval(interval)
-        setState('issue-created-link-failed')
+        // Why: no receipt means the fallback may or may not have created the issue.
+        setState('outcome-unknown')
         setErrorMessage(outcomeUnknownMessage())
       }
     }

@@ -48,6 +48,8 @@ export function useTaskDraftCreateActions(args: {
   submit: () => Promise<void>
   reopenDraft: (active: ActiveTaskDraft) => Promise<void>
   onDraftLinked: () => void
+  claimAuthorization: () => number
+  isAuthorizationLive: (token: number) => boolean
 }) {
   const {
     state,
@@ -62,7 +64,9 @@ export function useTaskDraftCreateActions(args: {
     primaryRepo,
     submit,
     reopenDraft,
-    onDraftLinked
+    onDraftLinked,
+    claimAuthorization,
+    isAuthorizationLive
   } = args
 
   const creatingRef = useRef(false)
@@ -240,9 +244,13 @@ export function useTaskDraftCreateActions(args: {
       return
     }
     creatingRef.current = true
+    const authorization = claimAuthorization()
     try {
       const resolved = await resolveGhFallback({ active, primaryRepo, frozen })
       if (activeDraftRef.current !== active || active.frozenProposal !== frozen) {
+        return
+      }
+      if (!isAuthorizationLive(authorization)) {
         return
       }
       if (!resolved.ok) {
@@ -280,7 +288,15 @@ export function useTaskDraftCreateActions(args: {
     } finally {
       creatingRef.current = false
     }
-  }, [state, activeDraftRef, primaryRepo, setErrorMessage, setState])
+  }, [
+    state,
+    activeDraftRef,
+    primaryRepo,
+    claimAuthorization,
+    isAuthorizationLive,
+    setErrorMessage,
+    setState
+  ])
 
   return {
     linkTaskItem,

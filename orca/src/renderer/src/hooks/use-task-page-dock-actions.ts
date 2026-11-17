@@ -49,6 +49,15 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
     activeDraftRef.current = null
     draftKeyRef.current = null
   }, [])
+  // Why: a confirmation is only valid for the preview it was given for. Cancelling, or
+  // revising the draft with a follow-up, retires that authorization synchronously so a
+  // pending preflight cannot deliver a write afterwards.
+  const authorizationRef = useRef(0)
+  const claimAuthorization = useCallback((): number => authorizationRef.current, [])
+  const isAuthorizationLive = useCallback(
+    (token: number): boolean => authorizationRef.current === token,
+    []
+  )
 
   const targetLabel = useMemo(
     () => (primaryRepo ? getDockTargetLabel(primaryRepo, taskSource) : null),
@@ -67,6 +76,8 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
     try {
       const active = activeDraftRef.current
       if (active) {
+        // Why: the revision the user was about to confirm is no longer the draft.
+        authorizationRef.current += 1
         await deliverToActiveDraft(active, text)
         // Why: a follow-up can revise a pending draft, so the poll must resume.
         if (state === 'preview-ready' || state === 'duplicate-suspected') {
@@ -188,7 +199,9 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
     primaryRepo,
     submit,
     reopenDraft,
-    onDraftLinked
+    onDraftLinked,
+    claimAuthorization,
+    isAuthorizationLive
   })
 
   useTaskDraftPolling({
@@ -214,6 +227,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
       setErrorMessage(null)
       const linked = await linkTaskItem(active, buildLinkedItem(active.target, candidate))
       if (linked) {
+        onDraftLinked()
         setState('idle')
         setInstruction('')
         return
@@ -227,7 +241,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
           )
       )
     },
-    [state, linkTaskItem]
+    [state, linkTaskItem, onDraftLinked]
   )
 
   const activeDraft = activeDraftRef.current
@@ -243,6 +257,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
       void confirmCreate()
     },
     onCancelPreview: () => {
+      authorizationRef.current += 1
       if (state === 'preview-ready') {
         setState('cancelled')
       }

@@ -381,7 +381,7 @@ describe('useTaskPageDockActions gh fallback', () => {
     expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
 
     await advance(61 * 1_000)
-    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+    expect(hook.result.current.taskDock.draft.state).toBe('outcome-unknown')
     expect(hook.result.current.taskDock.errorMessage).toContain('Outcome unknown')
     expect(updateFolderWorkspace).not.toHaveBeenCalled()
   })
@@ -466,5 +466,119 @@ describe('review regressions', () => {
     })
     await flush()
     expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+  })
+})
+
+describe('review regressions: authorization and session edges', () => {
+  it('does not deliver gh after the preview is cancelled during preflight', async () => {
+    vi.useFakeTimers()
+    let resolvePreflight: (value: unknown) => void = () => {}
+    preflightCheck.mockImplementation(() => new Promise((resolve) => (resolvePreflight = resolve)))
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await act(async () => {
+      hook.result.current.taskDock.draft.onChooseGhFallback()
+    })
+    await act(async () => {
+      hook.result.current.taskDock.draft.onCancelPreview()
+    })
+    await act(async () => {
+      resolvePreflight({ git: { installed: true }, gh: { installed: true, authenticated: true } })
+    })
+    await flush()
+
+    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+    expect(hook.result.current.taskDock.draft.state).toBe('cancelled')
+  })
+
+  it('does not deliver gh when a follow-up retires the preview during preflight', async () => {
+    vi.useFakeTimers()
+    let resolvePreflight: (value: unknown) => void = () => {}
+    preflightCheck.mockImplementation(() => new Promise((resolve) => (resolvePreflight = resolve)))
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await act(async () => {
+      hook.result.current.taskDock.draft.onChooseGhFallback()
+    })
+    await submit(hook, 'Also cover the SSO login page')
+    await act(async () => {
+      resolvePreflight({ git: { installed: true }, gh: { installed: true, authenticated: true } })
+    })
+    await flush()
+
+    const delivered = mocks.deliverLaunchPromptToAgentTab.mock.calls.map((call) =>
+      String(call[0].content)
+    )
+    expect(delivered.some((content) => content.includes('gh issue create'))).toBe(false)
+    expect(hook.result.current.taskDock.draft.state).toBe('drafting')
+  })
+
+  it('lets gh keep the claim when Create issue is pressed while preflight is pending', async () => {
+    vi.useFakeTimers()
+    let resolvePreflight: (value: unknown) => void = () => {}
+    preflightCheck.mockImplementation(() => new Promise((resolve) => (resolvePreflight = resolve)))
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await act(async () => {
+      hook.result.current.taskDock.draft.onChooseGhFallback()
+      hook.result.current.taskDock.draft.onConfirmCreate()
+    })
+    await act(async () => {
+      resolvePreflight({ git: { installed: true }, gh: { installed: true, authenticated: true } })
+    })
+    await flush()
+
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens a new draft after a duplicate is reused instead of created', async () => {
+    vi.useFakeTimers()
+    listWorkItems.mockResolvedValue({
+      items: [{ number: 412, title: PROPOSAL_TITLE, url: ISSUE_URL, state: 'open' }]
+    })
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    readFile.mockRejectedValue(new Error('ENOENT'))
+    await submit(hook, INSTRUCTION)
+    serveProposal(proposalJson())
+    await advance(1_500)
+    expect(hook.result.current.taskDock.draft.state).toBe('duplicate-suspected')
+
+    await actOnDraft(hook, (draft) =>
+      draft.onReuseCandidate({ number: 412, title: PROPOSAL_TITLE, url: ISSUE_URL })
+    )
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+
+    await submit(hook, 'Second task: add logout')
+
+    expect(createFolderWorkspace).toHaveBeenCalledTimes(2)
+    const keys = getTaskDraftDirectory.mock.calls.map((call) => call[0].draftKey as string)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('reports an unknown outcome when the gh receipt never arrives', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
+    expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
+
+    // No receipt file ever appears; the fallback's deadline is five minutes.
+    readFile.mockImplementation(async ({ filePath }: { filePath: string }) => {
+      if (filePath.endsWith('task-draft-receipt.json')) {
+        throw new Error('ENOENT')
+      }
+      return { content: proposalJson(), isBinary: false }
+    })
+    await advance(5 * 60 * 1_000 + 1_500)
+
+    expect(hook.result.current.taskDock.draft.state).toBe('outcome-unknown')
+    await actOnDraft(hook, (draft) => draft.onRetry())
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledTimes(1)
   })
 })
