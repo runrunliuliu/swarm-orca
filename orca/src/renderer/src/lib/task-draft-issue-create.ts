@@ -5,6 +5,8 @@
  * hook and the preview card both import this module.
  */
 
+import { isRecord } from '../../../shared/unknown-record'
+
 export type TaskDraftProvider = 'linear' | 'github' | 'jira'
 
 export type TaskDraftTarget = {
@@ -23,15 +25,8 @@ export type TaskDraftTarget = {
 
 export type TaskDraftProposal = { title: string; body: string; labels: string[] }
 
-/** The agent-written `task-draft-proposal.json`. */
-export type TaskDraftProposalFile = { title: string; body: string; labels?: string[] }
-
 export type TaskDraftCandidate = { number: number; title: string; url: string; identifier?: string }
 export type TaskDraftDuplicateCandidate = TaskDraftCandidate
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * Read the agent's `task-draft-proposal.json`. The file is written by an agent,
@@ -118,36 +113,13 @@ export type TaskDraftState =
   | 'preview-ready'
   | 'creating-issue'
   | 'issue-created-link-failed'
+  | 'outcome-unknown'
   | 'provider-rejected'
   | 'duplicate-suspected'
   | 'remote-unsupported'
   | 'cancelled'
   | 'agent-crashed'
   | 'archived'
-
-export type TaskDraftRetryOwner = 'dock' | 'agent' | 'user' | 'none'
-
-/** The single state table (design §7.9.7): the card renders `retryOwner`'s actions. */
-export const TASK_DRAFT_STATE_META: Record<
-  TaskDraftState,
-  { retryOwner: TaskDraftRetryOwner; retryable: boolean }
-> = {
-  idle: { retryOwner: 'none', retryable: false },
-  'no-context': { retryOwner: 'user', retryable: true },
-  'creating-draft': { retryOwner: 'none', retryable: false },
-  'draft-failed': { retryOwner: 'dock', retryable: true },
-  'agent-launch-failed': { retryOwner: 'agent', retryable: true },
-  drafting: { retryOwner: 'none', retryable: false },
-  'preview-ready': { retryOwner: 'none', retryable: false },
-  'creating-issue': { retryOwner: 'none', retryable: false },
-  'issue-created-link-failed': { retryOwner: 'dock', retryable: true },
-  'provider-rejected': { retryOwner: 'user', retryable: true },
-  'duplicate-suspected': { retryOwner: 'user', retryable: true },
-  'remote-unsupported': { retryOwner: 'none', retryable: false },
-  cancelled: { retryOwner: 'agent', retryable: true },
-  'agent-crashed': { retryOwner: 'agent', retryable: true },
-  archived: { retryOwner: 'user', retryable: true }
-}
 
 /** The only confirmed-write request builder; one call site in the dock hook. */
 export type TaskDraftCreateRequest =
@@ -227,6 +199,7 @@ export function getTaskDraftRetryAction(state: TaskDraftState): TaskDraftRetryAc
       return 'link-only'
     case 'provider-rejected':
       return 'create'
+    case 'outcome-unknown':
     case 'idle':
     case 'no-context':
     case 'creating-draft':

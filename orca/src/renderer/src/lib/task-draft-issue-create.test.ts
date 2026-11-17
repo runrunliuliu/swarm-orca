@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  TASK_DRAFT_STATE_META,
   buildTaskDraftCreateRequest,
   getTaskDraftRetryAction,
   findDuplicateCandidates,
@@ -111,61 +110,31 @@ describe('findDuplicateCandidates', () => {
   })
 })
 
-describe('TASK_DRAFT_STATE_META', () => {
-  it('is exactly the fifteen-state table with its retry owner and retryability', () => {
-    expect(TASK_DRAFT_STATE_META).toEqual({
-      idle: { retryOwner: 'none', retryable: false },
-      'no-context': { retryOwner: 'user', retryable: true },
-      'creating-draft': { retryOwner: 'none', retryable: false },
-      'draft-failed': { retryOwner: 'dock', retryable: true },
-      'agent-launch-failed': { retryOwner: 'agent', retryable: true },
-      drafting: { retryOwner: 'none', retryable: false },
-      'preview-ready': { retryOwner: 'none', retryable: false },
-      'creating-issue': { retryOwner: 'none', retryable: false },
-      'issue-created-link-failed': { retryOwner: 'dock', retryable: true },
-      'provider-rejected': { retryOwner: 'user', retryable: true },
-      'duplicate-suspected': { retryOwner: 'user', retryable: true },
-      'remote-unsupported': { retryOwner: 'none', retryable: false },
-      cancelled: { retryOwner: 'agent', retryable: true },
-      'agent-crashed': { retryOwner: 'agent', retryable: true },
-      archived: { retryOwner: 'user', retryable: true }
-    })
+describe('getTaskDraftRetryAction', () => {
+  // The runtime policy is the switch, not a parallel table: these are the rows the
+  // dock acts on, asserted where the action is decided.
+  it('retries only the link write after the provider created the issue', () => {
+    expect(getTaskDraftRetryAction('issue-created-link-failed')).toBe('link-only')
   })
 
-  it('covers every design §7.9.7 row and no state outside it', () => {
-    const designRows: TaskDraftState[] = [
+  it('re-confirms a provider rejection and reopens a crashed or cancelled draft', () => {
+    expect(getTaskDraftRetryAction('provider-rejected')).toBe('create')
+    expect(getTaskDraftRetryAction('agent-crashed')).toBe('reopen')
+    expect(getTaskDraftRetryAction('cancelled')).toBe('reopen')
+    expect(getTaskDraftRetryAction('agent-launch-failed')).toBe('relaunch-agent')
+    expect(getTaskDraftRetryAction('draft-failed')).toBe('resubmit')
+  })
+
+  it('offers no action while a step is in flight or already settled', () => {
+    for (const state of [
       'idle',
-      'no-context',
       'creating-draft',
-      'draft-failed',
-      'agent-launch-failed',
       'drafting',
       'preview-ready',
-      'creating-issue',
-      'issue-created-link-failed',
-      'provider-rejected',
-      'duplicate-suspected',
-      'remote-unsupported',
-      'cancelled',
-      'agent-crashed',
-      'archived'
-    ]
-    expect(Object.keys(TASK_DRAFT_STATE_META).sort()).toEqual([...designRows].sort())
-  })
-
-  it('retries only the link write after the provider created the issue', () => {
-    expect(TASK_DRAFT_STATE_META['issue-created-link-failed']).toEqual({
-      retryOwner: 'dock',
-      retryable: true
-    })
-  })
-
-  it('leaves the duplicate choice and the pre-existing review states with their owner', () => {
-    expect(TASK_DRAFT_STATE_META['duplicate-suspected'].retryOwner).toBe('user')
-    expect(TASK_DRAFT_STATE_META['agent-crashed']).toEqual({
-      retryOwner: 'agent',
-      retryable: true
-    })
+      'creating-issue'
+    ] as const) {
+      expect(getTaskDraftRetryAction(state)).toBe('none')
+    }
   })
 })
 

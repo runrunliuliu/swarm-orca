@@ -7,7 +7,7 @@ import {
   errorText,
   type TaskDraftState
 } from '@/lib/task-draft-issue-create'
-import { buildLinkedWorkItem, type TaskDraftReceipt } from '@/lib/task-draft-receipt'
+import { buildLinkedItem, type TaskDraftReceipt } from '@/lib/task-draft-receipt'
 import {
   buildLinkedTaskSourceContext,
   resolveGhFallback,
@@ -47,6 +47,7 @@ export function useTaskDraftCreateActions(args: {
   primaryRepo: Repo | null
   submit: () => Promise<void>
   reopenDraft: (active: ActiveTaskDraft) => Promise<void>
+  onDraftLinked: () => void
 }) {
   const {
     state,
@@ -60,7 +61,8 @@ export function useTaskDraftCreateActions(args: {
     setNewJiraIssueOpen,
     primaryRepo,
     submit,
-    reopenDraft
+    reopenDraft,
+    onDraftLinked
   } = args
 
   const creatingRef = useRef(false)
@@ -84,8 +86,11 @@ export function useTaskDraftCreateActions(args: {
   const finishLink = useCallback(
     async (active: ActiveTaskDraft, receipt: TaskDraftReceipt): Promise<void> => {
       active.receipt = receipt
-      const linked = await linkTaskItem(active, buildLinkedWorkItem(active.target, receipt))
+      const linked = await linkTaskItem(active, buildLinkedItem(active.target, receipt))
       if (linked) {
+        // Why: the draft has become a task; the next instruction must open a new one
+        // instead of being typed into this completed draft's agent.
+        onDraftLinked()
         setState('idle')
         setInstruction('')
         return
@@ -100,7 +105,7 @@ export function useTaskDraftCreateActions(args: {
           )
       )
     },
-    [linkTaskItem, setErrorMessage, setInstruction, setState]
+    [linkTaskItem, onDraftLinked, setErrorMessage, setInstruction, setState]
   )
 
   const createIssue = useCallback(async (): Promise<void> => {
@@ -139,7 +144,7 @@ export function useTaskDraftCreateActions(args: {
         return
       }
       if (outcome.kind === 'unknown') {
-        setState('issue-created-link-failed')
+        setState('outcome-unknown')
         setErrorMessage(outcomeUnknownMessage())
         return
       }
@@ -156,7 +161,7 @@ export function useTaskDraftCreateActions(args: {
       }
       const receipt = readCreateReceipt(active, outcome.result)
       if (!receipt) {
-        setState('issue-created-link-failed')
+        setState('outcome-unknown')
         setErrorMessage(outcomeUnknownMessage())
         return
       }
@@ -224,7 +229,9 @@ export function useTaskDraftCreateActions(args: {
   ])
 
   const chooseGhFallback = useCallback(async (): Promise<void> => {
-    if (state !== 'preview-ready') {
+    // Why: the claim is taken before the first await, so a second click, a concurrent
+    // Create issue, or a cancel during preflight cannot start a second write.
+    if (state !== 'preview-ready' || creatingRef.current) {
       return
     }
     const active = activeDraftRef.current
@@ -232,39 +239,47 @@ export function useTaskDraftCreateActions(args: {
     if (!active || !frozen || active.target.provider !== 'github') {
       return
     }
-    const resolved = await resolveGhFallback({ active, primaryRepo, frozen })
-    if (!resolved.ok) {
-      setState('remote-unsupported')
-      setErrorMessage(resolved.message)
-      return
-    }
-    if (!active.primaryTabId || !active.agent) {
-      setErrorMessage(
-        translate(
-          'auto.components.TaskPage.taskDockNoSession',
-          'This draft has no agent session. Open it from the sidebar and start an agent, then send again.'
+    creatingRef.current = true
+    try {
+      const resolved = await resolveGhFallback({ active, primaryRepo, frozen })
+      if (activeDraftRef.current !== active || active.frozenProposal !== frozen) {
+        return
+      }
+      if (!resolved.ok) {
+        setState('remote-unsupported')
+        setErrorMessage(resolved.message)
+        return
+      }
+      if (!active.primaryTabId || !active.agent) {
+        setErrorMessage(
+          translate(
+            'auto.components.TaskPage.taskDockNoSession',
+            'This draft has no agent session. Open it from the sidebar and start an agent, then send again.'
+          )
         )
-      )
-      return
-    }
-    const delivered = await deliverLaunchPromptToAgentTab({
-      tabId: active.primaryTabId,
-      agent: active.agent,
-      content: formatCommandLine(resolved.invocation.command, resolved.invocation.args),
-      submit: true,
-      forcePaste: true
-    }).catch(() => false)
-    if (!delivered) {
-      setErrorMessage(
-        translate(
-          'auto.components.TaskPage.taskDockInstructionNotDelivered',
-          'The draft session did not accept the instruction.'
+        return
+      }
+      const delivered = await deliverLaunchPromptToAgentTab({
+        tabId: active.primaryTabId,
+        agent: active.agent,
+        content: formatCommandLine(resolved.invocation.command, resolved.invocation.args),
+        submit: true,
+        forcePaste: true
+      }).catch(() => false)
+      if (!delivered) {
+        setErrorMessage(
+          translate(
+            'auto.components.TaskPage.taskDockInstructionNotDelivered',
+            'The draft session did not accept the instruction.'
+          )
         )
-      )
-      return
+        return
+      }
+      active.channel = 'gh-fallback'
+      setState('creating-issue')
+    } finally {
+      creatingRef.current = false
     }
-    active.channel = 'gh-fallback'
-    setState('creating-issue')
   }, [state, activeDraftRef, primaryRepo, setErrorMessage, setState])
 
   return {

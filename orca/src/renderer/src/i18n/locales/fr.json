@@ -2348,7 +2348,9 @@
         "taskDraftContinue": "Continuer la rédaction",
         "taskDraftAgentCrashed": "L'agent s'est arrêté avant de produire un aperçu.",
         "taskDraftReopenAgent": "Rouvrir l'agent",
-        "taskDraftArchived": "Ce brouillon est archivé."
+        "taskDraftArchived": "Ce brouillon est archivé.",
+        "taskDraftOutcomeUnknownTitle": "Outcome unknown.",
+        "taskDraftOutcomeUnknownDetail": "The provider may have created the issue, so this draft will not create another. Check the target, then link or delete this draft."
       },
       "Terminal": {
         "73768427cf": "Fermer",

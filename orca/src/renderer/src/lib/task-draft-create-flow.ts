@@ -113,7 +113,6 @@ export type ActiveTaskDraft = {
   instruction: string
   target: TaskDraftTarget
   repoPath: string | null
-  attempt: number
   lastProposalRevision: number
   frozenProposal: TaskDraftProposal | null
   receipt: TaskDraftReceipt | null

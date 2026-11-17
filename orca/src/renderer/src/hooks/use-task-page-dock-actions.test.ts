@@ -5,7 +5,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TaskPageComposerActionsModel } from '@/components/use-task-page-composer-actions'
 import type * as NewWorkspaceModule from '@/lib/new-workspace'
-import { TASK_DRAFT_STATE_META } from '@/lib/task-draft-issue-create'
 import type { FolderWorkspace } from '../../../shared/folder-workspace-types'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { ProjectGroup } from '../../../shared/project-group-types'
@@ -438,22 +437,33 @@ describe('useTaskPageDockActions', () => {
     const promptOffenders = promptSource
       .split('\n')
       .filter((line) => trackerWritePatterns.some((pattern) => line.includes(pattern)))
-      .filter((line) => !line.includes('do not run') && !line.includes('Only if the app later sends'))
+      .filter(
+        (line) => !line.includes('do not run') && !line.includes('Only if the app later sends')
+      )
     expect(
       promptOffenders,
       `task-draft-prompt.ts may only name tracker writes on its "do not run" or fallback line; patterns: ${trackerWritePatterns.join(', ')}`
     ).toEqual([])
   })
 
-  it('never emits a state outside the frozen table', () => {
+  it('never emits a state the card does not render', () => {
     const source = readFileSync(
       join(process.cwd(), 'src/renderer/src/hooks/use-task-page-dock-actions.ts'),
       'utf8'
     )
-    const emitted = [...source.matchAll(/setState\('([a-z-]+)'\)/g)].map((match) => match[1])
-    expect(emitted.length).toBeGreaterThan(0)
-    for (const emittedState of emitted) {
-      expect(TASK_DRAFT_STATE_META, `unknown state: ${emittedState}`).toHaveProperty(emittedState)
+    const card = readFileSync(
+      join(process.cwd(), 'src/renderer/src/components/task-page/task-draft-preview-card.tsx'),
+      'utf8'
+    )
+    const emitted = new Set([...source.matchAll(/setState\('([a-z-]+)'\)/g)].map((m) => m[1]))
+    const rendered = new Set([...card.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]))
+    expect(emitted.size).toBeGreaterThan(0)
+    // `idle` renders nothing; every other emitted state must have a card branch.
+    for (const state of emitted) {
+      if (state === 'idle') {
+        continue
+      }
+      expect(rendered, `no card branch for emitted state: ${state}`).toContain(state)
     }
   })
 })
@@ -634,7 +644,7 @@ describe('useTaskPageDockActions confirmed write', () => {
 
     await actOnDraft(hook, (draft) => draft.onConfirmCreate())
 
-    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+    expect(hook.result.current.taskDock.draft.state).toBe('outcome-unknown')
     expect(hook.result.current.taskDock.errorMessage).toContain('Outcome unknown')
     expect(updateFolderWorkspace).not.toHaveBeenCalled()
     expect(writeFile).not.toHaveBeenCalled()
@@ -642,7 +652,7 @@ describe('useTaskPageDockActions confirmed write', () => {
     await actOnDraft(hook, (draft) => draft.onRetry())
 
     expect(runtimeCall).toHaveBeenCalledTimes(1)
-    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+    expect(hook.result.current.taskDock.draft.state).toBe('outcome-unknown')
   })
 
   it('opens the prefilled Jira form and never calls the provider', async () => {
@@ -811,114 +821,5 @@ describe('useTaskPageDockActions duplicates', () => {
     expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
     expect(hook.result.current.taskDock.draft.duplicateCheckUnavailable).toBe(true)
     expect(hook.result.current.taskDock.draft.duplicates).toEqual([])
-  })
-})
-
-describe('useTaskPageDockActions gh fallback', () => {
-  it('refuses a non-local draft without a create call or agent delivery', async () => {
-    vi.useFakeTimers()
-    const model = createModel()
-    const hook = renderHook(
-      (props: { model: TaskPageComposerActionsModel }) => useTaskPageDockActions(props.model),
-      { initialProps: { model } }
-    )
-    await reachPreview(hook)
-
-    hook.rerender({ model: createModel({ repo: { ...repo, executionHostId: 'ssh:box' } }) })
-    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
-
-    expect(hook.result.current.taskDock.draft.state).toBe('remote-unsupported')
-    expect(runtimeCall).not.toHaveBeenCalled()
-    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
-  })
-
-  it('refuses a missing or logged-out gh without a create call or agent delivery', async () => {
-    vi.useFakeTimers()
-    const missing = renderHook(() => useTaskPageDockActions(createModel()))
-    preflightCheck.mockResolvedValue({
-      git: { installed: true },
-      gh: { installed: false, authenticated: false }
-    })
-    await reachPreview(missing)
-    await act(async () => {
-      missing.result.current.taskDock.draft.onChooseGhFallback()
-    })
-    await flush()
-    expect(missing.result.current.taskDock.draft.state).toBe('remote-unsupported')
-    expect(missing.result.current.taskDock.errorMessage).toContain('not installed')
-
-    const loggedOut = renderHook(() => useTaskPageDockActions(createModel()))
-    preflightCheck.mockResolvedValue({
-      git: { installed: true },
-      gh: { installed: true, authenticated: false }
-    })
-    await reachPreview(loggedOut)
-    await act(async () => {
-      loggedOut.result.current.taskDock.draft.onChooseGhFallback()
-    })
-    await flush()
-    expect(loggedOut.result.current.taskDock.draft.state).toBe('remote-unsupported')
-    expect(loggedOut.result.current.taskDock.errorMessage).toContain('not signed in')
-
-    expect(runtimeCall).not.toHaveBeenCalled()
-    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
-  })
-
-  it('delivers exactly one --repo/--title command and links the receipt', async () => {
-    vi.useFakeTimers()
-    const hook = renderHook(() => useTaskPageDockActions(createModel()))
-    await reachPreview(hook)
-
-    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
-
-    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledTimes(1)
-    const content = String(mocks.deliverLaunchPromptToAgentTab.mock.calls[0][0].content)
-    expect(content).toContain('--repo acme/widgets')
-    expect(content).toContain('--title')
-    expect(content).toContain(PROPOSAL_TITLE)
-    expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
-
-    readFile.mockImplementation(async ({ filePath }: { filePath: string }) => {
-      if (filePath.endsWith('task-draft-receipt.json')) {
-        return {
-          content: JSON.stringify({
-            version: 1,
-            channel: 'gh-fallback',
-            provider: 'github',
-            number: 412,
-            url: ISSUE_URL,
-            title: PROPOSAL_TITLE,
-            draftKey: draftKey()
-          }),
-          isBinary: false
-        }
-      }
-      return { content: proposalJson(), isBinary: false }
-    })
-    await advance(1_500)
-    expect(updateFolderWorkspace).toHaveBeenCalledTimes(1)
-    expect(updateFolderWorkspace.mock.calls[0][1].linkedTask).toMatchObject({ number: 412 })
-    expect(hook.result.current.taskDock.draft.state).toBe('idle')
-    expect(runtimeCall).not.toHaveBeenCalled()
-  })
-
-  it('surfaces an unknown outcome when the fallback receipt never arrives', async () => {
-    vi.useFakeTimers()
-    const hook = renderHook(() => useTaskPageDockActions(createModel()))
-    await reachPreview(hook)
-    readFile.mockImplementation(async ({ filePath }: { filePath: string }) => {
-      if (filePath.endsWith('task-draft-receipt.json')) {
-        throw new Error('ENOENT')
-      }
-      return { content: proposalJson(), isBinary: false }
-    })
-
-    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
-    expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
-
-    await advance(61 * 1_000)
-    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
-    expect(hook.result.current.taskDock.errorMessage).toContain('Outcome unknown')
-    expect(updateFolderWorkspace).not.toHaveBeenCalled()
   })
 })

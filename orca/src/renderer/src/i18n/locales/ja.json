@@ -2245,7 +2245,9 @@
         "taskDraftContinue": "下書きを続ける",
         "taskDraftAgentCrashed": "Agent はプレビューを生成する前に終了しました。",
         "taskDraftReopenAgent": "Agent を再度開く",
-        "taskDraftArchived": "この下書きはアーカイブされています。"
+        "taskDraftArchived": "この下書きはアーカイブされています。",
+        "taskDraftOutcomeUnknownTitle": "Outcome unknown.",
+        "taskDraftOutcomeUnknownDetail": "The provider may have created the issue, so this draft will not create another. Check the target, then link or delete this draft."
       },
       "Terminal": {
         "73768427cf": "閉じる",

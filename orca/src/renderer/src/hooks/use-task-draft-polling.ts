@@ -88,6 +88,9 @@ export function useTaskDraftPolling(args: {
     }
     let cancelled = false
     let checkingRevision = 0
+    // Why: entering `drafting` for a follow-up keeps the previous frozen proposal. Only a
+    // strictly newer revision may replace it, or the dock would confirm the stale draft.
+    const baselineRevision = active.lastProposalRevision
     const deadline = Date.now() + PROPOSAL_DEADLINE_MS
 
     const tick = async (): Promise<void> => {
@@ -108,7 +111,9 @@ export function useTaskDraftPolling(args: {
         active.frozenProposal = read.proposal
         setProposal(read.proposal)
       }
-      if (!active.frozenProposal) {
+      // Why: a proposal at or below the baseline is the one already shown; waiting for a
+      // newer revision is what prevents a follow-up from re-confirming the old draft.
+      if (!active.frozenProposal || active.lastProposalRevision <= baselineRevision) {
         if (Date.now() >= deadline) {
           setState('agent-crashed')
           setErrorMessage(

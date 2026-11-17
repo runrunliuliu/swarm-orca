@@ -38,10 +38,7 @@ export function TaskDraftPreviewCard({
       content = (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           {spinner}
-          {translate(
-            'auto.components.TaskPage.taskDraftCreatingDraft',
-            'Creating the draft…'
-          )}
+          {translate('auto.components.TaskPage.taskDraftCreatingDraft', 'Creating the draft…')}
         </p>
       )
       break
@@ -106,21 +103,11 @@ export function TaskDraftPreviewCard({
               <Button type="button" size="sm" onClick={draft.onConfirmCreate}>
                 {translate('auto.components.TaskPage.taskDraftCreateIssue', 'Create issue')}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={draft.onCancelPreview}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={draft.onCancelPreview}>
                 {translate('auto.components.TaskPage.taskDraftCancelPreview', 'Cancel')}
               </Button>
               {provider === 'github' ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={draft.onChooseGhFallback}
-                >
+                <Button type="button" variant="ghost" size="sm" onClick={draft.onChooseGhFallback}>
                   {translate('auto.components.TaskPage.taskDraftUseGhInstead', 'Use gh instead')}
                 </Button>
               ) : null}
@@ -229,7 +216,12 @@ export function TaskDraftPreviewCard({
       content = (
         <>
           <div className="space-y-1 text-sm">
-            <p>{translate('auto.components.TaskPage.taskDraftCancelled', 'The draft was not created.')}</p>
+            <p>
+              {translate(
+                'auto.components.TaskPage.taskDraftCancelled',
+                'The draft was not created.'
+              )}
+            </p>
             <p className="text-muted-foreground">
               {translate('auto.components.TaskPage.taskDraftKept', 'Your draft is kept.')}
             </p>
@@ -255,6 +247,21 @@ export function TaskDraftPreviewCard({
         </>
       )
       break
+    case 'outcome-unknown':
+      content = (
+        <>
+          <h3 className="text-sm font-medium">
+            {translate('auto.components.TaskPage.taskDraftOutcomeUnknownTitle', 'Outcome unknown.')}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {translate(
+              'auto.components.TaskPage.taskDraftOutcomeUnknownDetail',
+              'The provider may have created the issue, so this draft will not create another. Check the target, then link or delete this draft.'
+            )}
+          </p>
+        </>
+      )
+      break
     case 'archived':
       content = (
         <p className="text-sm text-muted-foreground">
@@ -264,9 +271,5 @@ export function TaskDraftPreviewCard({
       break
   }
 
-  return (
-    <Card data-testid={`task-draft-state-${draft.state}`}>
-      {content}
-    </Card>
-  )
+  return <Card data-testid={`task-draft-state-${draft.state}`}>{content}</Card>
 }

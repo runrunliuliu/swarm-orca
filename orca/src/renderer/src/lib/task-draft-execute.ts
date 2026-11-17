@@ -18,7 +18,10 @@ import {
 export type CreateCallOutcome =
   | { kind: 'ok'; result: unknown }
   | { kind: 'rejected'; message: string }
-  | { kind: 'unknown'; message: string }
+  | { kind: 'unknown'; message: string; code: string | null }
+
+/** The backend names an unconfirmed write explicitly; the write may already have landed. */
+const UNCONFIRMED_WRITE_CODE = /_write_unconfirmed$/
 
 export async function callCreateRpc(
   method: string,
@@ -28,12 +31,17 @@ export async function callCreateRpc(
   try {
     const response = await withTimeout(window.api.runtime.call({ method, params }), timeoutMs)
     if (!response.ok) {
+      // Why: retrying an unconfirmed write as a fresh create duplicates the issue. Every other
+      // failure is a rejection the user may re-confirm.
+      if (UNCONFIRMED_WRITE_CODE.test(response.error.code)) {
+        return { kind: 'unknown', message: response.error.message, code: response.error.code }
+      }
       return { kind: 'rejected', message: response.error.message }
     }
     return { kind: 'ok', result: response.result }
   } catch (error) {
     // Why: a transport failure or timeout cannot prove the provider wrote nothing (D2).
-    return { kind: 'unknown', message: errorText(error) }
+    return { kind: 'unknown', message: errorText(error), code: null }
   }
 }
 

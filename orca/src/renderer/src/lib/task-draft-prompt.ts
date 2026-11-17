@@ -16,7 +16,6 @@ export function buildTaskDraftPrompt(args: {
   const envelope = JSON.stringify({
     version: 1,
     draftKey: args.draftKey,
-    attempt: 1,
     provider: args.provider,
     repoId: args.repoId,
     revision: 1,
@@ -35,7 +34,7 @@ This session only drafts. A preview and confirmation step comes later, and the u
 
 After presenting the draft, write exactly this JSON envelope to ${args.proposalPath} and nothing else, replacing the placeholder title and body with the draft:
 ${envelope}
-Keep \`version\`, \`draftKey\`, \`attempt\`, \`provider\`, \`repoId\` and \`revision\` exactly as written. The app reads that file and creates the issue only after the user confirms.
+Keep \`version\`, \`draftKey\`, \`provider\` and \`repoId\` exactly as written. Increment \`revision\` every time you rewrite the file: the app only accepts a newer revision, so a follow-up that rewrites revision 1 would be ignored. The app reads that file and creates the issue only after the user confirms.
 
 Only if the app later sends \`gh issue create --repo …\` in this session, run that one command and write the printed URL and number to \`task-draft-receipt.json\` in the same directory, with \`"channel": "gh-fallback"\`.
 

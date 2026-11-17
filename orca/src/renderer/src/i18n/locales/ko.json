@@ -2245,7 +2245,9 @@
         "taskDraftContinue": "초안 계속 작성",
         "taskDraftAgentCrashed": "에이전트가 미리보기를 생성하기 전에 종료되었습니다.",
         "taskDraftReopenAgent": "에이전트 다시 열기",
-        "taskDraftArchived": "이 초안은 보관되었습니다."
+        "taskDraftArchived": "이 초안은 보관되었습니다.",
+        "taskDraftOutcomeUnknownTitle": "Outcome unknown.",
+        "taskDraftOutcomeUnknownDetail": "The provider may have created the issue, so this draft will not create another. Check the target, then link or delete this draft."
       },
       "Terminal": {
         "73768427cf": "닫기",

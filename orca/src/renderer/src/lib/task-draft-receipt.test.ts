@@ -11,7 +11,6 @@ function envelope(overrides: Record<string, unknown> = {}): Record<string, unkno
   return {
     version: 1,
     draftKey: 'draft-1',
-    attempt: 1,
     provider: 'github',
     repoId: 'repo-1',
     revision: 1,
@@ -65,10 +64,6 @@ describe('parseTaskDraftProposalEnvelope', () => {
       parseTaskDraftProposalEnvelope(envelope({ proposal: { title: '   ' } }), EXPECTED)
     ).toEqual({ ok: false, reason: 'invalid' })
     expect(parseTaskDraftProposalEnvelope(envelope({ revision: 0 }), EXPECTED)).toEqual({
-      ok: false,
-      reason: 'invalid'
-    })
-    expect(parseTaskDraftProposalEnvelope(envelope({ attempt: '1' }), EXPECTED)).toEqual({
       ok: false,
       reason: 'invalid'
     })
@@ -162,7 +157,9 @@ describe('parseTaskDraftReceipt', () => {
 
   it('rejects an empty or over-long url and title', () => {
     expect(parseTaskDraftReceipt(receipt({ url: '  ' }), expected)).toBeNull()
-    expect(parseTaskDraftReceipt(receipt({ url: `https://x/${'a'.repeat(2_048)}` }), expected)).toBeNull()
+    expect(
+      parseTaskDraftReceipt(receipt({ url: `https://x/${'a'.repeat(2_048)}` }), expected)
+    ).toBeNull()
     expect(parseTaskDraftReceipt(receipt({ title: '' }), expected)).toBeNull()
   })
 })

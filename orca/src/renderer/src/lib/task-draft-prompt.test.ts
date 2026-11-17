@@ -29,17 +29,18 @@ describe('buildTaskDraftPrompt', () => {
     expect(prompt).toContain('Creating the issue now is out of scope for this session')
   })
 
-  it('names the proposal envelope and its exact path, revision and attempt', () => {
+  it('names the proposal envelope and its exact path and revision', () => {
     const prompt = buildTaskDraftPrompt(ARGS)
     expect(prompt).toContain(ARGS.proposalPath)
     expect(prompt).toContain('"version":1')
     expect(prompt).toContain('"draftKey":"draft-key-1"')
-    expect(prompt).toContain('"attempt":1')
     expect(prompt).toContain('"provider":"github"')
     expect(prompt).toContain('"repoId":"repo-1"')
     expect(prompt).toContain('"revision":1')
     expect(prompt).toContain('write exactly this JSON envelope')
-    expect(prompt).toContain('The app reads that file and creates the issue only after the user confirms')
+    expect(prompt).toContain(
+      'The app reads that file and creates the issue only after the user confirms'
+    )
   })
 
   it('describes the gh fallback receipt only for the app-sent command', () => {

@@ -6,7 +6,6 @@ import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { isRecord } from '../../../shared/unknown-record'
 import {
   parseTaskDraftProposal,
-  type TaskDraftDuplicateCandidate,
   type TaskDraftProposal,
   type TaskDraftProvider,
   type TaskDraftTarget
@@ -19,17 +18,6 @@ const LABEL_MAX = 128
 const LABEL_COUNT_MAX = 32
 const URL_MAX = 2_048
 const IDENTIFIER_MAX = 128
-
-/** The agent-written `task-draft-proposal.json`; `proposal` stays `unknown` until validated. */
-export type TaskDraftProposalEnvelope = {
-  version: 1
-  draftKey: string
-  attempt: number
-  provider: TaskDraftProvider
-  repoId: string | null
-  revision: number
-  proposal: unknown
-}
 
 export type TaskDraftProposalEnvelopeFailure =
   | 'partial'
@@ -67,10 +55,10 @@ export function parseTaskDraftProposalEnvelope(
     return { ok: false, reason: 'wrong-target' }
   }
   // Why: an absent field is a half-written file, a present-but-wrong one is not.
-  if (raw.attempt === undefined || raw.revision === undefined || raw.proposal === undefined) {
+  if (raw.revision === undefined || raw.proposal === undefined) {
     return { ok: false, reason: 'partial' }
   }
-  if (!isPositiveInteger(raw.attempt) || !isPositiveInteger(raw.revision)) {
+  if (!isPositiveInteger(raw.revision)) {
     return { ok: false, reason: 'invalid' }
   }
   const parsed = parseTaskDraftProposal(raw.proposal)
@@ -176,42 +164,21 @@ export function buildGhFallbackInvocation(args: {
   }
 }
 
-export function buildLinkedWorkItem(
+/** One mapper for both a validated receipt and a reused duplicate candidate (same fields). */
+export function buildLinkedItem(
   target: TaskDraftTarget,
-  receipt: TaskDraftReceipt
-): LinkedWorkItemSummary {
-  return {
-    provider: receipt.provider,
-    type: 'issue',
-    number: receipt.number,
-    title: receipt.title,
-    url: receipt.url,
-    ...(receipt.provider === 'linear' && receipt.identifier
-      ? { linearIdentifier: receipt.identifier }
-      : {}),
-    ...(receipt.provider === 'jira' && receipt.identifier
-      ? { jiraIdentifier: receipt.identifier }
-      : {}),
-    ...(receipt.provider === 'github' && target.repoId ? { repoId: target.repoId } : {})
-  }
-}
-
-export function buildReuseLinkedItem(
-  target: TaskDraftTarget,
-  candidate: TaskDraftDuplicateCandidate
+  item: { number: number; title: string; url: string; identifier?: string }
 ): LinkedWorkItemSummary {
   return {
     provider: target.provider,
     type: 'issue',
-    number: candidate.number,
-    title: candidate.title,
-    url: candidate.url,
-    ...(target.provider === 'linear' && candidate.identifier
-      ? { linearIdentifier: candidate.identifier }
+    number: item.number,
+    title: item.title,
+    url: item.url,
+    ...(target.provider === 'linear' && item.identifier
+      ? { linearIdentifier: item.identifier }
       : {}),
-    ...(target.provider === 'jira' && candidate.identifier
-      ? { jiraIdentifier: candidate.identifier }
-      : {}),
+    ...(target.provider === 'jira' && item.identifier ? { jiraIdentifier: item.identifier } : {}),
     ...(target.provider === 'github' && target.repoId ? { repoId: target.repoId } : {})
   }
 }

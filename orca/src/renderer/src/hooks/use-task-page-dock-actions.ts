@@ -13,7 +13,7 @@ import {
   resolveDraftRequest,
   type ActiveTaskDraft
 } from '@/lib/task-draft-create-flow'
-import { buildReuseLinkedItem } from '@/lib/task-draft-receipt'
+import { buildLinkedItem } from '@/lib/task-draft-receipt'
 import { deliverToActiveDraft, launchDraftAgent } from '@/lib/task-draft-agent-launch'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
@@ -43,6 +43,12 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
   // Why: one key per draft, kept until the workspace exists so a retry reuses the same scratch directory.
   const draftKeyRef = useRef<string | null>(null)
   const activeDraftRef = useRef<ActiveTaskDraft | null>(null)
+  // Why: once the draft is linked the session is over, so the next instruction opens a
+  // fresh draft instead of typing into the agent of a completed one.
+  const onDraftLinked = useCallback((): void => {
+    activeDraftRef.current = null
+    draftKeyRef.current = null
+  }, [])
 
   const targetLabel = useMemo(
     () => (primaryRepo ? getDockTargetLabel(primaryRepo, taskSource) : null),
@@ -116,7 +122,6 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
         instruction: text,
         target,
         repoPath: repo.path,
-        attempt: 1,
         lastProposalRevision: 0,
         frozenProposal: null,
         receipt: null,
@@ -182,7 +187,8 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
     setNewJiraIssueOpen,
     primaryRepo,
     submit,
-    reopenDraft
+    reopenDraft,
+    onDraftLinked
   })
 
   useTaskDraftPolling({
@@ -206,18 +212,19 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
         return
       }
       setErrorMessage(null)
-      const linked = await linkTaskItem(active, buildReuseLinkedItem(active.target, candidate))
+      const linked = await linkTaskItem(active, buildLinkedItem(active.target, candidate))
       if (linked) {
         setState('idle')
         setInstruction('')
         return
       }
-      setErrorMessage((current) =>
-        current ??
-        translate(
-          'auto.hooks.useTaskPageDockActions.taskDraftReuseFailed',
-          'The existing issue could not be linked to this draft.'
-        )
+      setErrorMessage(
+        (current) =>
+          current ??
+          translate(
+            'auto.hooks.useTaskPageDockActions.taskDraftReuseFailed',
+            'The existing issue could not be linked to this draft.'
+          )
       )
     },
     [state, linkTaskItem]

@@ -2422,7 +2422,9 @@
         "taskDraftContinue": "Continue drafting",
         "taskDraftAgentCrashed": "The agent exited before producing a preview.",
         "taskDraftReopenAgent": "Reopen agent",
-        "taskDraftArchived": "This draft is archived."
+        "taskDraftArchived": "This draft is archived.",
+        "taskDraftOutcomeUnknownTitle": "Outcome unknown.",
+        "taskDraftOutcomeUnknownDetail": "The provider may have created the issue, so this draft will not create another. Check the target, then link or delete this draft."
       },
       "Terminal": {
         "73768427cf": "Close",

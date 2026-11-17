@@ -2245,7 +2245,9 @@
         "taskDraftContinue": "继续起草",
         "taskDraftAgentCrashed": "智能体在生成预览之前退出。",
         "taskDraftReopenAgent": "重新打开智能体",
-        "taskDraftArchived": "此草稿已归档。"
+        "taskDraftArchived": "此草稿已归档。",
+        "taskDraftOutcomeUnknownTitle": "Outcome unknown.",
+        "taskDraftOutcomeUnknownDetail": "The provider may have created the issue, so this draft will not create another. Check the target, then link or delete this draft."
       },
       "Terminal": {
         "73768427cf": "关闭",
