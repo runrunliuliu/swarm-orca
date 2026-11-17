@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import { app } from 'electron'
+import { getAppEnvironment } from '../../shared/app-environment'
 import { authorizeExternalPath } from './filesystem-auth'
 import { isDescendantOrEqual } from './filesystem-path-containment'
 
@@ -10,11 +10,19 @@ const TASK_DRAFT_DIRNAME = 'task-drafts'
 // already produces — no separator, dot, drive letter or unbounded length can pass.
 const TASK_DRAFT_KEY_PATTERN = /^[0-9a-f-]{8,64}$/i
 
+// Why the app-environment port instead of `app.getPath` directly: this module is reachable
+// from the runtime graph (ipc/app.ts and runtime-project-group-controller.ts), and that graph
+// must boot on plain Node for the orcad bundle. Importing electron here puts it back on
+// Electron; the port is resolved per call so a Node host answers the same question.
+function taskDraftsRoot(): string {
+  return path.resolve(getAppEnvironment().getPath('userData'), TASK_DRAFT_DIRNAME)
+}
+
 export async function ensureTaskDraftDirectory(draftKey: string): Promise<string> {
   if (!TASK_DRAFT_KEY_PATTERN.test(draftKey)) {
     throw new Error('task_draft_key_invalid')
   }
-  const root = path.resolve(app.getPath('userData'), TASK_DRAFT_DIRNAME)
+  const root = taskDraftsRoot()
   const leaf = path.resolve(root, draftKey)
   if (!isDescendantOrEqual(leaf, root)) {
     throw new Error('task_draft_key_invalid')
@@ -36,7 +44,7 @@ export async function removeTaskDraftDirectory(folderPath: string): Promise<bool
   if (typeof folderPath !== 'string' || folderPath.trim().length === 0) {
     return false
   }
-  const root = path.resolve(app.getPath('userData'), TASK_DRAFT_DIRNAME)
+  const root = taskDraftsRoot()
   const leaf = path.resolve(folderPath)
   // Why false, not throw: a partial delete must leave the caller's row in place, not
   // look like an exception with no answer about what survived.

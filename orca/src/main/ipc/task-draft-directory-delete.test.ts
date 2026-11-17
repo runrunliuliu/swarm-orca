@@ -2,16 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-const { appGetPathMock } = vi.hoisted(() => ({
-  appGetPathMock: vi.fn()
-}))
-
-vi.mock('electron', () => ({
-  app: {
-    getPath: appGetPathMock
-  }
-}))
+import { setAppEnvironment } from '../../shared/app-environment'
+import type { AppEnvironment } from '../../shared/app-environment'
 
 vi.mock('./filesystem-auth', () => ({
   authorizeExternalPath: vi.fn()
@@ -20,6 +12,25 @@ vi.mock('./filesystem-auth', () => ({
 import { removeTaskDraftDirectory } from './task-draft-directory'
 
 const LEAF_KEY = '3f2c1a44-8d5b-4c1e-9a77-0b6c1d2e3f40'
+
+// Why the host port instead of an `electron` mock: the module must stay electron-free so the
+// runtime graph keeps building for plain Node.
+function appEnvironmentFor(userDataDir: string): AppEnvironment {
+  return {
+    getPath: (name) => {
+      if (name === 'userData') {
+        return userDataDir
+      }
+      throw new Error(`unexpected app path: ${name}`)
+    },
+    getAppPath: () => userDataDir,
+    getVersion: () => '0.0.0-test',
+    isPackaged: () => false,
+    onWillQuit: () => {},
+    exit: () => {},
+    getAppMetrics: () => []
+  }
+}
 
 describe('removeTaskDraftDirectory', () => {
   let tempRoot: string
@@ -31,12 +42,7 @@ describe('removeTaskDraftDirectory', () => {
     userDataDir = path.join(tempRoot, 'user-data')
     draftsRoot = path.join(userDataDir, 'task-drafts')
     mkdirSync(draftsRoot, { recursive: true })
-    appGetPathMock.mockImplementation((name: string) => {
-      if (name === 'userData') {
-        return userDataDir
-      }
-      throw new Error(`unexpected app path: ${name}`)
-    })
+    setAppEnvironment(appEnvironmentFor(userDataDir))
   })
 
   afterEach(() => {

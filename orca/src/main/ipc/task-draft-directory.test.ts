@@ -2,16 +2,11 @@ import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setAppEnvironment } from '../../shared/app-environment'
+import type { AppEnvironment } from '../../shared/app-environment'
 
-const { appGetPathMock, authorizeExternalPathMock } = vi.hoisted(() => ({
-  appGetPathMock: vi.fn(),
+const { authorizeExternalPathMock } = vi.hoisted(() => ({
   authorizeExternalPathMock: vi.fn()
-}))
-
-vi.mock('electron', () => ({
-  app: {
-    getPath: appGetPathMock
-  }
 }))
 
 vi.mock('./filesystem-auth', () => ({
@@ -21,6 +16,25 @@ vi.mock('./filesystem-auth', () => ({
 import { ensureTaskDraftDirectory } from './task-draft-directory'
 
 const DRAFT_KEY = '3f2c1a44-8d5b-4c1e-9a77-0b6c1d2e3f40'
+
+// Why the port and not an `electron` mock: the module must stay electron-free so the runtime
+// graph keeps building for plain Node; the test installs the same host port a Node host does.
+function appEnvironmentFor(userDataDir: string): AppEnvironment {
+  return {
+    getPath: (name) => {
+      if (name === 'userData') {
+        return userDataDir
+      }
+      throw new Error(`unexpected app path: ${name}`)
+    },
+    getAppPath: () => userDataDir,
+    getVersion: () => '0.0.0-test',
+    isPackaged: () => false,
+    onWillQuit: () => {},
+    exit: () => {},
+    getAppMetrics: () => []
+  }
+}
 
 describe('ensureTaskDraftDirectory', () => {
   let tempRoot: string
@@ -33,12 +47,7 @@ describe('ensureTaskDraftDirectory', () => {
     userDataDir = path.join(tempRoot, 'user-data')
     repoDir = path.join(tempRoot, 'repo')
     draftsRoot = path.join(userDataDir, 'task-drafts')
-    appGetPathMock.mockImplementation((name: string) => {
-      if (name === 'userData') {
-        return userDataDir
-      }
-      throw new Error(`unexpected app path: ${name}`)
-    })
+    setAppEnvironment(appEnvironmentFor(userDataDir))
     authorizeExternalPathMock.mockClear()
   })
 
