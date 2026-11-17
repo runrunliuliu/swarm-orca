@@ -32,9 +32,10 @@ const GUIDE_REFERENCES = {
     'messaging-and-gates.md',
     'placement-and-remote.md',
     'recovery-and-cleanup.md',
+    'strict-coordinator.md',
     'worker-contract.md'
   ],
-  'orca-cli': ['automations.md', 'browser.md', 'publishing.md'],
+  'orca-cli': ['automations.md', 'browser.md', 'publishing.md', 'ticket-to-workspace.md'],
   'orca-per-workspace-env': [
     'docker-ssh.md',
     'failure-modes.md',
