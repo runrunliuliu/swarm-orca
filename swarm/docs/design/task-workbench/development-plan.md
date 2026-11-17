@@ -28,7 +28,7 @@
 | 路标 | 目标 | 看得到什么 | 主要工作包 | 不做 |
 | --- | --- | --- | --- | --- |
 | **P1 工作台 UI** | 先钉住那一屏 | 详情页 `Orca` tab：工作区、agent 行（带所属工作区）、token、用量三态、证据摘要 | WP1/WP2/WP3 的只读部分；P1a 明细见 [静态壳计划](p1a-ui-shell-plan.md) | 列表主轴、持久化、dock |
-| **P2 输入入口** | 任务"说得出来" | 列表页 dock + 侧栏草稿行 + 三 provider 建任务 | WP-T2a–d | 任务行、分组 |
+| **P2 输入入口** | 任务"说得出来" | 列表页 dock + 侧栏草稿行 + 三 provider 建任务 | WP-T2a–d；2026-11-17 起先做 a+b | 任务行、分组 |
 | **P3 列表主轴** | 任务"排得开" | 分组（Delivered = agent done）、`◇` 徽标、一任务多工作区 | WP1/WP5 + M2b 的 renderer 部分 | 持久化 |
 | **P4 持久化** | 任务"记得住" | primary、归档、结算快照、意图层 | WP0、WP4a–c（M2a → M2b） | 跨端 |
 
@@ -40,6 +40,9 @@
   `taskRecords`（P4 且以 M2a 判决为门槛）。
 - **顺序变化**：T2（dock）从"可先做"改为 P2，排在 P1 之后——因为 dock 建出的任务需要 P1 那一屏才能看；
   T2 本身仍不依赖 `taskRecords`。
+- **P2 的第一刀（2026-11-17）**：先交 WP-T2a（`TaskDock`）+ WP-T2b（`taskDraft` 草稿工作区与 agent），
+  让列表页输入框可用；WP-T2c（预览确认、三 provider 闭环、§7.9.7 状态机）与 WP-T2d（徽标与计数排除）随后。
+  第一刀完成只报"输入框可用"，不报 T2 交付——"写 tracker 前必有预览确认"是 T2 的退出条件。
 
 ## 1. 目标与非目标
 
@@ -125,6 +128,12 @@
 需求与形态见[设计文档 §7.9](README.md#79-列表页底部-dock-与任务草稿行2026-11-16)。这条**不依赖**
 `taskRecords`，也**不需要 M2a 判决**：它只新增一个输入入口和一种"草稿工作区"用法，
 持久物仍是 provider 侧的 tracker 任务。
+
+**2026-11-17 切分决定**（用户）：第一刀只做 WP-T2a + WP-T2b——列表页 dock 提交后建 `taskDraft`
+folder workspace 并在其中启动 agent；第二刀做 WP-T2c（预览卡片、三 provider 创建闭环、§7.9.7 状态机、
+`orca github create-issue` 动词）与 WP-T2d（草稿徽标、`linked to #…`、计数/Recent 排除）。
+退出条件不变：第一刀完成只报"输入框可用"，**不得报 T2 交付**（"写 tracker 前必有预览确认"属 T2 退出条件）。
+评审基线仍为 [讨论记录](discussion-record-t2-dock.md) 与设计文档 §6.2/§7.9。
 
 - 范围：Tasks 列表页底部 dock；发送后建 `taskDraft` folder workspace 并在其中起 agent；
   agent 把任务写成 tracker issue（Linear 走 `linear.issueCreate` RPC、GitHub 主通道走已有
@@ -355,12 +364,12 @@
 
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
-| **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 未开始 | — |
-| **P2 输入入口**（= T2） | 未开始 | — |
+| **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 1a、1b 已合入（2026-11-17）；真机交互验收未做 | `swarm-orca` main `42232cbd`（P1a）→ `e91e115d`（P1b）；父仓库 pin `36e06e3a`、`dev_liuliu` merge `08ce3fa7`；线上构件 `0.1.0+39a6ecbc2818` 于 2026-11-17 重启后核验（`buildId` 一致、`source=pointer`、`pointer.state=ok`）。缺口：只有 `tests/tools/task-workbench-rendered` 的渲染证据，无交互验收；仓库内未找到 P1b 独立评审回执 |
+| **P2 输入入口**（= T2） | 分两刀（2026-11-17 定）；第一刀（T2a+T2b）未开始 | 切分见 §T2 |
 | **P3 列表主轴**（= M2b renderer） | 未开始 | — |
 | **P4 持久化**（= M2a + M2b main） | 未开始 | — |
 | T1 Agent 派生树（旁路） | 未开始 | — |
-| T2 列表页 dock + 任务草稿行（= P2） | 未开始 | — |
+| T2 列表页 dock + 任务草稿行（= P2） | 第一刀（WP-T2a + WP-T2b）未开始；第二刀（WP-T2c + WP-T2d）未开始 | 切分决定见 §T2 |
 | M0 决策冻结 | 部分（D7–D12 已定，D1/D3/D5/D6 待定） | — |
 | M1 只读面板 | 未开始 | — |
 | M2a 存储兼容验证 | 未开始 | — |
