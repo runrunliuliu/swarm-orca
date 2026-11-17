@@ -1084,6 +1084,19 @@
             }
           }
         }
+      },
+      "useTaskPageDockActions": {
+        "taskDraftLinkFailed": "议题已创建，但草稿链接未保存。",
+        "taskDraftProviderRejected": "提供商拒绝了该议题。",
+        "taskDraftProposalRejected": "智能体编写了此草稿无法接受的提案（{{value0}}）。",
+        "taskDraftNoProposal": "智能体未及时编写草稿。",
+        "taskDraftReuseFailed": "无法将现有议题链接到此草稿。",
+        "taskDockUnsupportedSource": "草稿仅支持 GitHub、Linear 和 Jira 任务。",
+        "taskDraftGhLocalOnly": "手动 gh 回退需要本地仓库。",
+        "taskDraftGhMissing": "未安装 gh CLI，因此手动回退不可用。",
+        "taskDraftGhLoggedOut": "gh 未登录，因此手动回退不可用。",
+        "taskDraftGhNoRepo": "此仓库没有 GitHub 所有者和名称。",
+        "taskDraftOutcomeUnknown": "结果未知 — 请勿重试。提供商可能已创建议题。"
       }
     },
     "components": {
@@ -2205,7 +2218,34 @@
         "taskDockAgentLaunchFailed": "无法在草稿工作区中启动智能体。",
         "taskDockOpenFailed": "无法打开草稿工作区。",
         "taskDockNoSession": "此草稿没有智能体会话。请从侧边栏打开并启动智能体，然后重新发送。",
-        "taskDockInstructionNotDelivered": "草稿会话未接受该指令。"
+        "taskDockInstructionNotDelivered": "草稿会话未接受该指令。",
+        "taskDraftNoContext": "请选择来源和仓库。",
+        "taskDraftCreatingDraft": "正在创建草稿...",
+        "taskDraftCreateFailed": "无法创建草稿。",
+        "taskDraftRetry": "重试",
+        "taskDraftAgentLaunchFailed": "无法启动智能体。",
+        "taskDraftRetryAgent": "重试智能体",
+        "taskDraftDrafting": "正在起草任务...",
+        "taskDraftCreateIssue": "创建议题",
+        "taskDraftCancelPreview": "取消",
+        "taskDraftUseGhInstead": "改用 gh",
+        "taskDraftCreatingIssue": "正在创建议题...",
+        "taskDraftIssueCreatedLinkFailedUnknown": "议题已创建，但链接未保存。",
+        "taskDraftIssueCreatedLinkFailed": "议题 #{{value0}} 已创建，但链接未保存。",
+        "taskDraftRetryLink": "重试链接",
+        "taskDraftProviderRejected": "提供商拒绝了该议题。",
+        "taskDraftEditAndRetry": "编辑并重试",
+        "taskDraftDuplicateSuspected": "已存在类似议题。",
+        "taskDraftDuplicateCheckUnavailable": "无法检查重复项。",
+        "taskDraftReuseCandidate": "复用",
+        "taskDraftCreateAnyway": "仍然创建",
+        "taskDraftRemoteUnsupported": "创建议题需要本地仓库。",
+        "taskDraftCancelled": "草稿未创建。",
+        "taskDraftKept": "草稿已保留。",
+        "taskDraftContinue": "继续起草",
+        "taskDraftAgentCrashed": "智能体在生成预览之前退出。",
+        "taskDraftReopenAgent": "重新打开智能体",
+        "taskDraftArchived": "此草稿已归档。"
       },
       "Terminal": {
         "73768427cf": "关闭",
@@ -6313,6 +6353,11 @@
           "copied": "命令已复制",
           "retry": "立即重试",
           "restored": "Git 已恢复正常。工作树已刷新。"
+        },
+        "FolderRow": {
+          "draft": "草稿",
+          "taskRemoved": "任务已移除",
+          "linkedTo": "已链接到 {{value0}}"
         }
       },
       "shared": {

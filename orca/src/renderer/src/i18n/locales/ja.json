@@ -1084,6 +1084,19 @@
             }
           }
         }
+      },
+      "useTaskPageDockActions": {
+        "taskDraftLinkFailed": "Issue は作成されましたが、下書きのリンクを保存できませんでした。",
+        "taskDraftProviderRejected": "プロバイダーが Issue を拒否しました。",
+        "taskDraftProposalRejected": "Agent がこの下書きでは受け付けられない提案を作成しました（{{value0}}）。",
+        "taskDraftNoProposal": "Agent が時間内に下書きを作成しませんでした。",
+        "taskDraftReuseFailed": "既存の Issue をこの下書きにリンクできませんでした。",
+        "taskDockUnsupportedSource": "下書きは GitHub、Linear、Jira のタスクのみに対応しています。",
+        "taskDraftGhLocalOnly": "手動の gh フォールバックにはローカルリポジトリが必要です。",
+        "taskDraftGhMissing": "gh CLI がインストールされていないため、手動フォールバックは使用できません。",
+        "taskDraftGhLoggedOut": "gh にサインインしていないため、手動フォールバックは使用できません。",
+        "taskDraftGhNoRepo": "このリポジトリには GitHub のオーナーと名前がありません。",
+        "taskDraftOutcomeUnknown": "結果不明 — 再試行しないでください。プロバイダーが Issue を作成した可能性があります。"
       }
     },
     "components": {
@@ -2205,7 +2218,34 @@
         "taskDockAgentLaunchFailed": "下書きワークスペースで Agent を起動できませんでした。",
         "taskDockOpenFailed": "下書きワークスペースを開けませんでした。",
         "taskDockNoSession": "この下書きには Agent セッションがありません。サイドバーから開いて Agent を開始してから、もう一度送信してください。",
-        "taskDockInstructionNotDelivered": "下書きのセッションが指示を受け付けませんでした。"
+        "taskDockInstructionNotDelivered": "下書きのセッションが指示を受け付けませんでした。",
+        "taskDraftNoContext": "ソースとリポジトリを選択してください。",
+        "taskDraftCreatingDraft": "下書きを作成しています…",
+        "taskDraftCreateFailed": "下書きを作成できませんでした。",
+        "taskDraftRetry": "再試行",
+        "taskDraftAgentLaunchFailed": "Agent を開始できませんでした。",
+        "taskDraftRetryAgent": "Agent を再試行",
+        "taskDraftDrafting": "タスクの下書きを作成しています…",
+        "taskDraftCreateIssue": "Issue を作成",
+        "taskDraftCancelPreview": "キャンセル",
+        "taskDraftUseGhInstead": "gh を代わりに使用",
+        "taskDraftCreatingIssue": "Issue を作成しています…",
+        "taskDraftIssueCreatedLinkFailedUnknown": "Issue は作成されましたが、リンクを保存できませんでした。",
+        "taskDraftIssueCreatedLinkFailed": "Issue #{{value0}} は作成されましたが、リンクを保存できませんでした。",
+        "taskDraftRetryLink": "リンクを再試行",
+        "taskDraftProviderRejected": "プロバイダーが Issue を拒否しました。",
+        "taskDraftEditAndRetry": "編集して再試行",
+        "taskDraftDuplicateSuspected": "類似の Issue が既に存在します。",
+        "taskDraftDuplicateCheckUnavailable": "重複を確認できませんでした。",
+        "taskDraftReuseCandidate": "再利用",
+        "taskDraftCreateAnyway": "それでも作成",
+        "taskDraftRemoteUnsupported": "Issue の作成にはローカルリポジトリが必要です。",
+        "taskDraftCancelled": "下書きは作成されませんでした。",
+        "taskDraftKept": "下書きは保持されます。",
+        "taskDraftContinue": "下書きを続ける",
+        "taskDraftAgentCrashed": "Agent はプレビューを生成する前に終了しました。",
+        "taskDraftReopenAgent": "Agent を再度開く",
+        "taskDraftArchived": "この下書きはアーカイブされています。"
       },
       "Terminal": {
         "73768427cf": "閉じる",
@@ -6313,6 +6353,11 @@
           "copied": "コマンドをコピーしました",
           "retry": "今すぐ再試行",
           "restored": "Git が再び動作しています。ワークツリーを更新しました。"
+        },
+        "FolderRow": {
+          "draft": "下書き",
+          "taskRemoved": "タスク削除済み",
+          "linkedTo": "{{value0}} にリンク済み"
         }
       },
       "shared": {

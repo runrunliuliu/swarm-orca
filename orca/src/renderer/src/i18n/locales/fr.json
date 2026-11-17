@@ -1183,6 +1183,19 @@
             }
           }
         }
+      },
+      "useTaskPageDockActions": {
+        "taskDraftLinkFailed": "Le ticket a été créé, mais le lien du brouillon n'a pas été enregistré.",
+        "taskDraftProviderRejected": "Le fournisseur a rejeté le ticket.",
+        "taskDraftProposalRejected": "L'agent a rédigé une proposition que ce brouillon ne peut pas accepter ({{value0}}).",
+        "taskDraftNoProposal": "L'agent n'a pas rédigé de brouillon à temps.",
+        "taskDraftReuseFailed": "Le ticket existant n'a pas pu être lié à ce brouillon.",
+        "taskDockUnsupportedSource": "Les brouillons ne prennent en charge que les tâches GitHub, Linear et Jira.",
+        "taskDraftGhLocalOnly": "La méthode manuelle avec gh nécessite un dépôt local.",
+        "taskDraftGhMissing": "La CLI gh n'est pas installée, la méthode manuelle n'est donc pas disponible.",
+        "taskDraftGhLoggedOut": "gh n'est pas connecté, la méthode manuelle n'est donc pas disponible.",
+        "taskDraftGhNoRepo": "Ce dépôt n'a pas de propriétaire ni de nom GitHub.",
+        "taskDraftOutcomeUnknown": "Résultat inconnu — ne réessayez pas. Le fournisseur a peut-être créé le ticket."
       }
     },
     "components": {
@@ -2308,7 +2321,34 @@
         "taskDockAgentLaunchFailed": "L'agent n'a pas pu être lancé dans l'espace de travail du brouillon.",
         "taskDockOpenFailed": "L'espace de travail du brouillon n'a pas pu être ouvert.",
         "taskDockNoSession": "Ce brouillon n'a pas de session d'agent. Ouvrez-le depuis la barre latérale, démarrez un agent, puis envoyez à nouveau.",
-        "taskDockInstructionNotDelivered": "La session du brouillon n'a pas accepté l'instruction."
+        "taskDockInstructionNotDelivered": "La session du brouillon n'a pas accepté l'instruction.",
+        "taskDraftNoContext": "Choisissez une source et un dépôt.",
+        "taskDraftCreatingDraft": "Création du brouillon...",
+        "taskDraftCreateFailed": "Impossible de créer le brouillon.",
+        "taskDraftRetry": "Réessayer",
+        "taskDraftAgentLaunchFailed": "L'agent n'a pas pu démarrer.",
+        "taskDraftRetryAgent": "Réessayer l'agent",
+        "taskDraftDrafting": "Rédaction de la tâche...",
+        "taskDraftCreateIssue": "Créer un ticket",
+        "taskDraftCancelPreview": "Annuler",
+        "taskDraftUseGhInstead": "Utiliser gh à la place",
+        "taskDraftCreatingIssue": "Création du ticket...",
+        "taskDraftIssueCreatedLinkFailedUnknown": "Le ticket a été créé, mais le lien n'a pas été enregistré.",
+        "taskDraftIssueCreatedLinkFailed": "Le ticket #{{value0}} a été créé, mais le lien n'a pas été enregistré.",
+        "taskDraftRetryLink": "Réessayer le lien",
+        "taskDraftProviderRejected": "Le fournisseur a rejeté le ticket.",
+        "taskDraftEditAndRetry": "Modifier et réessayer",
+        "taskDraftDuplicateSuspected": "Un ticket similaire existe déjà.",
+        "taskDraftDuplicateCheckUnavailable": "Impossible de vérifier les doublons.",
+        "taskDraftReuseCandidate": "Réutiliser",
+        "taskDraftCreateAnyway": "Créer quand même",
+        "taskDraftRemoteUnsupported": "Créer des tickets nécessite un dépôt local.",
+        "taskDraftCancelled": "Le brouillon n'a pas été créé.",
+        "taskDraftKept": "Votre brouillon est conservé.",
+        "taskDraftContinue": "Continuer la rédaction",
+        "taskDraftAgentCrashed": "L'agent s'est arrêté avant de produire un aperçu.",
+        "taskDraftReopenAgent": "Rouvrir l'agent",
+        "taskDraftArchived": "Ce brouillon est archivé."
       },
       "Terminal": {
         "73768427cf": "Fermer",
@@ -6416,6 +6456,11 @@
           "copied": "Commande copiée",
           "retry": "Réessayer maintenant",
           "restored": "Git fonctionne à nouveau. Worktrees actualisés."
+        },
+        "FolderRow": {
+          "draft": "brouillon",
+          "taskRemoved": "tâche supprimée",
+          "linkedTo": "lié à {{value0}}"
         }
       },
       "shared": {

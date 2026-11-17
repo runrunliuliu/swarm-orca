@@ -1221,6 +1221,19 @@
             }
           }
         }
+      },
+      "useTaskPageDockActions": {
+        "taskDraftLinkFailed": "The issue was created, but the draft link was not saved.",
+        "taskDraftProviderRejected": "The provider rejected the issue.",
+        "taskDraftProposalRejected": "The agent wrote a proposal this draft cannot accept ({{value0}}).",
+        "taskDraftNoProposal": "The agent did not write a draft in time.",
+        "taskDraftReuseFailed": "The existing issue could not be linked to this draft.",
+        "taskDockUnsupportedSource": "Drafts support GitHub, Linear and Jira tasks only.",
+        "taskDraftGhLocalOnly": "The manual gh fallback needs a local repository.",
+        "taskDraftGhMissing": "The gh CLI is not installed, so the manual fallback is unavailable.",
+        "taskDraftGhLoggedOut": "gh is not signed in, so the manual fallback is unavailable.",
+        "taskDraftGhNoRepo": "This repository has no GitHub owner and name.",
+        "taskDraftOutcomeUnknown": "Outcome unknown — do not retry. The provider may have created the issue."
       }
     },
     "components": {
@@ -2382,7 +2395,34 @@
         "taskDockAgentLaunchFailed": "The agent could not be launched in the draft workspace.",
         "taskDockOpenFailed": "The draft workspace could not be opened.",
         "taskDockNoSession": "This draft has no agent session. Open it from the sidebar and start an agent, then send again.",
-        "taskDockInstructionNotDelivered": "The draft session did not accept the instruction."
+        "taskDockInstructionNotDelivered": "The draft session did not accept the instruction.",
+        "taskDraftNoContext": "Pick a source and a repository.",
+        "taskDraftCreatingDraft": "Creating the draft…",
+        "taskDraftCreateFailed": "Could not create the draft.",
+        "taskDraftRetry": "Try again",
+        "taskDraftAgentLaunchFailed": "The agent could not start.",
+        "taskDraftRetryAgent": "Retry agent",
+        "taskDraftDrafting": "Drafting the task…",
+        "taskDraftCreateIssue": "Create issue",
+        "taskDraftCancelPreview": "Cancel",
+        "taskDraftUseGhInstead": "Use gh instead",
+        "taskDraftCreatingIssue": "Creating the issue…",
+        "taskDraftIssueCreatedLinkFailedUnknown": "The issue was created, but the link was not saved.",
+        "taskDraftIssueCreatedLinkFailed": "Issue #{{value0}} was created, but the link was not saved.",
+        "taskDraftRetryLink": "Retry link",
+        "taskDraftProviderRejected": "The provider rejected the issue.",
+        "taskDraftEditAndRetry": "Edit and retry",
+        "taskDraftDuplicateSuspected": "A similar issue already exists.",
+        "taskDraftDuplicateCheckUnavailable": "Could not check for duplicates.",
+        "taskDraftReuseCandidate": "Reuse",
+        "taskDraftCreateAnyway": "Still create",
+        "taskDraftRemoteUnsupported": "Creating issues needs a local repository.",
+        "taskDraftCancelled": "The draft was not created.",
+        "taskDraftKept": "Your draft is kept.",
+        "taskDraftContinue": "Continue drafting",
+        "taskDraftAgentCrashed": "The agent exited before producing a preview.",
+        "taskDraftReopenAgent": "Reopen agent",
+        "taskDraftArchived": "This draft is archived."
       },
       "Terminal": {
         "73768427cf": "Close",
@@ -6497,6 +6537,11 @@
           "copied": "Command copied",
           "retry": "Retry now",
           "restored": "Git is working again. Worktrees refreshed."
+        },
+        "FolderRow": {
+          "draft": "draft",
+          "taskRemoved": "task removed",
+          "linkedTo": "linked to {{value0}}"
         }
       },
       "shared": {

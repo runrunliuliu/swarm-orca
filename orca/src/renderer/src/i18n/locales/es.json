@@ -874,6 +874,19 @@
         "description": "Los mensajes de permisos de macOS pueden aparecer cuando un agente o una herramienta de terminal que se ejecuta en Orca intenta acceder a archivos protegidos. Concede acceso total al disco en Ajustes para reducir estos avisos.",
         "openSettings": "Abrir ajustes",
         "dismiss": "No volver a mostrar"
+      },
+      "useTaskPageDockActions": {
+        "taskDraftLinkFailed": "Se creó el issue, pero no se guardó el vínculo del borrador.",
+        "taskDraftProviderRejected": "El proveedor rechazó el issue.",
+        "taskDraftProposalRejected": "El agente escribió una propuesta que este borrador no puede aceptar ({{value0}}).",
+        "taskDraftNoProposal": "El agente no escribió un borrador a tiempo.",
+        "taskDraftReuseFailed": "No se pudo vincular el issue existente a este borrador.",
+        "taskDockUnsupportedSource": "Los borradores solo admiten tareas de GitHub, Linear y Jira.",
+        "taskDraftGhLocalOnly": "El método manual con gh necesita un repositorio local.",
+        "taskDraftGhMissing": "La CLI de gh no está instalada, así que el método manual no está disponible.",
+        "taskDraftGhLoggedOut": "No se ha iniciado sesión en gh, así que el método manual no está disponible.",
+        "taskDraftGhNoRepo": "Este repositorio no tiene propietario ni nombre de GitHub.",
+        "taskDraftOutcomeUnknown": "Resultado desconocido — no lo reintentes. Es posible que el proveedor haya creado el issue."
       }
     },
     "components": {
@@ -1972,7 +1985,34 @@
         "taskDockAgentLaunchFailed": "No se pudo iniciar el agente en el espacio de trabajo del borrador.",
         "taskDockOpenFailed": "No se pudo abrir el espacio de trabajo del borrador.",
         "taskDockNoSession": "Este borrador no tiene sesión de agente. Ábrelo desde la barra lateral, inicia un agente y vuelve a enviar.",
-        "taskDockInstructionNotDelivered": "La sesión del borrador no aceptó la instrucción."
+        "taskDockInstructionNotDelivered": "La sesión del borrador no aceptó la instrucción.",
+        "taskDraftNoContext": "Elige un origen y un repositorio.",
+        "taskDraftCreatingDraft": "Creando el borrador...",
+        "taskDraftCreateFailed": "No se pudo crear el borrador.",
+        "taskDraftRetry": "Reintentar",
+        "taskDraftAgentLaunchFailed": "El agente no pudo iniciarse.",
+        "taskDraftRetryAgent": "Reintentar agente",
+        "taskDraftDrafting": "Redactando la tarea...",
+        "taskDraftCreateIssue": "Crear issue",
+        "taskDraftCancelPreview": "Cancelar",
+        "taskDraftUseGhInstead": "Usar gh en su lugar",
+        "taskDraftCreatingIssue": "Creando el issue...",
+        "taskDraftIssueCreatedLinkFailedUnknown": "Se creó el issue, pero no se guardó el vínculo.",
+        "taskDraftIssueCreatedLinkFailed": "Se creó el issue #{{value0}}, pero no se guardó el vínculo.",
+        "taskDraftRetryLink": "Reintentar vínculo",
+        "taskDraftProviderRejected": "El proveedor rechazó el issue.",
+        "taskDraftEditAndRetry": "Editar y reintentar",
+        "taskDraftDuplicateSuspected": "Ya existe un issue similar.",
+        "taskDraftDuplicateCheckUnavailable": "No se pudieron comprobar los duplicados.",
+        "taskDraftReuseCandidate": "Reutilizar",
+        "taskDraftCreateAnyway": "Crear de todos modos",
+        "taskDraftRemoteUnsupported": "Para crear issues se necesita un repositorio local.",
+        "taskDraftCancelled": "El borrador no se creó.",
+        "taskDraftKept": "Tu borrador se conserva.",
+        "taskDraftContinue": "Seguir redactando",
+        "taskDraftAgentCrashed": "El agente salió antes de generar una vista previa.",
+        "taskDraftReopenAgent": "Reabrir agente",
+        "taskDraftArchived": "Este borrador está archivado."
       },
       "Terminal": {
         "73768427cf": "Cerrar",
@@ -5397,6 +5437,11 @@
           "copied": "Comando copiado",
           "retry": "Reintentar ahora",
           "restored": "Git funciona de nuevo. Worktrees actualizados."
+        },
+        "FolderRow": {
+          "draft": "borrador",
+          "taskRemoved": "tarea eliminada",
+          "linkedTo": "vinculado a {{value0}}"
         }
       },
       "shared": {
