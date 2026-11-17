@@ -146,7 +146,7 @@ describe('TaskDock', () => {
   })
 
   it('uses the state heading and keeps the hook error as its detail', () => {
-    const cases: Array<[TaskDockDraftModel['state'], string]> = [
+    const cases: [TaskDockDraftModel['state'], string][] = [
       ['agent-launch-failed', 'The agent could not start.'],
       ['provider-rejected', 'The provider rejected the issue.'],
       ['issue-created-link-failed', 'Issue #412 was created, but the link was not saved.']

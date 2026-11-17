@@ -265,7 +265,7 @@ export function TaskDraftPreviewCard({
   }
 
   return (
-    <Card data-testid={`task-draft-state-${draft.state}`} className="gap-3 p-4">
+    <Card data-testid={`task-draft-state-${draft.state}`}>
       {content}
     </Card>
   )

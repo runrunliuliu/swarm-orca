@@ -29,6 +29,10 @@ export type TaskDraftProposalFile = { title: string; body: string; labels?: stri
 export type TaskDraftCandidate = { number: number; title: string; url: string; identifier?: string }
 export type TaskDraftDuplicateCandidate = TaskDraftCandidate
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /**
  * Read the agent's `task-draft-proposal.json`. The file is written by an agent,
  * so every field is checked here and a reason is returned instead of throwing.
@@ -36,10 +40,10 @@ export type TaskDraftDuplicateCandidate = TaskDraftCandidate
 export function parseTaskDraftProposal(
   raw: unknown
 ): { ok: true; proposal: TaskDraftProposal } | { ok: false; reason: string } {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+  if (!isRecord(raw)) {
     return { ok: false, reason: 'not-object' }
   }
-  const record = raw as Record<string, unknown>
+  const record = raw
   const title = typeof record.title === 'string' ? record.title.trim() : ''
   if (!title) {
     return { ok: false, reason: 'empty-title' }
@@ -196,4 +200,42 @@ export function buildTaskDraftCreateRequest(args: {
     params.workspaceId = target.workspaceId
   }
   return { kind: 'rpc', provider: 'linear', method: 'linear.issueCreate', params }
+}
+
+export type TaskDraftRetryAction =
+  | 'none'
+  | 'resubmit'
+  | 'relaunch-agent'
+  | 'reopen'
+  | 'link-only'
+  | 'create'
+
+/**
+ * What the one retry control means in each state (README 7.9.7 retry owner).
+ * Kept beside the state table so a new state cannot arrive without a decision.
+ */
+export function getTaskDraftRetryAction(state: TaskDraftState): TaskDraftRetryAction {
+  switch (state) {
+    case 'draft-failed':
+      return 'resubmit'
+    case 'agent-launch-failed':
+      return 'relaunch-agent'
+    case 'cancelled':
+    case 'agent-crashed':
+      return 'reopen'
+    case 'issue-created-link-failed':
+      return 'link-only'
+    case 'provider-rejected':
+      return 'create'
+    case 'idle':
+    case 'no-context':
+    case 'creating-draft':
+    case 'drafting':
+    case 'preview-ready':
+    case 'creating-issue':
+    case 'duplicate-suspected':
+    case 'remote-unsupported':
+    case 'archived':
+      return 'none'
+  }
 }

@@ -174,7 +174,8 @@ async function advance(ms: number): Promise<void> {
 }
 
 function draftKey(): string {
-  return (getTaskDraftDirectory.mock.calls.at(-1)?.[0].draftKey as string) ?? ''
+  const call = getTaskDraftDirectory.mock.calls.at(-1)
+  return typeof call?.[0].draftKey === 'string' ? call[0].draftKey : ''
 }
 
 function proposalJson(
@@ -505,10 +506,8 @@ describe('useTaskPageDockActions confirmed write', () => {
       method: 'github.createIssue',
       params: { repo: 'repo-1', title: PROPOSAL_TITLE, body: 'Body', labels: ['bug'] }
     })
-    const [filePath, content] = [
-      writeFile.mock.calls[0][0].filePath as string,
-      writeFile.mock.calls[0][0].content as string
-    ]
+    const filePath = String(writeFile.mock.calls[0][0].filePath)
+    const content = String(writeFile.mock.calls[0][0].content)
     expect(filePath.endsWith('task-draft-receipt.json')).toBe(true)
     expect(JSON.parse(content)).toMatchObject({
       version: 1,
@@ -579,7 +578,7 @@ describe('useTaskPageDockActions confirmed write', () => {
         workspaceId: 'ws-1'
       }
     })
-    const receipt = JSON.parse(writeFile.mock.calls[0][0].content as string)
+    const receipt = JSON.parse(String(writeFile.mock.calls[0][0].content))
     expect(receipt).toMatchObject({ provider: 'linear', number: 123, identifier: 'ENG-123' })
     expect(updateFolderWorkspace.mock.calls[0][1].linkedTask).toMatchObject({
       provider: 'linear',
@@ -873,7 +872,7 @@ describe('useTaskPageDockActions gh fallback', () => {
     await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
 
     expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledTimes(1)
-    const content = mocks.deliverLaunchPromptToAgentTab.mock.calls[0][0].content as string
+    const content = String(mocks.deliverLaunchPromptToAgentTab.mock.calls[0][0].content)
     expect(content).toContain('--repo acme/widgets')
     expect(content).toContain('--title')
     expect(content).toContain(PROPOSAL_TITLE)

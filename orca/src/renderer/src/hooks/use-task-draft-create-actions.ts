@@ -20,7 +20,8 @@ import {
   readCreateReceipt,
   writeDraftFile
 } from '@/lib/task-draft-create-rpc'
-import { formatCommandLine, relaunchDraftAgent } from '@/lib/task-draft-agent-launch'
+import { formatCommandLine } from '@/lib/task-draft-agent-launch'
+import { runTaskDraftRetry } from '@/lib/task-draft-retry'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import type { Repo } from '../../../shared/repo-types'
@@ -199,47 +200,16 @@ export function useTaskDraftCreateActions(args: {
   ])
 
   const retry = useCallback(async (): Promise<void> => {
-    const active = activeDraftRef.current
-    switch (state) {
-      case 'draft-failed':
-        await submit()
-        return
-      case 'agent-launch-failed': {
-        if (!active) {
-          return
-        }
-        setErrorMessage(null)
-        try {
-          await relaunchDraftAgent(active)
-          setState('drafting')
-        } catch (error) {
-          setState('agent-launch-failed')
-          setErrorMessage(errorText(error))
-        }
-        return
-      }
-      case 'cancelled':
-      case 'agent-crashed': {
-        if (!active) {
-          return
-        }
-        if (active.frozenProposal) {
-          setState('preview-ready')
-          return
-        }
-        await reopenDraft(active)
-        return
-      }
-      case 'issue-created-link-failed': {
-        if (active?.receipt) {
-          await finishLink(active, active.receipt)
-        }
-        return
-      }
-      case 'provider-rejected':
-        await createIssue()
-        break
-    }
+    await runTaskDraftRetry({
+      state,
+      active: activeDraftRef.current,
+      submit,
+      reopenDraft,
+      finishLink,
+      createIssue,
+      setState,
+      setErrorMessage
+    })
   }, [
     state,
     activeDraftRef,

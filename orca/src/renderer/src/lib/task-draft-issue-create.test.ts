@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   TASK_DRAFT_STATE_META,
   buildTaskDraftCreateRequest,
+  getTaskDraftRetryAction,
   findDuplicateCandidates,
   parseTaskDraftProposal,
   type TaskDraftCandidate,
@@ -265,5 +266,30 @@ describe('buildTaskDraftCreateRequest', () => {
       title: 'Add login retry',
       body: 'Retry the login call.'
     })
+  })
+})
+
+describe('getTaskDraftRetryAction', () => {
+  it('names one retry action per README 7.9.7 state and nothing for the rest', () => {
+    const cases: [TaskDraftState, string][] = [
+      ['idle', 'none'],
+      ['no-context', 'none'],
+      ['creating-draft', 'none'],
+      ['draft-failed', 'resubmit'],
+      ['agent-launch-failed', 'relaunch-agent'],
+      ['drafting', 'none'],
+      ['preview-ready', 'none'],
+      ['creating-issue', 'none'],
+      ['issue-created-link-failed', 'link-only'],
+      ['provider-rejected', 'create'],
+      ['duplicate-suspected', 'none'],
+      ['remote-unsupported', 'none'],
+      ['cancelled', 'reopen'],
+      ['agent-crashed', 'reopen'],
+      ['archived', 'none']
+    ]
+    for (const [state, action] of cases) {
+      expect(getTaskDraftRetryAction(state)).toBe(action)
+    }
   })
 })

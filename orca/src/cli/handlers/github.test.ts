@@ -219,12 +219,12 @@ function mockStdin(isTTY: boolean, chunks: string[]): { restore: () => void } {
     configurable: true,
     value: isTTY
   })
-  ;(stdin as unknown as Record<symbol, unknown>)[Symbol.asyncIterator] = async function* () {
+  Reflect.set(stdin, Symbol.asyncIterator, async function* () {
     for (const chunk of chunks) {
       yield chunk
     }
     return undefined
-  }
+  })
   return {
     restore: () => {
       Object.defineProperty(stdin, 'isTTY', {
@@ -232,7 +232,7 @@ function mockStdin(isTTY: boolean, chunks: string[]): { restore: () => void } {
         value: previousIsTTY
       })
       if (previousAsyncIterator) {
-        ;(stdin as unknown as Record<symbol, unknown>)[Symbol.asyncIterator] = previousAsyncIterator
+        Reflect.set(stdin, Symbol.asyncIterator, previousAsyncIterator)
       } else {
         Reflect.deleteProperty(stdin, Symbol.asyncIterator)
       }

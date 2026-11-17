@@ -10,17 +10,31 @@ vi.mock('../ipc/task-draft-directory', () => ({
   removeTaskDraftDirectory: removeTaskDraftDirectoryMock
 }))
 
-const workspace = {
-  id: 'ws-1',
-  projectGroupId: 'group-1',
-  folderPath: '/tmp/ws'
-} as FolderWorkspace
+function makeFolderWorkspace(overrides: Partial<FolderWorkspace> = {}): FolderWorkspace {
+  return {
+    id: 'ws-1',
+    projectGroupId: 'group-1',
+    name: 'Workspace',
+    folderPath: '/tmp/ws',
+    linkedTask: null,
+    comment: '',
+    isArchived: false,
+    isUnread: false,
+    isPinned: false,
+    sortOrder: 0,
+    lastActivityAt: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    ...overrides
+  }
+}
 
-const draftWorkspace = {
-  ...workspace,
+const workspace = makeFolderWorkspace()
+
+const draftWorkspace = makeFolderWorkspace({
   taskDraft: true,
   folderPath: '/userData/task-drafts/key-1'
-} as FolderWorkspace
+})
 
 function createController(
   resolveFolderConnectionId: (workspace: FolderWorkspace) => string | null,
@@ -31,6 +45,7 @@ function createController(
   const cleanupRemovedFolderWorkspaceState = vi.fn()
   const notifyReposChanged = vi.fn()
   const controller = new RuntimeProjectGroupController({
+    // Why as never: this test only needs the two store methods the delete path calls.
     getStore: () => ({ getFolderWorkspaces: () => workspaces, removeFolderWorkspace }) as never,
     resolveRepo: async () => {
       throw new Error('unused')
@@ -117,12 +132,11 @@ describe('RuntimeProjectGroupController.deleteFolderWorkspace', () => {
 
   it('passes only the deleted draft own folderPath', async () => {
     removeTaskDraftDirectoryMock.mockClear()
-    const otherDraft = {
-      ...workspace,
+    const otherDraft = makeFolderWorkspace({
       id: 'ws-2',
       taskDraft: true,
       folderPath: '/userData/task-drafts/key-2'
-    } as FolderWorkspace
+    })
     const deps = createController(() => 'local', [draftWorkspace, otherDraft])
 
     await expect(deps.controller.deleteFolderWorkspace('ws-1')).resolves.toEqual({ deleted: true })
@@ -134,7 +148,7 @@ describe('RuntimeProjectGroupController.deleteFolderWorkspace', () => {
 
   it('keeps today’s behavior for a draft with a blank folderPath', async () => {
     removeTaskDraftDirectoryMock.mockClear()
-    const blankDraft = { ...workspace, taskDraft: true, folderPath: '   ' } as FolderWorkspace
+    const blankDraft = makeFolderWorkspace({ taskDraft: true, folderPath: '   ' })
     const deps = createController(() => 'local', [blankDraft])
 
     await expect(deps.controller.deleteFolderWorkspace('ws-1')).resolves.toEqual({ deleted: true })
