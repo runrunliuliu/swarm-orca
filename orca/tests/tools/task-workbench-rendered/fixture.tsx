@@ -10,7 +10,8 @@ import { PaginationBar } from '../../../src/renderer/src/components/task-page/Pa
 import { TaskDock } from '../../../src/renderer/src/components/task-page/TaskDock'
 import type {
   TaskDockModel,
-  TaskDockModelOption
+  TaskDockModelOption,
+  TaskDockTranscriptLine
 } from '../../../src/renderer/src/components/task-page/TaskDock'
 import { renderFolderWorkspaceVirtualRow } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
 import type { FolderWorkspaceRowContext } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
@@ -64,6 +65,14 @@ const DOCK_MODEL_OPTIONS: readonly TaskDockModelOption[] = [
   { id: 'claude-sonnet-4', label: 'Sonnet 4' }
 ]
 
+// Duplicated in `run.mjs`'s derive() like the other dock pins: the driver owns the expected tail,
+// so a fixture edit that drops a line fails there instead of passing quietly.
+const DOCK_TRANSCRIPT: readonly TaskDockTranscriptLine[] = [
+  { text: 'Draft workspace ready: /tmp/task-drafts/add-login-retry', tone: 'meta' },
+  { text: '> Fix the flaky login test', tone: 'user' },
+  { text: 'Reading the failing test before I change anything.', tone: 'agent' }
+]
+
 // Duplicated in `run.mjs`'s derive() for the same reason as the dock pins.
 const LINKED_ISSUE_NUMBER = 412
 
@@ -83,6 +92,7 @@ function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.
   const [submits, setSubmits] = React.useState(0)
   const [lastInstruction, setLastInstruction] = React.useState('')
   const [lastModel, setLastModel] = React.useState('')
+  const transcript = state === 'expanded' ? DOCK_TRANSCRIPT : []
 
   const model: TaskDockModel = {
     instruction,
@@ -90,6 +100,8 @@ function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.
     targetLabel,
     model: modelId,
     modelOptions: DOCK_MODEL_OPTIONS,
+    transcript,
+    transcriptStatus: transcript.length > 0 ? 'live' : 'none',
     submitting,
     errorMessage,
     onInstructionChange: setInstruction,

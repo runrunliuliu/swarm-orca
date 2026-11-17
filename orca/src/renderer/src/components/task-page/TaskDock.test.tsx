@@ -12,6 +12,8 @@ function dockModel(overrides: Partial<TaskDockModel> = {}): TaskDockModel {
     targetLabel: 'github · acme/widgets',
     model: '',
     modelOptions: [],
+    transcript: [],
+    transcriptStatus: 'none',
     submitting: false,
     errorMessage: null,
     onInstructionChange: vi.fn(),
@@ -91,5 +93,35 @@ describe('TaskDock', () => {
     cleanup()
     render(<TaskDock model={dockModel({ expanded: true, targetLabel: null })} />)
     expect(screen.queryByText('github · acme/widgets')).toBeNull()
+  })
+
+  it('renders the draft transcript above the input and keeps the tones', () => {
+    const model = dockModel({
+      expanded: true,
+      transcriptStatus: 'live',
+      transcript: [
+        { text: 'Draft workspace ready.', tone: 'meta' },
+        { text: '> create the ticket', tone: 'user' },
+        { text: 'Created #42 via github.createIssue', tone: 'agent' }
+      ]
+    })
+    render(<TaskDock model={model} />)
+    const panel = screen.getByTestId('task-dock-transcript')
+    expect(panel.getAttribute('data-transcript-status')).toBe('live')
+    expect([...panel.children].map((line) => line.textContent)).toEqual([
+      'Draft workspace ready.',
+      '> create the ticket',
+      'Created #42 via github.createIssue'
+    ])
+    expect([...panel.children].map((line) => line.getAttribute('data-transcript-tone'))).toEqual([
+      'meta',
+      'user',
+      'agent'
+    ])
+  })
+
+  it('shows no transcript panel before a session exists', () => {
+    render(<TaskDock model={dockModel({ expanded: true })} />)
+    expect(screen.queryByTestId('task-dock-transcript')).toBeNull()
   })
 })

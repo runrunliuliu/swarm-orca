@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { TaskPageComposerActionsModel } from '@/components/use-task-page-composer-actions'
-import type { TaskDockModel, TaskDockModelOption } from '@/components/task-page/TaskDock'
+import type {
+  TaskDockModel,
+  TaskDockModelOption,
+  TaskDockTranscriptLine
+} from '@/components/task-page/TaskDock'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { getTaskDraftName } from '@/lib/task-draft-name'
 import { deliverToActiveDraft, launchDraftAgent } from '@/lib/task-draft-agent-launch'
@@ -10,6 +14,9 @@ import { getAgentSessionOptionCatalog } from '../../../shared/agent-session-opti
 import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../../shared/execution-host'
 import type { Repo } from '../../../shared/repo-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
+
+/** Shared empty tail: no session, so no lines to render. */
+const EMPTY_TRANSCRIPT: readonly TaskDockTranscriptLine[] = []
 
 /** The draft this dock submit created; a follow-up goes to the same agent session. */
 export type ActiveTaskDraft = {
@@ -35,6 +42,12 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
   const [modelId, setModelId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  // Why empty: the transcript comes from the draft agent's terminal, which only exists after the
+  // first send (`terminal.read` wiring is the next slice); the dock renders the panel from here.
+  const transcript = EMPTY_TRANSCRIPT
+  // Why state and not the ref: the dock only knows a session exists once a send succeeded, and the
+  // panel's status must re-render at that point.
+  const [hasSession, setHasSession] = useState(false)
   // Why: one key per draft, kept until the workspace exists so a retry reuses the same scratch directory.
   const draftKeyRef = useRef<string | null>(null)
   const activeDraftRef = useRef<ActiveTaskDraft | null>(null)
@@ -59,6 +72,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
       const active = activeDraftRef.current
       if (active) {
         await deliverToActiveDraft(active, text)
+        setHasSession(true)
         setInstruction('')
         setExpanded(false)
         return
@@ -123,6 +137,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
         model: modelId,
         targetLabel
       })
+      setHasSession(true)
       setInstruction('')
       setExpanded(false)
     } catch (error) {
@@ -138,6 +153,8 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
     targetLabel,
     model: modelId,
     modelOptions,
+    transcript,
+    transcriptStatus: hasSession ? 'live' : 'none',
     submitting,
     errorMessage,
     onInstructionChange: setInstruction,

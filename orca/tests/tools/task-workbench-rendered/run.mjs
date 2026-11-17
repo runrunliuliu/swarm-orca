@@ -97,9 +97,19 @@ const DOCK_MODEL_OPTIONS = [
   { id: 'claude-opus-4', label: 'Opus 4' },
   { id: 'claude-sonnet-4', label: 'Sonnet 4' }
 ]
+const DOCK_TRANSCRIPT = [
+  { text: 'Draft workspace ready: /tmp/task-drafts/add-login-retry', tone: 'meta' },
+  { text: '> Fix the flaky login test', tone: 'user' },
+  { text: 'Reading the failing test before I change anything.', tone: 'agent' }
+]
 const DOCK_FIXTURES = {
-  d1_dock_collapsed: { state: 'collapsed', typedInstruction: null, selectedModel: 'claude-opus-4' },
-  d2_dock_expanded: { state: 'expanded', typedInstruction: 'Fix the flaky login test', selectedModel: 'claude-opus-4' }
+  d1_dock_collapsed: { state: 'collapsed', typedInstruction: null, selectedModel: 'claude-opus-4', transcript: [] },
+  d2_dock_expanded: {
+    state: 'expanded',
+    typedInstruction: 'Fix the flaky login test',
+    selectedModel: 'claude-opus-4',
+    transcript: DOCK_TRANSCRIPT
+  }
 }
 
 const DOCK_TEST_IDS = {
@@ -113,7 +123,13 @@ const DOCK_TEST_IDS = {
 
 function dockTestIds(state) {
   return state === 'expanded'
-    ? { ...DOCK_TEST_IDS, 'task-dock-input': 1, 'task-dock-model': 1, 'task-dock-send': 1 }
+    ? {
+        ...DOCK_TEST_IDS,
+        'task-dock-input': 1,
+        'task-dock-model': 1,
+        'task-dock-send': 1,
+        'task-dock-transcript': 1
+      }
     : { ...DOCK_TEST_IDS, 'task-dock-collapsed': 1 }
 }
 
@@ -468,6 +484,7 @@ async function readDock(page) {
     const scroll = query('dock-fixture-card-scroll')
     const input = query('task-dock-input')
     const modelField = query('task-dock-model')
+    const transcript = query('task-dock-transcript')
     const pagination = footer === null ? null : footer.querySelector('nav[aria-label]')
     const attr = (name) => (root === null ? null : root.getAttribute(name))
     return {
@@ -488,6 +505,13 @@ async function readDock(page) {
         modelField === null || modelField.tagName.toLowerCase() !== 'select'
           ? null
           : [...modelField.options].map((option) => option.value),
+      transcriptStatus: transcript === null ? null : transcript.getAttribute('data-transcript-status'),
+      transcriptLines:
+        transcript === null ? [] : [...transcript.children].map((line) => (line.textContent ?? '').trim()),
+      transcriptTones:
+        transcript === null
+          ? []
+          : [...transcript.children].map((line) => line.getAttribute('data-transcript-tone')),
       dockInsideCard: card !== null && dock !== null && card.contains(dock),
       sameColumn:
         card !== null &&
@@ -586,6 +610,22 @@ async function assertDock(failures, page, report, expectation) {
     'dock:model-option-values',
     initial.modelOptionValues,
     ['', ...expectation.modelOptions.map((option) => option.id)]
+  )
+
+  // The expanded dock carries the draft conversation above its input; the fixture pins the tail so
+  // a screenshot cannot show an empty panel while the driver reports success.
+  compare(failures, 'dock:transcript-status', initial.transcriptStatus, 'live')
+  compare(
+    failures,
+    'dock:transcript-lines',
+    initial.transcriptLines,
+    dock.transcript.map((line) => line.text)
+  )
+  compare(
+    failures,
+    'dock:transcript-tones',
+    initial.transcriptTones,
+    dock.transcript.map((line) => line.tone)
   )
 
   const scrollTopSet = await page.evaluate((offset) => {

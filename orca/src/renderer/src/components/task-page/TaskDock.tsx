@@ -8,6 +8,12 @@ import { translate } from '@/i18n/i18n'
 
 export type TaskDockModelOption = { id: string; label: string }
 
+/** One rendered line of the draft agent's conversation, as the dock shows it. */
+export type TaskDockTranscriptLine = { text: string; tone?: 'agent' | 'user' | 'meta' }
+
+/** `none`: no draft session yet, so there is nothing to show. */
+export type TaskDockTranscriptStatus = 'none' | 'live' | 'ended'
+
 export type TaskDockModel = {
   instruction: string
   expanded: boolean
@@ -16,6 +22,9 @@ export type TaskDockModel = {
   /** The model id sent as the agent's `--model`; empty means the agent's configured default. */
   model: string
   modelOptions: readonly TaskDockModelOption[]
+  /** Tail of the draft agent's terminal, newest last; empty until a session exists. */
+  transcript: readonly TaskDockTranscriptLine[]
+  transcriptStatus: TaskDockTranscriptStatus
   submitting: boolean
   errorMessage: string | null
   onInstructionChange: (value: string) => void
@@ -39,6 +48,25 @@ export function TaskDock({ model }: { model: TaskDockModel }): React.JSX.Element
     <div className="shrink-0 border-t" data-testid="task-dock">
       {model.expanded ? (
         <div className="space-y-2 p-3">
+          {model.transcript.length > 0 ? (
+            <div
+              data-testid="task-dock-transcript"
+              data-transcript-status={model.transcriptStatus}
+              aria-live="polite"
+              className="max-h-40 min-h-0 overflow-y-auto scrollbar-sleek whitespace-pre-wrap rounded-md border bg-muted/30 px-2 py-1.5 font-mono text-[11px] leading-relaxed"
+            >
+              {model.transcript.map((line, index) => (
+                <div
+                  // Why index keys: the transcript is an append-only slice of a terminal tail;
+                  // the same text can repeat, so text is not a key and order is the identity.
+                  key={index}
+                  data-transcript-tone={line.tone ?? 'agent'}
+                >
+                  {line.text}
+                </div>
+              ))}
+            </div>
+          ) : null}
           <Textarea
             autoFocus
             value={model.instruction}
