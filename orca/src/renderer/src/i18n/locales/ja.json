@@ -1312,6 +1312,10 @@
         "88809e79db": "PR の再開に失敗しました",
         "00f55cc17b": "この PR ではリポジトリにアクセスできません。"
       },
+      "GitHubItemDialogOrcaTab": {
+        "tabLabel": "Orca",
+        "empty": "この項目にはまだワークスペースまたはトラッカー ID がリンクされていません。"
+      },
       "GitLabItemDialog": {
         "65e784c1f1": "再度開く",
         "a199eb364b": "閉じる",

@@ -1453,6 +1453,10 @@
         "88809e79db": "Failed to reopen pull request",
         "00f55cc17b": "Repository access is unavailable for this pull request."
       },
+      "GitHubItemDialogOrcaTab": {
+        "tabLabel": "Orca",
+        "empty": "No workspace or tracker identity is linked to this item yet."
+      },
       "GitLabItemDialog": {
         "65e784c1f1": "Reopen",
         "a199eb364b": "Close",
@@ -13805,7 +13809,8 @@
               "e9af8a88b9": "Status",
               "ec79155587": "Close incident details",
               "fcbc1582ad": "Open {{path}}",
-              "d0f2b19ecc": "Copy evidence path"
+              "d0f2b19ecc": "Copy evidence path",
+              "remoteTriage": "Triage for another host runs there: `orca incident decide` on that machine (the CLI is local-only)."
             },
             "IncidentFilterBar": {
               "491025e1b3": "Status",
@@ -13864,7 +13869,9 @@
               "e1211cdfac": "Nothing matches in the rows loaded so far — and the coverage notes above say the list may be incomplete. This is not \"nothing happened\".",
               "e82403c02d": "Reading the recorded tool failures…",
               "a49134b8d7": "None of the {{shown}} loaded row(s) match the worktree/time filter. The store reports {{total}} matching incident(s) for this status/class, and rows beyond the loaded page were not examined.",
-              "de8cfc79a1": "Worktree and time filters apply to the {{shown}} loaded row(s) only; the store query is not filtered by them ({{total}} match this status/class)."
+              "de8cfc79a1": "Worktree and time filters apply to the {{shown}} loaded row(s) only; the store query is not filtered by them ({{total}} match this status/class).",
+              "unsupported": "The selected host does not serve incident reads, so this is not a claim that it has no incidents.",
+              "storeNotCreated": "This host has never recorded an incident yet. Nothing is missing and nothing was read."
             },
             "IncidentTriageActions": {
               "003711947c": "Reason",
@@ -13894,11 +13901,11 @@
             "incident": {
               "coverage": {
                 "copy": {
+                  "4097322546": "This store hit its capacity limit at some point (history, not a current fault): a past write may have been dropped.",
                   "1422b679c2": "Showing {{shown}} of {{total}} matching incidents. Worktree and time filters only see the loaded rows.",
                   "17b2083e87": "Shadow replay has not reached the end, so hinted incidents may still be missing.",
                   "a2c68208ec": "The remote mirror is behind, but it has not stated how many incidents are still unsynchronised, so incidents from the peer may be missing.",
                   "38e8b64b7f": "The remote mirror is behind: {{unsynced}} incident(s) are not synchronised yet.",
-                  "4097322546": "This store hit its capacity limit at some point (history, not a current fault): a past write may have been dropped.",
                   "7625f1478a": "The remote mirror has not been probed yet, so incidents from the peer may be missing.",
                   "98c68e442c": "Remote capture is unsupported by design: this list only contains incidents this host observed, so SSH/WSL incidents are not shown.",
                   "9d0cb4ee63": "No remote host is mirrored or monitored from here (not configured).",

@@ -1415,6 +1415,10 @@
         "88809e79db": "Échec de la réouverture de la pull request",
         "00f55cc17b": "L'accès au dépôt est indisponible pour cette pull request."
       },
+      "GitHubItemDialogOrcaTab": {
+        "tabLabel": "Orca",
+        "empty": "Aucun espace de travail ni identité de tracker n'est encore lié à cet élément."
+      },
       "GitLabItemDialog": {
         "65e784c1f1": "Rouvrir",
         "a199eb364b": "Fermer",

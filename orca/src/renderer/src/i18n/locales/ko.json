@@ -1312,6 +1312,10 @@
         "88809e79db": "PR을 다시 열지 못했습니다.",
         "00f55cc17b": "이 PR에는 저장소 액세스를 사용할 수 없습니다."
       },
+      "GitHubItemDialogOrcaTab": {
+        "tabLabel": "Orca",
+        "empty": "이 항목에는 아직 워크스페이스 또는 트래커 ID가 연결되어 있지 않습니다."
+      },
       "GitLabItemDialog": {
         "65e784c1f1": "다시 열기",
         "a199eb364b": "닫기",

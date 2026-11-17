@@ -45,6 +45,10 @@
         "e517b4d641": "closed",
         "e9b7cb7d17": "Failed to {{value0}} PR"
       },
+      "GitHubItemDialogOrcaTab": {
+        "empty": "No workspace or tracker identity is linked to this item yet.",
+        "tabLabel": "Orca"
+      },
       "GitLabItemDialog": {
         "11384f99aa": "number",
         "4186685c78": "reopen",

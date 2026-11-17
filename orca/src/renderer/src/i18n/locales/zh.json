@@ -1312,6 +1312,10 @@
         "88809e79db": "无法重新提交拉取请求",
         "00f55cc17b": "此拉取请求无法访问存储库。"
       },
+      "GitHubItemDialogOrcaTab": {
+        "tabLabel": "Orca",
+        "empty": "此条目尚未关联工作区或追踪器标识。"
+      },
       "GitLabItemDialog": {
         "65e784c1f1": "重新打开",
         "a199eb364b": "关闭",

@@ -1087,6 +1087,10 @@
         },
         "checkActionRequiredHint": "Esta verificación necesita una acción manual en GitHub (por ejemplo, aprobar la ejecución del workflow) antes de que se desbloquee la fusión."
       },
+      "GitHubItemDialogOrcaTab": {
+        "tabLabel": "Orca",
+        "empty": "Aún no hay ningún espacio de trabajo ni identidad de rastreador vinculados a este elemento."
+      },
       "GitLabItemDialog": {
         "65e784c1f1": "Reabrir",
         "a199eb364b": "Cerrar",
