@@ -4,6 +4,9 @@
 cd orca
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture f1_baseline --width 1440 --height 900
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d1_dock_collapsed --width 1440 --height 900
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d3_preview_ready --width 1440 --height 900
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d3b_link_failed --width 1440 --height 900
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d5_sidebar_draft_row --width 1440 --height 900
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all --calibrate
 ```
@@ -48,6 +51,25 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 - Acceptance point 1, the keyboard path: typing reaches the dock's controlled input, `⌘+Enter`
   (`Control+Enter` off darwin) submits exactly once with that instruction, `Esc` collapses and keeps
   the text, and the expand button restores the expanded state.
+- **The draft preview card (`d3_preview_ready`, `d3b_link_failed`).** The production `TaskDock`
+  renders the production `TaskDraftPreviewCard` from a fixture draft model, in the same column as
+  the dock fixtures. `d3_preview_ready` has a proposal (title, two-line body, two labels) and
+  `provider: 'github'`: by name, `task-draft-state-preview-ready` exists once, the title, the
+  `task-draft-preview-body` text and the two badge labels match, the only three buttons are
+  `Create issue`, `Cancel` and `Use gh instead`, and no `task-dock-error` exists. Clicking
+  `Create issue` calls `onConfirmCreate` exactly once; `Cancel` and `Use gh instead` each call only
+  their own handler and never the confirm handler.
+- `d3b_link_failed` renders `task-draft-state-issue-created-link-failed` with
+  `createdIssueNumber: 412`: the copy names `#412` and the card's only button is `Retry link`,
+  which calls `onRetry` once and never `onConfirmCreate`.
+- **The sidebar draft row (`d5_sidebar_draft_row`).** The production
+  `renderFolderWorkspaceVirtualRow` (the narrowest component that renders `folder-row.tsx`'s
+  marker) in a real virtual-list container, driven by the real store (`taskDraftLinkMissing: {}`).
+  Three rows: a draft linked to GitHub `#412`, an unlinked draft, and a normal folder workspace.
+  Per row by `data-worktree-row-key`: the linked row has one `folder-draft-badge` reading `draft`
+  and one `folder-draft-link` reading `linked to #412`; the unlinked row has the badge and no link;
+  the normal row has neither and no `folder-draft-task-removed`. The document-level expected counts
+  are badge 2 / link 1.
 
 ## What it does not prove
 
@@ -63,8 +85,16 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   English defaults; no locale file is fetched. The dock's `onSubmit` only increments a counter in
   fixture state, so nothing proves the `taskDraft` workspace, the scratch directory or the agent
   launch behind it.
-- The sidebar draft row, the preview card and the tracker write are out of scope for P2a and
-  unproven here.
+- The preview-card fixture stops at the model boundary: it proves the card's copy, controls and
+  that each control calls only its own handler. It does not prove what the real hook then does
+  (proposal read, duplicate check, one create call, receipt, link write).
+- The sidebar row is rendered with a no-op row context and no project-group header, so selection,
+  drag, path status, PR decoration and grouping are not exercised. `folder-draft-task-removed` and
+  the archived row state are not rendered here; they are covered by `folder-draft-marker`'s unit
+  tests.
+- The tracker write, Jira form, `gh` fallback command and the real dock action hook remain
+  unproven here; they are not reachable without the store/RPC surface this harness deliberately
+  does not have.
 - The 1100/480 thresholds are design assumptions. S2 (1100×800) and S3 (1280×480) sit exactly on the
   inclusive boundaries (`>= 1100` is double, `< 480` is short), so they prove the boundary still
   fits, not the degraded layout. `--calibrate` adds 900×700 (single column) and 1280×479 (short)
@@ -90,7 +120,13 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 | S11 (mandatory) | `d1_dock_collapsed` | 1440×900 |
 | S12 (mandatory) | `d2_dock_expanded` | 1440×900 |
 | S13 | `d2_dock_expanded` | 1100×800 |
+| P2b preview | `d3_preview_ready` | 1440×900 |
+| P2b link failed | `d3b_link_failed` | 1440×900 |
+| P2b sidebar row | `d5_sidebar_draft_row` | 1440×900 |
 | calibration | `f1_baseline` | 900×700, 1280×479 |
+
+The three P2b rows are single-fixture runs, not part of `--all`: they are listed here as the
+evidence names, and the driver still writes the same per-run report JSON and PNG.
 
 ## Known contract edge
 
@@ -106,9 +142,11 @@ never collapses either group, so it passes. Moving the `data-testid` to the elem
 
 This sparse task checkout omits `orca/resources`, and `agent-catalog.tsx` imports the OpenClaude
 logo from it. No fixture renders that icon, so the harness Vite build resolves `resources/*` asset
-imports to a transparent pixel. No component or source file is modified.
+imports to a transparent pixel. The sidebar row imports the card graph, which reaches the same
+module, so it relies on that same resolution; no component or source file is modified.
 
-`fixture.css` names `components/task-page` as a Tailwind `@source`: the Vite root is this
-directory, so automatic content detection cannot see the classes of the dock and the pagination
-bar, and without it those fixtures render unstyled (no flex, no height cap, no overflow), which
-would make the card geometry assertion meaningless.
+`fixture.css` names `components/task-page` and `components/sidebar` as Tailwind `@source`s: the
+Vite root is this directory, so automatic content detection cannot see the classes of the dock,
+the pagination bar or the sidebar row, and without them those fixtures render unstyled (no flex,
+no height cap, no overflow), which would make the card geometry assertion and the row screenshot
+meaningless.

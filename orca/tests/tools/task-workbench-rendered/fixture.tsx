@@ -1,13 +1,27 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { I18nextProvider } from 'react-i18next'
+import type { VirtualItem } from '@tanstack/react-virtual'
 import { i18n } from '../../../src/renderer/src/i18n/i18n'
 import { TooltipProvider } from '../../../src/renderer/src/components/ui/tooltip'
 import { TaskWorkbenchPanel } from '../../../src/renderer/src/components/task-workbench/TaskWorkbenchPanel'
 import { TASK_PAGE_COLUMN_CLASS } from '../../../src/renderer/src/components/task-page/Frame'
 import { PaginationBar } from '../../../src/renderer/src/components/task-page/PaginationBar'
 import { TaskDock } from '../../../src/renderer/src/components/task-page/TaskDock'
-import type { TaskDockModel } from '../../../src/renderer/src/components/task-page/TaskDock'
+import type {
+  TaskDockDraftModel,
+  TaskDockModel
+} from '../../../src/renderer/src/components/task-page/TaskDock'
+import type {
+  TaskDraftProposal,
+  TaskDraftState
+} from '../../../src/renderer/src/lib/task-draft-issue-create'
+import { renderFolderWorkspaceVirtualRow } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
+import type { FolderWorkspaceRowContext } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
+import type { FolderWorkspaceItemRow } from '../../../src/renderer/src/components/sidebar/worktree-list/listing/renderable-rows'
+import { useAppStore } from '../../../src/renderer/src/store'
+import type { FolderWorkspace } from '../../../src/shared/folder-workspace-types'
+import type { ProjectGroup } from '../../../src/shared/project-group-types'
 import {
   TASK_WORKBENCH_FIXTURES,
   getTaskWorkbenchFixture
@@ -21,9 +35,9 @@ import type {
 import './fixture.css'
 
 /**
- * Rendered fixture for the task-workbench surfaces: the P1a workbench shell and
- * the P2a Tasks list-page dock. One fixture and one window size per run:
- * `?fixture=<key>`.
+ * Rendered fixture for the task-workbench surfaces: the P1a workbench shell, the
+ * P2a Tasks list-page dock and the P2b draft preview card / sidebar draft row.
+ * One fixture and one window size per run: `?fixture=<key>`.
  *
  * Why the layout comes from the viewport: P1a has no container tracking yet, so
  * the harness treats the window content area as the panel container. The run
@@ -44,16 +58,37 @@ const DOCK_FIXTURES: Record<string, 'collapsed' | 'expanded'> = {
 }
 const dockState = DOCK_FIXTURES[fixtureKey]
 
+// P2b draft states, driven through the production preview card inside the same dock.
+const DRAFT_FIXTURES: Record<string, TaskDraftState> = {
+  d3_preview_ready: 'preview-ready',
+  d3b_link_failed: 'issue-created-link-failed'
+}
+const draftState = DRAFT_FIXTURES[fixtureKey]
+
 // The typed instruction is deliberately duplicated in `run.mjs`'s derive(): the
 // driver retypes it, so a fixture edit that changes it fails there instead of
 // quietly weakening the keyboard assertion.
 const DOCK_TYPED_INSTRUCTION = 'Fix the flaky login test'
 
+// Duplicated in `run.mjs`'s derive() for the same reason as the typed instruction.
+const DRAFT_PROPOSAL: TaskDraftProposal = {
+  title: 'Add login retry',
+  body: 'Retry a failed login once before showing the error.\n\nKeep the existing error copy.',
+  labels: ['bug', 'needs-triage']
+}
+const DRAFT_CREATED_ISSUE_NUMBER = 412
+
 /** The dock is the one interactive part of the Tasks list page, and it is the
  *  only thing this fixture mounts: a column that mirrors `Frame.tsx` (the
  *  padded class is imported, not retyped) around a real `PaginationBar`, with
  *  local state standing in for the dock action hook. */
-function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.Element {
+function DockFixture({
+  state,
+  draftState
+}: {
+  state: 'collapsed' | 'expanded'
+  draftState?: TaskDraftState
+}): React.JSX.Element {
   const [instruction, setInstruction] = React.useState(
     state === 'expanded' ? DOCK_TYPED_INSTRUCTION : ''
   )
@@ -63,6 +98,28 @@ function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.
   const [errorMessage] = React.useState<string | null>(null)
   const [submits, setSubmits] = React.useState(0)
   const [lastInstruction, setLastInstruction] = React.useState('')
+  const [confirms, setConfirms] = React.useState(0)
+  const [cancels, setCancels] = React.useState(0)
+  const [ghFallbacks, setGhFallbacks] = React.useState(0)
+  const [retries, setRetries] = React.useState(0)
+
+  const draft: TaskDockDraftModel = {
+    state: draftState ?? 'idle',
+    provider: draftState ? 'github' : null,
+    proposal: draftState === 'preview-ready' ? DRAFT_PROPOSAL : null,
+    duplicates: [],
+    duplicateCheckUnavailable: false,
+    providerError: null,
+    createdIssueNumber:
+      draftState === 'issue-created-link-failed' ? DRAFT_CREATED_ISSUE_NUMBER : null,
+    onConfirmCreate: () => setConfirms((count) => count + 1),
+    onCancelPreview: () => setCancels((count) => count + 1),
+    onReuseCandidate: () => {},
+    onCreateAnyway: () => {},
+    onRetry: () => setRetries((count) => count + 1),
+    onReopenAgent: () => {},
+    onChooseGhFallback: () => setGhFallbacks((count) => count + 1)
+  }
 
   const model: TaskDockModel = {
     instruction,
@@ -70,6 +127,7 @@ function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.
     targetLabel,
     submitting,
     errorMessage,
+    draft,
     onInstructionChange: setInstruction,
     onExpandedChange: setExpanded,
     onSubmit: () => {
@@ -84,6 +142,10 @@ function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.
       data-dock-submits={submits}
       data-dock-last-instruction={lastInstruction}
       data-dock-expanded={String(expanded)}
+      data-dock-confirms={confirms}
+      data-dock-cancels={cancels}
+      data-dock-gh-fallbacks={ghFallbacks}
+      data-dock-retries={retries}
       className="flex h-screen flex-col bg-background p-4 text-foreground"
     >
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -124,6 +186,146 @@ function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.
   )
 }
 
+const PROJECT_GROUP: ProjectGroup = {
+  id: 'project-group-drafts',
+  name: 'Draft tasks',
+  parentPath: null,
+  parentGroupId: null,
+  createdFrom: 'manual',
+  tabOrder: 0,
+  isCollapsed: false,
+  color: null,
+  createdAt: 1,
+  updatedAt: 1
+}
+
+function makeFolderWorkspace(
+  id: string,
+  name: string,
+  overrides: Partial<FolderWorkspace> = {}
+): FolderWorkspace {
+  return {
+    id,
+    projectGroupId: PROJECT_GROUP.id,
+    name,
+    folderPath: `/tmp/task-drafts/${id}`,
+    linkedTask: null,
+    taskDraft: true,
+    comment: '',
+    isArchived: false,
+    isUnread: false,
+    isPinned: false,
+    sortOrder: 0,
+    lastActivityAt: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides
+  }
+}
+
+// Duplicated in `run.mjs`'s derive(): the driver owns the expected badge/link per
+// row, so a fixture edit that drops one fails there instead of passing quietly.
+const SIDEBAR_ROWS: FolderWorkspaceItemRow[] = [
+  {
+    type: 'folder-workspace',
+    key: 'folder-workspace:draft-linked',
+    projectGroup: PROJECT_GROUP,
+    depth: 0,
+    groupDepth: 0,
+    folderWorkspace: makeFolderWorkspace('draft-linked', 'add-login-retry', {
+      linkedTask: {
+        provider: 'github',
+        type: 'issue',
+        number: DRAFT_CREATED_ISSUE_NUMBER,
+        title: 'Add login retry',
+        url: `https://github.com/acme/widgets/issues/${DRAFT_CREATED_ISSUE_NUMBER}`
+      }
+    })
+  },
+  {
+    type: 'folder-workspace',
+    key: 'folder-workspace:draft-unlinked',
+    projectGroup: PROJECT_GROUP,
+    depth: 0,
+    groupDepth: 0,
+    folderWorkspace: makeFolderWorkspace('draft-unlinked', 'trim-copy')
+  },
+  {
+    type: 'folder-workspace',
+    key: 'folder-workspace:plain-folder',
+    projectGroup: PROJECT_GROUP,
+    depth: 0,
+    groupDepth: 0,
+    folderWorkspace: makeFolderWorkspace('plain-folder', 'release-notes', {
+      taskDraft: undefined
+    })
+  }
+]
+
+const SIDEBAR_ROW_HEIGHT = 72
+
+/** No-op row context: the fixture proves the marker line, not selection, drag,
+ *  PR decoration or path status. `settings: null` is the store's own default. */
+const SIDEBAR_ROW_CONTEXT: FolderWorkspaceRowContext = {
+  groupBy: 'none',
+  newCardStyle: false,
+  settings: null,
+  activeWorktreeId: null,
+  currentWorktreeId: null,
+  selectedWorktreeIds: new Set<string>(),
+  repoMap: new Map(),
+  worktreeMap: new Map(),
+  worktreeLineageById: {},
+  workspaceLineageByChildKey: {},
+  prCache: null,
+  hostedReviewCache: null,
+  getCachedFolderWorkspacePathStatus: () => null,
+  onSelectionGesture: () => false,
+  onContextMenuSelect: () => [],
+  onImmediateActivate: () => {},
+  onRowClickCapture: () => {},
+  onRowPointerDown: () => {}
+}
+
+// Why: the marker line reads the renderer-only removal marker from the real
+// store; an empty map is the "no linked task read came back missing" state.
+useAppStore.setState({ taskDraftLinkMissing: {} })
+
+/** The production folder-workspace row (the narrowest component that renders
+ *  `folder-row.tsx`'s marker), three rows in a real virtual-list container:
+ *  a linked draft, an unlinked draft and a normal folder workspace. */
+function SidebarDraftRowFixture(): React.JSX.Element {
+  return (
+    <main
+      data-testid="sidebar-fixture-root"
+      className="min-h-screen bg-background p-4 text-foreground"
+    >
+      <div
+        data-testid="sidebar-fixture-list"
+        className="relative w-[380px] rounded-md border border-border/50 bg-background"
+        style={{ height: SIDEBAR_ROWS.length * SIDEBAR_ROW_HEIGHT }}
+      >
+        {SIDEBAR_ROWS.map((row, index) => {
+          const vItem: VirtualItem = {
+            key: row.key,
+            index,
+            start: index * SIDEBAR_ROW_HEIGHT,
+            end: (index + 1) * SIDEBAR_ROW_HEIGHT,
+            size: SIDEBAR_ROW_HEIGHT,
+            lane: 0
+          }
+          return renderFolderWorkspaceVirtualRow({
+            ctx: SIDEBAR_ROW_CONTEXT,
+            row,
+            vItem,
+            measureVirtualRowElement: () => {}
+          })
+        })}
+      </div>
+    </main>
+  )
+}
+
 function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element {
   return (
     <main className="min-h-screen bg-background p-6 text-foreground">
@@ -134,7 +336,11 @@ function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element
       >
         Unknown task-workbench fixture: <code>{fixtureKey || '(missing)'}</code>. Known fixtures:{' '}
         <code>
-          {Object.keys(TASK_WORKBENCH_FIXTURES).concat(Object.keys(DOCK_FIXTURES)).join(', ')}
+          {Object.keys(TASK_WORKBENCH_FIXTURES)
+            .concat(Object.keys(DOCK_FIXTURES), Object.keys(DRAFT_FIXTURES), [
+              'd5_sidebar_draft_row'
+            ])
+            .join(', ')}
         </code>
       </div>
     </main>
@@ -168,8 +374,10 @@ createRoot(root).render(
     <TooltipProvider>
       {fixture ? (
         <Fixture view={fixture.view} />
-      ) : dockState ? (
-        <DockFixture state={dockState} />
+      ) : dockState || draftState ? (
+        <DockFixture state={dockState ?? 'collapsed'} draftState={draftState} />
+      ) : fixtureKey === 'd5_sidebar_draft_row' ? (
+        <SidebarDraftRowFixture />
       ) : (
         <FixtureError fixtureKey={fixtureKey} />
       )}

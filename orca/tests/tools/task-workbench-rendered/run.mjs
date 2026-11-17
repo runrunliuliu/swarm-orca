@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, plus the production TaskDock rendered in a column that mirrors Frame.tsx with a real PaginationBar. Proves data-testid presence/counts, the rendered layout decision, degradation copy, dock presence per state, the dock sitting outside the list card, the card giving up height instead of the page scrolling, the dock keyboard path, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store, RPC, locale switching or the workspace-creation path behind the dock submit.'
+  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, the production TaskDock rendered in a column that mirrors Frame.tsx with a real PaginationBar, the production draft preview card in its preview-ready and issue-created-link-failed states, and the production folder-workspace row with its draft/linked marker. Proves data-testid presence/counts, the rendered layout decision, degradation copy, dock presence per state, the dock sitting outside the list card, the card giving up height instead of the page scrolling, the dock keyboard path, preview-card controls calling only their own model handler, per-row draft badge/link text, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, locale switching or the workspace-creation path behind the dock submit.'
 
 // Contract §4.2, copied by hand: the fixture data is the other side of this
 // pin, so a fixture edit that changes a count fails here instead of silently
@@ -114,9 +114,66 @@ function dockTestIds(state) {
     : { ...DOCK_TEST_IDS, 'task-dock-expand': 1 }
 }
 
+// Hand-written on purpose, like DOCK_FIXTURES: the fixture holds the matching
+// proposal and the driver holds its own copy, so a drift fails the run.
+const DRAFT_FIXTURES = {
+  d3_preview_ready: {
+    state: 'preview-ready',
+    provider: 'github',
+    proposal: {
+      title: 'Add login retry',
+      body: 'Retry a failed login once before showing the error.\\n\\nKeep the existing error copy.',
+      labels: ['bug', 'needs-triage']
+    },
+    createdIssueNumber: null,
+    buttons: ['Create issue', 'Cancel', 'Use gh instead']
+  },
+  d3b_link_failed: {
+    state: 'issue-created-link-failed',
+    provider: 'github',
+    proposal: null,
+    createdIssueNumber: 412,
+    buttons: ['Retry link']
+  }
+}
+
+const SIDEBAR_FIXTURE = {
+  fixture: 'd5_sidebar_draft_row',
+  rows: [
+    { id: 'folder:draft-linked', badge: 'draft', link: 'linked to #412' },
+    { id: 'folder:draft-unlinked', badge: 'draft', link: null },
+    { id: 'folder:plain-folder', badge: null, link: null }
+  ]
+}
+
 export function derive(fixtureKey, width, height) {
   const dock = DOCK_FIXTURES[fixtureKey]
   if (dock) return { found: true, dock, expectedTestIds: dockTestIds(dock.state) }
+  const draft = DRAFT_FIXTURES[fixtureKey]
+  if (draft) {
+    return {
+      found: true,
+      dock: { state: 'collapsed' },
+      draft,
+      expectedTestIds: {
+        ...dockTestIds('collapsed'),
+        ['task-draft-state-' + draft.state]: 1,
+        ...(draft.state === 'preview-ready' ? { 'task-draft-preview-body': 1 } : {})
+      }
+    }
+  }
+  if (fixtureKey === SIDEBAR_FIXTURE.fixture) {
+    return {
+      found: true,
+      sidebar: SIDEBAR_FIXTURE,
+      expectedTestIds: {
+        'sidebar-fixture-root': 1,
+        'sidebar-fixture-list': 1,
+        'folder-draft-badge': SIDEBAR_FIXTURE.rows.filter((row) => row.badge !== null).length,
+        'folder-draft-link': SIDEBAR_FIXTURE.rows.filter((row) => row.link !== null).length
+      }
+    }
+  }
   const fixture = getTaskWorkbenchFixture(fixtureKey)
   if (!fixture) return { found: false }
   const view = fixture.view
@@ -467,6 +524,136 @@ async function readDock(page) {
   })
 }
 
+/** The draft counters live on the fixture root, next to the dock ones. */
+async function readDraftCounters(page) {
+  return page.evaluate(() => {
+    const root = document.querySelector('[data-testid="dock-fixture-root"]')
+    const read = (name) => (root === null ? -1 : Number(root.getAttribute(name)))
+    return {
+      confirms: read('data-dock-confirms'),
+      cancels: read('data-dock-cancels'),
+      ghFallbacks: read('data-dock-gh-fallbacks'),
+      retries: read('data-dock-retries')
+    }
+  })
+}
+
+/** The P2b half of the dock: the production preview card's state, copy, controls
+ *  and the fact that each control calls only its own model handler. */
+async function assertDraft(failures, page, report, draft) {
+  const previewTestId = 'task-draft-state-' + draft.state
+  const initial = await page.evaluate((testId) => {
+    const preview = document.querySelector('[data-testid="' + testId + '"]')
+    const body = document.querySelector('[data-testid="task-draft-preview-body"]')
+    const text = (element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()
+    return {
+      previewTestId: preview === null ? null : preview.getAttribute('data-testid'),
+      previewText: preview === null ? null : text(preview),
+      body: body === null ? null : text(body),
+      labels:
+        preview === null
+          ? []
+          : [...preview.querySelectorAll('[data-slot="badge"]')].map((element) => text(element)),
+      buttons:
+        preview === null
+          ? []
+          : [...preview.querySelectorAll('button')].map((element) => text(element)),
+      dockError: document.querySelectorAll('[data-testid="task-dock-error"]').length
+    }
+  }, previewTestId)
+  const counters = await readDraftCounters(page)
+
+  report.draft = {
+    state: draft.state,
+    previewTestId: initial.previewTestId,
+    body: initial.body,
+    labels: initial.labels,
+    buttons: initial.buttons,
+    dockError: initial.dockError
+  }
+
+  compare(failures, 'draft:preview-testid', initial.previewTestId, previewTestId)
+  compare(failures, 'draft:buttons', [...initial.buttons].sort(), [...draft.buttons].sort())
+  compare(failures, 'draft:dock-error', initial.dockError, 0)
+  compare(failures, 'draft:confirms-before-click', counters.confirms, 0)
+  compare(failures, 'draft:cancels-before-click', counters.cancels, 0)
+  compare(failures, 'draft:gh-fallbacks-before-click', counters.ghFallbacks, 0)
+  compare(failures, 'draft:retries-before-click', counters.retries, 0)
+
+  if (draft.proposal !== null) {
+    compare(failures, 'draft:title', initial.previewText.includes(draft.proposal.title), true)
+    compare(
+      failures,
+      'draft:body',
+      initial.body,
+      draft.proposal.body.replace(/\s+/g, ' ').trim()
+    )
+    compare(failures, 'draft:labels', [...initial.labels].sort(), [...draft.proposal.labels].sort())
+  }
+  if (draft.createdIssueNumber !== null) {
+    compare(
+      failures,
+      'draft:created-issue-number',
+      initial.previewText.includes('#' + draft.createdIssueNumber),
+      true
+    )
+  }
+
+  const card = page.locator('[data-testid="' + previewTestId + '"]')
+  if (draft.state === 'preview-ready') {
+    await card.locator('button', { hasText: 'Create issue' }).click()
+    const confirmed = await readDraftCounters(page)
+    compare(failures, 'draft:confirm-called-once', confirmed.confirms, 1)
+    compare(failures, 'draft:cancel-not-called', confirmed.cancels, 0)
+    compare(failures, 'draft:gh-fallback-not-called', confirmed.ghFallbacks, 0)
+
+    await card.locator('button', { hasText: 'Cancel' }).click()
+    await card.locator('button', { hasText: 'Use gh instead' }).click()
+    const after = await readDraftCounters(page)
+    compare(failures, 'draft:confirm-still-once', after.confirms, 1)
+    compare(failures, 'draft:cancel-called-once', after.cancels, 1)
+    compare(failures, 'draft:gh-fallback-called-once', after.ghFallbacks, 1)
+    report.draft.counters = after
+  } else {
+    await card.locator('button', { hasText: 'Retry link' }).click()
+    const retried = await readDraftCounters(page)
+    compare(failures, 'draft:retry-called-once', retried.retries, 1)
+    compare(failures, 'draft:confirm-never-called', retried.confirms, 0)
+    report.draft.counters = retried
+  }
+}
+
+/** Per row, not per document: the marker must sit on the two draft rows and be
+ *  absent from the normal folder workspace. */
+async function assertSidebar(failures, page, report, expected) {
+  const actual = await page.evaluate(() => {
+    const text = (element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()
+    return {
+      rows: [...document.querySelectorAll('[data-worktree-row-key]')].map((row) => ({
+        id: row.getAttribute('data-worktree-row-key'),
+        badges: [...row.querySelectorAll('[data-testid="folder-draft-badge"]')].map(text),
+        links: [...row.querySelectorAll('[data-testid="folder-draft-link"]')].map(text),
+        taskRemoved: row.querySelectorAll('[data-testid="folder-draft-task-removed"]').length
+      }))
+    }
+  })
+  report.sidebar = { rows: actual.rows }
+
+  compare(
+    failures,
+    'sidebar:row-ids',
+    actual.rows.map((row) => row.id),
+    expected.rows.map((row) => row.id)
+  )
+  const byId = new Map(actual.rows.map((row) => [row.id, row]))
+  for (const row of expected.rows) {
+    const found = byId.get(row.id)
+    compare(failures, `sidebar:${row.id}:badge`, found?.badges ?? null, row.badge === null ? [] : [row.badge])
+    compare(failures, `sidebar:${row.id}:link`, found?.links ?? null, row.link === null ? [] : [row.link])
+    compare(failures, `sidebar:${row.id}:task-removed`, found?.taskRemoved ?? null, 0)
+  }
+}
+
 /** The dock half of the matrix: presence per state, the dock outside the card,
  *  PaginationBar still in the card footer, and — expanded — the card giving up
  *  height to the dock instead of the page scrolling, plus the keyboard path. */
@@ -579,15 +766,17 @@ async function runOne(entry, builds) {
   try {
     const expectation = builds.derive(entry.fixture, entry.width, entry.height)
     report.expected = expectation.dock
-      ? { dock: expectation.dock }
-      : expectation.found
-        ? { label: expectation.label, summary: expectation.summary, counts: expectation.counts, layout: expectation.layout, semantic: expectation.semantic }
-        : { found: false }
+      ? { dock: expectation.dock, draft: expectation.draft ?? null }
+      : expectation.sidebar
+        ? { sidebar: expectation.sidebar }
+        : expectation.found
+          ? { label: expectation.label, summary: expectation.summary, counts: expectation.counts, layout: expectation.layout, semantic: expectation.semantic }
+          : { found: false }
     const contractCounts = CONTRACT_COUNTS[entry.fixture]
-    if (expectation.found && !expectation.dock && !contractCounts) {
+    if (expectation.found && !expectation.dock && !expectation.sidebar && !contractCounts) {
       failures.push({ name: 'counts:missing-contract-row', expected: 'a §4.2 row', actual: entry.fixture })
     }
-    if (expectation.found && !expectation.dock && contractCounts) {
+    if (expectation.found && !expectation.dock && !expectation.sidebar && contractCounts) {
       compare(failures, 'counts:contract', expectation.counts, contractCounts)
       compare(
         failures,
@@ -618,7 +807,7 @@ async function runOne(entry, builds) {
     const url = `${pathToFileURL(path.join(builds.renderer, 'index.html')).href}?fixture=${encodeURIComponent(entry.fixture)}`
     await page.goto(url)
     await page.waitForSelector(
-      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="dock-fixture-root"]',
+      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="dock-fixture-root"], [data-testid="sidebar-fixture-root"]',
       { timeout: 30000 }
     )
     await page.evaluate(() =>
@@ -664,7 +853,7 @@ async function runOne(entry, builds) {
       { width: entry.width, height: entry.height }
     )
 
-    if (expectation.dock) {
+    if (expectation.dock || expectation.sidebar) {
       for (const [id, expectedCount] of Object.entries(expectation.expectedTestIds)) {
         const actualCount = dom.testIds[id] ?? 0
         if (actualCount !== expectedCount) {
@@ -676,7 +865,15 @@ async function runOne(entry, builds) {
           failures.push({ name: `testid:${id}:unexpected`, expected: 0, actual: actualCount })
         }
       }
-      await assertDock(failures, page, report, expectation)
+      if (expectation.dock) {
+        await assertDock(failures, page, report, expectation)
+      }
+      if (expectation.draft) {
+        await assertDraft(failures, page, report, expectation.draft)
+      }
+      if (expectation.sidebar) {
+        await assertSidebar(failures, page, report, expectation.sidebar)
+      }
     } else if (expectation.found) {
       compare(failures, 'panel:layout-columns', dom.layout?.columns ?? null, expectation.layout.columns)
       compare(failures, 'panel:layout-json', dom.layout?.json ?? null, expectation.layout)
