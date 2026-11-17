@@ -5,10 +5,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TaskPageComposerActionsModel } from '@/components/use-task-page-composer-actions'
 import type * as NewWorkspaceModule from '@/lib/new-workspace'
+import { TASK_DRAFT_STATE_META } from '@/lib/task-draft-issue-create'
 import type { FolderWorkspace } from '../../../shared/folder-workspace-types'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { ProjectGroup } from '../../../shared/project-group-types'
 import type { Repo } from '../../../shared/repo-types'
+import type { TaskProvider } from '../../../shared/task-providers'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import { useAppStore } from '@/store'
 import { useTaskPageDockActions, type TaskPageDockActionsModel } from './use-task-page-dock-actions'
@@ -16,6 +18,8 @@ import { useTaskPageDockActions, type TaskPageDockActionsModel } from './use-tas
 const DRAFT_ROOT = '/users/me/Library/Application Support/Orca/task-drafts'
 const INSTRUCTION = 'Add a retry button to the login page'
 const DERIVED_NAME = 'Add Retry Button Login Page'
+const PROPOSAL_TITLE = 'Add a retry button'
+const ISSUE_URL = 'https://github.com/acme/widgets/issues/412'
 
 // Why: this checkout's sparse cone omits orca/resources, and the store chain reaches
 // components/pet/pet-models.ts, which imports those assets with `?url`. The rendered
@@ -50,6 +54,14 @@ vi.mock('@/lib/new-workspace', async (importOriginal) => ({
 
 const getTaskDraftDirectory = vi.fn()
 const createFolderWorkspace = vi.fn()
+const updateFolderWorkspace = vi.fn()
+const readFile = vi.fn()
+const writeFile = vi.fn()
+const runtimeCall = vi.fn()
+const listWorkItems = vi.fn()
+const searchLinearIssues = vi.fn()
+const searchJiraIssues = vi.fn()
+const preflightCheck = vi.fn()
 
 const repo: Repo = {
   id: 'repo-1',
@@ -92,13 +104,20 @@ const createdWorkspace: FolderWorkspace = {
   taskDraft: true
 }
 
-function createModel(overrides: { repo?: Repo | null } = {}): TaskPageComposerActionsModel {
+function createModel(
+  overrides: {
+    repo?: Repo | null
+    taskSource?: TaskProvider
+    extra?: Record<string, unknown>
+  } = {}
+): TaskPageComposerActionsModel {
   const model = {
-    taskSource: 'github',
+    taskSource: overrides.taskSource ?? 'github',
     primaryRepo: overrides.repo === undefined ? repo : overrides.repo,
-    folderWorkspaces: []
+    folderWorkspaces: [],
+    ...overrides.extra
   }
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this hook reads only taskSource/primaryRepo/folderWorkspaces; the other 39-stage fields are irrelevant here.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this hook reads only the task-source, repo, folder and draft-target fields; the other 39-stage fields are irrelevant here.
   return model as unknown as TaskPageComposerActionsModel
 }
 
@@ -115,6 +134,7 @@ function createSettings(): GlobalSettings {
 }
 
 type Hook = { result: { current: TaskPageDockActionsModel } }
+type DraftModel = TaskPageDockActionsModel['taskDock']['draft']
 
 async function submit(hook: Hook, instruction: string): Promise<void> {
   act(() => {
@@ -125,6 +145,85 @@ async function submit(hook: Hook, instruction: string): Promise<void> {
   })
 }
 
+/** Flush the hook's promise chain without relying on timers. */
+async function flush(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 40; index += 1) {
+      await Promise.resolve()
+    }
+  })
+}
+
+async function actOnDraft(hook: Hook, action: (draft: DraftModel) => void): Promise<void> {
+  await act(async () => {
+    action(hook.result.current.taskDock.draft)
+  })
+  await flush()
+}
+
+async function startDraft(hook: Hook): Promise<void> {
+  await submit(hook, INSTRUCTION)
+  await flush()
+}
+
+async function advance(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+  await flush()
+}
+
+function draftKey(): string {
+  return (getTaskDraftDirectory.mock.calls.at(-1)?.[0].draftKey as string) ?? ''
+}
+
+function proposalJson(
+  overrides: {
+    revision?: number
+    title?: string
+    provider?: string
+    draftKey?: string
+    repoId?: string | null
+    proposal?: unknown
+  } = {}
+): string {
+  return JSON.stringify({
+    version: 1,
+    draftKey: overrides.draftKey ?? draftKey(),
+    attempt: 1,
+    provider: overrides.provider ?? 'github',
+    repoId: overrides.repoId === undefined ? repo.id : overrides.repoId,
+    revision: overrides.revision ?? 1,
+    proposal: overrides.proposal ?? {
+      title: overrides.title ?? PROPOSAL_TITLE,
+      body: 'Body',
+      labels: ['bug']
+    }
+  })
+}
+
+function serveProposal(content: string): void {
+  readFile.mockImplementation(async ({ filePath }: { filePath: string }) => {
+    if (filePath.endsWith('task-draft-proposal.json')) {
+      return { content, isBinary: false }
+    }
+    throw new Error('ENOENT')
+  })
+}
+
+/** Submit once, then poll the proposal into `preview-ready`. */
+async function reachPreview(
+  hook: Hook,
+  overrides: Parameters<typeof proposalJson>[0] = {}
+): Promise<void> {
+  // Why: the initial poll tick must not read a proposal left behind by an earlier hook in this test.
+  readFile.mockRejectedValue(new Error('ENOENT'))
+  await startDraft(hook)
+  serveProposal(proposalJson(overrides))
+  await advance(1_500)
+  expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
+}
+
 const originalState = useAppStore.getState()
 
 beforeEach(() => {
@@ -133,6 +232,20 @@ beforeEach(() => {
     return `${DRAFT_ROOT}/${draftKey}`
   })
   createFolderWorkspace.mockResolvedValue(createdWorkspace)
+  updateFolderWorkspace.mockResolvedValue(true)
+  readFile.mockRejectedValue(new Error('ENOENT'))
+  writeFile.mockResolvedValue(undefined)
+  runtimeCall.mockResolvedValue({
+    ok: true,
+    result: { ok: true, number: 412, url: ISSUE_URL }
+  })
+  listWorkItems.mockResolvedValue({ items: [] })
+  searchLinearIssues.mockResolvedValue([])
+  searchJiraIssues.mockResolvedValue([])
+  preflightCheck.mockResolvedValue({
+    git: { installed: true },
+    gh: { installed: true, authenticated: true }
+  })
   mocks.activateAndRevealFolderWorkspace.mockReturnValue({ primaryTabId: 'tab-1' })
   mocks.ensureAgentStartupInTerminal.mockResolvedValue(undefined)
   mocks.deliverLaunchPromptToAgentTab.mockResolvedValue(true)
@@ -140,20 +253,31 @@ beforeEach(() => {
     settings: createSettings(),
     detectedAgentIds: ['claude'],
     projectGroups: [group],
-    createFolderWorkspace
+    createFolderWorkspace,
+    updateFolderWorkspace
   })
   Object.defineProperty(window, 'api', {
     configurable: true,
-    value: { app: { getTaskDraftDirectory } }
+    value: {
+      app: { getTaskDraftDirectory },
+      fs: { readFile, writeFile },
+      runtime: { call: runtimeCall },
+      gh: { listWorkItems },
+      linear: { searchIssues: searchLinearIssues },
+      jira: { searchIssues: searchJiraIssues },
+      preflight: { check: preflightCheck }
+    }
   })
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   useAppStore.setState({
     settings: originalState.settings,
     detectedAgentIds: originalState.detectedAgentIds,
     projectGroups: originalState.projectGroups,
-    createFolderWorkspace: originalState.createFolderWorkspace
+    createFolderWorkspace: originalState.createFolderWorkspace,
+    updateFolderWorkspace: originalState.updateFolderWorkspace
   })
 })
 
@@ -164,14 +288,13 @@ describe('useTaskPageDockActions', () => {
 
     await waitFor(() => expect(createFolderWorkspace).toHaveBeenCalledTimes(1))
     const args = createFolderWorkspace.mock.calls[0][0]
-    const draftKey = getTaskDraftDirectory.mock.calls[0][0].draftKey
+    const key = getTaskDraftDirectory.mock.calls[0][0].draftKey
     expect(args).toEqual({
       projectGroupId: 'group-1',
       name: DERIVED_NAME,
-      folderPath: `${DRAFT_ROOT}/${draftKey}`,
+      folderPath: `${DRAFT_ROOT}/${key}`,
       taskDraft: true
     })
-    expect('folderPath' in args).toBe(true)
   })
 
   it('never falls back to parentPath and reuses one draft key across a failed retry', async () => {
@@ -257,6 +380,7 @@ describe('useTaskPageDockActions', () => {
       expect(hook.result.current.taskDock.errorMessage).toBe('scratch directory missing')
     )
     expect(hook.result.current.taskDock.instruction).toBe(INSTRUCTION)
+    expect(hook.result.current.taskDock.draft.state).toBe('draft-failed')
     expect(mocks.activateAndRevealFolderWorkspace).not.toHaveBeenCalled()
     expect(mocks.ensureAgentStartupInTerminal).not.toHaveBeenCalled()
     expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
@@ -268,6 +392,7 @@ describe('useTaskPageDockActions', () => {
     )
     await submit(remoteRepoHook, INSTRUCTION)
     await waitFor(() => expect(remoteRepoHook.result.current.taskDock.errorMessage).not.toBeNull())
+    expect(remoteRepoHook.result.current.taskDock.draft.state).toBe('remote-unsupported')
 
     useAppStore.setState({ projectGroups: [{ ...group, connectionId: 'ssh-box' }] })
     const remoteGroupHook = renderHook(() => useTaskPageDockActions(createModel()))
@@ -308,14 +433,493 @@ describe('useTaskPageDockActions', () => {
       }
     }
 
-    // Why: the prompt names these commands only to forbid them; any other mention is a regression.
+    // Why: the prompt names these commands only to forbid them, or for the opt-in gh fallback (D8).
     const promptOffenders = promptSource
       .split('\n')
       .filter((line) => trackerWritePatterns.some((pattern) => line.includes(pattern)))
-      .filter((line) => !line.includes('do not run'))
+      .filter((line) => !line.includes('do not run') && !line.includes('Only if the app later sends'))
     expect(
       promptOffenders,
-      `task-draft-prompt.ts may only name tracker writes on its "do not run" line; patterns: ${trackerWritePatterns.join(', ')}`
+      `task-draft-prompt.ts may only name tracker writes on its "do not run" or fallback line; patterns: ${trackerWritePatterns.join(', ')}`
     ).toEqual([])
+  })
+
+  it('never emits a state outside the frozen table', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/renderer/src/hooks/use-task-page-dock-actions.ts'),
+      'utf8'
+    )
+    const emitted = [...source.matchAll(/setState\('([a-z-]+)'\)/g)].map((match) => match[1])
+    expect(emitted.length).toBeGreaterThan(0)
+    for (const emittedState of emitted) {
+      expect(TASK_DRAFT_STATE_META, `unknown state: ${emittedState}`).toHaveProperty(emittedState)
+    }
+  })
+})
+
+describe('useTaskPageDockActions confirmed write', () => {
+  it('never calls runtime.call before confirm and exactly once after a double click', async () => {
+    vi.useFakeTimers()
+    let resolveCreate: (value: unknown) => void = () => {}
+    runtimeCall.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve
+        })
+    )
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    expect(runtimeCall).not.toHaveBeenCalled()
+
+    act(() => {
+      hook.result.current.taskDock.draft.onConfirmCreate()
+      hook.result.current.taskDock.draft.onConfirmCreate()
+    })
+    await flush()
+    expect(runtimeCall).toHaveBeenCalledTimes(1)
+    expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
+
+    resolveCreate({ ok: true, result: { ok: true, number: 412, url: ISSUE_URL } })
+    await flush()
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+  })
+
+  it('writes the receipt before the link and links the created issue once', async () => {
+    vi.useFakeTimers()
+    const order: string[] = []
+    writeFile.mockImplementation(async () => {
+      order.push('receipt')
+    })
+    updateFolderWorkspace.mockImplementation(async () => {
+      order.push('link')
+      return true
+    })
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await actOnDraft(hook, (draft) => draft.onConfirmCreate())
+
+    expect(order).toEqual(['receipt', 'link'])
+    expect(runtimeCall).toHaveBeenCalledWith({
+      method: 'github.createIssue',
+      params: { repo: 'repo-1', title: PROPOSAL_TITLE, body: 'Body', labels: ['bug'] }
+    })
+    const [filePath, content] = [
+      writeFile.mock.calls[0][0].filePath as string,
+      writeFile.mock.calls[0][0].content as string
+    ]
+    expect(filePath.endsWith('task-draft-receipt.json')).toBe(true)
+    expect(JSON.parse(content)).toMatchObject({
+      version: 1,
+      channel: 'primary-rpc',
+      provider: 'github',
+      number: 412,
+      url: ISSUE_URL,
+      title: PROPOSAL_TITLE,
+      draftKey: draftKey()
+    })
+
+    expect(updateFolderWorkspace).toHaveBeenCalledTimes(1)
+    const [workspaceId, updates] = updateFolderWorkspace.mock.calls[0]
+    expect(workspaceId).toBe(createdWorkspace.id)
+    expect(updates.linkedTask).toEqual({
+      provider: 'github',
+      type: 'issue',
+      number: 412,
+      title: PROPOSAL_TITLE,
+      url: ISSUE_URL,
+      repoId: 'repo-1'
+    })
+    expect(updates.linkedTaskSourceContext).toMatchObject({
+      kind: 'task-source',
+      provider: 'github',
+      projectId: 'group-1',
+      hostId: 'local',
+      repoId: 'repo-1',
+      providerIdentity: { provider: 'github', owner: 'acme', repo: 'widgets' }
+    })
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+  })
+
+  it('links a linear issue through linear.issueCreate and keeps its identifier', async () => {
+    vi.useFakeTimers()
+    runtimeCall.mockResolvedValue({
+      ok: true,
+      result: {
+        issue: {
+          identifier: 'ENG-123',
+          title: PROPOSAL_TITLE,
+          url: 'https://linear.app/acme/issue/ENG-123'
+        }
+      }
+    })
+    const hook = renderHook(() =>
+      useTaskPageDockActions(
+        createModel({
+          taskSource: 'linear',
+          extra: {
+            newLinearIssueTargetTeam: { id: 'team-1', key: 'ENG', workspaceId: 'ws-1' },
+            selectedLinearWorkspaceId: 'ws-1'
+          }
+        })
+      )
+    )
+    await reachPreview(hook, { provider: 'linear' })
+
+    await actOnDraft(hook, (draft) => draft.onConfirmCreate())
+
+    expect(runtimeCall).toHaveBeenCalledWith({
+      method: 'linear.issueCreate',
+      params: {
+        title: PROPOSAL_TITLE,
+        body: 'Body',
+        teamKey: 'ENG',
+        labels: ['bug'],
+        workspaceId: 'ws-1'
+      }
+    })
+    const receipt = JSON.parse(writeFile.mock.calls[0][0].content as string)
+    expect(receipt).toMatchObject({ provider: 'linear', number: 123, identifier: 'ENG-123' })
+    expect(updateFolderWorkspace.mock.calls[0][1].linkedTask).toMatchObject({
+      provider: 'linear',
+      number: 123,
+      linearIdentifier: 'ENG-123'
+    })
+  })
+
+  it('keeps the receipt and retries only the link when the link write returns false', async () => {
+    vi.useFakeTimers()
+    updateFolderWorkspace.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await actOnDraft(hook, (draft) => draft.onConfirmCreate())
+
+    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+    expect(runtimeCall).toHaveBeenCalledTimes(1)
+    expect(writeFile).toHaveBeenCalledTimes(1)
+    const receiptContent = writeFile.mock.calls[0][0].content
+
+    await actOnDraft(hook, (draft) => draft.onRetry())
+
+    expect(updateFolderWorkspace).toHaveBeenCalledTimes(2)
+    expect(runtimeCall).toHaveBeenCalledTimes(1)
+    expect(writeFile).toHaveBeenCalledTimes(1)
+    expect(writeFile.mock.calls[0][0].content).toBe(receiptContent)
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+  })
+
+  it('surfaces a provider rejection with no link write and no receipt', async () => {
+    vi.useFakeTimers()
+    runtimeCall.mockResolvedValue({
+      ok: false,
+      error: { code: 'github_create_failed', message: 'Repository not found' }
+    })
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await actOnDraft(hook, (draft) => draft.onConfirmCreate())
+
+    expect(hook.result.current.taskDock.draft.state).toBe('provider-rejected')
+    expect(hook.result.current.taskDock.draft.providerError).toBe('Repository not found')
+    expect(updateFolderWorkspace).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+  })
+
+  it('treats a transport throw as unknown, never retrying create', async () => {
+    vi.useFakeTimers()
+    runtimeCall.mockRejectedValue(new Error('socket closed'))
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await actOnDraft(hook, (draft) => draft.onConfirmCreate())
+
+    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+    expect(hook.result.current.taskDock.errorMessage).toContain('Outcome unknown')
+    expect(updateFolderWorkspace).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+
+    await actOnDraft(hook, (draft) => draft.onRetry())
+
+    expect(runtimeCall).toHaveBeenCalledTimes(1)
+    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+  })
+
+  it('opens the prefilled Jira form and never calls the provider', async () => {
+    vi.useFakeTimers()
+    const setNewJiraIssueTitle = vi.fn()
+    const setNewJiraIssueBody = vi.fn()
+    const setNewJiraIssueOpen = vi.fn()
+    const hook = renderHook(() =>
+      useTaskPageDockActions(
+        createModel({
+          taskSource: 'jira',
+          extra: { setNewJiraIssueTitle, setNewJiraIssueBody, setNewJiraIssueOpen }
+        })
+      )
+    )
+    await reachPreview(hook, { provider: 'jira' })
+
+    await actOnDraft(hook, (draft) => draft.onConfirmCreate())
+
+    expect(setNewJiraIssueTitle).toHaveBeenCalledWith(PROPOSAL_TITLE)
+    expect(setNewJiraIssueBody).toHaveBeenCalledWith('Body')
+    expect(setNewJiraIssueOpen).toHaveBeenCalledWith(true)
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(updateFolderWorkspace).not.toHaveBeenCalled()
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
+  })
+
+  it('keeps the frozen proposal across cancel and reopens it on retry', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    act(() => hook.result.current.taskDock.draft.onCancelPreview())
+    expect(hook.result.current.taskDock.draft.state).toBe('cancelled')
+    expect(hook.result.current.taskDock.draft.proposal).toMatchObject({ title: PROPOSAL_TITLE })
+
+    await actOnDraft(hook, (draft) => draft.onRetry())
+
+    expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
+    expect(runtimeCall).not.toHaveBeenCalled()
+  })
+})
+
+describe('useTaskPageDockActions proposal poll', () => {
+  it('waits on a partial envelope, then leaves drafting on a complete one', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+    expect(hook.result.current.taskDock.draft.state).toBe('drafting')
+
+    serveProposal(
+      JSON.stringify({
+        version: 1,
+        draftKey: draftKey(),
+        attempt: 1,
+        provider: 'github',
+        repoId: 'repo-1',
+        revision: 1
+      })
+    )
+    await advance(1_500)
+    expect(hook.result.current.taskDock.draft.state).toBe('drafting')
+
+    serveProposal(proposalJson())
+    await advance(1_500)
+    expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
+    expect(hook.result.current.taskDock.draft.proposal).toMatchObject({ title: PROPOSAL_TITLE })
+  })
+
+  it('replaces the frozen proposal with a newer revision', async () => {
+    vi.useFakeTimers()
+    listWorkItems.mockResolvedValue({ items: [] })
+    listWorkItems.mockImplementationOnce(() => new Promise(() => {}))
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+
+    serveProposal(proposalJson({ revision: 1, title: 'First draft' }))
+    await advance(1_500)
+    expect(hook.result.current.taskDock.draft.state).toBe('drafting')
+    expect(hook.result.current.taskDock.draft.proposal).toMatchObject({ title: 'First draft' })
+
+    serveProposal(proposalJson({ revision: 2, title: 'Second draft' }))
+    await advance(1_500)
+    expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
+    expect(hook.result.current.taskDock.draft.proposal).toMatchObject({ title: 'Second draft' })
+  })
+
+  it('crashes the draft at the deadline when the file stays malformed', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+    serveProposal('{"version": 1, "draftKey"')
+
+    await advance(4 * 60 * 1_000)
+    expect(hook.result.current.taskDock.draft.state).toBe('drafting')
+
+    await advance(61 * 1_000)
+    expect(hook.result.current.taskDock.draft.state).toBe('agent-crashed')
+    expect(hook.result.current.taskDock.errorMessage).not.toBeNull()
+  })
+
+  it('crashes immediately with the reason when the envelope names another draft', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+    serveProposal(proposalJson({ draftKey: 'other-draft' }))
+
+    await advance(1_500)
+    expect(hook.result.current.taskDock.draft.state).toBe('agent-crashed')
+    expect(hook.result.current.taskDock.errorMessage).toContain('wrong-draft')
+  })
+})
+
+describe('useTaskPageDockActions duplicates', () => {
+  it('lists same-title candidates and reuses one without a create call', async () => {
+    vi.useFakeTimers()
+    listWorkItems.mockResolvedValue({
+      items: [{ number: 412, title: PROPOSAL_TITLE, url: ISSUE_URL }]
+    })
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+    serveProposal(proposalJson())
+    await advance(1_500)
+
+    expect(hook.result.current.taskDock.draft.state).toBe('duplicate-suspected')
+    expect(hook.result.current.taskDock.draft.duplicates).toEqual([
+      { number: 412, title: PROPOSAL_TITLE, url: ISSUE_URL }
+    ])
+
+    await actOnDraft(hook, (draft) =>
+      draft.onReuseCandidate({ number: 412, title: PROPOSAL_TITLE, url: ISSUE_URL })
+    )
+
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(updateFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(updateFolderWorkspace.mock.calls[0][1].linkedTask).toMatchObject({ number: 412 })
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+  })
+
+  it('creates exactly once from "still create"', async () => {
+    vi.useFakeTimers()
+    listWorkItems.mockResolvedValue({
+      items: [{ number: 412, title: PROPOSAL_TITLE, url: ISSUE_URL }]
+    })
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+    serveProposal(proposalJson())
+    await advance(1_500)
+
+    await actOnDraft(hook, (draft) => draft.onCreateAnyway())
+
+    expect(runtimeCall).toHaveBeenCalledTimes(1)
+    expect(updateFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+  })
+
+  it('keeps preview-ready and says the check could not run when the read fails', async () => {
+    vi.useFakeTimers()
+    listWorkItems.mockRejectedValue(new Error('offline'))
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await startDraft(hook)
+    serveProposal(proposalJson())
+    await advance(1_500)
+
+    expect(hook.result.current.taskDock.draft.state).toBe('preview-ready')
+    expect(hook.result.current.taskDock.draft.duplicateCheckUnavailable).toBe(true)
+    expect(hook.result.current.taskDock.draft.duplicates).toEqual([])
+  })
+})
+
+describe('useTaskPageDockActions gh fallback', () => {
+  it('refuses a non-local draft without a create call or agent delivery', async () => {
+    vi.useFakeTimers()
+    const model = createModel()
+    const hook = renderHook(
+      (props: { model: TaskPageComposerActionsModel }) => useTaskPageDockActions(props.model),
+      { initialProps: { model } }
+    )
+    await reachPreview(hook)
+
+    hook.rerender({ model: createModel({ repo: { ...repo, executionHostId: 'ssh:box' } }) })
+    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
+
+    expect(hook.result.current.taskDock.draft.state).toBe('remote-unsupported')
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+  })
+
+  it('refuses a missing or logged-out gh without a create call or agent delivery', async () => {
+    vi.useFakeTimers()
+    const missing = renderHook(() => useTaskPageDockActions(createModel()))
+    preflightCheck.mockResolvedValue({
+      git: { installed: true },
+      gh: { installed: false, authenticated: false }
+    })
+    await reachPreview(missing)
+    await act(async () => {
+      missing.result.current.taskDock.draft.onChooseGhFallback()
+    })
+    await flush()
+    expect(missing.result.current.taskDock.draft.state).toBe('remote-unsupported')
+    expect(missing.result.current.taskDock.errorMessage).toContain('not installed')
+
+    const loggedOut = renderHook(() => useTaskPageDockActions(createModel()))
+    preflightCheck.mockResolvedValue({
+      git: { installed: true },
+      gh: { installed: true, authenticated: false }
+    })
+    await reachPreview(loggedOut)
+    await act(async () => {
+      loggedOut.result.current.taskDock.draft.onChooseGhFallback()
+    })
+    await flush()
+    expect(loggedOut.result.current.taskDock.draft.state).toBe('remote-unsupported')
+    expect(loggedOut.result.current.taskDock.errorMessage).toContain('not signed in')
+
+    expect(runtimeCall).not.toHaveBeenCalled()
+    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+  })
+
+  it('delivers exactly one --repo/--title command and links the receipt', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+
+    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
+
+    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledTimes(1)
+    const content = mocks.deliverLaunchPromptToAgentTab.mock.calls[0][0].content as string
+    expect(content).toContain('--repo acme/widgets')
+    expect(content).toContain('--title')
+    expect(content).toContain(PROPOSAL_TITLE)
+    expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
+
+    readFile.mockImplementation(async ({ filePath }: { filePath: string }) => {
+      if (filePath.endsWith('task-draft-receipt.json')) {
+        return {
+          content: JSON.stringify({
+            version: 1,
+            channel: 'gh-fallback',
+            provider: 'github',
+            number: 412,
+            url: ISSUE_URL,
+            title: PROPOSAL_TITLE,
+            draftKey: draftKey()
+          }),
+          isBinary: false
+        }
+      }
+      return { content: proposalJson(), isBinary: false }
+    })
+    await advance(1_500)
+    expect(updateFolderWorkspace).toHaveBeenCalledTimes(1)
+    expect(updateFolderWorkspace.mock.calls[0][1].linkedTask).toMatchObject({ number: 412 })
+    expect(hook.result.current.taskDock.draft.state).toBe('idle')
+    expect(runtimeCall).not.toHaveBeenCalled()
+  })
+
+  it('surfaces an unknown outcome when the fallback receipt never arrives', async () => {
+    vi.useFakeTimers()
+    const hook = renderHook(() => useTaskPageDockActions(createModel()))
+    await reachPreview(hook)
+    readFile.mockImplementation(async ({ filePath }: { filePath: string }) => {
+      if (filePath.endsWith('task-draft-receipt.json')) {
+        throw new Error('ENOENT')
+      }
+      return { content: proposalJson(), isBinary: false }
+    })
+
+    await actOnDraft(hook, (draft) => draft.onChooseGhFallback())
+    expect(hook.result.current.taskDock.draft.state).toBe('creating-issue')
+
+    await advance(61 * 1_000)
+    expect(hook.result.current.taskDock.draft.state).toBe('issue-created-link-failed')
+    expect(hook.result.current.taskDock.errorMessage).toContain('Outcome unknown')
+    expect(updateFolderWorkspace).not.toHaveBeenCalled()
   })
 })
