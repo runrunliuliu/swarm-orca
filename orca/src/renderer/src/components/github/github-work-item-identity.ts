@@ -51,12 +51,16 @@ export function resolvePullRequestRepo(
   return repo ? { ...repo, host: githubProjectHost(repo.host) } : null
 }
 
-export type ItemDialogTab = 'conversation' | 'checks' | 'files'
+export type ItemDialogTab = 'conversation' | 'checks' | 'files' | 'orca'
 
 export function normalizeItemDialogTab(
   item: GitHubWorkItem | null,
   tab: ItemDialogTab | undefined
 ): ItemDialogTab {
+  // Why: the Orca tab exists for issues and PRs; every other tab stays PR-only.
+  if (tab === 'orca') {
+    return 'orca'
+  }
   if (item?.type !== 'pr') {
     return 'conversation'
   }

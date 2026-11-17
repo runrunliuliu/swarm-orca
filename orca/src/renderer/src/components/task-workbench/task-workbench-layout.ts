@@ -24,9 +24,10 @@ export type TaskWorkbenchLayoutInput = {
     attentionAgents: number
     historyAgents: number
   }
-  /** P1a renders one fixed size per fixture. The discriminator exists so a live
-   *  mode (container tracking, hysteresis) can be added without changing callers. */
-  mode: 'static'
+  /** P1a renders one fixed size per fixture; P1b measures the live container.
+   *  The decision function ignores this field — it exists so callers declare
+   *  where the size came from, and a future hysteresis can branch on it. */
+  mode: 'static' | 'live'
 }
 
 export type TaskWorkbenchLayout = {

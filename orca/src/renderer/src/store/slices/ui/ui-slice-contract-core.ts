@@ -57,7 +57,7 @@ export type TaskPageData = {
   taskSource?: TaskProvider
   openGitHubWorkItem?: GitHubWorkItem
   openGitHubSourceContext?: TaskSourceContext | null
-  openGitHubInitialTab?: 'conversation' | 'checks' | 'files'
+  openGitHubInitialTab?: 'conversation' | 'checks' | 'files' | 'orca'
   openGitLabWorkItem?: GitLabWorkItem
   openGitLabSourceContext?: TaskSourceContext | null
   openLinearIssue?: LinearIssue

@@ -81,6 +81,8 @@ export type TaskWorkbenchRowView = {
   base: DashboardCard
   tokenText: { text: string; unavailable: boolean }
   outcome?: AgentOutcome
+  /** The row's status reports a boundary (D12); the F8 overlay owns its presentation. */
+  sessionBoundary?: boolean
   workspaceLabel?: string
   showsDelivered: boolean
 }
@@ -102,6 +104,7 @@ export function projectAgentRow(
     base: row.base,
     tokenText: display,
     outcome: row.outcome,
+    sessionBoundary: row.sessionBoundary,
     workspaceLabel: opts.showWorkspaceLabel ? row.workspaceLabel : undefined,
     showsDelivered: row.outcome === 'success'
   }

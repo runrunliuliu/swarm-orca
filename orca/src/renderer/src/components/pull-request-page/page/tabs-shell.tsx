@@ -27,6 +27,10 @@ import {
 import { ConversationTab } from '../conversation/tab'
 import { ChecksTab } from '../checks/tab'
 import { PRFilesCombinedDiffViewer } from '../files/combined-diff-viewer'
+import {
+  OrcaTabContent,
+  OrcaTabTrigger
+} from '../../github-item-dialog/open-dialog/github-item-dialog-orca-tab'
 
 export function PullRequestPageTabs({
   tab,
@@ -115,6 +119,7 @@ export function PullRequestPageTabs({
             </span>
           )}
         </TabsTrigger>
+        <OrcaTabTrigger className="px-3 py-2.5" />
       </TabsList>
 
       <div className="min-h-0 flex-1 overflow-y-auto scrollbar-sleek">
@@ -218,6 +223,20 @@ export function PullRequestPageTabs({
               onViewedChange={handlePRFileViewedChange}
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="orca" className="mt-0">
+          <OrcaTabContent
+            repoId={effectiveRepoId}
+            number={workItem.number}
+            itemType="pr"
+            title={workItem.title}
+            tracker={{
+              state: workItem.state === 'open' || workItem.state === 'draft' ? 'open' : 'closed',
+              url: workItem.url
+            }}
+            sourceContext={sourceContext}
+          />
         </TabsContent>
       </div>
     </Tabs>

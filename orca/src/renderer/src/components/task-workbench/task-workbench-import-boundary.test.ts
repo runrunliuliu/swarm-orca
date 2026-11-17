@@ -3,12 +3,20 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * The P1a shell renders a `view` prop and nothing else
- * (`p1a-ui-shell-plan.md` §1, §5 item 6). This is the assertion for that rule:
- * it reads every workbench source file and fails on a store, RPC, IPC, runtime
- * or Electron import, including the exact regression the plan's R18 invites —
- * reaching for `DashboardAgentRow`, which pulls `@/store` in through
- * `useAgentRowConversationName`.
+ * The P1a shell renders a `view` prop and nothing else (p1a-ui-shell-plan.md §1,
+ * §5 item 6). P1b moves the store read out of the shell and into
+ * `hooks/use-task-workbench-view.ts` (the tab and its data hook live outside
+ * `components/task-workbench/`; the shell keeps receiving `view`). This file
+ * asserts both halves of that move:
+ *
+ * - every shell source and every pure `lib/task-workbench/` selector imports no
+ *   store, RPC, IPC, runtime or Electron module — including the exact regression
+ *   the plan's R18 invites (`DashboardAgentRow`, which pulls `@/store` in
+ *   through `useAgentRowConversationName`);
+ * - the one permitted store reader exists *outside* the shell source set and
+ *   actually imports `@/store`. That positive assertion is stronger than the
+ *   previous negative-only check: it pins where the data edge lives instead of
+ *   merely forbidding one inside the shell.
  *
  * Why a source assertion instead of a bundler check: the renderer has no
  * restricted-import rule for these paths, and a module-graph test cannot tell a
@@ -17,19 +25,31 @@ import { describe, expect, it } from 'vitest'
  */
 
 const sourceDir = import.meta.dirname
-const shellSources = [
-  'TaskWorkbenchPanel.tsx',
-  'TaskWorkbenchHeader.tsx',
-  'TaskWorkbenchAgents.tsx',
-  'TaskWorkbenchAgentRow.tsx',
-  'TaskWorkbenchWorkspaces.tsx',
-  'TaskWorkbenchSpend.tsx',
-  'TaskWorkbenchDelivery.tsx',
-  'task-workbench-view.ts',
-  'task-workbench-layout.ts',
-  'task-workbench-usage-status.ts',
-  'task-workbench-row-projection.ts'
-] as const
+const libDir = path.resolve(sourceDir, '../../lib/task-workbench')
+const hookPath = path.resolve(sourceDir, '../../hooks/use-task-workbench-view.ts')
+
+type SourceFile = { dir: string; file: string }
+
+const storeFreeSources: SourceFile[] = [
+  { dir: sourceDir, file: 'TaskWorkbenchPanel.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchHeader.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchAgents.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchAgentRow.tsx' },
+  { dir: sourceDir, file: 'task-workbench-agent-row-dot.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchWorkspaces.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchSpend.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchDelivery.tsx' },
+  { dir: sourceDir, file: 'task-workbench-view.ts' },
+  { dir: sourceDir, file: 'task-workbench-layout.ts' },
+  { dir: sourceDir, file: 'task-workbench-usage-status.ts' },
+  { dir: sourceDir, file: 'task-workbench-row-projection.ts' },
+  // P1b's frozen contract and pure selectors. They are the hook's inputs and
+  // must stay data-free for the same reason the shell is.
+  { dir: libDir, file: 'task-workbench-selector-types.ts' },
+  { dir: libDir, file: 'task-workbench-identity.ts' },
+  { dir: libDir, file: 'task-workbench-usage.ts' },
+  { dir: libDir, file: 'task-workbench-join.ts' }
+]
 
 /** Value imports that would make the shell read live data. Type imports are
  *  allowed for shapes only, and the rules below still apply to them by name. */
@@ -62,24 +82,39 @@ function importSpecifiers(source: string): string[] {
   return specifiers
 }
 
-function forbiddenIn(fileName: string): string[] {
-  const source = readFileSync(path.join(sourceDir, fileName), 'utf8')
-  return importSpecifiers(source).filter((specifier) =>
+function readSource({ dir, file }: SourceFile): string {
+  return readFileSync(path.join(dir, file), 'utf8')
+}
+
+function forbiddenIn(sourceFile: SourceFile): string[] {
+  return importSpecifiers(readSource(sourceFile)).filter((specifier) =>
     FORBIDDEN_SPECIFIERS.some((pattern) => pattern.test(specifier))
   )
 }
 
 describe('task workbench import boundary', () => {
-  it.each(shellSources)('%s imports no store, RPC, IPC or Electron module', (fileName) => {
-    expect(forbiddenIn(fileName)).toEqual([])
+  it.each(storeFreeSources)('$file imports no store, RPC, IPC or Electron module', (sourceFile) => {
+    expect(forbiddenIn(sourceFile)).toEqual([])
   })
 
   it('keeps the base renderer contained to the one overlay file', () => {
-    const baseImporters = shellSources.filter((fileName) =>
-      importSpecifiers(readFileSync(path.join(sourceDir, fileName), 'utf8')).some((specifier) =>
-        specifier.endsWith('AgentKanbanCard')
+    const baseImporters = storeFreeSources
+      .filter((sourceFile) =>
+        importSpecifiers(readSource(sourceFile)).some((specifier) =>
+          specifier.endsWith('AgentKanbanCard')
+        )
       )
-    )
+      .map((sourceFile) => sourceFile.file)
     expect(baseImporters).toEqual(['TaskWorkbenchAgentRow.tsx'])
+  })
+
+  it('keeps the one store reader in the hook, outside the shell source set', () => {
+    const shellPaths = storeFreeSources
+      .filter((sourceFile) => sourceFile.dir === sourceDir)
+      .map((sourceFile) => path.join(sourceFile.dir, sourceFile.file))
+    expect(shellPaths).not.toContain(hookPath)
+
+    // readFileSync throws when the hook is missing: existence is part of the contract.
+    expect(importSpecifiers(readFileSync(hookPath, 'utf8'))).toContain('@/store')
   })
 })

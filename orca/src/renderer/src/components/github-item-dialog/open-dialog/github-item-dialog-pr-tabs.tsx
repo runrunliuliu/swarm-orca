@@ -24,6 +24,7 @@ import {
   patchCachedPRReviewRequests,
   patchCachedWorkItemBody
 } from '../load-item-details/work-item-details-cache'
+import { OrcaTabContent, OrcaTabTrigger } from './github-item-dialog-orca-tab'
 
 export function GitHubItemDialogPRTabs({
   workItem,
@@ -107,6 +108,7 @@ export function GitHubItemDialogPRTabs({
                 <span className="ml-1 text-[10px] text-muted-foreground">{files.length}</span>
               )}
             </TabsTrigger>
+            <OrcaTabTrigger />
           </>
         )}
       </TabsList>
@@ -222,6 +224,21 @@ export function GitHubItemDialogPRTabs({
                   onViewedChange={onViewedChange}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="orca" className="mt-0">
+              <OrcaTabContent
+                repoId={effectiveRepoId}
+                number={workItem.number}
+                itemType="pr"
+                title={workItem.title}
+                tracker={{
+                  state:
+                    workItem.state === 'open' || workItem.state === 'draft' ? 'open' : 'closed',
+                  url: workItem.url
+                }}
+                sourceContext={sourceContext}
+              />
             </TabsContent>
           </>
         )}

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { AgentKanbanCard } from '../dashboard-popout/AgentKanbanCard'
+import { TaskWorkbenchAgentRowDot } from './task-workbench-agent-row-dot'
 import type { AgentOutcome } from './task-workbench-view'
 import type { TaskWorkbenchRowView } from './task-workbench-row-projection'
 
@@ -86,13 +87,18 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
         >
           {tokenLabel}
         </span>
-        {row.outcome ? (
-          <Badge
-            data-testid="task-workbench-agent-row-outcome"
-            variant={OUTCOME_VARIANT[row.outcome]}
-          >
-            {translate(rowKeys(`outcome.${row.outcome}`), OUTCOME_COPY[row.outcome])}
-          </Badge>
+        {row.outcome || row.sessionBoundary ? (
+          <div className="flex items-center gap-1">
+            <TaskWorkbenchAgentRowDot row={row} />
+            {row.outcome ? (
+              <Badge
+                data-testid="task-workbench-agent-row-outcome"
+                variant={OUTCOME_VARIANT[row.outcome]}
+              >
+                {translate(rowKeys(`outcome.${row.outcome}`), OUTCOME_COPY[row.outcome])}
+              </Badge>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </div>

@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { MessageSquare } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAllWorktrees } from '@/store/selectors'
 import { useAppStore } from '@/store'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { findGithubIssueWorkspaceAttachment } from '@/lib/github-work-item-workspace-attachment'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { getWorktreeAttachmentLabel } from '@/lib/worktree-attachment-label'
@@ -12,6 +14,7 @@ import { GitHubItemDialogIssueBody } from './github-item-dialog-issue-body'
 import { GitHubItemDialogIssueHeader } from './github-item-dialog-issue-header'
 import { GitHubItemDialogPRHeader } from './github-item-dialog-pr-header'
 import { GitHubItemDialogPRTabs } from './github-item-dialog-pr-tabs'
+import { OrcaTabContent, OrcaTabTrigger } from './github-item-dialog-orca-tab'
 import { GHEditSection } from '../edit-item-fields/gh-edit-section'
 import { useGitHubItemDialogDetails } from '../load-item-details/use-github-item-dialog-details'
 import { useGitHubItemDialogLinkCopy } from './use-github-item-dialog-link-copy'
@@ -197,29 +200,69 @@ export default function GitHubItemDialog({
         {error ? (
           <div className="px-4 py-6 text-[12px] text-destructive">{error}</div>
         ) : isIssuePage ? (
-          <GitHubItemDialogIssueBody
-            workItem={workItem}
-            displayWorkItem={displayWorkItem}
-            repoPath={repoPath}
-            effectiveRepoId={effectiveRepoId}
-            sourceContext={sourceContext}
-            projectOrigin={projectOrigin}
-            details={details}
-            detailsCacheKey={detailsCacheKey}
-            loading={loading}
-            detailsLoaded={detailsLoaded}
-            localState={localState}
-            localLabels={localLabels}
-            onStateChange={setLocalState}
-            onLabelsChange={setLocalLabels}
-            onMutated={invalidateCurrentDetailsCache}
-            onUse={onUse}
-            onOpenOrUse={handleOpenOrUseIssueWorkspace}
-            attachedWorkspaceLabel={issueAttachedWorkspaceLabel}
-            onCommentAdded={appendOptimisticComment}
-            onReviewRequestsChange={onReviewRequestsChange}
-            canUseDetailsRepoContext={canUseDetailsRepoContext}
-          />
+          <Tabs
+            value={tab}
+            onValueChange={(value) => {
+              // Why: the issue strip only offers these two tabs, so narrow instead of casting.
+              if (value === 'conversation' || value === 'orca') {
+                setTab(value)
+              }
+            }}
+            className="flex h-full min-h-0 flex-col gap-0"
+          >
+            <TabsList
+              variant="line"
+              className="mx-4 mt-2 justify-start gap-3 border-b border-border/60 bg-transparent"
+            >
+              <TabsTrigger value="conversation" className="px-2">
+                <MessageSquare className="size-3.5" />
+                {translate('auto.components.GitHubItemDialog.e30a5470c9', 'Conversation')}
+              </TabsTrigger>
+              <OrcaTabTrigger />
+            </TabsList>
+
+            <div className="min-h-0 flex-1">
+              <TabsContent value="conversation" className="mt-0 h-full">
+                <GitHubItemDialogIssueBody
+                  workItem={workItem}
+                  displayWorkItem={displayWorkItem}
+                  repoPath={repoPath}
+                  effectiveRepoId={effectiveRepoId}
+                  sourceContext={sourceContext}
+                  projectOrigin={projectOrigin}
+                  details={details}
+                  detailsCacheKey={detailsCacheKey}
+                  loading={loading}
+                  detailsLoaded={detailsLoaded}
+                  localState={localState}
+                  localLabels={localLabels}
+                  onStateChange={setLocalState}
+                  onLabelsChange={setLocalLabels}
+                  onMutated={invalidateCurrentDetailsCache}
+                  onUse={onUse}
+                  onOpenOrUse={handleOpenOrUseIssueWorkspace}
+                  attachedWorkspaceLabel={issueAttachedWorkspaceLabel}
+                  onCommentAdded={appendOptimisticComment}
+                  onReviewRequestsChange={onReviewRequestsChange}
+                  canUseDetailsRepoContext={canUseDetailsRepoContext}
+                />
+              </TabsContent>
+              <TabsContent value="orca" className="mt-0 h-full">
+                <OrcaTabContent
+                  repoId={effectiveRepoId}
+                  number={workItem.number}
+                  itemType="issue"
+                  title={workItem.title}
+                  tracker={{
+                    state:
+                      workItem.state === 'open' || workItem.state === 'draft' ? 'open' : 'closed',
+                    url: workItem.url
+                  }}
+                  sourceContext={sourceContext}
+                />
+              </TabsContent>
+            </div>
+          </Tabs>
         ) : (
           <GitHubItemDialogPRTabs
             workItem={workItem}

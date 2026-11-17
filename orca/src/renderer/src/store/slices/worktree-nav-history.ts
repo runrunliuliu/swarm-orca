@@ -28,7 +28,7 @@ export type WorktreeNavHistoryTaskDetailEntry =
       source: 'github'
       workItem: GitHubWorkItem
       sourceContext?: TaskSourceContext | null
-      initialTab?: 'conversation' | 'checks' | 'files'
+      initialTab?: 'conversation' | 'checks' | 'files' | 'orca'
     }
   | {
       kind: 'task-detail'
