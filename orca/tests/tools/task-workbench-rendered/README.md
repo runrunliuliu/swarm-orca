@@ -4,8 +4,6 @@
 cd orca
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture f1_baseline --width 1440 --height 900
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d1_dock_collapsed --width 1440 --height 900
-ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d3_preview_ready --width 1440 --height 900
-ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d3b_link_failed --width 1440 --height 900
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture d5_sidebar_draft_row --width 1440 --height 900
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all
 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all --calibrate
@@ -36,13 +34,13 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   inside the padded column whose class is imported from `Frame.tsx`
   (`TASK_PAGE_COLUMN_CLASS`) around a scrollable card holding a real `PaginationBar`; the fixture
   drives the dock from local state and records what it asked for in `data-dock-submits`,
-  `data-dock-last-instruction` and `data-dock-expanded` on the fixture root.
+  `data-dock-last-instruction`, `data-dock-last-model`, `data-dock-instruction`, `data-dock-model`
+  and `data-dock-expanded` on the fixture root.
 - Per dock run, by name: every `data-testid` in the state it should be in (collapsed has
-  `task-dock`, `task-dock-input`, `task-dock-submit`, `task-dock-expand` and no chip/cancel/error;
-  expanded adds `task-dock-chip` with text `github · acme/widgets` and `task-dock-cancel`), no
-  unexpected id; `task-dock` is **not** a descendant of the card and both are children of the same
-  column; `dock-fixture-card-footer` is inside the card and the pagination `<nav aria-label="Pagination">`
-  is inside that footer.
+  `task-dock` and `task-dock-collapsed`; expanded has `task-dock-input`, `task-dock-model` and
+  `task-dock-send`, and no `task-dock-error`), no unexpected id; `task-dock` is **not** a
+  descendant of the card and both are children of the same column; `dock-fixture-card-footer` is
+  inside the card and the pagination `<nav aria-label="Pagination">` is inside that footer.
 - Acceptance point 1, the card gives up height instead of the page scrolling: with the list scrolled
   to 160, expanding/collapsing keeps `scrollTop` at 160, `window.scrollY` stays 0 and
   `document.scrollHeight` equals `window.innerHeight`; the card's client height shrinks by the dock's
@@ -50,18 +48,11 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   three numbers are in the run report under `dock.geometry`.
 - Acceptance point 1, the keyboard path: typing reaches the dock's controlled input, `⌘+Enter`
   (`Control+Enter` off darwin) submits exactly once with that instruction, `Esc` collapses and keeps
-  the text, and the expand button restores the expanded state.
-- **The draft preview card (`d3_preview_ready`, `d3b_link_failed`).** The production `TaskDock`
-  renders the production `TaskDraftPreviewCard` from a fixture draft model, in the same column as
-  the dock fixtures. `d3_preview_ready` has a proposal (title, two-line body, two labels) and
-  `provider: 'github'`: by name, `task-draft-state-preview-ready` exists once, the title, the
-  `task-draft-preview-body` text and the two badge labels match, the only three buttons are
-  `Create issue`, `Cancel` and `Use gh instead`, and no `task-dock-error` exists. Clicking
-  `Create issue` calls `onConfirmCreate` exactly once; `Cancel` and `Use gh instead` each call only
-  their own handler and never the confirm handler.
-- `d3b_link_failed` renders `task-draft-state-issue-created-link-failed` with
-  `createdIssueNumber: 412`: the copy names `#412` and the card's only button is `Retry link`,
-  which calls `onRetry` once and never `onConfirmCreate`.
+  the text and the model, and the collapsed bar's expand affordance restores the expanded state.
+- The model control: the fixture supplies two options, so the select branch is the one rendered. Its
+  options are `Agent default` (empty value) plus the two fixture labels, selecting one updates the
+  controlled value, and the picked id is what `onSubmit` receives — the dock never sends a model the
+  user did not choose.
 - **The sidebar draft row (`d5_sidebar_draft_row`).** The production
   `renderFolderWorkspaceVirtualRow` (the narrowest component that renders `folder-row.tsx`'s
   marker) in a real virtual-list container, driven by the real store (`taskDraftLinkMissing: {}`).
@@ -83,18 +74,16 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   list rows are synthetic.
 - No store, selector, RPC, persistence or locale switching is exercised. `i18n.ts` serves the
   English defaults; no locale file is fetched. The dock's `onSubmit` only increments a counter in
-  fixture state, so nothing proves the `taskDraft` workspace, the scratch directory or the agent
-  launch behind it.
-- The preview-card fixture stops at the model boundary: it proves the card's copy, controls and
-  that each control calls only its own handler. It does not prove what the real hook then does
-  (proposal read, duplicate check, one create call, receipt, link write).
+  fixture state, so nothing proves the `taskDraft` workspace, the scratch directory, the agent
+  launch behind it, or the instruction and model the real hook would pass on.
 - The sidebar row is rendered with a no-op row context and no project-group header, so selection,
   drag, path status, PR decoration and grouping are not exercised. `folder-draft-task-removed` and
   the archived row state are not rendered here; they are covered by `folder-draft-marker`'s unit
   tests.
 - The tracker write, Jira form, `gh` fallback command and the real dock action hook remain
   unproven here; they are not reachable without the store/RPC surface this harness deliberately
-  does not have.
+  does not have. The dock's own free-text model input branch (no model options) is likewise not
+  rendered, because the fixture always supplies two options.
 - The 1100/480 thresholds are design assumptions. S2 (1100×800) and S3 (1280×480) sit exactly on the
   inclusive boundaries (`>= 1100` is double, `< 480` is short), so they prove the boundary still
   fits, not the degraded layout. `--calibrate` adds 900×700 (single column) and 1280×479 (short)
@@ -120,13 +109,11 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 | S11 (mandatory) | `d1_dock_collapsed` | 1440×900 |
 | S12 (mandatory) | `d2_dock_expanded` | 1440×900 |
 | S13 | `d2_dock_expanded` | 1100×800 |
-| P2b preview | `d3_preview_ready` | 1440×900 |
-| P2b link failed | `d3b_link_failed` | 1440×900 |
 | P2b sidebar row | `d5_sidebar_draft_row` | 1440×900 |
 | calibration | `f1_baseline` | 900×700, 1280×479 |
 
-The three P2b rows are single-fixture runs, not part of `--all`: they are listed here as the
-evidence names, and the driver still writes the same per-run report JSON and PNG.
+The P2b sidebar row is a single-fixture run, not part of `--all`: it is listed here as the evidence
+name, and the driver still writes the same per-run report JSON and PNG.
 
 ## Known contract edge
 

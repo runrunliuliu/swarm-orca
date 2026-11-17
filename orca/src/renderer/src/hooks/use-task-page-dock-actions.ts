@@ -1,67 +1,51 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type { TaskPageComposerActionsModel } from '@/components/use-task-page-composer-actions'
-import type { TaskDockDraftModel, TaskDockModel } from '@/components/task-page/TaskDock'
+import type { TaskDockModel, TaskDockModelOption } from '@/components/task-page/TaskDock'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { getTaskDraftName } from '@/lib/task-draft-name'
-import type {
-  TaskDraftDuplicateCandidate,
-  TaskDraftProposal,
-  TaskDraftState
-} from '@/lib/task-draft-issue-create'
-import {
-  getDockTargetLabel,
-  resolveDraftRequest,
-  type ActiveTaskDraft
-} from '@/lib/task-draft-create-flow'
-import { buildLinkedItem } from '@/lib/task-draft-receipt'
 import { deliverToActiveDraft, launchDraftAgent } from '@/lib/task-draft-agent-launch'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
-import { useTaskDraftCreateActions } from './use-task-draft-create-actions'
-import { useTaskDraftPolling } from './use-task-draft-polling'
+import { getAgentSessionOptionCatalog } from '../../../shared/agent-session-option-catalog'
+import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../../shared/execution-host'
+import type { Repo } from '../../../shared/repo-types'
+import type { TuiAgent } from '../../../shared/tui-agent'
 
-export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
-  const {
-    taskSource,
-    primaryRepo,
-    folderWorkspaces,
-    newLinearIssueTargetTeam,
-    selectedLinearWorkspaceId,
-    setNewJiraIssueTitle,
-    setNewJiraIssueBody,
-    setNewJiraIssueOpen
-  } = model
+/** The draft this dock submit created; a follow-up goes to the same agent session. */
+export type ActiveTaskDraft = {
+  folderWorkspaceId: string
+  folderPath: string
+  draftKey: string
+  primaryTabId: string | null
+  agent: TuiAgent | null
+}
+
+/** What the page passes on: the model it received plus the dock's own view model. */
+export type TaskPageDockActionsModel = TaskPageComposerActionsModel & { taskDock: TaskDockModel }
+
+/**
+ * The Tasks list page's agent entry: one instruction becomes a draft workspace with an agent
+ * session, and later instructions go to that same session (design §7.9.5, minus the app-side
+ * ticket creation — the agent owns that with its skills).
+ */
+export function useTaskPageDockActions(model: TaskPageComposerActionsModel): TaskPageDockActionsModel {
+  const { taskSource, primaryRepo, folderWorkspaces } = model
   const [instruction, setInstruction] = useState('')
   const [expanded, setExpanded] = useState(false)
+  const [modelId, setModelId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [state, setState] = useState<TaskDraftState>('idle')
-  const [proposal, setProposal] = useState<TaskDraftProposal | null>(null)
-  const [duplicates, setDuplicates] = useState<readonly TaskDraftDuplicateCandidate[]>([])
-  const [duplicateCheckUnavailable, setDuplicateCheckUnavailable] = useState(false)
-  const [providerError, setProviderError] = useState<string | null>(null)
   // Why: one key per draft, kept until the workspace exists so a retry reuses the same scratch directory.
   const draftKeyRef = useRef<string | null>(null)
   const activeDraftRef = useRef<ActiveTaskDraft | null>(null)
-  // Why: once the draft is linked the session is over, so the next instruction opens a
-  // fresh draft instead of typing into the agent of a completed one.
-  const onDraftLinked = useCallback((): void => {
-    activeDraftRef.current = null
-    draftKeyRef.current = null
-  }, [])
-  // Why: a confirmation is only valid for the preview it was given for. Cancelling, or
-  // revising the draft with a follow-up, retires that authorization synchronously so a
-  // pending preflight cannot deliver a write afterwards.
-  const authorizationRef = useRef(0)
-  const claimAuthorization = useCallback((): number => authorizationRef.current, [])
-  const isAuthorizationLive = useCallback(
-    (token: number): boolean => authorizationRef.current === token,
-    []
-  )
 
   const targetLabel = useMemo(
-    () => (primaryRepo ? getDockTargetLabel(primaryRepo, taskSource) : null),
+    () => primaryRepo ? getTargetLabel(primaryRepo, taskSource) : null,
     [primaryRepo, taskSource]
+  )
+  const modelOptions = useMemo<TaskDockModelOption[]>(
+    () => resolveModelOptions(),
+    []
   )
 
   const submit = useCallback(async (): Promise<void> => {
@@ -71,37 +55,36 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
     }
     setSubmitting(true)
     setErrorMessage(null)
-    setProviderError(null)
-    let creating = false
     try {
       const active = activeDraftRef.current
       if (active) {
-        // Why: the revision the user was about to confirm is no longer the draft.
-        authorizationRef.current += 1
         await deliverToActiveDraft(active, text)
-        // Why: a follow-up can revise a pending draft, so the poll must resume.
-        if (state === 'preview-ready' || state === 'duplicate-suspected') {
-          setState('drafting')
-        }
         setInstruction('')
         setExpanded(false)
         return
       }
       const appState = useAppStore.getState()
-      const resolved = resolveDraftRequest({
-        taskSource,
-        primaryRepo,
-        projectGroups: appState.projectGroups,
-        linearTeam: newLinearIssueTargetTeam,
-        linearWorkspaceId: selectedLinearWorkspaceId
-      })
-      if (!resolved.ok) {
-        setState(resolved.state)
-        throw new Error(resolved.message)
+      const repo = primaryRepo
+      if (!repo) {
+        throw new Error(
+          translate('auto.components.TaskPage.taskDockPickTarget', 'Pick a source and a repository first.')
+        )
       }
-      const { repo, group, target } = resolved
-      setState('creating-draft')
-      creating = true
+      const group = appState.projectGroups.find((candidate) => candidate.id === repo.projectGroupId)
+      if (!group) {
+        throw new Error(
+          translate(
+            'auto.components.TaskPage.taskDockNoProjectGroup',
+            'Pick a repository that belongs to a project group.'
+          )
+        )
+      }
+      // Why: the scratch directory is app-owned and local; a remote group has no path this host can create.
+      if (group.connectionId || getRepoExecutionHostId(repo) !== LOCAL_EXECUTION_HOST_ID) {
+        throw new Error(
+          translate('auto.components.TaskPage.taskDockLocalRepoRequired', 'Drafts need a local repository.')
+        )
+      }
       const draftKey = draftKeyRef.current ?? createBrowserUuid()
       draftKeyRef.current = draftKey
       const folderPath = await window.api.app.getTaskDraftDirectory({ draftKey })
@@ -127,172 +110,69 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel) {
       const draft: ActiveTaskDraft = {
         folderWorkspaceId: workspace.id,
         folderPath,
-        primaryTabId: null,
         draftKey,
-        agent: null,
-        instruction: text,
-        target,
-        repoPath: repo.path,
-        lastProposalRevision: 0,
-        frozenProposal: null,
-        receipt: null,
-        channel: null
+        primaryTabId: null,
+        agent: null
       }
       activeDraftRef.current = draft
-      creating = false
-      try {
-        await launchDraftAgent(draft, group, appState.settings, text)
-      } catch (error) {
-        setState('agent-launch-failed')
-        throw error
-      }
-      setState('drafting')
+      await launchDraftAgent({
+        draft,
+        group,
+        settings: appState.settings ?? null,
+        instruction: text,
+        model: modelId,
+        targetLabel
+      })
       setInstruction('')
       setExpanded(false)
     } catch (error) {
-      if (creating) {
-        setState('draft-failed')
-      }
       setErrorMessage(error instanceof Error ? error.message : String(error))
     } finally {
       setSubmitting(false)
     }
-  }, [
-    instruction,
-    submitting,
-    primaryRepo,
-    taskSource,
-    folderWorkspaces,
-    state,
-    newLinearIssueTargetTeam,
-    selectedLinearWorkspaceId
-  ])
-
-  const reopenDraft = useCallback(async (active: ActiveTaskDraft): Promise<void> => {
-    setErrorMessage(null)
-    try {
-      await deliverToActiveDraft(active, active.instruction)
-      setState('drafting')
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error))
-    }
-  }, [])
-
-  const {
-    linkTaskItem,
-    finishLink,
-    createIssue,
-    confirmCreate,
-    retry,
-    reopenAgent,
-    chooseGhFallback
-  } = useTaskDraftCreateActions({
-    state,
-    activeDraftRef,
-    setState,
-    setErrorMessage,
-    setProviderError,
-    setInstruction,
-    setNewJiraIssueTitle,
-    setNewJiraIssueBody,
-    setNewJiraIssueOpen,
-    primaryRepo,
-    submit,
-    reopenDraft,
-    onDraftLinked,
-    claimAuthorization,
-    isAuthorizationLive
-  })
-
-  useTaskDraftPolling({
-    state,
-    activeDraftRef,
-    setProposal,
-    setDuplicates,
-    setDuplicateCheckUnavailable,
-    setState,
-    setErrorMessage,
-    onFallbackReceipt: finishLink
-  })
-
-  const reuseCandidate = useCallback(
-    async (candidate: TaskDraftDuplicateCandidate): Promise<void> => {
-      if (state !== 'duplicate-suspected') {
-        return
-      }
-      const active = activeDraftRef.current
-      if (!active) {
-        return
-      }
-      setErrorMessage(null)
-      const linked = await linkTaskItem(active, buildLinkedItem(active.target, candidate))
-      if (linked) {
-        onDraftLinked()
-        setState('idle')
-        setInstruction('')
-        return
-      }
-      setErrorMessage(
-        (current) =>
-          current ??
-          translate(
-            'auto.hooks.useTaskPageDockActions.taskDraftReuseFailed',
-            'The existing issue could not be linked to this draft.'
-          )
-      )
-    },
-    [state, linkTaskItem, onDraftLinked]
-  )
-
-  const activeDraft = activeDraftRef.current
-  const draft: TaskDockDraftModel = {
-    state,
-    provider: activeDraft?.target.provider ?? null,
-    createdIssueNumber: activeDraft?.receipt?.number ?? null,
-    proposal,
-    duplicates,
-    duplicateCheckUnavailable,
-    providerError,
-    onConfirmCreate: () => {
-      void confirmCreate()
-    },
-    onCancelPreview: () => {
-      authorizationRef.current += 1
-      if (state === 'preview-ready') {
-        setState('cancelled')
-      }
-    },
-    onReuseCandidate: (candidate) => {
-      void reuseCandidate(candidate)
-    },
-    onCreateAnyway: () => {
-      if (state === 'duplicate-suspected') {
-        void createIssue()
-      }
-    },
-    onRetry: () => {
-      void retry()
-    },
-    onReopenAgent: reopenAgent,
-    onChooseGhFallback: () => {
-      void chooseGhFallback()
-    }
-  }
+  }, [instruction, submitting, primaryRepo, taskSource, folderWorkspaces, modelId, targetLabel])
 
   const taskDock: TaskDockModel = {
     instruction,
     expanded,
     targetLabel,
+    model: modelId,
+    modelOptions,
     submitting,
     errorMessage,
     onInstructionChange: setInstruction,
+    onModelChange: setModelId,
     onExpandedChange: setExpanded,
     onSubmit: () => {
       void submit()
-    },
-    draft
+    }
   }
-  return Object.assign(model, { taskDock })
+
+  return { ...model, taskDock }
 }
 
-export type TaskPageDockActionsModel = ReturnType<typeof useTaskPageDockActions>
+/**
+ * The model list the dock can offer. Only agents with a session-option catalog (claude, codex)
+ * publish one; for the others the dock falls back to a free-text model id, because the agent's
+ * TUI owns its model list and Orca does not mirror it.
+ */
+function resolveModelOptions(): TaskDockModelOption[] {
+  const state = useAppStore.getState()
+  const agent = state.settings?.defaultTuiAgent
+  if (!agent) {
+    return []
+  }
+  const catalog = getAgentSessionOptionCatalog(agent as Parameters<typeof getAgentSessionOptionCatalog>[0])
+  return (
+    catalog?.models.map((entry) => ({
+      id: entry.id,
+      label: 'label' in entry && typeof entry.label === 'string' ? entry.label : entry.id
+    })) ?? []
+  )
+}
+
+function getTargetLabel(repo: Repo, taskSource: TaskPageComposerActionsModel['taskSource']): string {
+  const owner = repo.upstream?.owner
+  const name = repo.upstream?.repo
+  return owner && name ? `${taskSource} · ${owner}/${name}` : repo.displayName
+}

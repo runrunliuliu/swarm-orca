@@ -1,176 +1,95 @@
 // @vitest-environment happy-dom
-
-import '@testing-library/jest-dom/vitest'
-
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-
-import { TaskDock, type TaskDockDraftModel, type TaskDockModel } from './TaskDock'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TaskDock, type TaskDockModel } from './TaskDock'
 
 afterEach(cleanup)
 
-function renderDock(overrides: Partial<TaskDockModel> = {}): TaskDockModel {
-  const draft: TaskDockDraftModel = {
-    state: 'idle',
-    provider: 'github',
-    proposal: null,
-    duplicates: [],
-    duplicateCheckUnavailable: false,
-    providerError: null,
-    createdIssueNumber: null,
-    onConfirmCreate: vi.fn(),
-    onCancelPreview: vi.fn(),
-    onReuseCandidate: vi.fn(),
-    onCreateAnyway: vi.fn(),
-    onRetry: vi.fn(),
-    onReopenAgent: vi.fn(),
-    onChooseGhFallback: vi.fn()
-  }
-  const model: TaskDockModel = {
-    instruction: 'add a login retry',
+function dockModel(overrides: Partial<TaskDockModel> = {}): TaskDockModel {
+  return {
+    instruction: '',
     expanded: false,
-    targetLabel: 'GitHub · orca/repo',
+    targetLabel: 'github · acme/widgets',
+    model: '',
+    modelOptions: [],
     submitting: false,
     errorMessage: null,
-    draft,
     onInstructionChange: vi.fn(),
+    onModelChange: vi.fn(),
     onExpandedChange: vi.fn(),
     onSubmit: vi.fn(),
     ...overrides
   }
-  render(<TaskDock model={model} />)
-  return model
 }
 
 describe('TaskDock', () => {
-  it('renders one collapsed line without chip, cancel or autofocus', () => {
-    renderDock()
-
-    expect(screen.getByTestId('task-dock')).toBeInTheDocument()
-    expect(screen.getByTestId('task-dock-input')).toHaveValue('add a login retry')
-    expect(screen.getByTestId('task-dock-submit')).toBeInTheDocument()
-    expect(screen.queryByTestId('task-dock-chip')).toBeNull()
-    expect(screen.queryByTestId('task-dock-cancel')).toBeNull()
-    expect(document.activeElement).not.toBe(screen.getByTestId('task-dock-input'))
+  it('collapsed is one persistent line that opens the input', () => {
+    const model = dockModel()
+    render(<TaskDock model={model} />)
+    fireEvent.click(screen.getByTestId('task-dock-collapsed'))
+    expect(model.onExpandedChange).toHaveBeenCalledWith(true)
+    expect(screen.queryByTestId('task-dock-input')).toBeNull()
   })
 
-  it('expands from the collapsed line and renders the target chip when expanded', async () => {
-    const user = userEvent.setup()
-    const model = renderDock()
-
-    await user.click(screen.getByTestId('task-dock-input'))
-    expect(model.onExpandedChange).toHaveBeenCalledWith(true)
-    await user.click(screen.getByTestId('task-dock-expand'))
-    expect(model.onExpandedChange).toHaveBeenCalledWith(true)
-
-    cleanup()
-    renderDock({ expanded: true })
-    expect(screen.getByTestId('task-dock-chip')).toHaveTextContent('GitHub · orca/repo')
-    expect(screen.getByTestId('task-dock-submit')).toHaveTextContent('Create draft')
-    expect(screen.getByTestId('task-dock-cancel')).toHaveTextContent('Cancel')
-  })
-
-  it('submits once on ⌘⏎ and not on a bare Enter while expanded', () => {
-    const model = renderDock({ expanded: true })
-    const input = screen.getByTestId('task-dock-input')
-
-    fireEvent.keyDown(input, { key: 'Enter' })
-    expect(model.onSubmit).not.toHaveBeenCalled()
-
-    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
+  it('expanded sends on ⌘↵ and does not send a blank instruction', () => {
+    const model = dockModel({ expanded: true, instruction: 'Add a retry button' })
+    render(<TaskDock model={model} />)
+    fireEvent.keyDown(screen.getByTestId('task-dock-input'), { key: 'Enter', metaKey: true })
     expect(model.onSubmit).toHaveBeenCalledTimes(1)
 
-    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true })
-    expect(model.onSubmit).toHaveBeenCalledTimes(2)
+    const blank = dockModel({ expanded: true, instruction: '   ' })
+    cleanup()
+    render(<TaskDock model={blank} />)
+    fireEvent.keyDown(screen.getByTestId('task-dock-input'), { key: 'Enter', metaKey: true })
+    expect(blank.onSubmit).not.toHaveBeenCalled()
+    expect(screen.getByTestId('task-dock-send')).toHaveProperty('disabled', true)
   })
 
-  it('collapses on Esc without submitting and without losing the text', () => {
-    const model = renderDock({ expanded: true })
-    const input = screen.getByTestId('task-dock-input')
-
-    fireEvent.keyDown(input, { key: 'Escape' })
+  it('closes on Esc without sending and keeps the text', () => {
+    const model = dockModel({ expanded: true, instruction: 'keep me' })
+    render(<TaskDock model={model} />)
+    fireEvent.keyDown(screen.getByTestId('task-dock-input'), { key: 'Escape' })
     expect(model.onExpandedChange).toHaveBeenCalledWith(false)
     expect(model.onSubmit).not.toHaveBeenCalled()
-    expect(input).toHaveValue('add a login retry')
+    expect(model.instruction).toBe('keep me')
   })
 
-  it('disables submit for a blank instruction or a missing target', async () => {
-    const user = userEvent.setup()
-    const blank = renderDock({ instruction: '   ' })
-    await user.click(screen.getByTestId('task-dock-submit'))
-    expect(screen.getByTestId('task-dock-submit')).toBeDisabled()
-    expect(blank.onSubmit).not.toHaveBeenCalled()
+  it('offers a model select when the agent publishes models', () => {
+    const model = dockModel({
+      expanded: true,
+      modelOptions: [
+        { id: 'opus', label: 'Opus' },
+        { id: 'sonnet', label: 'Sonnet' }
+      ]
+    })
+    render(<TaskDock model={model} />)
+    fireEvent.change(screen.getByTestId('task-dock-model'), { target: { value: 'sonnet' } })
+    expect(model.onModelChange).toHaveBeenCalledWith('sonnet')
+  })
 
+  it('falls back to a free-text model id when no catalog exists', () => {
+    const model = dockModel({ expanded: true })
+    render(<TaskDock model={model} />)
+    fireEvent.change(screen.getByTestId('task-dock-model'), { target: { value: 'ep-123' } })
+    expect(model.onModelChange).toHaveBeenCalledWith('ep-123')
+  })
+
+  it('shows the failure and keeps the text editable', () => {
+    const model = dockModel({ expanded: true, instruction: 'x', errorMessage: 'Could not create' })
+    render(<TaskDock model={model} />)
+    expect(screen.getByTestId('task-dock-error').textContent).toContain('Could not create')
+  })
+
+  it('locks the send button while submitting', () => {
+    render(<TaskDock model={dockModel({ expanded: true, instruction: 'x', submitting: true })} />)
+    expect(screen.getByTestId('task-dock-send')).toHaveProperty('disabled', true)
+  })
+
+  it('shows the target chip only when a target is selected', () => {
+    render(<TaskDock model={dockModel({ expanded: true })} />)
+    expect(screen.getByText('github · acme/widgets')).toBeTruthy()
     cleanup()
-    const untargeted = renderDock({ targetLabel: null })
-    await user.click(screen.getByTestId('task-dock-submit'))
-    expect(screen.getByTestId('task-dock-submit')).toBeDisabled()
-    expect(untargeted.onSubmit).not.toHaveBeenCalled()
-  })
-
-  it('locks the input and the submit button while submitting', () => {
-    const model = renderDock({ expanded: true, submitting: true })
-    const input = screen.getByTestId('task-dock-input')
-
-    expect(input).toBeDisabled()
-    expect(screen.getByTestId('task-dock-submit')).toBeDisabled()
-    fireEvent.keyDown(input, { key: 'Enter', metaKey: true })
-    expect(model.onSubmit).not.toHaveBeenCalled()
-  })
-
-  it('shows the failure and keeps the text editable for a retry', () => {
-    renderDock({ expanded: true, errorMessage: 'boom' })
-    const input = screen.getByTestId('task-dock-input')
-
-    expect(screen.getByTestId('task-dock-error')).toHaveTextContent('boom')
-    expect(input).not.toBeDisabled()
-    expect(input).toHaveValue('add a login retry')
-  })
-
-  it('renders the preview through the dock and confirms only from its create action', async () => {
-    const user = userEvent.setup()
-    const draft: TaskDockDraftModel = {
-      ...renderDock().draft,
-      state: 'preview-ready',
-      proposal: { title: 'Retry login', body: 'Keep the session alive.', labels: ['bug'] }
-    }
-    cleanup()
-
-    const model = renderDock({ expanded: true, draft })
-    expect(screen.getByTestId('task-draft-state-preview-ready')).toHaveTextContent('Retry login')
-
-    await user.click(screen.getByRole('button', { name: 'Create issue' }))
-    expect(model.draft.onConfirmCreate).toHaveBeenCalledTimes(1)
-    expect(model.onSubmit).not.toHaveBeenCalled()
-  })
-
-  it('uses the state heading and keeps the hook error as its detail', () => {
-    const cases: [TaskDockDraftModel['state'], string][] = [
-      ['agent-launch-failed', 'The agent could not start.'],
-      ['provider-rejected', 'The provider rejected the issue.'],
-      ['issue-created-link-failed', 'Issue #412 was created, but the link was not saved.']
-    ]
-
-    for (const [state, heading] of cases) {
-      const idleDraft = renderDock().draft
-      cleanup()
-      renderDock({
-        expanded: true,
-        errorMessage: 'specific detail',
-        draft: {
-          ...idleDraft,
-          state,
-          createdIssueNumber: state === 'issue-created-link-failed' ? 412 : null
-        }
-      })
-
-      expect(screen.getByText(heading)).toBeInTheDocument()
-      expect(screen.getByTestId('task-dock-error')).toHaveTextContent('specific detail')
-      expect(screen.getByTestId('task-dock-error')).not.toHaveTextContent(
-        'Could not create the draft.'
-      )
-      cleanup()
-    }
+    render(<TaskDock model={dockModel({ expanded: true, targetLabel: null })} />)
+    expect(screen.queryByText('github · acme/widgets')).toBeNull()
   })
 })

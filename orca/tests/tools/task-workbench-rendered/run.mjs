@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, the production TaskDock rendered in a column that mirrors Frame.tsx with a real PaginationBar, the production draft preview card in its preview-ready and issue-created-link-failed states, and the production folder-workspace row with its draft/linked marker. Proves data-testid presence/counts, the rendered layout decision, degradation copy, dock presence per state, the dock sitting outside the list card, the card giving up height instead of the page scrolling, the dock keyboard path, preview-card controls calling only their own model handler, per-row draft badge/link text, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, locale switching or the workspace-creation path behind the dock submit.'
+  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, the production TaskDock (instruction, model select, Send/Close) rendered in a column that mirrors Frame.tsx with a real PaginationBar, and the production folder-workspace row with its draft/linked marker. Proves data-testid presence/counts, the rendered layout decision, degradation copy, dock presence per state, the dock sitting outside the list card, the card giving up height instead of the page scrolling, the dock keyboard path, the model select reaching the submit handler, per-row draft badge/link text, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, locale switching or the agent launch behind the dock submit.'
 
 // Contract §4.2, copied by hand: the fixture data is the other side of this
 // pin, so a fixture edit that changes a count fails here instead of silently
@@ -90,11 +90,16 @@ import { formatTokens } from './src/renderer/src/components/stats/usage-formatte
 const OUTCOME_TEXT = { success: 'Delivered', failure: 'Failed', cancellation: 'Cancelled' }
 
 // Hand-written on purpose: the dock fixtures are not data-driven, so the driver
-// holds its own expectation of which state each key renders and which text it
-// types. fixture.tsx holds the matching copy; a drift fails the run.
+// holds its own expectation of which state each key renders, which text it types
+// and which model it picks. fixture.tsx holds the matching copy; a drift fails
+// the run.
+const DOCK_MODEL_OPTIONS = [
+  { id: 'claude-opus-4', label: 'Opus 4' },
+  { id: 'claude-sonnet-4', label: 'Sonnet 4' }
+]
 const DOCK_FIXTURES = {
-  d1_dock_collapsed: { state: 'collapsed', typedInstruction: null },
-  d2_dock_expanded: { state: 'expanded', typedInstruction: 'Fix the flaky login test' }
+  d1_dock_collapsed: { state: 'collapsed', typedInstruction: null, selectedModel: 'claude-opus-4' },
+  d2_dock_expanded: { state: 'expanded', typedInstruction: 'Fix the flaky login test', selectedModel: 'claude-opus-4' }
 }
 
 const DOCK_TEST_IDS = {
@@ -103,38 +108,13 @@ const DOCK_TEST_IDS = {
   'dock-fixture-card': 1,
   'dock-fixture-card-scroll': 1,
   'dock-fixture-card-footer': 1,
-  'task-dock': 1,
-  'task-dock-input': 1,
-  'task-dock-submit': 1
+  'task-dock': 1
 }
 
 function dockTestIds(state) {
   return state === 'expanded'
-    ? { ...DOCK_TEST_IDS, 'task-dock-chip': 1, 'task-dock-cancel': 1 }
-    : { ...DOCK_TEST_IDS, 'task-dock-expand': 1 }
-}
-
-// Hand-written on purpose, like DOCK_FIXTURES: the fixture holds the matching
-// proposal and the driver holds its own copy, so a drift fails the run.
-const DRAFT_FIXTURES = {
-  d3_preview_ready: {
-    state: 'preview-ready',
-    provider: 'github',
-    proposal: {
-      title: 'Add login retry',
-      body: 'Retry a failed login once before showing the error.\\n\\nKeep the existing error copy.',
-      labels: ['bug', 'needs-triage']
-    },
-    createdIssueNumber: null,
-    buttons: ['Create issue', 'Cancel', 'Use gh instead']
-  },
-  d3b_link_failed: {
-    state: 'issue-created-link-failed',
-    provider: 'github',
-    proposal: null,
-    createdIssueNumber: 412,
-    buttons: ['Retry link']
-  }
+    ? { ...DOCK_TEST_IDS, 'task-dock-input': 1, 'task-dock-model': 1, 'task-dock-send': 1 }
+    : { ...DOCK_TEST_IDS, 'task-dock-collapsed': 1 }
 }
 
 const SIDEBAR_FIXTURE = {
@@ -148,19 +128,8 @@ const SIDEBAR_FIXTURE = {
 
 export function derive(fixtureKey, width, height) {
   const dock = DOCK_FIXTURES[fixtureKey]
-  if (dock) return { found: true, dock, expectedTestIds: dockTestIds(dock.state) }
-  const draft = DRAFT_FIXTURES[fixtureKey]
-  if (draft) {
-    return {
-      found: true,
-      dock: { state: 'collapsed' },
-      draft,
-      expectedTestIds: {
-        ...dockTestIds('collapsed'),
-        ['task-draft-state-' + draft.state]: 1,
-        ...(draft.state === 'preview-ready' ? { 'task-draft-preview-body': 1 } : {})
-      }
-    }
+  if (dock) {
+    return { found: true, dock, modelOptions: DOCK_MODEL_OPTIONS, expectedTestIds: dockTestIds(dock.state) }
   }
   if (fixtureKey === SIDEBAR_FIXTURE.fixture) {
     return {
@@ -498,12 +467,27 @@ async function readDock(page) {
     const footer = query('dock-fixture-card-footer')
     const scroll = query('dock-fixture-card-scroll')
     const input = query('task-dock-input')
+    const modelField = query('task-dock-model')
     const pagination = footer === null ? null : footer.querySelector('nav[aria-label]')
+    const attr = (name) => (root === null ? null : root.getAttribute(name))
     return {
-      submits: root === null ? -1 : Number(root.getAttribute('data-dock-submits')),
-      lastInstruction: root === null ? null : root.getAttribute('data-dock-last-instruction'),
-      expanded: root !== null && root.getAttribute('data-dock-expanded') === 'true',
+      submits: attr('data-dock-submits') === null ? -1 : Number(attr('data-dock-submits')),
+      lastInstruction: attr('data-dock-last-instruction'),
+      lastModel: attr('data-dock-last-model'),
+      instruction: attr('data-dock-instruction'),
+      selectedModel: attr('data-dock-model'),
+      expanded: attr('data-dock-expanded') === 'true',
       typedValue: input === null ? null : input.value,
+      modelFieldKind: modelField === null ? null : modelField.tagName.toLowerCase(),
+      modelFieldValue: modelField === null ? null : modelField.value,
+      modelOptionLabels:
+        modelField === null || modelField.tagName.toLowerCase() !== 'select'
+          ? null
+          : [...modelField.options].map((option) => option.textContent.trim()),
+      modelOptionValues:
+        modelField === null || modelField.tagName.toLowerCase() !== 'select'
+          ? null
+          : [...modelField.options].map((option) => option.value),
       dockInsideCard: card !== null && dock !== null && card.contains(dock),
       sameColumn:
         card !== null &&
@@ -522,105 +506,6 @@ async function readDock(page) {
       viewportHeight: window.innerHeight
     }
   })
-}
-
-/** The draft counters live on the fixture root, next to the dock ones. */
-async function readDraftCounters(page) {
-  return page.evaluate(() => {
-    const root = document.querySelector('[data-testid="dock-fixture-root"]')
-    const read = (name) => (root === null ? -1 : Number(root.getAttribute(name)))
-    return {
-      confirms: read('data-dock-confirms'),
-      cancels: read('data-dock-cancels'),
-      ghFallbacks: read('data-dock-gh-fallbacks'),
-      retries: read('data-dock-retries')
-    }
-  })
-}
-
-/** The P2b half of the dock: the production preview card's state, copy, controls
- *  and the fact that each control calls only its own model handler. */
-async function assertDraft(failures, page, report, draft) {
-  const previewTestId = 'task-draft-state-' + draft.state
-  const initial = await page.evaluate((testId) => {
-    const preview = document.querySelector('[data-testid="' + testId + '"]')
-    const body = document.querySelector('[data-testid="task-draft-preview-body"]')
-    const text = (element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()
-    return {
-      previewTestId: preview === null ? null : preview.getAttribute('data-testid'),
-      previewText: preview === null ? null : text(preview),
-      body: body === null ? null : text(body),
-      labels:
-        preview === null
-          ? []
-          : [...preview.querySelectorAll('[data-slot="badge"]')].map((element) => text(element)),
-      buttons:
-        preview === null
-          ? []
-          : [...preview.querySelectorAll('button')].map((element) => text(element)),
-      dockError: document.querySelectorAll('[data-testid="task-dock-error"]').length
-    }
-  }, previewTestId)
-  const counters = await readDraftCounters(page)
-
-  report.draft = {
-    state: draft.state,
-    previewTestId: initial.previewTestId,
-    body: initial.body,
-    labels: initial.labels,
-    buttons: initial.buttons,
-    dockError: initial.dockError
-  }
-
-  compare(failures, 'draft:preview-testid', initial.previewTestId, previewTestId)
-  compare(failures, 'draft:buttons', [...initial.buttons].sort(), [...draft.buttons].sort())
-  compare(failures, 'draft:dock-error', initial.dockError, 0)
-  compare(failures, 'draft:confirms-before-click', counters.confirms, 0)
-  compare(failures, 'draft:cancels-before-click', counters.cancels, 0)
-  compare(failures, 'draft:gh-fallbacks-before-click', counters.ghFallbacks, 0)
-  compare(failures, 'draft:retries-before-click', counters.retries, 0)
-
-  if (draft.proposal !== null) {
-    compare(failures, 'draft:title', initial.previewText.includes(draft.proposal.title), true)
-    compare(
-      failures,
-      'draft:body',
-      initial.body,
-      draft.proposal.body.replace(/\s+/g, ' ').trim()
-    )
-    compare(failures, 'draft:labels', [...initial.labels].sort(), [...draft.proposal.labels].sort())
-  }
-  if (draft.createdIssueNumber !== null) {
-    compare(
-      failures,
-      'draft:created-issue-number',
-      initial.previewText.includes('#' + draft.createdIssueNumber),
-      true
-    )
-  }
-
-  const card = page.locator('[data-testid="' + previewTestId + '"]')
-  if (draft.state === 'preview-ready') {
-    await card.locator('button', { hasText: 'Create issue' }).click()
-    const confirmed = await readDraftCounters(page)
-    compare(failures, 'draft:confirm-called-once', confirmed.confirms, 1)
-    compare(failures, 'draft:cancel-not-called', confirmed.cancels, 0)
-    compare(failures, 'draft:gh-fallback-not-called', confirmed.ghFallbacks, 0)
-
-    await card.locator('button', { hasText: 'Cancel' }).click()
-    await card.locator('button', { hasText: 'Use gh instead' }).click()
-    const after = await readDraftCounters(page)
-    compare(failures, 'draft:confirm-still-once', after.confirms, 1)
-    compare(failures, 'draft:cancel-called-once', after.cancels, 1)
-    compare(failures, 'draft:gh-fallback-called-once', after.ghFallbacks, 1)
-    report.draft.counters = after
-  } else {
-    await card.locator('button', { hasText: 'Retry link' }).click()
-    const retried = await readDraftCounters(page)
-    compare(failures, 'draft:retry-called-once', retried.retries, 1)
-    compare(failures, 'draft:confirm-never-called', retried.confirms, 0)
-    report.draft.counters = retried
-  }
 }
 
 /** Per row, not per document: the marker must sit on the two draft rows and be
@@ -655,8 +540,9 @@ async function assertSidebar(failures, page, report, expected) {
 }
 
 /** The dock half of the matrix: presence per state, the dock outside the card,
- *  PaginationBar still in the card footer, and — expanded — the card giving up
- *  height to the dock instead of the page scrolling, plus the keyboard path. */
+ *  PaginationBar still in the card footer, and — expanded — the model select and
+ *  the card giving up height to the dock instead of the page scrolling, plus the
+ *  keyboard path. */
 async function assertDock(failures, page, report, expectation) {
   const dock = expectation.dock
   const isExpanded = dock.state === 'expanded'
@@ -668,7 +554,8 @@ async function assertDock(failures, page, report, expectation) {
     clientHeight: initial.clientHeight,
     scrollHeight: initial.scrollHeight,
     dockHeight: initial.dockHeight,
-    paginationLabel: initial.paginationLabel
+    paginationLabel: initial.paginationLabel,
+    modelOptions: initial.modelOptionLabels
   }
 
   compare(failures, 'dock:expanded-state', initial.expanded, isExpanded)
@@ -683,6 +570,24 @@ async function assertDock(failures, page, report, expectation) {
     return
   }
 
+  // The model control is a select when the hook found models and a free-text
+  // input when it did not; the fixture supplies two options, so this run proves
+  // the select branch and that the picked id reaches `onSubmit`.
+  compare(failures, 'dock:model-is-select', initial.modelFieldKind, 'select')
+  compare(failures, 'dock:model-default-value', initial.modelFieldValue, '')
+  compare(
+    failures,
+    'dock:model-option-labels',
+    initial.modelOptionLabels,
+    ['Agent default', ...expectation.modelOptions.map((option) => option.label)]
+  )
+  compare(
+    failures,
+    'dock:model-option-values',
+    initial.modelOptionValues,
+    ['', ...expectation.modelOptions.map((option) => option.id)]
+  )
+
   const scrollTopSet = await page.evaluate((offset) => {
     const scroll = document.querySelector('[data-testid="dock-fixture-card-scroll"]')
     scroll.scrollTop = offset
@@ -694,19 +599,26 @@ async function assertDock(failures, page, report, expectation) {
   await page.focus('[data-testid="task-dock-input"]')
   await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.type(dock.typedInstruction)
+  await page.selectOption('[data-testid="task-dock-model"]', dock.selectedModel)
   const typed = await readDock(page)
   compare(failures, 'dock:typed-into-input', typed.typedValue, dock.typedInstruction)
+  compare(failures, 'dock:selected-model', typed.modelFieldValue, dock.selectedModel)
   compare(failures, 'dock:no-submit-before-enter', typed.submits, 0)
 
   await page.keyboard.press(modifier + '+Enter')
   const submitted = await readDock(page)
   compare(failures, 'dock:submits', submitted.submits, 1)
   compare(failures, 'dock:last-instruction', submitted.lastInstruction, dock.typedInstruction)
+  compare(failures, 'dock:last-model', submitted.lastModel, dock.selectedModel)
 
   await page.keyboard.press('Escape')
   const collapsed = await readDock(page)
   compare(failures, 'dock:escape-collapses', collapsed.expanded, false)
-  compare(failures, 'dock:escape-keeps-instruction', collapsed.typedValue, dock.typedInstruction)
+  // Why the root attribute and not the textarea value: the collapsed dock
+  // unmounts the input, so only the fixture's own state can prove the text
+  // survived the collapse.
+  compare(failures, 'dock:escape-keeps-instruction', collapsed.instruction, dock.typedInstruction)
+  compare(failures, 'dock:escape-keeps-model', collapsed.selectedModel, dock.selectedModel)
 
   const grew = expanded.dockHeight - collapsed.dockHeight
   compare(failures, 'dock:scrolled-to-offset', scrollTopSet, DOCK_SCROLL_OFFSET)
@@ -744,9 +656,9 @@ async function assertDock(failures, page, report, expectation) {
 
   // Why: the PNG for S12/S13 must show the state the fixture names, and this is
   // the real expand affordance rather than a state reset.
-  await page.click('[data-testid="task-dock-expand"]')
+  await page.click('[data-testid="task-dock-collapsed"]')
   const restored = await readDock(page)
-  compare(failures, 'dock:expand-button', restored.expanded, true)
+  compare(failures, 'dock:expand-affordance', restored.expanded, true)
 }
 
 async function runOne(entry, builds) {
@@ -766,7 +678,7 @@ async function runOne(entry, builds) {
   try {
     const expectation = builds.derive(entry.fixture, entry.width, entry.height)
     report.expected = expectation.dock
-      ? { dock: expectation.dock, draft: expectation.draft ?? null }
+      ? { dock: expectation.dock }
       : expectation.sidebar
         ? { sidebar: expectation.sidebar }
         : expectation.found
@@ -867,9 +779,6 @@ async function runOne(entry, builds) {
       }
       if (expectation.dock) {
         await assertDock(failures, page, report, expectation)
-      }
-      if (expectation.draft) {
-        await assertDraft(failures, page, report, expectation.draft)
       }
       if (expectation.sidebar) {
         await assertSidebar(failures, page, report, expectation.sidebar)

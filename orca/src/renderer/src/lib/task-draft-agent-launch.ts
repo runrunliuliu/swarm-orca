@@ -1,20 +1,15 @@
-/**
- * Launching the draft's agent tab: one plan, one activation, one startup delivery.
- * Plain function (no React) so the dock hook and its retry path share it.
- */
-import { getFolderWorkspaceAgentLaunchPlatform } from '@/components/sidebar/folder-workspace-agent-startup'
 import { deliverLaunchPromptToAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { resolveDefaultAgentForNewTab } from '@/lib/agent-tab-shortcuts'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { ensureAgentStartupInTerminal } from '@/lib/new-workspace'
-import { joinPath } from '@/lib/path'
 import { buildTaskDraftPrompt } from '@/lib/task-draft-prompt'
 import { buildAgentStartupPlan, type AgentStartupPlan } from '@/lib/tui-agent-startup'
 import { activateAndRevealFolderWorkspace } from '@/lib/worktree-activation'
 import type { WorktreeStartupPayload } from '@/lib/worktree-startup-payload'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
-import type { ActiveTaskDraft } from '@/lib/task-draft-create-flow'
+import { getFolderWorkspaceAgentLaunchPlatform } from '@/components/sidebar/folder-workspace-agent-startup'
+import type { ActiveTaskDraft } from '@/hooks/use-task-page-dock-actions'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { ProjectGroup } from '../../../shared/project-group-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -25,12 +20,20 @@ import {
 import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 
-export async function launchDraftAgent(
-  draft: ActiveTaskDraft,
-  group: ProjectGroup,
-  settings: GlobalSettings | null,
-  text: string
-): Promise<void> {
+/**
+ * Start the draft's agent with the user's instruction. The model is the one selected in the dock;
+ * it is appended as the agent's own `--model` argument, because that is the only model channel the
+ * TUI launch has (the provider decides whether it accepts it).
+ */
+export async function launchDraftAgent(args: {
+  draft: ActiveTaskDraft
+  group: ProjectGroup
+  settings: GlobalSettings | null
+  instruction: string
+  model: string
+  targetLabel: string | null
+}): Promise<void> {
+  const { draft, group, settings, instruction, model } = args
   const agent = resolveDefaultAgentForNewTab({
     defaultTuiAgent: settings?.defaultTuiAgent,
     detectedAgentIds: useAppStore.getState().detectedAgentIds,
@@ -40,22 +43,16 @@ export async function launchDraftAgent(
     throw new Error(
       translate(
         'auto.components.TaskPage.taskDockNoAgent',
-        'No agent is enabled, so the draft was created without a session. Turn one on in Settings, then send again.'
+        'No agent is enabled. Turn one on in Settings, then send again.'
       )
     )
   }
   const plan = buildDockAgentStartup({
     agent,
-    prompt: buildTaskDraftPrompt({
-      instruction: text,
-      targetLabel: draft.target.label,
-      draftKey: draft.draftKey,
-      provider: draft.target.provider,
-      repoId: draft.target.repoId ?? null,
-      proposalPath: joinPath(draft.folderPath, 'task-draft-proposal.json')
-    }),
+    prompt: buildTaskDraftPrompt({ instruction, targetLabel: args.targetLabel }),
     group,
-    settings
+    settings,
+    model
   })
   if (!plan) {
     throw new Error(
@@ -88,34 +85,9 @@ export async function launchDraftAgent(
   })
 }
 
-/** One command line for the agent tab; the builder keeps every value a separate argv entry. */
-export function formatCommandLine(command: string, args: readonly string[]): string {
-  return [command, ...args].map(quoteCommandArg).join(' ')
-}
-
-function quoteCommandArg(arg: string): string {
-  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`
-}
-
-/** Re-run the launch into the draft's existing workspace (agent-launch-failed retry). */
-export async function relaunchDraftAgent(active: ActiveTaskDraft): Promise<void> {
-  const appState = useAppStore.getState()
-  const group = appState.projectGroups.find((candidate) => candidate.id === active.target.projectId)
-  if (!group) {
-    throw new Error(
-      translate(
-        'auto.components.TaskPage.taskDockNoProjectGroup',
-        'Pick a repository that belongs to a project group.'
-      )
-    )
-  }
-  await launchDraftAgent(active, group, appState.settings, active.instruction)
-}
-
 /**
- * A follow-up goes to the draft's running tab. `ensureAgentStartupInTerminal` is a
- * startup channel (argv plans no-op, stale tokens are dropped), so it cannot carry
- * a second instruction; this is the same running-tab primitive other launch paths use.
+ * A follow-up goes to the draft's running tab. `ensureAgentStartupInTerminal` is a startup channel
+ * (argv plans no-op, stale tokens are dropped), so it cannot carry a second instruction.
  */
 export async function deliverToActiveDraft(
   draft: ActiveTaskDraft,
@@ -146,18 +118,31 @@ export async function deliverToActiveDraft(
   }
 }
 
+function withModel(agentArgs: string, model: string): string {
+  const trimmed = model.trim()
+  if (!trimmed) {
+    return agentArgs
+  }
+  const flag = `--model ${JSON.stringify(trimmed)}`
+  return agentArgs ? `${agentArgs} ${flag}` : flag
+}
+
 function buildDockAgentStartup(args: {
   agent: TuiAgent
   prompt: string
   group: ProjectGroup
   settings: GlobalSettings | null
+  model: string
 }): AgentStartupPlan | null {
   const platform = getFolderWorkspaceAgentLaunchPlatform(args.group)
   return buildAgentStartupPlan({
     agent: args.agent,
     prompt: args.prompt,
     cmdOverrides: args.settings?.agentCmdOverrides ?? {},
-    agentArgs: resolveTuiAgentLaunchArgs(args.agent, args.settings?.agentDefaultArgs),
+    agentArgs: withModel(
+      resolveTuiAgentLaunchArgs(args.agent, args.settings?.agentDefaultArgs),
+      args.model
+    ),
     agentEnv: resolveTuiAgentLaunchEnv(args.agent, args.settings?.agentDefaultEnv),
     platform,
     shell: resolveLocalWindowsAgentStartupShell({

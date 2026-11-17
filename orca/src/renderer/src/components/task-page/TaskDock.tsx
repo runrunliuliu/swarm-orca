@@ -5,196 +5,152 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { translate } from '@/i18n/i18n'
-import type {
-  TaskDraftDuplicateCandidate,
-  TaskDraftProposal,
-  TaskDraftProvider,
-  TaskDraftState
-} from '@/lib/task-draft-issue-create'
 
-import { TaskDraftPreviewCard } from './task-draft-preview-card'
-
-export type TaskDockDraftModel = {
-  state: TaskDraftState
-  provider: TaskDraftProvider | null
-  proposal: TaskDraftProposal | null
-  duplicates: readonly TaskDraftDuplicateCandidate[]
-  duplicateCheckUnavailable: boolean
-  providerError: string | null
-  createdIssueNumber: number | null
-  onConfirmCreate: () => void
-  onCancelPreview: () => void
-  onReuseCandidate: (candidate: TaskDraftDuplicateCandidate) => void
-  onCreateAnyway: () => void
-  onRetry: () => void
-  onReopenAgent: () => void
-  onChooseGhFallback: () => void
-}
+export type TaskDockModelOption = { id: string; label: string }
 
 export type TaskDockModel = {
   instruction: string
   expanded: boolean
   /** `provider · owner/repo` for the current source and selection; null when nothing is selected. */
   targetLabel: string | null
+  /** The model id sent as the agent's `--model`; empty means the agent's configured default. */
+  model: string
+  modelOptions: readonly TaskDockModelOption[]
   submitting: boolean
   errorMessage: string | null
-  draft: TaskDockDraftModel
   onInstructionChange: (value: string) => void
+  onModelChange: (value: string) => void
   onExpandedChange: (expanded: boolean) => void
   onSubmit: () => void
 }
 
+/**
+ * The Tasks list page's agent input: one instruction, one model, one send. Everything after the
+ * send happens in the draft's agent session — the dock does not call a tracker itself.
+ */
 export function TaskDock({ model }: { model: TaskDockModel }): React.JSX.Element {
-  const inputRef = React.useRef<HTMLTextAreaElement>(null)
-  const canSubmit =
-    model.targetLabel !== null && model.instruction.trim().length > 0 && !model.submitting
-  const placeholder = translate(
-    'auto.components.TaskPage.taskDockPlaceholder',
-    'Describe a task or change…'
-  )
-
+  const canSend = model.instruction.trim().length > 0 && !model.submitting
   const submit = (): void => {
-    if (canSubmit) {
+    if (canSend) {
       model.onSubmit()
     }
   }
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key === 'Escape') {
-      if (!model.expanded) {
-        return
-      }
-      event.preventDefault()
-      // Why: this keeps focus in the same textarea, which is now the collapsed line, so
-      // returning focus needs no ref, no effect and no second element.
-      model.onExpandedChange(false)
-      return
-    }
-    // Why: a multi-line instruction needs ⌘/Ctrl to commit; only the one-line form takes a bare Enter.
-    if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey || !model.expanded)) {
-      return
-    }
-    event.preventDefault()
-    submit()
-  }
-
-  const expand = (): void => {
-    model.onExpandedChange(true)
-    inputRef.current?.focus()
-  }
-
-  const spinner = <LoaderCircle className="size-3.5 animate-spin" />
-  const sendLabel = translate('auto.components.TaskPage.taskDockSend', 'Send')
-  const createDraftLabel = translate('auto.components.TaskPage.taskDockCreateDraft', 'Create draft')
-  const cancelLabel = translate('auto.components.TaskPage.taskDockCancel', 'Cancel')
-
   return (
-    <div data-testid="task-dock" className="flex flex-col gap-1">
-      <div className="flex items-end gap-2">
-        {/* Why the same child slot in both states: the textarea must not remount on collapse,
-            or Esc would drop focus to <body>. */}
-        {model.expanded ? null : (
+    <div className="shrink-0 border-t" data-testid="task-dock">
+      {model.expanded ? (
+        <div className="space-y-2 p-3">
+          <Textarea
+            autoFocus
+            value={model.instruction}
+            onChange={(event) => model.onInstructionChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault()
+                submit()
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                model.onExpandedChange(false)
+              }
+            }}
+            placeholder={translate(
+              'auto.components.TaskPage.taskDockPlaceholder',
+              'Describe a task or change…'
+            )}
+            data-testid="task-dock-input"
+            rows={3}
+          />
+          {model.errorMessage ? (
+            <p className="text-sm text-destructive" data-testid="task-dock-error">
+              {model.errorMessage}
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              {model.targetLabel ? (
+                <Badge variant="secondary" className="max-w-[40%] min-w-0">
+                  <span className="truncate">{model.targetLabel}</span>
+                </Badge>
+              ) : null}
+              {model.modelOptions.length > 0 ? (
+                <select
+                  aria-label={translate('auto.components.TaskPage.taskDockModel', 'Model')}
+                  className="h-7 max-w-[40%] rounded-md border bg-transparent px-2 text-xs"
+                  value={model.model}
+                  onChange={(event) => model.onModelChange(event.target.value)}
+                  data-testid="task-dock-model"
+                >
+                  <option value="">
+                    {translate('auto.components.TaskPage.taskDockModelDefault', 'Agent default')}
+                  </option>
+                  {model.modelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  aria-label={translate('auto.components.TaskPage.taskDockModel', 'Model')}
+                  className="h-7 w-40 rounded-md border bg-transparent px-2 text-xs"
+                  value={model.model}
+                  placeholder={translate(
+                    'auto.components.TaskPage.taskDockModelPlaceholder',
+                    'Model (agent default)'
+                  )}
+                  onChange={(event) => model.onModelChange(event.target.value)}
+                  data-testid="task-dock-model"
+                />
+              )}
+              <span className="text-xs text-muted-foreground">
+                {translate(
+                  'auto.components.TaskPage.taskDockSubmitHint',
+                  '⌘↵ to send, Esc to close'
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => model.onExpandedChange(false)}
+              >
+                {translate('auto.components.TaskPage.taskDockCancel', 'Close')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!canSend}
+                onClick={submit}
+                data-testid="task-dock-send"
+              >
+                {model.submitting ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
+                {translate('auto.components.TaskPage.taskDockSend', 'Send')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-3 py-2">
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
-            data-testid="task-dock-expand"
-            aria-label={translate('auto.components.TaskPage.taskDockExpand', 'Expand')}
-            disabled={model.submitting}
-            onClick={expand}
+            size="icon"
+            aria-label={translate('auto.components.TaskPage.taskDockExpand', 'Open the input')}
+            onClick={() => model.onExpandedChange(true)}
           >
             <ChevronUp className="size-4" />
           </Button>
-        )}
-        <Textarea
-          ref={inputRef}
-          data-testid="task-dock-input"
-          value={model.instruction}
-          rows={model.expanded ? 3 : 1}
-          disabled={model.submitting}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          className={model.expanded ? 'min-h-20' : 'min-h-9'}
-          onChange={(event) => model.onInstructionChange(event.target.value)}
-          onFocus={() => {
-            if (!model.expanded) {
-              model.onExpandedChange(true)
-            }
-          }}
-          onKeyDown={handleKeyDown}
-        />
-        {model.expanded ? null : (
-          <Button
+          <button
             type="button"
-            data-testid="task-dock-submit"
-            size="sm"
-            aria-label={sendLabel}
-            disabled={!canSubmit}
-            onClick={submit}
+            className="h-8 min-w-0 flex-1 rounded-md border bg-transparent px-2 text-left text-xs text-muted-foreground"
+            onClick={() => model.onExpandedChange(true)}
+            data-testid="task-dock-collapsed"
           >
-            {model.submitting ? spinner : sendLabel}
-          </Button>
-        )}
-      </div>
-      {model.expanded ? (
-        <div className="flex items-center gap-2">
-          {model.targetLabel === null ? null : (
-            <Badge
-              variant="outline"
-              data-testid="task-dock-chip"
-              aria-label={`${translate('auto.components.TaskPage.taskDockTarget', 'Target')}: ${model.targetLabel}`}
-            >
-              {model.targetLabel}
-            </Badge>
-          )}
-          <span className="text-xs text-muted-foreground">
-            {translate(
-              'auto.components.TaskPage.taskDockSubmitHint',
-              '⌘⏎ to send, Esc to collapse'
-            )}
-          </span>
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              data-testid="task-dock-cancel"
-              aria-label={translate(
-                'auto.components.TaskPage.taskDockCancelHint',
-                'Cancel and collapse (Esc)'
-              )}
-              disabled={model.submitting}
-              onClick={() => model.onExpandedChange(false)}
-            >
-              {cancelLabel}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              data-testid="task-dock-submit"
-              aria-label={createDraftLabel}
-              disabled={!canSubmit}
-              onClick={submit}
-            >
-              {model.submitting ? spinner : createDraftLabel}
-            </Button>
-          </div>
+            {translate('auto.components.TaskPage.taskDockPlaceholder', 'Describe a task or change…')}
+          </button>
         </div>
-      ) : null}
-      {/* Why expanded-only: §7.9.2 fixes the collapsed state as one persistent line. */}
-      {model.expanded && model.targetLabel === null ? (
-        <p className="text-xs text-muted-foreground">
-          {translate(
-            'auto.components.TaskPage.taskDockNoTarget',
-            'Pick a source and a repository first.'
-          )}
-        </p>
-      ) : null}
-      <TaskDraftPreviewCard draft={model.draft} provider={model.draft.provider} />
-      {model.errorMessage === null ? null : (
-        <p data-testid="task-dock-error" role="alert" className="text-xs text-destructive">
-          {model.errorMessage}
-        </p>
       )}
     </div>
   )
