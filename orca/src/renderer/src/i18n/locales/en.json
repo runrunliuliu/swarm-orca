@@ -2335,7 +2335,8 @@
         "taskDockInstructionNotDelivered": "The draft session did not accept the instruction.",
         "taskDockModel": "Model",
         "taskDockModelDefault": "Agent default",
-        "taskDockModelPlaceholder": "Model (agent default)"
+        "taskDockModelPlaceholder": "Model (agent default)",
+        "taskDockSessionEnded": "Session ended"
       },
       "Terminal": {
         "73768427cf": "Close",

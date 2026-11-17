@@ -158,9 +158,12 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
       return
     }
     let cancelled = false
+    // Why stop on the final read: an exited terminal never gains lines, so the remaining polls would
+    // be pure cost. A hidden window is paused for the same reason.
+    let finished = false
     const tick = async (): Promise<void> => {
       const draft = activeDraftRef.current
-      if (!draft) {
+      if (finished || document.hidden || !draft) {
         return
       }
       const read = await readTaskDockTranscript({
@@ -174,6 +177,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
       }
       setTranscript(read.lines.map((text) => ({ text })))
       setTranscriptStatus(read.ended ? 'ended' : 'live')
+      finished = read.ended
     }
     void tick()
     const timer = setInterval(() => void tick(), TRANSCRIPT_POLL_MS)

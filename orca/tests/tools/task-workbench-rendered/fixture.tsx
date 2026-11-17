@@ -70,7 +70,16 @@ const DOCK_MODEL_OPTIONS: readonly TaskDockModelOption[] = [
 const DOCK_TRANSCRIPT: readonly TaskDockTranscriptLine[] = [
   { text: 'Draft workspace ready: /tmp/task-drafts/add-login-retry', tone: 'meta' },
   { text: '> Fix the flaky login test', tone: 'user' },
-  { text: 'Reading the failing test before I change anything.', tone: 'agent' }
+  { text: 'Reading the failing test before I change anything.', tone: 'agent' },
+  { text: 'Opened src/renderer/src/lib/login-retry.test.ts', tone: 'agent' },
+  { text: 'The retry loop runs before the error branch is reached.', tone: 'agent' },
+  { text: 'Reproduced: second attempt re-enters the loop.', tone: 'agent' },
+  { text: 'Patching the loop to bail on the first failure.', tone: 'agent' },
+  { text: 'Running the suite…', tone: 'agent' },
+  { text: '12 passed, 1 failed (the timing test).', tone: 'agent' },
+  { text: 'The timing test asserted the old loop count.', tone: 'agent' },
+  { text: 'Updated the expectation to one attempt.', tone: 'agent' },
+  { text: 'Suite green. Next: report the change.', tone: 'agent' }
 ]
 
 // Duplicated in `run.mjs`'s derive() for the same reason as the dock pins.

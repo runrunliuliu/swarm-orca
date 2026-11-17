@@ -124,4 +124,24 @@ describe('TaskDock', () => {
     render(<TaskDock model={dockModel({ expanded: true })} />)
     expect(screen.queryByTestId('task-dock-transcript')).toBeNull()
   })
+
+  it('marks a finished session below the tail', () => {
+    render(
+      <TaskDock
+        model={dockModel({
+          expanded: true,
+          transcriptStatus: 'ended',
+          transcript: [{ text: 'agent exited' }]
+        })}
+      />
+    )
+    expect(screen.getByTestId('task-dock-transcript-ended').textContent).toContain('Session ended')
+    cleanup()
+    render(
+      <TaskDock
+        model={dockModel({ expanded: true, transcriptStatus: 'live', transcript: [{ text: 'x' }] })}
+      />
+    )
+    expect(screen.queryByTestId('task-dock-transcript-ended')).toBeNull()
+  })
 })

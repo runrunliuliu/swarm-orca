@@ -39,6 +39,17 @@ export type TaskDockModel = {
  */
 export function TaskDock({ model }: { model: TaskDockModel }): React.JSX.Element {
   const canSend = model.instruction.trim().length > 0 && !model.submitting
+  const transcriptRef = React.useRef<HTMLDivElement | null>(null)
+  // Why a ref: whether the reader is following the tail is an interaction state, and re-rendering the
+  // dock on every scroll would fight the browser's own scrolling.
+  const followsTailRef = React.useRef(true)
+  React.useEffect(() => {
+    const element = transcriptRef.current
+    if (!element || !followsTailRef.current) {
+      return
+    }
+    element.scrollTop = element.scrollHeight
+  }, [model.transcript])
   const submit = (): void => {
     if (canSend) {
       model.onSubmit()
@@ -50,6 +61,13 @@ export function TaskDock({ model }: { model: TaskDockModel }): React.JSX.Element
         <div className="space-y-2 p-3">
           {model.transcript.length > 0 ? (
             <div
+              ref={transcriptRef}
+              onScroll={(event) => {
+                const element = event.currentTarget
+                // Why the slack: sub-pixel rounding should not stop the tail from following.
+                followsTailRef.current =
+                  element.scrollHeight - element.scrollTop - element.clientHeight < 8
+              }}
               data-testid="task-dock-transcript"
               data-transcript-status={model.transcriptStatus}
               aria-live="polite"
@@ -57,15 +75,21 @@ export function TaskDock({ model }: { model: TaskDockModel }): React.JSX.Element
             >
               {model.transcript.map((line, index) => (
                 <div
-                  // Why index keys: the transcript is an append-only slice of a terminal tail;
-                  // the same text can repeat, so text is not a key and order is the identity.
-                  key={index}
+                  // Why distance from the end and not the array index: the tail slides, so a line
+                  // keeps the same identity only while its position from the newest line is stable.
+                  // Text cannot be the key — an agent terminal repeats identical lines.
+                  key={model.transcript.length - index}
                   data-transcript-tone={line.tone ?? 'agent'}
                 >
                   {line.text}
                 </div>
               ))}
             </div>
+          ) : null}
+          {model.transcriptStatus === 'ended' ? (
+            <p className="text-xs text-muted-foreground" data-testid="task-dock-transcript-ended">
+              {translate('auto.components.TaskPage.taskDockSessionEnded', 'Session ended')}
+            </p>
           ) : null}
           <Textarea
             autoFocus
