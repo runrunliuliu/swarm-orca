@@ -404,5 +404,12 @@
     "text": "rcfile",
     "dynamic": false,
     "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/task-workbench/task-workbench-fixtures-support.ts",
+    "kind": "object-property:title",
+    "text": "Task workbench fixture",
+    "dynamic": false,
+    "count": 1
   }
 ]

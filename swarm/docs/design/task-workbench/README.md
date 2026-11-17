@@ -3,7 +3,7 @@
 状态：**调研 + 设计草案**，未实现，未评审通过。
 调研基线：本仓库的 `orca/` 层（upstream `v1.4.219` 快照，见 `orca/upstream.json`、`orca/UPSTREAM.md`）。
 文中 `orca/...` 路径均相对本仓库根目录。
-核对日：2026-11-09。
+核对日：2026-11-09；2026-11-16 增补 §6.2、§6.3、§7.9（T2：列表页 dock 与任务草稿行）。
 
 本文只记录"代码里有什么 / 能怎么改"。不修改任何 schema、启动器、已装技能或既有会话；不构成实施、合并、
 部署、重启或创建 worktree / Agent 的授权。文中行号与文件路径均为只读观察值，改动前需重新核对 HEAD。
@@ -13,7 +13,11 @@
 
 关联：[任务与工作区模型](../task-workspaces.md)（一个任务如何绑定 worktree、如何续做）、
 [开发计划](development-plan.md)（阶段、工作包、退出条件与测试矩阵）、
-[评审记录](discussion-record.md)（2026-11-09 只读 panel 的结论、缺项与失效条件）。
+[评审记录](discussion-record.md)（2026-11-09 只读 panel 的结论、缺项与失效条件）、
+[评审记录（T2）](discussion-record-t2-dock.md)（2026-11-16 codex-ark / trae 两票）与
+[评审 brief（T2）](review-brief-t2-dock.md)；
+[工作台 UI 评审记录](discussion-record-task-workspace-ui.md)（2026-11-16 两轮）与对应
+[第 1 轮 brief](review-brief-task-workspace-ui.md) / [第 2 轮追问](review-followup-task-workspace-ui-r2.md)。
 
 ---
 
@@ -166,11 +170,14 @@ taskKey = "workspace:web-app::feature/add-login"  // 无 tracker（本地任务�
 | D1 | 任务身份（§3.4 A/B/C） | A+B 渲染层投影，C 后置 | 无法定义"点开的是哪个任务" |
 | D2 | 用量默认关闭怎么办 | 面板显示"未启用"CTA，并**不**改默认值 | 改默认值涉及隐私面，不能顺手做 |
 | D3 | 一任务多工作区的主/次 | worktree 新增显式 primary 语义（投影里也可先用"最近活动"代） | 现有代码处处"取第一个" |
-| D4 | 无 tracker 的本地任务进不进列表 | 进，独立分组 `UNLINKED` | 最常见的用法被排除 |
+| D4 | 无 tracker 的本地任务进不进列表 | 进；**R1 已修订**：不是独立分组，而是 `◇` 徽标 + 顶部筛选 | 最常见的用法被排除 |
 | D5 | 移动端一期做不做 | 不做，明确"桌面独有"并登记 parity 豁免 | 跨端契约门禁会持续报差异 |
 | D6 | 关系存哪（§8） | 派生不存；provenance 留既有字段；任务实体进 `taskRecords` domain | 变成"只有投影"，手动组织与历史成本全丢 |
 
 ### 6.1 评审后修正（2026-11-09）
+
+下表来源列的 A/B/C 指 2026-11-09 的三位评审者；2026-11-16 的两位评审直接以 agent 名标注
+（codex-ark / trae），R8–R15 沿用该表记法以免重编号。
 
 | # | 修正 | 来源 |
 | --- | --- | --- |
@@ -182,7 +189,77 @@ taskKey = "workspace:web-app::feature/add-login"  // 无 tracker（本地任务�
 | R6 | M1 的对照数据要覆盖 OpenCode 与 Muse，不只 Claude/Codex | C |
 | R7 | `projectBreakdown.key` 必须经解析层 + 单测，不直接散落 `split(':')` | C |
 
-`Delivered` 的产品定义（Agent done / PR merged / checks passed / 验收完成）与分组优先级仍待产品 owner 确认（§7.2）。
+`Delivered` 的产品定义已于 2026-11-16 由产品 owner 定为 **agent done**（D12，见 §7.2 / §6.4）；
+分组优先级（`Needs you > Working > Delivered`）与归属规则同步冻结，遗留只有"失败轮是否算"一项。
+
+### 6.2 决策记录（2026-11-16，列表页 dock 与任务草稿行）
+
+本节记录一轮独立于 D1–D6 的产品决策：Tasks **列表页**底部加一个 agent dock，用来把任务"说出来"。
+设计与实现约束见 §7.9。
+
+| # | 决策 | 取值 | 依据 |
+| --- | --- | --- | --- |
+| D7 | dock 位置 | Tasks 列表页的页面级底部 dock（列表卡片**外**），不挤压卡片边框；分页条仍钉在卡片内 | §7.9.2 |
+| D8 | 草稿行是否侧栏可见 | **可见**：与普通工作区同一列表、同一 project group lane | 用户 2026-11-16 |
+| D9 | 草稿行载体 | 一期 `FolderWorkspace` + `taskDraft` 标记（渲染层投影）；`taskRecords` 落地后换数据源，UI 不变 | §7.9.4 |
+| D10 | 任务写通道 | Linear 走 `orca linear create`；GitHub 主通道走已有 `github.createIssue` RPC + 薄 CLI 动词（`gh` 仅备通道）；Jira 只出草稿、由预填表单落库；**一期不新增 RPC** | §7.9.6 / R8 |
+| D11 | 草稿行生命周期默认 | 任务创建成功后保留并折叠、标 `#…`；30 天无活动且已关联任务 → 自动归档（不删目录、不删任务） | §7.9.8 |
+
+D8/D9/D11 只描述一期的投影形态，**不等于**批准 `taskRecords` 落库：该项仍受 §8 与
+[开发计划](development-plan.md) 的 M2a 判决约束。
+
+### 6.3 评审后修正（2026-11-16，T2 面板）
+
+两个独立评审（codex-ark / trae，同一 brief、互不可见）都给出"接受但需改"，并共同指出同一批事实性
+问题。逐条修正如下（未改方向的只补约束）：
+
+| # | 修正 | 依据 |
+| --- | --- | --- |
+| R8 | **GitHub 写通道改为 RPC 优先**：`github.createIssue` 已在 RPC catalog，缺的只是一个 CLI 动词；`gh` 降为备通道 | 评审 A、B 独立指出；`rpc-params-catalog.generated.ts` 有 `github.createIssue`，`src/cli/handlers` 无 github 动词 |
+| R9 | §7.9.7 的失败清单改为**状态机**，新增 `issue-created-link-failed` / `duplicate-suspected` / `agent-crashed` 三态 | 评审 A、B |
+| R10 | 草稿 folder workspace **必须显式传 `folderPath`**：`folderWorkspaces:create` 在不传时回落到 `projectGroup.parentPath`，会把 agent 的 cwd 放到仓库父目录 | 评审 A 指出，已在 `src/main/ipc/repos/folder-workspace-handlers.ts` 核对 |
+| R11 | 草稿命名：`getWorkspaceIntentName` 对纯中文指令返回 `null`（`slugifyForWorkspaceName` 只保留 `[a-z0-9._-]`），必须有非空 fallback + 重名后缀 | 评审 B 指出，已在 `src/shared/workspace-name.ts` 核对 |
+| R12 | 计数/Recent 排除必须落成**独立 selector 模块**（`task-draft-count-exclusion.ts`），M2b 扩此模块而不是散落 `if` | 评审 A、B |
+| R13 | 防重：预览阶段先查同 repo 同标题 issue，命中则让用户选"复用 / 仍新建"；两个入口（dock 与 `＋ New issue`）共享同一提示 | 评审 A、B |
+| R14 | 生命周期归属写清：30 天归档由**启动时一次有界 sweep** 执行（不做后台 watcher），活动信号用 `FolderWorkspace.lastActivityAt`；归档只隐藏、不删目录 | 评审 B 指出原文只有行为没有实现方 |
+| R15 | 演化硬约束：草稿行**必须**同时写入 `linkedTask` 与 `linkedTaskSourceContext`，否则 M2b 投影会丢 `provider/projectId/repoId/hostId` | 评审 B |
+
+评审还共同确认了两件事：形态 A（页面级 dock）正确，不采用卡片内位置；一期投影而非先做 `taskRecords` 的取舍成立。
+完整记录见 [评审记录](discussion-record-t2-dock.md)。
+
+---
+
+### 6.4 评审后修正（2026-11-16，任务工作台 UI 两轮）
+
+对象：§7.1 IA、§7.2 列表主轴、§7.3 图 B 工作台。两轮独立评审（codex-ark / trae）；第二轮只追问 4 个能改变
+决定的点，两份稿见 [评审记录](discussion-record-task-workspace-ui.md)。
+
+**能冻结（现在定）**
+
+| 项 | 取值 |
+| --- | --- |
+| IA 主轴 | "任务 → 工作区(0..N) → Agent → 用量 → 交付证据"成立，不再推翻 |
+| 一期形态 | M1 = 现有 issue/PR 详情加 `Orca` tab（§7.4），零持久化 |
+| 分组规则 | 按**活跃（非归档）工作区状态并集**判定，不按 primary；0 工作区 / 无 tracker / 归档见 §7.2 |
+| 侧栏 | **不加任务行**；只保留工作区/草稿行 + 任务徽标（两评一致） |
+| 降级顺序 | §7.3.1（先牺牲 Delivery，再 Agent 历史，最后 Spend 细节；Workspaces 身份与 CTA 不牺牲） |
+| selector 合同 | identity / join / usage 三件套必须可被 M2b 直接复用（R4），不在页面内拼装 |
+| `Delivered` 定义 | **agent done**（D12，§7.2）：忽略 `sessionBoundary`，`failure/cancellation` 不计入；语义是"这一轮做完了"，不是验收通过 |
+
+**不能冻结（现在保留为开放项）**
+
+| 项 | 原因 |
+| --- | --- |
+| 图 B 的三区像素布局与折叠细节 | 无任何真机渲染证据（§12）；两评都判这是最大返工区 |
+| 入口位置（点列表行 vs issue 详情 tab） | M1 与 M2b 必然不同，现在定就是自缚 |
+| 任务头部字段（目标/验收/授权/owner） | M1 取不到；见下条 |
+| 显式 primary | 需要持久化语义，属 M2b |
+
+**任务意图层（两轮最大发现）**：工作台真正缺的一层是"任务目标/验收/授权/owner"。M1 只能从现有数据取到
+弱信号：tracker 标题与 body、PR `checksSummary/reviewDecision/mergeable`、`sparseTaskBinding.requiredPaths`、
+`linkedTaskSourceContext`；取不到的是显式验收标准、任务 owner、授权人。因此 **M1 在文案与命名上只能做
+"任务聚合视图"，不得承诺完整任务对象**；两者分歧仅在此：A 认为可保留"工作台"名称仅限缩文案，B 认为
+必须改名。本文取保守口径（B），M2b 有 `taskRecords` 后再叫"任务工作台"。
 
 ---
 
@@ -203,14 +280,20 @@ Tasks (top level view)
 ├── 列表（分组）
 │   ├── Needs you        ← 关联 Agent 里有 blocked/waiting
 │   ├── Working          ← 有 working 的 Agent
-│   ├── Delivered        ← 有 merged/done 证据
-│   └── Unlinked         ← 无 tracker 的本地工作区（D4）
+│   └── Delivered        ← agent done（D12；不等于验收通过）
+│   （`◇` 无 tracker 是行内徽标 + 顶部筛选，不是第 4 个分组，见 §6.1 R1）
 └── 详情（点开列表行）
     ├── 头部：标题 · provider · 状态 · 主工作区/分支 · 基线 SHA · PR 缩略
     ├── 左：Agents（活 / 保留 / 历史，可折叠子 Agent）
     ├── 右：Workspaces（0..N） · Spend（用量）
     └── 底：Delivery（commits/PR/checks/review） · Evidence（binding / 会话链接）
+
+另：底部 dock（常驻，§7.9）——不挂在上面任何一级下，横跨整个列表页：
+一句话 → 任务草稿行 → agent 把任务写进 tracker。
 ```
+
+底部 dock 与列表主轴**正交**：不论列表是今天的 provider 列表还是 §7.2 的分组列表，它都在同一位置；
+它不进分组、不参与行内信息优先级，也不替代 `＋ New issue` 表单。
 
 ### 7.2 图 A：任务列表（方案 2 形态）
 
@@ -230,22 +313,41 @@ Tasks (top level view)
 │                                                                                           │
 │  DELIVERED                                                                                │
 │  ✓  Bump swarm-orca docs              GitLab !77     ▦ 1 ws   ⚑ 2 agents    2h   $2.20    │
+├───────────────────────────────────────────────────────────────────────────────────────────┤
+│  ⌁ Ask Orca to create or change a task…                                         [▸ Send]  │
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+图 A 底部的 dock 就是 §7.9 的形态（图 D）：T2 先在今天的 provider 列表上落地，M2b 翻列表主轴时
+它不下移也不重做，只换数据源。
 
 行内信息优先级（窄宽度降级顺序）：状态 → 标题 → provider → workspaces → agents → 时间 → 花费。
 花费列在 D2 未解决前允许整体隐藏（设置项），不做 `$0` 占位。
 
-分组规则（评审后补充，待产品确认最后一项）：
+分组规则（2026-11-16 两轮评审修正，| 号内为新增/改写部分）：
 
-- 单一归属，优先级 `Needs you` > `Working` > `Delivered`；一条任务只出现在一个分组里。
-- `◇` 是**属性徽标**（无 tracker 的工作区），与分组正交：一个无 tracker 但正在跑的任务出现在 `Working` 里并带 `◇`；
-  顶部 `◇ No tracker 5` 是筛选入口，不是第 4 个分组。
-- `Delivered` 当前按"有合并/完成证据"派生（PR merged、或 Agent done + 无未完成 checks）；
-  是否等价于"验收完成"**未定义**，需产品确认，未确认前 UI 文案不得写"已完成"。
+- **归属按状态并集，不按 primary**：取该任务下**所有非归档工作区**（+ tracker 条目自身）的状态并集；
+  `Needs you` > `Working` > `Delivered` 依次判定。primary 只决定"默认打开哪个工作区"，不决定分组。
+- 一条任务只出现在一个分组里；两个工作区一个 working 一个 done → `Working`；任一 needs-you → `Needs you`。
+- **0 工作区**：有 tracker 且 open → `Working`；有 closed/merged 证据 → `Delivered`；
+  既无 tracker 也无工作区 → 不成列表项（不凭空造任务）。
+- **无 tracker 的工作区**：与有 tracker 的任务同组，只多一个 `◇` 徽标；多工作区合并在 M2b 之前**不做**。
+- **已归档工作区**：不参与 `Needs you` / `Working`；只剩归档且有完成证据时只能出现在 Delivered 的
+  `Show archived` 下。
+- `◇` 是**属性徽标**（无 tracker），与分组正交；顶部 `◇ No tracker 5` 是筛选入口，不是第 4 个分组。
+- `Delivered` = **agent done**（产品 owner 2026-11-16 定，D12）：该任务下**任一活跃工作区**里有 agent 处于
+  `done`，且同任务下没有 `working/blocked/waiting`（否则按 `Needs you > Working` 优先）。
+  - 有效 `done`：忽略 `sessionBoundary === true`（connect/resume/clear 落地，不是完成一轮）；
+    `outcome === 'failure' | 'cancellation'` **不算** Delivered；`outcome` 缺失（provider 未上报）仍算 done。
+  - 语义：Delivered = "agent 声明这一轮做完了"，**不等于验收通过**。UI 文案只能说 `Delivered · agent done`，
+    不得写"已完成/验收通过"，测试夹具也不得把它们当作等价。
+  - resume 后状态回到 working → 自动离开 Delivered（派生，不缓存）；无 agent 或 0 工作区的任务不可能是 Delivered。
 - primary workspace 缺失时按"最近活动"兜底，并在 UI 显式标注为派生（不是用户选择）。
 
 ### 7.3 图 B：任务详情（工作台）
+
+同图的矢量/位图版本：`task-workbench-ui.svg`、`task-workbench-ui.png`（2560×1720，2× 渲染，含 0 工作区与
+降级两图）。P1a 的组件拆分、fixture 与截图清单见 [P1a 静态壳计划](p1a-ui-shell-plan.md)。
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -290,12 +392,29 @@ Agent 行元素与来源：
 | tokens | 会话级用量（需 D1 之外的 additive `worktreeId`，或 AI Vault `totalTokens`）；子 Agent 用 `totalTokens` 上报 |
 | 花费 | **逐 Agent 不显示金额**（会话行无 `worktreeId`，精确归因未成立）：只显示 token，金额只到工作区/任务级；未定价显示 `—` 并给 `hasUnpricedModels` 提示 |
 | `[open]` / `[resume]` / `[view]` | 复用 `activateThreadTerminal` / AI Vault resume / 结构化会话 resume |
+| **所属工作区** | 评审新增（`M1` 必须）：多工作区时每个 Agent 行必须带 workspace 标识（`▦ web-app · feature/x`）；
+只到 M2b 才可降为 secondary chip |
 
 花费口径提示（tooltip 文案要点）：估算值、按 provider 计价、未启用统计/远端工作区/歧义会话不计入 0。
 
+#### 7.3.1 降级顺序（评审新增；窗口边界必须有规则，否则每人一套）
+
+原则一句话：**永远不牺牲 Workspaces 的身份与主操作**，它是 M1/M2b 的锚点；先牺牲 Delivery，其次 Agent 历史，
+最后 Spend 细节。
+
+| 条件 | 依次牺牲 | 形态 |
+| --- | --- | --- |
+| 窄窗 < 1100px | ① 左右并排 → ② Delivery 常驻 → ③ Spend 细节 | 单列：Header → Workspaces 摘要/CTA → Agents → Spend 一行摘要 → Delivery 折叠条 |
+| 矮窗 480px | ① Delivery → ② 历史/保留 Agent → ③ Spend 图表 | Workspaces 保留紧凑摘要；Spend 降为一行 badge；Delivery 折叠条 |
+| 0 工作区 | ① Spend → ② Delivery → ③ Agent 历史 | Workspaces 变主空态 + `Create workspace`；Spend 显示不可用/未启用 badge；Delivery 只读提示（M1 无工作区证据即空态，不隐藏） |
+| 10+ Agent | ① 历史明细 → ② 保留 Agent 明细 → ③ Delivery 展开 | Agents 分 Active/Needs you 常显 + History 折叠；Workspaces 不隐藏 |
+
+M1（§7.4 只读 tab）只实现前三行中最简单的一种：单列 + Delivery 折叠；图 B 的三区只作目标形态，不冻结像素。
+
 ### 7.4 图 C：增量方案（现有详情加一个 Orca 面板）
 
-不改列表主轴，只在既有详情里加一个 tab（`ItemDialogTab` 增加 `'orca'`，PR 与 issue 共用）：
+不改列表主轴，只在既有详情里加一个 tab（`ItemDialogTab` 增加 `'orca'`，PR 与 issue 共用）。
+M1 阶段它的正式定位是 **任务聚合视图**（§6.4），tab 名可以是 `Orca`，但文案不得承诺完整任务对象：
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
@@ -319,6 +438,9 @@ Agent 行元素与来源：
 为什么先做这个：详情页已经有 `repoId / number / type`，反查函数已在手，用量可从 store 现成的
 `*UsageProjectBreakdown` 按 `worktree:<id>` 直读——**不需要新 scan、不需要新 RPC、不碰移动端契约**。
 
+图 C 只覆盖"详情页里看任务"；列表页的输入入口是 §7.9 的底部 dock（图 D），两者不重复：
+详情页不另开对话，列表页不复制 Agent 详情。
+
 ### 7.5 状态矩阵（必须逐条实现，否则会出现"假 0"）
 
 | 场景 | 触发条件 | UI 表现 |
@@ -330,7 +452,7 @@ Agent 行元素与来源：
 | 无匹配会话 | 窗口内无会话 | `unavailable · no_matching_session` |
 | 远端 / SSH 工作区 | `executionHostId` 非本地 | `unavailable · remote host` |
 | 无关联工作区 | 任务无绑定 | 主按钮 `Create workspace from this task` |
-| 本地任务（无 tracker） | 仅在 worktree 侧存在 | 分组 `UNLINKED`，标题取 `displayName` |
+| 本地任务（无 tracker） | 仅在 worktree 侧存在 | 行内 `◇` 徽标 + 顶部筛选；按活跃工作区状态并入 Needs you/Working/Delivered，标题取 `displayName` |
 | 工作区已归档 | `isArchived` | 折叠在 `Show archived` 下，不参与"Needs you"计数 |
 | 逐 Agent 成本不可归因 | 会话行无 `worktreeId` / `ambiguous_session` | 该行只显示 token；成本显示 `—`，文案说明"仅到工作区级" |
 | 无 tracker 的工作区 | 无 `linkedWorkItem` 等字段 | 行内 `◇` 徽标 + 顶部筛选；不影响其状态分组 |
@@ -351,7 +473,14 @@ Agent 行元素与来源：
 
 这些组件读的都是派生数据；**需要持久化的只有任务实体本身（§8）**，组件不直接写盘。
 
-### 7.8 Agent 派生树（可先做，独立于 M1/M2）
+### 7.7 交互
+
+- `⌘F` 聚焦搜索（与既有 Tasks / Agents feed 一致）；`↑/↓` 在列表内移动；`↵` 打开详情；`esc` 回列表。
+- 行 hover 出 `[ Open workspace ]`，不改变点击语义（点击=详情）。
+- Agent 行点击 = 打开该 Agent 的终端/会话；`[ resume ]` 仅在存在可恢复 provider session 时出现。
+- 分组折叠状态持久化（沿用 `taskPageResume` 一类既有 UI 状态通道，不新建存储）。
+
+### 7.8 Agent 派生树（旁路，可随时独立合入）
 
 来源：用户 2026-11-09 的需求。"目前我在项目区的 TUI 中，新开 agent 的时候，会并行罗列"，
 希望改成父子树：
@@ -451,12 +580,239 @@ Agent 行元素与来源：
 （或者两者都要）？我按"行列表为主、tab bar 只加父子小徽标"写的；如果实际是 tab bar 为主，本节的
 展示与折叠段落需要改写。
 
-### 7.7 交互
+### 7.9 列表页底部 dock 与任务草稿行（2026-11-16）
 
-- `⌘F` 聚焦搜索（与既有 Tasks / Agents feed 一致）；`↑/↓` 在列表内移动；`↵` 打开详情；`esc` 回列表。
-- 行 hover 出 `[ Open workspace ]`，不改变点击语义（点击=详情）。
-- Agent 行点击 = 打开该 Agent 的终端/会话；`[ resume ]` 仅在存在可恢复 provider session 时出现。
-- 分组折叠状态持久化（沿用 `taskPageResume` 一类既有 UI 状态通道，不新建存储）。
+状态：**设计草案，未实现**。本节只记录决策、形态与实现约束；不构成实施、合并、部署或启动
+Agent 的授权，代码落点前需重新核对 HEAD。
+
+需求原话（用户 2026-11-16）："在任务页面下方加 agent 对话框，可以用来修改创建任务"；点击左上角
+任务进入的页面指 **Tasks 列表页**，不是 issue/PR 详情页。草稿行"只是为了创建任务"，本质是
+**task 开发模式（sparse task workspace，见 [任务工作区设计](../task-workspaces.md)）的前置工作**，
+不承载代码；任务创建后实施方可能是别人。
+
+#### 7.9.1 现状（读代码确认）
+
+| 事实 | 证据 |
+| --- | --- |
+| 列表页 = `chrome`（provider / repo / 搜索 / `＋`）＋ `flex-1` 列表卡片；卡片底部已钉 `PaginationBar` | `orca/src/renderer/src/components/task-page/Frame.tsx`、`task-page/github/List.tsx`（分页条注释"sits outside the scroll container"）、`task-page/PaginationBar.tsx` |
+| 卡片外只剩 frame 的 `pb-4 / pb-5` 内边距，没有常驻元素 | 同上 |
+| 新建任务入口是各 provider 的表单弹窗（`＋` 在 `Filters` 工具条） | `task-page/{github,linear,jira}/Filters.tsx`、`task-page/*/IssueDialog.tsx` |
+| agent 可写的只有 Linear | `orca/src/cli/handlers/linear.ts`（`linear create` → `linear.issueCreate`） |
+| GitHub/Jira 创建只有 renderer store + IPC，无 agent 通道 | `use-task-page-github-issue-creation.ts`、`use-task-page-jira-issue-creation.ts` |
+| 侧栏行是分型的；folder workspace 在每种 Group by 下都有 lane，并已有宿主计数 | `sidebar/worktree-list/grouping/row-types.ts`、`folder-workspace-lanes.ts`、`sidebar/host-section-folder-workspace-counts.test.ts`、`rows/virtual-row-dispatch.tsx` |
+| folder workspace 已能承载 agent 会话，且自带 `linkedTask` | `shared/folder-workspace-types.ts`、`sidebar/folder-workspace-agent-startup.ts`、`shared/rpc-contract/folder-workspace-params.ts` |
+| 现有快速创建模态**故意忽略** prompt 预填；带 prompt 的是 full-submit 路径 | `NewWorkspaceComposerModal.tsx:136-138`、`hooks/composer-state/full-submit-source-preparation.ts` |
+| 名称派生已存在：`getWorkspaceIntentName` / `slugifyForWorkspaceName`（48 字符上限） | `orca/src/shared/workspace-name.ts` |
+
+#### 7.9.2 图 D：列表页底部 dock（决策 D7）
+
+同图另有矢量/位图版本：`t2-dock-ui.svg`、`t2-dock-ui.png`（2560×1600，2× 渲染）。
+
+```text
+┌ Tasks 列表页 ────────────────────────────────────────────────────────────┐
+│ chrome：× 关闭 │ GitHub GitLab Jira Linear │ repo/scope │ 搜索 ↻ ＋        │
+│ ┌ 列表卡片（flex-1，自身滚动）────────────────────────────────────────┐  │
+│ │ 行 …                                                               │  │
+│ │ [PaginationBar]（多页时才出现，仍钉在卡片内）                       │  │
+│ └────────────────────────────────────────────────────────────────────┘  │
+├──────────────────────────────────────────────────────────────────────────┤
+│ ⌁ Describe a task or change…                              [▸ Send]       │  ← 折叠态：一行
+└──────────────────────────────────────────────────────────────────────────┘
+   展开态：多行输入 ＋ 目标 chip（provider · owner/repo） ＋ [Create draft] [Cancel]
+```
+
+- 放在卡片外、frame 的内边距里；卡片 `flex-1` 自动让出高度，不改卡片边框与圆角。
+- 折叠态常驻一行；`⌘⏎` 提交、`Esc` 折叠，焦点不抢列表键盘导航（与 §7.7 一致）。
+- 列表页没有"当前任务"上下文，dock 的 provider/repo 取当前 source + 当前 repo/team 选择，
+  并以 chip 显示；切换 source 时 chip 跟随，已输入的文本不丢。
+
+#### 7.9.3 图 E：侧栏草稿行（决策 D8/D9）
+
+```text
+▾ web-app
+  ⌁ add-login-retry        draft · ◐ 1 agent             ← 草稿徽标 + agent 状态点
+  ▸ feature/login-fix      ◐ 1 agent                     ← 普通工作区（不变）
+
+任务创建成功后同一行：
+  ⌁ add-login-retry        draft · linked to #412 · – idle
+```
+
+- 复用 folder workspace 行（`sidebar/worktree-list/rows/folder-row.tsx`），只多一个草稿徽标与
+  `linked to #…` 片段；分支/PR/脏状态等对草稿无意义的元素不渲染。
+- 点击 = 打开它的会话（不是代码视图）；右键菜单去掉"创建 PR / 交付"一类动作。
+
+#### 7.9.4 为什么先投影，而不是直接 `taskRecords`（决策 D9）
+
+语义上 `taskRecords` 才是正确归属（§8.2 的 C 方案），但一期不先做它：
+
+- M2 被 M2a（旧 build 的 新→旧→新 round-trip）冻结，未判决前不引入持久化 domain；
+- 加"第三种侧栏行类型"要同时改 `row-types.ts`、`virtual-row-dispatch.tsx`、分组 lane、
+  宿主计数与激活路径，成本高于收益；
+- 草稿的产物是 tracker issue，**持久物已经存在**，本地只需要"会话 + 链接"，丢了不致命。
+
+因此一期用 `FolderWorkspace` 承载，加一个 additive 可选字段：
+
+```ts
+export type FolderWorkspace = {
+  …
+  /** 由 Tasks 列表页 dock 自动创建、只用于撰写任务的草稿工作区。 */
+  taskDraft?: boolean
+}
+```
+
+`taskRecords` 落地后（M2b），草稿行的数据源换成任务记录，UI 与交互不变；届时 `taskDraft` 字段
+的清理需单独授权，不做静默迁移。
+
+#### 7.9.5 草稿的目录与会话
+
+- 目录：`userData` 下的 scratch 路径（每草稿一个），**不是**仓库 checkout——agent 的 cwd 若是用户
+  主检出，它就可能直接改代码，绕开工作区隔离；也不给草稿建 git worktree（分支、setup hook、
+  脏状态、PR、sparse pin 对它全部无意义，还会污染工作区计数与用量归因）。
+- 会话：`launchAgentInNewTab` 起一个 agent tab（folder workspace 已是合法 launch target，见
+  `shared/workspace-launch-kind.ts`），初始 prompt 由 dock 生成。
+- 一个草稿复用同一个 folder workspace：后续追问接着在同一会话里说，不要每条指令新建一行。
+
+#### 7.9.6 任务写通道（决策 D10）
+
+| provider | 通道 | 约束 |
+| --- | --- | --- |
+| Linear | `orca linear create`（`linear.issueCreate`，main 侧已有） | 走 app 自己的 RPC，优先使用 |
+| GitHub | **主通道**：`github.createIssue` RPC（`orca/src/main/runtime/rpc/methods/github-issue-methods.ts`，已在 catalog）+ 一个薄 CLI 动词 `orca github create-issue`；**备通道**：`gh issue create --repo` | 评审修正（R8）：仓库已有带 app 账号的 GitHub 写 RPC，绕开它改用 shell 会丢掉 app 代管的认证与远端宿主路由；`gh` 仅在用户未绑定 app 账号或显式选择时使用，且必须显式 `--repo`（cwd 在 scratch 目录）。两条通道都要 fail-closed，不静默切换，并在回执里记下用的是哪条 |
+| Jira | agent 只产出草稿 | 创建要填必填 custom fields；由 Orca 打开已预填的 Jira 表单（`task-page/jira/IssueDialog.tsx`）落库 |
+
+- 远端 / SSH 宿主：GitHub 主通道（`github.createIssue`）由 runtime 路由，仍然可用；只有备通道 `gh` 会缺失。
+  两条都不通时才禁用并说明，不静默 fallback 到本机。
+- **写 tracker 前必须有人确认**：dock 内先渲染标题/正文/标签预览，用户点 `Create issue` 才允许执行；
+  对共享 tracker 的写不可撤销，不做"agent 直接建"。
+
+#### 7.9.7 时序
+
+```text
+用户在 dock 输入指令
+  → dock 展开：解析出 provider / owner-repo / 任务标题候选（getWorkspaceIntentName 派生草稿名）
+  → [Create draft]：createFolderWorkspace({ projectGroupId, name, taskDraft: true, folderPath: <scratch>, … })
+  → 起 agent tab，prompt = 指令 + 任务上下文（provider、owner/repo、"先出预览，确认后才创建"）
+  → agent 产出标题/正文/标签 → dock 内预览卡片 → 用户确认
+  → agent 执行 orca linear create / orca github create-issue / 或 Orca 打开 Jira 预填表单
+  → 成功后回写 linkedTask：草稿行显示 linked to #412，sidebar 与 Tasks 列表都可点开
+```
+
+失败分支必须各自可见、可重试。评审（R9）要求把它写成**状态机**而不是一行清单；实现时下列每个状态都要有 UI 与重试归属，缺一个就算未完成：
+
+| 状态 | 触发 | dock / 草稿行表现 | 能否重试 |
+| --- | --- | --- | --- |
+| `idle` | 空输入 | 发送禁用；草稿行不存在 | — |
+| `no-context` | 没有可用 provider / repo / team | chip 标红 + 引导去连接；不建草稿 | 配置后 |
+| `creating-draft` | 正在建 folder workspace | 进度 + 取消；取消则回收刚建的行 | 是 |
+| `draft-failed` | scratch 目录 / folder workspace 创建失败（含**忘了显式 `folderPath` 而落到 project group parentPath**） | 写明失败原因；不留在侧栏 | 是 |
+| `agent-launch-failed` | agent 未安装 / 启动失败 | 草稿行保留，标 `agent failed`；可重试起 agent | 是 |
+| `drafting` | agent 在跑、还没产出预览 | 草稿行显示 agent 状态点；dock 显示运行中 | — |
+| `preview-ready` | 有标题/正文/标签待确认 | 预览卡片 + `[Create issue]` / `[Cancel]` | — |
+| `creating-issue` | 已点确认、写入中 | 禁用重复点击 | — |
+| `issue-created-link-failed` | 任务建了但 `linkedTask` 未写回 | 必须能自动对账：用 provider 回执的 issue 号回写；不得重跑创建 | 只重试写回 |
+| `provider-rejected` | 必填字段 / team / repo 不合法 | 显示 provider 原文错误；可改后重试 | 是 |
+| `duplicate-suspected` | 预览阶段查到同 repo 已有同标题 issue | 列出候选（`#412 …`），让用户选"复用 / 仍新建" | — |
+| `remote-unsupported` | 远端 / SSH 宿主上通道不可用 | 显式不可用 + 说明；不 fallback 到本机执行 | 否 |
+| `cancelled` | 用户取消确认 | 回到 `drafting`，已草拟内容不丢 | 是 |
+| `agent-crashed` | agent 会话结束但没产出预览 | 草稿行标 `agent exited`；可重开会话 | 是 |
+| `archived` | 30 天无活动且已关联，或用户显式归档 | 折叠/归档，可恢复；不删任务 | 恢复 |
+
+其中 `issue-created-link-failed`、`duplicate-suspected`、`agent-crashed` 是评审新增（原文档遗漏）。
+
+#### 7.9.8 生命周期（决策 D11）
+
+| 事件 | 行为 |
+| --- | --- |
+| 任务创建成功 | 保留草稿行，折叠并标 `linked to #…`；写 `linkedTask` |
+| 30 天无活动且已关联任务 | 启动时一次有界 sweep 置 `isArchived`（不做后台 watcher），活动信号用 `FolderWorkspace.lastActivityAt`；保留行与目录，可显式恢复；不删 issue |
+| 用户显式 `Archive draft` | 只归档本地，不动 tracker |
+| 用户显式 `Delete draft` | 删行与 scratch 目录，不动 tracker；不级联删任务 |
+| 任务被外部删除 | 草稿行保留，标 `task removed`，提供显式清理；不自动删 |
+| 多任务 | 一期一个草稿一行、一次对话一条任务；多任务另开草稿 |
+
+不计入：工作区计数（`sidebar-count-badge.tsx`、`host-section-folder-workspace-counts` 路径）、
+Needs you、Recent、用量归因。排除逻辑必须是**一个** selector，不得在各处散落 `if (taskDraft)`。
+
+#### 7.9.9 组件与数据映射（实现清单草案）
+
+| 组件 / 模块（建议命名） | 职责 | 主要落点 |
+| --- | --- | --- |
+| `task-page/TaskDock.tsx` | 折叠/展开、chip、提交、进度与失败态 | `task-page/Frame.tsx` 下方 |
+| `use-task-page-dock-actions.ts` | 建草稿 folder workspace + 起 agent + 投 prompt | 新文件 |
+| `lib/task-draft-prompt.ts` | 注入 provider/owner-repo/预览确认约束 | 新文件 |
+| `lib/task-draft-issue-create.ts` | 三 provider 的创建提议与预览模型（纯函数，便于单测） | 新文件 |
+| `task-draft-preview-card.tsx` | 标题/正文/标签预览 + `[Create issue]` | dock 内 |
+| `task-draft-count-exclusion.ts` | 计数/Recent 排除的单一判断 | 侧栏 selector |
+
+命名：草稿期用 `getWorkspaceIntentName({ sourceText, fallbackName })`（指令前 5 词或
+`<动词> <对象>`），任务落库后可改名为 `<provider>-<number>-<slug>`；**改名只走显式动作**，
+因为 `worktreeFingerprint` 含 `displayName`，高频改名会反复作废用量缓存。
+
+命名补丁（R11，评审发现）：`slugifyForWorkspaceName` 只保留 `[a-z0-9._-]`，纯中文指令会被滑成空串，
+`getWorkspaceIntentName` 返回 `null`。实现时必须：小中文指令取 `fallbackName`（如 `draft-<provider>`）
+而不是报错；重名时加 `-1` / `-2` 后缀，不依赖底层唯一约束报错。
+
+#### 7.9.10 与既有入口的关系
+
+- `＋ New issue` 表单保留：Jira 必填字段、用户想直接填时仍然更快。
+- `Use` / `Start workspace from issue` 不变：草稿行不替代"从任务开开发工作区"，两者是链上的两段。
+  task 开发模式的入口仍是 `orca worktree create --sparse-task-dir …`（见 [sparse 任务工作区](../sparse-task-workspace/README.md)）。
+- Dashboard / Agents feed 不复制：dock 只做"把任务说出来"，不做实时 Agent 控制面（§5 分工不变）。
+
+#### 7.9.11 门禁与测试
+
+- `FolderWorkspace.taskDraft` 是 additive 可选字段，随 `folderWorkspace.create/update` 参数与
+  `folderWorkspaces` 目录往返；不改 DDL、不改 schema 版本；需运行
+  `pnpm run verify:rpc-params-catalog`，若参数 schema 变更则重新生成 catalog，并确认旧 build 忽略未知字段。
+- 单测：计数排除（每种 Group by 模式各一条）、草稿行渲染（徽标 / linked to）、dock 提交 → 创建参数、
+  prompt 生成、三 provider 的创建提议与失败分支、`gh` 缺失/未登录的 fail-closed。
+- 文案全部进 locale catalog（`verify:localization-extraction` / `-coverage`）；只用 `components/ui/` 既有 primitive。
+- `pnpm tc`、定向 `pnpm test`、`pnpm run check:code-quality:changed`。
+- 真机渲染需 CDP 截图；只通过类型检查不算验收。
+
+#### 7.9.12 明确不做（一期）
+
+- 不新增侧栏行类型（先用 `taskDraft` 标记，`taskRecords` 落地后再议）。
+- 不新增写 tracker 的 RPC（GitHub 走 `gh`、Jira 走表单；Linear 复用既有 `linear.issueCreate`）。
+- 不做无盘"虚拟工作区"（agent 必须有 cwd）。
+- 不做"一句话建多个任务"、不做跨 repo 批量、不做移动端 / 配对端。
+- 不自动执行 tracker 写：一律先预览、再确认。
+
+#### 7.9.13 未决
+
+- 一个草稿行是否允许承载多条任务（当前取"一行一任务"）。
+- 草稿名是否沿用 `getWorkspaceIntentName`，还是要有 `<owner/repo>-<slug>` 的可读前缀。
+- Jira 的"草稿 → 表单"交接形态：打开既有 `IssueDialog`，还是 dock 内嵌同一份字段表单。
+- 远端宿主 / 无 `gh` 环境下的产品文案与是否提供"改用 Linear"的引导。
+
+#### 7.9.14 以后怎么演化（与 M2b / task 开发模式的关系）
+
+**结论：可以演化，但演化的是"行与数据源"，不是"目录"。** 草稿行不会变成代码工作区——
+代码工作区仍由 `Use` / `orca worktree create --sparse-task-dir` 另建，草稿只在那一步之前提供任务身份。
+
+| 面 | T2（投影期） | M2b 之后（`taskRecords`） | UI 是否重做 |
+| --- | --- | --- | --- |
+| 行数据源 | `FolderWorkspace{ taskDraft: true }` | `TaskRecord`（§8.3） | 否 |
+| 行内元素 | 名称 · `draft` 徽标 · agent 状态点 · `linked to #…` | 同（多一个任务状态） | 否 |
+| 点击行为 | 打开该草稿的会话 | 打开任务详情（图 B：左 Agents / 右 Workspaces / 底 Delivery） | 是：从"一个会话"扩到"任务工作台" |
+| 会话宿主 | userData scratch 目录（folder workspace） | 任务绑定的 scratch 目录；仍不是 git worktree | 否（换归属，不换形态） |
+| 开发工作区 | 既有 `Use` 链路，草稿不参与 | 任务记录 `bindings` 记载 0..N 个工作区，`primaryWorktreeId` 显式 | 是：多一个 Workspaces 列表 |
+| 计数 | 排除在工作区计数之外 | 作为任务进任务列表与分组，仍不算工作区 | 否 |
+| 契约 | `taskDraft` additive 字段 | 任务记录 + 该字段下线（单独授权，不静默迁移） | 否 |
+
+需要说清楚的两件事：
+
+1. **草稿行不是开发工作区的前身**。它是任务的"产房"；开发工作区是任务的下游产物，两者不同的生命
+   周期（草稿可归档，工作区有分支/交付证据），不共用目录、也不共用"脏状态"。
+2. **演化受 M2a 门禁约束**。旧 build 的 round-trip 判决不过，T2 就停在投影形态；那是可接受的终点，
+   不是失败——因为草稿的持久物（tracker 任务）本来就不在本地。
+
+迁移规则（M2b 开工时写死，本期不实现）：读取时把 `taskDraft` folder workspace 投影成"未落库任务"，
+提供显式"归入任务"动作；不做启动时自动改写，也不删原 folder workspace。
+
+**T2 实现必须先满足的硬约束（R15）**：草稿行写入 `linkedTask` 的同时必须写入
+`linkedTaskSourceContext`（provider / projectId / repoId / hostId）。只存 issue 号会在 M2b 投影时丢掉
+`externalKey` 需要的维度，变成无法对账的孤儿任务。
 
 ---
 
@@ -582,14 +938,14 @@ TaskWorkspaceBinding {
 | 记录内演进 | 每条记录带 `schemaVersion`，在 load 归一化里逐条升级（同 `folderWorkspaces` 的写法），不做一次性全量重写 | `normalizeLoadedProfileState` |
 | 降级到旧 build | 旧 build 不认识 `taskRecords`：`normalizeLoadedProfileState` 用 `{...parsed}` 保留未知 top-level key，`buildStateToSave` 从 `getDurableState()` 再写出 → 数据保留；代价是它的分域写会退化为全量写 | 读代码推断，**需用例验证**（§12） |
 | 导出/备份/回滚 | 复用 `orca profile state` 的 export / recovery；需确认导出快照包含未知 domain | 待验证 |
-| 契约面 | 任务记录**不进 RPC**（一期只在桌面端出现），因此不触发 catalog / wire 兼容门禁；若 M3 开放给配对客户端，再按 `docs/reference/remote-wire-compatibility.md` 走 additive 字段 |  |
+| 契约面 | 任务记录**不进 RPC**（一期只在桌面端出现），因此不触发 catalog / wire 兼容门禁；若 M4 开放给配对客户端，再按 `docs/reference/remote-wire-compatibility.md` 走 additive 字段 |  |
 
 ### 8.7 生命周期规则（必须明确，否则记录只增不减）
 
 | 事件 | 处理 |
 | --- | --- |
 | 工作区被 Orca 删除 | 该 binding 标 `lastVerifiedAt = null` / 结算用量；**不删任务记录**，列表显示 unresolved |
-| 工作区被外部删除（`existsSync` 失败） | 只读对账标记，不自动删、不自动清理（沿用 M4 的对账思路） |
+| 工作区被外部删除（`existsSync` 失败） | 只读对账标记，不自动删、不自动清理（沿用本节 §8.7 的启动对账口径） |
 | 工作区目录改名 | 用 `worktreeIdentityAliases` / `priorWorktreeIds` 解析，命中则改写 `worktreeId` 并记 `resolvedVia` |
 | 仓库被移除 | `gcStaleWorktreeMeta` 会清掉 meta 行；任务记录保留，binding 变 unresolved；提供显式"清理无归属任务" |
 | 任务归档 | `intent.archived = true` + 结算快照；不再参与 Needs you 计数 |
@@ -619,13 +975,35 @@ TaskWorkspaceBinding {
 
 ## 9. 分期与验收
 
+### 9.0 路标（UI 优先，2026-11-16）
+
+四段，每段结束时都有一屏可演示的东西；每段都可单独回滚。这个顺序把"UI 证据"放最前：两位评审都指出
+"没有真机渲染"是最大返工源，而它也是成本最低的验证点。
+
+| 路标 | 一句话 | 看得到什么 | 对应阶段 | 不做 |
+| --- | --- | --- | --- | --- |
+| **P1 工作台 UI** | 先把"点开任务后的那一屏"做出来 | 详情页多一个 `Orca` tab：工作区、agent 行（带所属工作区）、token、用量三态、证据摘要 | M1；明细见 [P1a 计划](p1a-ui-shell-plan.md)（1.5–2 天，harness 截图） | 列表主轴、持久化、dock |
+| **P2 输入入口** | 让任务"说得出来" | 列表页底部 dock + 侧栏草稿行 + 三个 provider 建任务 | T2 | 任务行、分组 |
+| **P3 列表主轴** | 让任务"排得开" | `Needs you / Working / Delivered(agent done)` 分组、`◇` 徽标、一任务多工作区 | M2b 的 renderer 部分 | 持久化 |
+| **P4 持久化** | 让任务"记得住" | primary、归档、结算快照、意图层（目标/验收/授权） | M2a + M2b 的 main 部分 | 跨端 |
+
+- P1 允许停在 **1a**：组件 + fixture 数据 + 全部状态与降级，产出 CDP 截图供评审（不接真实数据、不建 tab 入口）；
+  **1b** 才接真实 selector。两位评审的"图 B 不能冻结"正好用 1a 的截图回答。
+- 旁路：T1（Agent 派生树）可随时独立合入；M3（交付证据聚合）留在 P3 之后；M4（跨端）单独授权。
+- P3 的 `Delivered` 已定为 **agent done**（D12，见 §7.2）；没有它 P3 无法开工。
+
+下面的 M/T 表是**详细阶段与验收**（工作包粒度），路标只回答"先做哪个"；两者冲突时以路标定顺序、
+以详细阶段定退出条件。
+
 | 阶段 | 范围 | 明确不做 | 验收 |
 | --- | --- | --- | --- |
 | **M0 决策冻结** | 定 §6 的 D1–D6 与 `taskRecords` 字段表；不写代码 | — | 每条决策有结论或明确 `escalate-value-choice` |
-| **M1 增量面板**（推荐先做） | 现有任务详情加 `Orca` tab；GitHub issue/PR → Linear → Jira/GitLab；Agent 行（逐 Agent 只 token）、用量三态、指向工作区的动作。**零持久化**；selector 必须可被 M2 复用 | 列表主轴、移动端、远端用量、逐 Agent 金额 | 对照覆盖 **Claude + Codex + OpenCode + Muse**：面板合计 == `projectBreakdown['worktree:<id>']`；歧义显示 `ambiguous`；未启用显示空态而非 0；`key` 解析有单测 |
+| **M1 增量面板**（推荐先做） | 现有任务详情加 `Orca` tab，定位为**任务聚合视图**（§6.4，不承诺任务对象）；GitHub issue/PR → Linear → Jira/GitLab；Agent 行（逐 Agent 只 token + 所属工作区）、用量三态、指向工作区的动作、0/1/N 工作区主操作规则。**零持久化**；selector 必须可被 M2 复用 | 列表主轴、移动端、远端用量、逐 Agent 金额、任务意图层（目标/验收/授权） | 对照覆盖 **Claude + Codex + OpenCode + Muse**：面板合计 == `projectBreakdown['worktree:<id>']`；歧义显示 `ambiguous`；未启用显示空态而非 0；`key` 解析有单测；文案不出现"已完成/验收通过" |
+| **T2 列表页 dock + 任务草稿行**（P2，排在 P1 之后；仍独立于 `taskRecords`） | Tasks 列表页底部 dock；发送后建 `taskDraft` folder workspace 并在其中起 agent；agent 经 `orca linear create` / `orca github create-issue`（转发现有 RPC）建任务，Jira 只出草稿由预填表单落库。**零新 RPC、零新 domain** | `taskRecords` 落库、一句话多任务、无盘草稿、移动端 | 三个 provider 各建出一条任务（Jira 走表单确认）；草稿行不计入工作区计数；写 tracker 前有预览确认；GitHub 主通道走 RPC、备通道 `gh` 缺失/远端宿主时 fail-closed；i18n 与 `check:code-quality:changed` 通过 |
 | **M2a 存储兼容验证** | 只读验证：指定旧 build 的新→旧→新 round-trip、`orca profile state` export/recovery 对未知 domain、备份恢复；产出判决 | 任何落盘 | 三项全绿才允许 M2b；否则范围收缩为 M1 |
 | **M2b 列表主轴 + 落库** | 分组（按 §7.2 优先级，`◇` 为徽标）+ 一任务多工作区列表反查 + 新增 `taskRecords` domain（§8：记录、绑定、`externalIndex`、primary、对账、结算快照） | 跨 runtime 逻辑任务、多仓联合验收（设计文档 C 的剩余部分）、移动端 | 投影一致性；§8.9 存储专项 1–7 + 评审补充缺项全绿；1000 工作区规模下列表构建无逐行扫描 |
-| **M3 跨端（可选）** | 新 RPC（task usage 只读）+ allowlist + 录制 golden + 移动端详情接入 | SSH 实时用量 | wire 兼容：旧客户端忽略新字段；`pnpm run verify:rpc-params-catalog` 通过 |
+| **M3 交付证据聚合** | 任务级交付区：commits、PR/MR、checks、review 状态、`sparseTaskBinding` 证据 | — | 一个有 PR 与一个无 PR 的任务各有一份截图/断言；不可用状态不显示为 0 |
+| **M4 跨端（可选，未估）** | 新只读 RPC（task usage/摘要）+ allowlist + 录制 golden + 移动端详情接入 | SSH 实时用量 | wire 兼容：旧客户端忽略新字段；`pnpm run verify:rpc-params-catalog` 通过；需单独授权 |
 
 每阶段都必须：新文案进 locale catalog（`verify:localization-extraction` / `-coverage`）、
 不新增 `components/ui/` 之外的样式、不触发 `max-lines` ratchet。
@@ -644,13 +1022,16 @@ setup 钩子"或"需要新装/重建依赖"。
 
 | 面 | 影响 |
 | --- | --- |
-| RPC | M1 不涉及；M3 需要新 op ⇒ 重新生成 `rpc-params-catalog.generated.ts`、更新 mobile allowlist、补 wire 兼容说明（`docs/reference/remote-wire-compatibility.md`） |
+| RPC | M1 不涉及；**M4**（跨端）需要新 op ⇒ 重新生成 `rpc-params-catalog.generated.ts`、更新 mobile allowlist、补 wire 兼容说明（`docs/reference/remote-wire-compatibility.md`） |
 | 移动端 parity | `mobile/rpc-foundation/` 的录制 golden 与 pilot scenarios 会因新 op/新字段变化 |
 | 契约类型 | 若为 session 行加 `worktreeId`：`shared/*-usage-types.ts` additive 字段即可，但需要同步 main 的 report aggregation 与 renderer normalization |
 | i18n | 所有新 UI 文案（含 tooltip、空态、可访问名） |
 | 样式 | `pnpm run check:code-quality:changed`（禁止重写 `components/ui/`、禁止 raw 色值、禁止 computed className） |
 | 性能 | 列表构建必须走 dashboard 已有的 cached pass；禁止在渲染期逐行调用 usage 扫描 |
 | 持久化（M2） | 新增 `taskRecords` domain：不改 `PROFILE_STATE_DATABASE_SCHEMA_VERSION`、不改 DDL；写入必经 main Store + revision CAS；老 build 保留未知 domain（待用例验证）；不进 RPC 不触发 catalog 门禁 |
+| 契约类型（T2） | `FolderWorkspace.taskDraft?: boolean`（additive optional）：随 `folderWorkspace.create/update` 参数与 `folderWorkspaces` 目录往返；不改 DDL/版本；需跑 `verify:rpc-params-catalog` 并确认旧 build 忽略未知字段 |
+| 外部依赖（T2） | GitHub 主通道不依赖本机 `gh`（走 app 账号 RPC）；备通道 `gh` 依赖存在性 + 登录态，远端宿主可能没有；两条都不通时显式不可用，不做静默降级 |
+| CLI 契约（T2） | 新增 `orca github create-issue` 动词（转发现有 `github.createIssue` RPC）：需补 `agent-context` schema、`--help` 文案与 CLI 帮助一致性测试；**不改 RPC catalog** |
 
 ---
 
@@ -687,13 +1068,17 @@ setup 钩子"或"需要新装/重建依赖"。
 - §8 的降级结论（旧 build 保留未知 domain 并写回）来自代码阅读（`normalizeLoadedProfileState` 的 `{...parsed}`、
   `buildStateToSave` 的 `getDurableState()`），**没有跑过 round-trip 用例**；§8.9 第 1、2 条尚未执行。
 - 未确认 `orca profile state` 的 export/recovery 是否包含未知 domain。
+- §7.9 的 dock 与草稿行没有渲染验证；草稿行在每种 Group by 模式下的 lane、计数排除与激活行为未实测。
+- `gh` 的存在性、登录态、远端宿主可用性，以及 `gh issue create` 在 scratch cwd 下配合 `--repo` 的实际行为未验证。
 
 ---
 
 ## 13. 下一步（需显式授权）
 
-1. 定 §6 的 D1/D4/D5/D6 → 决定走 M1 还是 M2 起步。
+1. 定 §6 的 D1/D3/D5/D6（D4 已由 R1 定）→ 决定走 M1 还是 M2 起步；D7–D12 已于 2026-11-16 定。
 2. M1 只读验证：在一个真实工作区跑两段不同 Agent，核对 `projectBreakdown['worktree:<id>']` 与
    AI Vault `totalTokens` 的一致性（只读，不改代码）。
 3. 若要走 M2：先在测试 fixture 里验证 §8.9 第 1–3 条（未知 domain round-trip / revision CAS / 记录级迁移），
    再拆实施清单（具体文件、domain 名、字段、测试与门禁）。
+4. 路标已改为 UI 优先（§9.0）：P1（工作台 UI）→ P2（T2 dock）→ P3（列表主轴）→ P4（持久化）。
+   P1a 可以先只交静态壳 + 截图，不需要真实数据或存储。
