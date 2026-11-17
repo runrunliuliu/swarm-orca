@@ -209,6 +209,21 @@ function formatCommandFlagHelp(flag: string, commandPath: string[]): string {
   if (command === 'linear create' && flag === 'parent-current') {
     return '--parent-current      Use the current linked issue as parent'
   }
+  if (command === 'github create-issue' && flag === 'title') {
+    return '--title <text>        New GitHub issue title'
+  }
+  if (command === 'github create-issue' && flag === 'body') {
+    return '--body <text>         GitHub issue body'
+  }
+  if (command === 'github create-issue' && flag === 'body-file') {
+    return '--body-file <path|->  Read the issue body from a file, or from stdin with -'
+  }
+  if (command === 'github create-issue' && flag === 'label') {
+    return '--label <label>       Issue label; repeat for several'
+  }
+  if (command === 'github create-issue' && flag === 'assignee') {
+    return '--assignee <user>     GitHub login to assign; repeat for several'
+  }
   if (command === 'worktree create' && flag === 'parent-worktree') {
     return '--parent-worktree <selector> Parent selector such as identity:<identity>, active/current, id:<repo-id>::<path>, branch:<branch>, issue:<number>, path:<path>, folder:<id>, or worktree:<worktreeId>'
   }

@@ -58,7 +58,10 @@ describe('orca search command spec', () => {
       'incident report': ['evidence'],
       // Why: `acceptance declare` runs argv with no shell (issue-sedimentation §8), so the program
       // and every argument arrive as repeated --command values.
-      'incident acceptance declare': ['command']
+      'incident acceptance declare': ['command'],
+      // Why: one issue can be assigned to several GitHub logins, which is the decision repeated
+      // --assignee makes visible.
+      'github create-issue': ['assignee']
     }
     for (const spec of COMMAND_SPECS) {
       if (spec === searchSpec) {
