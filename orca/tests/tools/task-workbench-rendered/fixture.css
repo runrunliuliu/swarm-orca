@@ -1,6 +1,7 @@
 @import '../../../src/renderer/src/assets/main.css';
 @source './fixture.tsx';
 @source '../../../src/renderer/src/components/task-workbench';
+@source '../../../src/renderer/src/components/task-page';
 @source '../../../src/renderer/src/components/ui';
 @source '../../../src/renderer/src/components/dashboard-popout';
 @source '../../../src/renderer/src/components/AgentStateDot.tsx';
