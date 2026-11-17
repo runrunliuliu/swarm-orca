@@ -1,13 +1,15 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TaskPageComposerActionsModel } from '@/components/use-task-page-composer-actions'
 import type {
   TaskDockModel,
   TaskDockModelOption,
-  TaskDockTranscriptLine
+  TaskDockTranscriptLine,
+  TaskDockTranscriptStatus
 } from '@/components/task-page/TaskDock'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { getTaskDraftName } from '@/lib/task-draft-name'
 import { deliverToActiveDraft, launchDraftAgent } from '@/lib/task-draft-agent-launch'
+import { readTaskDockTranscript } from '@/lib/task-dock-transcript'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { getAgentSessionOptionCatalog } from '../../../shared/agent-session-option-catalog'
@@ -15,8 +17,10 @@ import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../../shared
 import type { Repo } from '../../../shared/repo-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 
-/** Shared empty tail: no session, so no lines to render. */
-const EMPTY_TRANSCRIPT: readonly TaskDockTranscriptLine[] = []
+/** How often the dock re-reads the agent terminal while it is open. */
+const TRANSCRIPT_POLL_MS = 1200
+/** Lines kept in the panel; the host truncates further and the panel scrolls. */
+const TRANSCRIPT_LINE_LIMIT = 40
 
 /** The draft this dock submit created; a follow-up goes to the same agent session. */
 export type ActiveTaskDraft = {
@@ -42,9 +46,8 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
   const [modelId, setModelId] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  // Why empty: the transcript comes from the draft agent's terminal, which only exists after the
-  // first send (`terminal.read` wiring is the next slice); the dock renders the panel from here.
-  const transcript = EMPTY_TRANSCRIPT
+  const [transcript, setTranscript] = useState<readonly TaskDockTranscriptLine[]>([])
+  const [transcriptStatus, setTranscriptStatus] = useState<TaskDockTranscriptStatus>('none')
   // Why state and not the ref: the dock only knows a session exists once a send succeeded, and the
   // panel's status must re-render at that point.
   const [hasSession, setHasSession] = useState(false)
@@ -147,6 +150,39 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
     }
   }, [instruction, submitting, primaryRepo, taskSource, folderWorkspaces, modelId, targetLabel])
 
+  // Why poll instead of subscribe: the draft's agent terminal is not necessarily on screen, so the
+  // renderer has no terminal stream for it; the runtime can still answer a read. Only while the
+  // dock is open and a session exists, so a closed dock costs nothing.
+  useEffect(() => {
+    if (!expanded || !hasSession) {
+      return
+    }
+    let cancelled = false
+    const tick = async (): Promise<void> => {
+      const draft = activeDraftRef.current
+      if (!draft) {
+        return
+      }
+      const read = await readTaskDockTranscript({
+        settings: useAppStore.getState().settings,
+        folderWorkspaceId: draft.folderWorkspaceId,
+        primaryTabId: draft.primaryTabId,
+        limit: TRANSCRIPT_LINE_LIMIT
+      })
+      if (cancelled || !read) {
+        return
+      }
+      setTranscript(read.lines.map((text) => ({ text })))
+      setTranscriptStatus(read.ended ? 'ended' : 'live')
+    }
+    void tick()
+    const timer = setInterval(() => void tick(), TRANSCRIPT_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [expanded, hasSession])
+
   const taskDock: TaskDockModel = {
     instruction,
     expanded,
@@ -154,7 +190,7 @@ export function useTaskPageDockActions(model: TaskPageComposerActionsModel): Tas
     model: modelId,
     modelOptions,
     transcript,
-    transcriptStatus: hasSession ? 'live' : 'none',
+    transcriptStatus,
     submitting,
     errorMessage,
     onInstructionChange: setInstruction,
