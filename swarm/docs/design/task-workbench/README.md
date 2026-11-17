@@ -719,6 +719,13 @@ export type FolderWorkspace = {
 
 其中 `issue-created-link-failed`、`duplicate-suspected`、`agent-crashed` 是评审新增（原文档遗漏）。
 
+> 实施修正（2026-11-17，P2 第二刀）：应用内确认后的创建由 dock 直接调用既有 RPC
+> （`window.api.runtime.call` → `linear.issueCreate` / `github.createIssue`）执行，**不由 agent 执行
+> CLI 动词**；agent 只负责草拟，CLI 动词仍是 agent 通道。`gh` 备通道保留，但只在用户显式选择时由
+> draft 会话执行，属于较弱的人工路径（一次 prompt 不等于一次 `gh` 执行）。原因：写前确认必须能由
+> 代码与测试证明，不能依赖 agent 是否服从 prompt；本 Run 只声明“dock 自己发起的调用”这一范围，
+> 不声明草稿会话全局零写入。决定与代价见 Run 的 `decisions.md`。
+
 #### 7.9.8 生命周期（决策 D11）
 
 | 事件 | 行为 |
