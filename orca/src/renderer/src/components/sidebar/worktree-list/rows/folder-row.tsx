@@ -1,6 +1,10 @@
 import React from 'react'
 import type { VirtualItem } from '@tanstack/react-virtual'
+import { Badge } from '@/components/ui/badge'
+import { translate } from '@/i18n/i18n'
+import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
+import type { FolderWorkspace } from '../../../../../../shared/folder-workspace-types'
 import type { Repo } from '../../../../../../shared/repo-types'
 import type {
   WorkspaceLineage,
@@ -19,6 +23,7 @@ import { getFolderWorkspaceCardPrDisplay } from '../../folder-workspace-card-pr-
 import { FolderPathStatusIndicator } from './FolderPathStatusIndicator'
 import type { FolderWorkspaceItemRow } from '../listing/renderable-rows'
 import { getWorktreeOptionId } from './option-dom'
+import { getFolderDraftMarker } from './folder-draft-marker'
 
 export type FolderWorkspaceRowContext = {
   groupBy: WorktreeGroupBy
@@ -49,6 +54,47 @@ export type FolderWorkspaceRowContext = {
     worktree: Worktree,
     rowKey: string
   ) => void
+}
+
+function FolderDraftMarkerLine({
+  workspace
+}: {
+  workspace: FolderWorkspace
+}): React.JSX.Element | null {
+  const taskRemoved = useAppStore((state) => {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: w7-lifecycle adds this optional field to the store slice; absent until it lands.
+    const missing = (state as AppState & { taskDraftLinkMissing?: Record<string, true> })
+      .taskDraftLinkMissing
+    return missing?.[workspace.id] ?? false
+  })
+  const marker = getFolderDraftMarker(workspace, taskRemoved)
+  if (!marker) {
+    return null
+  }
+  return (
+    <>
+      <Badge variant="secondary" data-testid="folder-draft-badge">
+        {translate('auto.components.sidebar.FolderRow.draft', 'draft')}
+      </Badge>
+      {marker.state === 'task-removed' ? (
+        <span
+          className="text-[11px] leading-none text-muted-foreground"
+          data-testid="folder-draft-task-removed"
+        >
+          {translate('auto.components.sidebar.FolderRow.taskRemoved', 'task removed')}
+        </span>
+      ) : marker.linkLabel ? (
+        <span
+          className="text-[11px] leading-none text-muted-foreground"
+          data-testid="folder-draft-link"
+        >
+          {translate('auto.components.sidebar.FolderRow.linkedTo', 'linked to {{value0}}', {
+            value0: marker.linkLabel
+          })}
+        </span>
+      ) : null}
+    </>
+  )
 }
 
 export function renderFolderWorkspaceVirtualRow(args: {
@@ -123,8 +169,11 @@ export function renderFolderWorkspaceVirtualRow(args: {
           onContextMenuSelect={ctx.onContextMenuSelect}
           statusPrDisplay={folderPrDisplay}
         />
-        <div className="pointer-events-auto absolute right-3 top-1.5">
-          <FolderPathStatusIndicator status={pathStatus} />
+        <div className="pointer-events-none absolute right-3 top-1.5 flex items-center gap-1.5">
+          <FolderDraftMarkerLine workspace={row.folderWorkspace} />
+          <span className="pointer-events-auto">
+            <FolderPathStatusIndicator status={pathStatus} />
+          </span>
         </div>
       </div>
     </div>
