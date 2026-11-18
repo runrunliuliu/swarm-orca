@@ -22,17 +22,21 @@ const MINUTE = 60_000
 const GITHUB = { provider: 'github', owner: 'acme', repo: 'web-app' } as const
 
 /** Worktree ids derive from the branch so the default-workspace marker can
- *  point at the same value without a second literal. */
+ *  point at the same value without a second literal. `worktreeName` defaults to
+ *  the branch, but a fixture may pass a display name instead — that is how f1
+ *  exercises the rule that a workspace identity names its branch (README §7.4.2
+ *  取舍 2), because Orca names a generated worktree after the task title. */
 export function workspace(
   repoName: string,
-  worktreeName: string,
+  branchName: string,
   extra: Partial<TaskWorkbenchWorkspace> = {}
 ): TaskWorkbenchWorkspace {
   return {
     repoId: `repo-${repoName}`,
-    worktreeId: `wt-${worktreeName.replaceAll('/', '-')}`,
+    worktreeId: `wt-${branchName.replaceAll('/', '-')}`,
     repoName,
-    worktreeName,
+    worktreeName: extra.worktreeName ?? branchName,
+    branchName,
     hostKind: 'local',
     executionHostId: LOCAL_EXECUTION_HOST_ID,
     workspaceKind: 'worktree',
@@ -121,7 +125,9 @@ export function row(
     },
     tokens,
     outcome: options.outcome,
-    workspaceLabel: ws ? `${ws.repoName} · ${ws.worktreeName}` : undefined
+    // The pill names the workspace by branch for the same reason the Workspaces
+    // section does: the display name is usually the task title (README §7.4.2).
+    workspaceLabel: ws ? `${ws.repoName} · ${ws.branchName ?? ws.worktreeName}` : undefined
   }
 }
 
@@ -163,7 +169,9 @@ export function deliveryEvidence(
   }
 }
 
-export const WS_LOGIN = workspace('web-app', 'feature/add-login')
+export const WS_LOGIN = workspace('web-app', 'feature/add-login', {
+  worktreeName: 'Add login auth'
+})
 export const WS_API = workspace('api', 'feature/jwt-verify')
 export const WS_SPIKE = workspace('web-app', 'investigation/perf-spike')
 export const WS_PERF = workspace('orca', 'perf-spike')

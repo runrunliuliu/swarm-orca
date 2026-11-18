@@ -17291,8 +17291,7 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokensUnavailable": "—",
-        "tokens": "{{value0}} jetons",
+        "tokens": "{{value0}}",
         "outcome": {
           "success": "Livré",
           "failure": "Échec",
@@ -17332,21 +17331,6 @@
           "pending": "Revue en attente",
           "approved": "Revue approuvée",
           "changes-requested": "Modifications demandées"
-        }
-      },
-      "TaskWorkbenchHeader": {
-        "noTracker": "Aucun tracker",
-        "pullRequestNumber": "PR #{{value0}}",
-        "openWorkspace": "Ouvrir l'espace de travail",
-        "trackerState": {
-          "open": "ouvert",
-          "closed": "fermé"
-        },
-        "pullRequestState": {
-          "draft": "brouillon",
-          "open": "ouvert",
-          "merged": "fusionné",
-          "closed": "fermé"
         }
       },
       "TaskWorkbenchPanel": {
@@ -17392,13 +17376,12 @@
           "folder": "dossier"
         },
         "reviewNumber": "PR #{{value0}}",
-        "remoteHint": "Hôte distant · l'usage et les actions restent en local",
         "create": "Créer un espace de travail",
         "noActive": "Aucun espace de travail actif",
         "moreWorkspaces": "+{{value0}} de plus",
         "showArchived": "Afficher les archivés ({{value0}})",
         "heading": "Espaces de travail",
-        "workspaceCount": "{{value0}} au total",
+        "workspaceCount": "{{value0}}",
         "showMore": "Afficher {{value0}} espaces de travail de plus"
       }
     },

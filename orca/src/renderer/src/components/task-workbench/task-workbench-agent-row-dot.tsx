@@ -41,15 +41,29 @@ export function taskWorkbenchOverlayDotState(row: OverlayDotRow): AgentDotState 
 
 /** The overlay mark itself. `data-dot-state` is on the element that renders the
  *  dot's content, so the rendered harness counts a real mark and never an empty
- *  wrapper. */
-export function TaskWorkbenchAgentRowDot({ row }: { row: OverlayDotRow }): React.JSX.Element | null {
-  const state = taskWorkbenchOverlayDotState(row)
+ *  wrapper.
+ *
+ * `fallbackState` is for the flat row of README §7.4.2: one row shows exactly
+ *  one state, so the row renders this component for every row and passes the
+ *  card's own display state. The `task-workbench-agent-row-dot` testid stays
+ *  reserved for the overlay states (F8: failed / interrupted / unverifiable), so
+ *  "presence of that testid" keeps meaning "this row's verdict overrides its
+ *  bucket", exactly as before the visual rework. */
+export function TaskWorkbenchAgentRowDot({
+  row,
+  fallbackState
+}: {
+  row: OverlayDotRow
+  fallbackState?: AgentDotState
+}): React.JSX.Element | null {
+  const overlay = taskWorkbenchOverlayDotState(row)
+  const state = overlay ?? fallbackState
   if (!state) {
     return null
   }
   return (
     <span
-      data-testid="task-workbench-agent-row-dot"
+      data-testid={overlay === null ? undefined : 'task-workbench-agent-row-dot'}
       data-dot-state={state}
       className="inline-flex"
     >

@@ -1,11 +1,9 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
 import { TaskWorkbenchAgents } from './TaskWorkbenchAgents'
-import { TaskWorkbenchDelivery } from './TaskWorkbenchDelivery'
-import { TaskWorkbenchHeader } from './TaskWorkbenchHeader'
-import { TaskWorkbenchSpend } from './TaskWorkbenchSpend'
+import { TaskWorkbenchFacts } from './TaskWorkbenchFacts'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import { TaskWorkbenchWorkspaces } from './TaskWorkbenchWorkspaces'
 import type { TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
 
@@ -14,6 +12,15 @@ import type { TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-vi
  * how they stack for the given layout, and owns the single top-level empty state.
  * Business judgement (what a bucket means, what an absent figure says) lives in
  * the sections and the projection modules, never here (p1a-ui-shell-plan.md §2).
+ *
+ * README §7.4.2 removed the workbench header outright: this panel is embedded in
+ * the item detail, so the page's h1, its topbar and its meta line already said who
+ * the task is. The second h1, the second identity line and the second
+ * `Open workspace` button were pure repetition — and the button had no handler,
+ * while the page header's same-shaped one does. What is left is four faces: the
+ * (optional) empty state, Workspaces, Agents and the facts strip, 20px apart, each
+ * one surface. The screen's only filled primary button is therefore the page
+ * header's.
  */
 
 export type TaskWorkbenchPanelProps = {
@@ -25,27 +32,38 @@ function panelKeys(key: string): string {
   return `auto.components.TaskWorkbenchPanel.${key}`
 }
 
-/** The 0-workspace state. It owns the primary action for that screen; the Header
- *  deliberately renders none there, so this is the only Create CTA (amendment
- *  2026-11-16). */
+/** P1b owns workspace creation; until then this is the disabled form of it
+ *  (README §7.4.2 取舍 3), so it no longer looks like the page header's live
+ *  primary action. */
+const NOT_WIRED = 'Not wired in this build yet'
+
+/** The 0-workspace state. It owns the primary action for that screen; the page
+ *  header may still carry its own, so this is the only Create CTA *inside* the
+ *  panel (amendment 2026-11-16).
+ *
+ * Why not a dashed box: §7.4.2 says an empty state is a fact, not a warning. A
+ * dashed outline read as "something is wrong" on a task that simply has no
+ * workspace yet. */
 function EmptyState(): React.JSX.Element {
   return (
     <section
       data-testid="task-workbench-empty-state"
-      className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border/60 px-4 py-6"
+      className="flex flex-col items-start gap-3 rounded-lg bg-card/40 px-4 py-4 ring-1 ring-inset ring-border/60"
     >
-      <span className="text-sm font-medium">
-        {translate(panelKeys('emptyTitle'), 'No workspace is linked to this task yet')}
-      </span>
-      <p className="text-xs text-muted-foreground">
-        {translate(
-          panelKeys('emptyBody'),
-          'Create a workspace to start an agent on this task.'
-        )}
-      </p>
-      <Button type="button" size="sm" data-testid="task-workbench-workspaces-create">
-        {translate(panelKeys('createWorkspace'), 'Create workspace')}
-      </Button>
+      <div className="flex flex-col gap-1">
+        <span className="text-[13px] font-medium">
+          {translate(panelKeys('emptyTitle'), 'No workspace is linked to this task yet')}
+        </span>
+        <p className="text-[12px] text-muted-foreground">
+          {translate(panelKeys('emptyBody'), 'Create a workspace to start an agent on this task.')}
+        </p>
+      </div>
+      <TaskWorkbenchPendingAction
+        variant="outline"
+        label={translate(panelKeys('createWorkspace'), 'Create workspace')}
+        hint={translate(panelKeys('notWired'), NOT_WIRED)}
+        testId="task-workbench-workspaces-create"
+      />
     </section>
   )
 }
@@ -58,40 +76,33 @@ export function TaskWorkbenchPanel({
   const isEmpty = view.workspaces.length === 0
 
   return (
-    <section
-      data-testid="task-workbench-panel"
-      className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card/30 p-4"
-    >
-      <TaskWorkbenchHeader view={view} />
-
+    <section data-testid="task-workbench-panel" className="flex flex-col gap-5">
       <div
         data-testid="task-workbench-panel-layout"
         data-wb-columns={layout.columns}
         data-wb-layout-json={JSON.stringify(layout)}
-        className="flex flex-col gap-3"
+        className="flex flex-col gap-5"
       >
         {isEmpty ? <EmptyState /> : null}
 
         {layout.columns === 'double' ? (
-          <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start gap-3">
+          <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start gap-5">
             <TaskWorkbenchAgents view={view} layout={layout} />
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-5">
               {isEmpty ? null : <TaskWorkbenchWorkspaces view={view} layout={layout} />}
-              <TaskWorkbenchSpend view={view} layout={layout} />
+              <TaskWorkbenchFacts view={view} layout={layout} />
             </div>
           </div>
         ) : (
           // Narrow windows stack in the sacrifice order of README §7.3.1:
-          // Workspaces (never sacrificed) → Agents → Spend summary.
-          <div className="flex flex-col gap-3">
+          // Workspaces (never sacrificed) → Agents → the facts strip.
+          <div className="flex flex-col gap-5">
             {isEmpty ? null : <TaskWorkbenchWorkspaces view={view} layout={layout} />}
             <TaskWorkbenchAgents view={view} layout={layout} />
-            <TaskWorkbenchSpend view={view} layout={layout} />
+            <TaskWorkbenchFacts view={view} layout={layout} />
           </div>
         )}
       </div>
-
-      <TaskWorkbenchDelivery view={view} layout={layout} />
     </section>
   )
 }

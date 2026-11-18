@@ -46,8 +46,9 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
   // Why a label only when the task spans several live workspaces: with one
   // workspace the pill is noise, and the panel would repeat the header. With
   // more than one the row must say which workspace it belongs to. The label is
-  // the worktree name the card already carries — never a synthesised one and
-  // never the id.
+  // the branch the worktree identity now carries, falling back to the display
+  // name the card already has — never a synthesised one and never the id. The
+  // display name alone would usually repeat the task title (README §7.4.2).
   const showWorkspaceLabel = activeWorktrees.length > 1
   const agents = activeWorktrees.flatMap((worktree) =>
     (input.agentsByWorktree[worktree.worktreeId] ?? []).map(
@@ -58,7 +59,9 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
         tokens: agent.tokens ?? UNATTRIBUTED_TOKENS,
         outcome: agent.outcome,
         sessionBoundary: agent.sessionBoundary,
-        workspaceLabel: showWorkspaceLabel ? agent.card.worktreeName : undefined
+        workspaceLabel: showWorkspaceLabel
+          ? `${worktree.repoName} · ${worktree.branchName ?? worktree.worktreeName}`
+          : undefined
       })
     )
   )

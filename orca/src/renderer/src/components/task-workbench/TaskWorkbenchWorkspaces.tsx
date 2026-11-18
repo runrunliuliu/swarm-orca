@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { ChevronDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
+import { TaskWorkbenchSectionHeading } from './task-workbench-section-heading'
 import type {
   TaskWorkbenchLayout,
   TaskWorkbenchView,
@@ -13,23 +14,42 @@ import type {
 } from './task-workbench-view'
 
 /**
- * The workspace cards of the workbench: 0..N identities, the `Create workspace`
- * primary action and the default marker.
+ * The workspaces section: 0..N identities, the `Create workspace` action and the
+ * default marker, as rows inside one surface (README §7.4.2).
  *
- * Two things this component refuses to do (README §7.3.1, §7.5):
+ * Three things this component refuses to do (README §7.3.1, §7.5):
  * - Sacrifice the identity or the CTA at any size. The smallest form is one
  *   summary row, never a menu.
  * - Present "recent activity" as a user's choice. `defaultWorkspace.source` is
  *   rendered, and the two words are visibly different.
+ * - Name a workspace by its display name. Orca names a generated worktree after
+ *   the task title, so `repo · displayName` printed the page's h1 again; the row
+ *   names the branch instead and falls back to the display name only when the
+ *   row carries no branch (a folder workspace).
+ *
+ * Why rows and not cards: a `<Card>` here is `py-6` with no horizontal padding, so
+ * the content touched the border and the default badge hung outside the rounded
+ * corner. One surface with `inset` separators also makes the section's density
+ * match the agents section instead of contradicting it.
  */
 
 function workspacesKeys(key: string): string {
   return `auto.components.TaskWorkbenchWorkspaces.${key}`
 }
 
+/** P1b owns workspace creation. Until it is wired the action renders disabled
+ *  rather than looking live (README §7.4.2 取舍 3). */
+const NOT_WIRED = 'Not wired in this build yet'
+
 /** Worktree ids are only unique per repository, so the row key carries both. */
 function workspaceKey(workspace: TaskWorkbenchWorkspace): string {
   return `${workspace.repoId}:${workspace.worktreeId}`
+}
+
+/** The one name a workspace row may print: the branch when the store row has one,
+ *  else the display name it always had (README §7.4.2 取舍 2). */
+function workspaceLabel(workspace: TaskWorkbenchWorkspace): string {
+  return workspace.branchName ?? workspace.worktreeName
 }
 
 function hostKindLabel(hostKind: TaskWorkbenchWorkspace['hostKind']): string {
@@ -46,9 +66,10 @@ function hostKindLabel(hostKind: TaskWorkbenchWorkspace['hostKind']): string {
   }
 }
 
-/** The default marker is the one card-level claim a reader may act on, so the
- *  two sources get different words: a filled `Default` chip can only come from an
- *  explicit choice, while an inferred one says where it came from. */
+/** The default marker is the one row-level claim a reader may act on, so the two
+ *  sources get different words: a filled chip can only come from an explicit
+ *  choice, while an inferred one says where it came from. No italic: the heading
+ *  rule for CJK forbids it, and this is prose in Chinese too. */
 function DefaultMarker({
   source
 }: {
@@ -56,13 +77,9 @@ function DefaultMarker({
 }): React.JSX.Element {
   if (source === 'recent-activity') {
     return (
-      // Why the wrapper: <Badge> owns its own color and typography, so the
-      // "inferred" treatment is applied to the parent instead of restyling it.
-      <span className="shrink-0 italic text-muted-foreground">
-        <Badge data-testid="task-workbench-workspace-card-default" variant="outline">
-          {translate(workspacesKeys('defaultFromActivity'), 'Default · recent activity')}
-        </Badge>
-      </span>
+      <Badge data-testid="task-workbench-workspace-card-default" variant="outline">
+        {translate(workspacesKeys('defaultFromActivity'), 'Default · recent activity')}
+      </Badge>
     )
   }
   return (
@@ -76,26 +93,7 @@ function DefaultMarker({
   )
 }
 
-function WorkspaceIdentity({
-  workspace
-}: {
-  workspace: TaskWorkbenchWorkspace
-}): React.JSX.Element {
-  return (
-    <span className="flex min-w-0 items-baseline gap-1.5">
-      <span aria-hidden="true" className="shrink-0 text-muted-foreground">
-        ▦
-      </span>
-      <span className="min-w-0 truncate font-medium">
-        {workspace.repoName}
-        <span className="mx-1 text-muted-foreground/60">·</span>
-        {workspace.worktreeName}
-      </span>
-    </span>
-  )
-}
-
-function WorkspaceCard({
+function WorkspaceRow({
   workspace,
   isDefault,
   defaultSource
@@ -104,28 +102,59 @@ function WorkspaceCard({
   isDefault: boolean
   defaultSource: TaskWorkbenchView['defaultWorkspace']['source']
 }): React.JSX.Element {
-  const isRemote = workspace.hostKind !== 'local'
   const archivedFlag = workspace.archived === true ? 'true' : undefined
+  const hostLabel = workspace.hostLabel ?? hostKindLabel(workspace.hostKind)
   return (
-    <Card data-testid="task-workbench-workspace-card" data-archived={archivedFlag}>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-        <WorkspaceIdentity workspace={workspace} />
-        {isDefault ? <DefaultMarker source={defaultSource} /> : null}
+    <div
+      data-testid="task-workbench-workspace-card"
+      data-archived={archivedFlag}
+      // Why flex-wrap + a floor on the identity: with `shrink-0` metadata and an
+      // `overflow-hidden` surface, a long host name / status / default marker used
+      // to squeeze the identity to nothing in the right-hand double column. The
+      // identity now keeps `min-w-32` and the secondary cluster moves to a second
+      // line instead of eating it.
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2"
+    >
+      <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+        ▦
+      </span>
+      <span className="min-w-32 flex-1 truncate text-[13px]">
+        <span className="text-muted-foreground">{workspace.repoName}</span>
+        <span className="mx-1.5 text-muted-foreground/60">·</span>
+        <span className="font-mono text-[12.5px] text-foreground">
+          {workspaceLabel(workspace)}
+        </span>
+      </span>
+
+      <span className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-1.5 gap-y-1 text-[12px] text-muted-foreground">
+        {/* Only a non-local host is worth a chip: "local" is the unmarked default
+            and repeating it on every row is the noise this rework removes. */}
+        {workspace.hostKind === 'local' ? null : (
+          <Badge
+            data-testid="task-workbench-workspace-host-chip"
+            variant="hostContext"
+            className="shrink-0"
+          >
+            {hostLabel}
+          </Badge>
+        )}
+        {workspace.workspaceKind === 'folder' ? (
+          <span className="shrink-0">{translate(workspacesKeys('kind.folder'), 'folder')}</span>
+        ) : null}
+        {workspace.review ? (
+          <span className="shrink-0 tabular-nums">
+            {translate(workspacesKeys('reviewNumber'), 'PR #{{value0}}', {
+              value0: String(workspace.review.number)
+            })}
+          </span>
+        ) : null}
         {workspace.archived === true ? (
           <Badge variant="outline" className="shrink-0">
             {translate(workspacesKeys('archived'), 'Archived')}
           </Badge>
-        ) : null}
-      </div>
-
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <Badge variant="hostContext" className="shrink-0">
-          {workspace.hostLabel ?? hostKindLabel(workspace.hostKind)}
-        </Badge>
-        {workspace.workspaceKind === 'folder' ? (
-          <span className="shrink-0">{translate(workspacesKeys('kind.folder'), 'folder')}</span>
-        ) : null}
-        {workspace.workspaceStatusLabel ? (
+        ) : workspace.workspaceStatusLabel ? (
+          // The store's own workspace status: a user-authored label, rendered
+          // verbatim (it is data, not copy), preceded by its colour swatch.
           <span className="flex min-w-0 items-center gap-1">
             <span
               aria-hidden="true"
@@ -135,41 +164,28 @@ function WorkspaceCard({
             <span className="min-w-0 truncate">{workspace.workspaceStatusLabel}</span>
           </span>
         ) : null}
-        {workspace.review ? (
-          <span className="shrink-0 tabular-nums">
-            {translate(workspacesKeys('reviewNumber'), 'PR #{{value0}}', {
-              value0: String(workspace.review.number)
-            })}
-          </span>
-        ) : null}
-        {/* Why: a remote workspace's usage and actions cannot work on the local
-            host; saying so once beats a row of controls that silently fail. */}
-        {isRemote ? (
-          <span className="shrink-0">
-            {translate(workspacesKeys('remoteHint'), 'Remote host · usage and actions stay local')}
-          </span>
-        ) : null}
-      </div>
-    </Card>
+        {isDefault ? <DefaultMarker source={defaultSource} /> : null}
+      </span>
+    </div>
   )
 }
 
-function CreateWorkspaceButton({ className }: { className?: string }): React.JSX.Element {
+function CreateWorkspaceButton(): React.JSX.Element {
+  // P1b owns workspace creation; the disabled form and its hover explanation
+  // live in `task-workbench-pending-action.tsx` (README §7.4.2 取舍 3).
   return (
-    // P1a is a static shell: the action is focusable and typed, but it opens
-    // nothing until P1b wires it to a workspace creation flow.
-    <Button
-      type="button"
-      size="xs"
-      data-testid="task-workbench-workspaces-create"
-      className={cn('shrink-0', className)}
-    >
-      {translate(workspacesKeys('create'), 'Create workspace')}
-    </Button>
+    <TaskWorkbenchPendingAction
+      variant="outline"
+      label={translate(workspacesKeys('create'), 'New workspace')}
+      hint={translate(workspacesKeys('notWired'), NOT_WIRED)}
+      testId="task-workbench-workspaces-create"
+    />
   )
 }
 
-function ToggleButton({
+/** A fold inside the section's own surface: 24px quiet, aligned with the rows it
+ *  reveals instead of floating as a separate control block. */
+function ToggleRow({
   testId,
   expanded,
   controls,
@@ -183,24 +199,28 @@ function ToggleButton({
   label: string
 }): React.JSX.Element {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
-      data-testid={testId}
-      aria-expanded={expanded}
-      aria-controls={controls}
-      onClick={onToggle}
-      className="self-start"
-    >
-      {label}
-      <ChevronDown
-        aria-hidden="true"
-        className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}
-      />
-    </Button>
+    <div className="px-3 py-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        data-testid={testId}
+        aria-expanded={expanded}
+        aria-controls={controls}
+        onClick={onToggle}
+      >
+        <span className="text-muted-foreground">{label}</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}
+        />
+      </Button>
+    </div>
   )
 }
+
+const SURFACE = 'overflow-hidden rounded-lg bg-card/40 ring-1 ring-inset ring-border/60'
+const ROW_LIST = 'flex flex-col divide-y divide-border/50'
 
 export function TaskWorkbenchWorkspaces({
   view,
@@ -215,12 +235,10 @@ export function TaskWorkbenchWorkspaces({
   const active = view.workspaces.filter((workspace) => workspace.archived !== true)
   const archived = view.workspaces.filter((workspace) => workspace.archived === true)
   // Why open by default only when nothing else is active: an archived-only task
-  // (F5) would otherwise render a Workspaces section with no workspace card in
-  // it at all. With any active workspace the group stays folded, so an archived
-  // one never looks active (README §7.5, contract §4.3).
-  const [archivedOpen, setArchivedOpen] = React.useState(
-    active.length === 0 && archived.length > 0
-  )
+  // (F5) would otherwise render a Workspaces section with no workspace row in it
+  // at all. With any active workspace the group stays folded, so an archived one
+  // never looks active (README §7.5, contract §4.3).
+  const [archivedOpen, setArchivedOpen] = React.useState(active.length === 0 && archived.length > 0)
   const defaultSource = view.defaultWorkspace.source
   const defaultId = defaultSource === 'none' ? null : view.defaultWorkspace.workspaceId
   const defaultWorkspace = view.workspaces.find((workspace) => workspace.worktreeId === defaultId)
@@ -246,33 +264,121 @@ export function TaskWorkbenchWorkspaces({
   if (layout.workspaces === 'compact') {
     const others = primary === null ? 0 : Math.max(active.length - 1, 0)
     return (
-      <section
-        data-testid="task-workbench-workspaces"
-        className="flex flex-col gap-1 rounded-lg border border-border/60 bg-card/40 px-3 py-2"
-      >
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-          {primary ? (
-            <>
-              <WorkspaceIdentity workspace={primary} />
-              {primaryIsDefault ? <DefaultMarker source={defaultSource} /> : null}
-            </>
-          ) : (
-            <span className="text-muted-foreground">
-              {translate(workspacesKeys('noActive'), 'No active workspace')}
-            </span>
-          )}
-          {others > 0 ? (
-            <span className="shrink-0 text-muted-foreground">
-              {translate(workspacesKeys('moreWorkspaces'), '+{{value0}} more', {
-                value0: String(others)
-              })}
-            </span>
-          ) : null}
-          <CreateWorkspaceButton className="ml-auto" />
+      <section data-testid="task-workbench-workspaces" className="flex flex-col gap-2">
+        <TaskWorkbenchSectionHeading
+          label={translate(workspacesKeys('heading'), 'Workspaces')}
+          count={translate(workspacesKeys('workspaceCount'), '{{value0}}', {
+            value0: String(view.workspaces.length)
+          })}
+          action={<CreateWorkspaceButton />}
+        />
+        <div className={SURFACE}>
+          <div className={ROW_LIST}>
+            {primary ? (
+              <WorkspaceRow
+                workspace={primary}
+                isDefault={primaryIsDefault}
+                defaultSource={defaultSource}
+              />
+            ) : (
+              <div className="px-3 py-2 text-[12px] text-muted-foreground">
+                {translate(workspacesKeys('noActive'), 'No active workspace')}
+              </div>
+            )}
+            {others > 0 ? (
+              <div className="px-3 py-1 text-[12px] text-muted-foreground">
+                {translate(workspacesKeys('moreWorkspaces'), '+{{value0}} more', {
+                  value0: String(others)
+                })}
+              </div>
+            ) : null}
+            {archived.length > 0 ? (
+              <ToggleRow
+                testId="task-workbench-workspaces-archived-toggle"
+                expanded={archivedOpen}
+                controls="task-workbench-workspaces-archived"
+                onToggle={() => setArchivedOpen(!archivedOpen)}
+                label={translate(workspacesKeys('showArchived'), 'Show archived ({{value0}})', {
+                  value0: String(archived.length)
+                })}
+              />
+            ) : null}
+            {archivedOpen
+              ? archived.map((workspace) => (
+                  <WorkspaceRow
+                    key={workspaceKey(workspace)}
+                    workspace={workspace}
+                    isDefault={false}
+                    defaultSource={defaultSource}
+                  />
+                ))
+              : null}
+          </div>
         </div>
+      </section>
+    )
+  }
+
+  return (
+    <section data-testid="task-workbench-workspaces" className="flex flex-col gap-2">
+      <TaskWorkbenchSectionHeading
+        label={translate(workspacesKeys('heading'), 'Workspaces')}
+        count={translate(workspacesKeys('workspaceCount'), '{{value0}}', {
+          value0: String(view.workspaces.length)
+        })}
+        action={<CreateWorkspaceButton />}
+      />
+
+      <div className={SURFACE}>
+        <div className={ROW_LIST}>
+          {primary ? (
+            <WorkspaceRow
+              workspace={primary}
+              isDefault={primaryIsDefault}
+              defaultSource={defaultSource}
+            />
+          ) : null}
+
+          {collapseSecondary
+            ? null
+            : secondary.map((workspace) => (
+                <WorkspaceRow
+                  key={workspaceKey(workspace)}
+                  workspace={workspace}
+                  isDefault={false}
+                  defaultSource={defaultSource}
+                />
+              ))}
+
+          {collapseSecondary ? (
+            <ToggleRow
+              testId="task-workbench-workspaces-secondary-toggle"
+              expanded={secondaryOpen}
+              controls="task-workbench-workspaces-secondary"
+              onToggle={() => setSecondaryOpen(!secondaryOpen)}
+              label={translate(workspacesKeys('showMore'), 'Show {{value0}} more workspaces', {
+                value0: String(secondary.length)
+              })}
+            />
+          ) : null}
+        </div>
+
+        {collapseSecondary && secondaryOpen ? (
+          <div id="task-workbench-workspaces-secondary" className={ROW_LIST}>
+            {secondary.map((workspace) => (
+              <WorkspaceRow
+                key={workspaceKey(workspace)}
+                workspace={workspace}
+                isDefault={false}
+                defaultSource={defaultSource}
+              />
+            ))}
+          </div>
+        ) : null}
+
         {archived.length > 0 ? (
-          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <ToggleButton
+          <div className={ROW_LIST}>
+            <ToggleRow
               testId="task-workbench-workspaces-archived-toggle"
               expanded={archivedOpen}
               controls="task-workbench-workspaces-archived"
@@ -282,109 +388,20 @@ export function TaskWorkbenchWorkspaces({
               })}
             />
             {archivedOpen ? (
-              <ul id="task-workbench-workspaces-archived" className="flex flex-wrap gap-x-2">
+              <div id="task-workbench-workspaces-archived" className={ROW_LIST}>
                 {archived.map((workspace) => (
-                  <li key={workspaceKey(workspace)} className="truncate">
-                    {workspace.worktreeName}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-    )
-  }
-
-  return (
-    <section data-testid="task-workbench-workspaces" className="flex flex-col gap-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {translate(workspacesKeys('heading'), 'Workspaces')}
-        </span>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {translate(workspacesKeys('workspaceCount'), '{{value0}} total', {
-            value0: String(view.workspaces.length)
-          })}
-        </span>
-        <CreateWorkspaceButton className="ml-auto" />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        {primary ? (
-          <WorkspaceCard
-            workspace={primary}
-            isDefault={primaryIsDefault}
-            defaultSource={defaultSource}
-          />
-        ) : null}
-
-        {collapseSecondary
-          ? null
-          : secondary.map((workspace) => (
-              <WorkspaceCard
-                key={workspaceKey(workspace)}
-                workspace={workspace}
-                isDefault={false}
-                defaultSource={defaultSource}
-              />
-            ))}
-
-        {collapseSecondary ? (
-          <ToggleButton
-            testId="task-workbench-workspaces-secondary-toggle"
-            expanded={secondaryOpen}
-            controls="task-workbench-workspaces-secondary"
-            onToggle={() => setSecondaryOpen(!secondaryOpen)}
-            label={translate(workspacesKeys('showMore'), 'Show {{value0}} more workspaces', {
-              value0: String(secondary.length)
-            })}
-          />
-        ) : null}
-
-        {collapseSecondary && secondaryOpen ? (
-          <div
-            id="task-workbench-workspaces-secondary"
-            className="flex flex-col gap-2"
-          >
-            {secondary.map((workspace) => (
-              <WorkspaceCard
-                key={workspaceKey(workspace)}
-                workspace={workspace}
-                isDefault={false}
-                defaultSource={defaultSource}
-              />
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      {archived.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          <ToggleButton
-            testId="task-workbench-workspaces-archived-toggle"
-            expanded={archivedOpen}
-            controls="task-workbench-workspaces-archived"
-            onToggle={() => setArchivedOpen(!archivedOpen)}
-            label={translate(workspacesKeys('showArchived'), 'Show archived ({{value0}})', {
-              value0: String(archived.length)
-            })}
-          />
-          {archivedOpen ? (
-            <ul id="task-workbench-workspaces-archived" className="flex flex-col gap-2">
-              {archived.map((workspace) => (
-                <li key={workspaceKey(workspace)} className="flex flex-col">
-                  <WorkspaceCard
+                  <WorkspaceRow
+                    key={workspaceKey(workspace)}
                     workspace={workspace}
                     isDefault={false}
                     defaultSource={defaultSource}
                   />
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

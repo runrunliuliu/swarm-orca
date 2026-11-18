@@ -8,8 +8,9 @@ import type { AgentTokenView, SpendView } from './task-workbench-view'
  * importing them would drag an automation data path into a pure presentation
  * module, and the workbench needs two states that source does not have
  * (`disabled` for tracking switched off, `unpriced` for a model with no price).
- * The strings themselves are the copy of record — the Spend status text prints
- * them verbatim — so they must never be reworded here.
+ * They stay verbatim (never reworded) because tests and bug reports quote them;
+ * what changed in README §7.4.2 is only where they are shown — the badge prints
+ * `USAGE_STATUS_WORD` and the token became its tooltip.
  */
 export type UsageStatus =
   | 'available'
@@ -36,6 +37,35 @@ export const USAGE_STATUS_ORDER: readonly UsageStatus[] = [
  *  locale worker derives from the components, not here. */
 export function usageStatusLabelKey(status: UsageStatus): string {
   return `auto.components.TaskWorkbenchSpend.status.${status}`
+}
+
+/** Locale key of the visible status word. */
+export function usageStatusWordKey(status: UsageStatus): string {
+  return `auto.components.TaskWorkbenchSpend.statusWord.${status}`
+}
+
+/**
+ * The word a reader sees, and the reason the verbatim token is only a tooltip.
+ *
+ * README §7.4.2 removed the internal state token from the interface: a Chinese
+ * panel that printed `不可用 · disabled` was showing the implementation's
+ * vocabulary as if it were the reader's. The word below is the reader's
+ * vocabulary; `usageStatusLabelKey` still renders the token in the tooltip, so a
+ * reader who needs the exact state (and a bug report) can still find it.
+ *
+ * Every member is present, so a new `UsageStatus` cannot ship with no word.
+ */
+export const USAGE_STATUS_WORD: Record<UsageStatus, string> = {
+  available: 'Available',
+  disabled: 'Not enabled',
+  unpriced: 'Unpriced',
+  // "Ambiguous" alone reads like a property of the number; naming the many
+  // matches says what the reader has to resolve (README §7.5).
+  ambiguous_session: 'Multiple matches',
+  // Not "No session": a session may exist and simply not match this task.
+  no_matching_session: 'No matching session',
+  remote_host: 'Remote host',
+  unattributed: 'Unattributed'
 }
 
 /** `available` is the only status that carries a figure; every other status is an

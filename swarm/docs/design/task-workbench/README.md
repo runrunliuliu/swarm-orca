@@ -464,6 +464,9 @@ M1 阶段它的正式定位是 **任务聚合视图**（§6.2），tab 名可以
 下面 9 张是**当前代码渲染出来的**界面，按功能区拆开，源文件在 `ui/`（`impl-*.png`）。渲染方式是仓库既有的
 rendered harness，用 P1a 的 fixture 数据跑生产组件，再用 CDP 截图（`devicePixelRatio = 1`）：
 
+> **注意**：这 9 张是**视觉返工前**（2026-11-18 之前）的版面，保留下来只作为"改之前长什么样"的历史证据；
+> 表格描述的是旧版面的分区职责。返工后的真渲染在 §7.4.5（`impl-20261118-*.png`），那才是当前代码的样子。
+
 ```sh
 cd orca
 DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs \
@@ -529,7 +532,8 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
    卡片上方，右侧只留一个固定窄列（token / 状态点 / outcome 徽标），所有行卡片等宽。截图是修后的渲染，
    修前形态可从 `git show 1bfea3cc:orca/.../TaskWorkbenchAgentRow.tsx` 复看。
 3. 图里的 `All agents ▾`／`⋯` 之类**不存在**于实现：Agent 区是分组 + History 折叠，Header 只有一个动作。
-   `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据；2026-11-18 的目标形态见 §7.4.2。
+   `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据；2026-11-18 的目标形态见 §7.4.2，
+   实现状态见 §7.4.3。
 4. **Workspaces 卡上没有 token / 金额**：设计稿每张卡有 `1 agent · 412k tok · $1.20`，实现只渲染
    名称、分支、`local`/`remote`、`Default`、归档与动作；用量只在 Spend 区（任务级 + 分 provider）。
    这是 P1b 相对设计稿的保真度缺口，不是渲染失败。
@@ -579,21 +583,154 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 
 实现与验收见 issue #26。
 
+#### 7.4.3 视觉返工实现状态（2026-11-18）
+
+§7.4.2 的版面已按图落地（issue #26），代码全在 `orca/src/renderer/src/components/task-workbench/`：
+
+| 目标形态的一条 | 落地位置 | 说明 |
+| --- | --- | --- |
+| 工作台头部整块去掉 | `TaskWorkbenchPanel.tsx`；`TaskWorkbenchHeader.tsx` 删除 | 在 GitHub issue/PR 详情这条嵌入路径上，外层标题、编号与页头状态已经说清身份，第二个 `Open workspace` 随之消失，填色主按钮只剩页头那一个。**成立范围仅限这个入口**：PR 页头提供的是「从 PR 起草工作区」而不是「打开已关联工作区」，面板也不再画 `◇ No tracker` 身份徽标；将来若加独立窗口入口，由那个入口补一块最小身份区，不要恢复重复标题与重复主操作（§7.4.2 取舍 1） |
+| 节标题统一 `名称 + 计数` | `task-workbench-section-heading.tsx` | 12px/600 + 12px muted 计数，折叠控件挂在同一行右侧；CJK 不再用 `uppercase`／`tracking-wide`／`italic` |
+| 工作区每工作区一行 | `TaskWorkbenchWorkspaces.tsx` | 一个 8px 圆角面 + 行间 `inset 0 1px 0`；身份改印**分支名**（`TaskWorkbenchWorkspace.branchName`，由 `use-task-workbench-view.ts` 从 `Worktree.branch` 填入），没有分支时回退显示名；`local` 主机不再占一个 chip |
+| 智能体每人一行 | `TaskWorkbenchAgentRow.tsx` | 不再渲染 `AgentKanbanCard`（body + footer 两层）；图标 · 会话名 · 状态 · 时长 · token · 动作；未知 token **不渲染**，不留 `—` 空列 |
+| 用量 / 交付一条两行 fact 带 | `TaskWorkbenchFacts.tsx` + 两个 section 各一行 | 用量徽标改印读者词（`未启用`），内部状态 token 只留在 tooltip；交付空态是带 `未读取` 标签的事实，不是虚线告警 |
+| 未接线动作画成禁用态 | `task-workbench-pending-action.tsx` | `打开终端`／`新建工作区`／`设置`／`读取证据` 统一走这个组件：按钮 `disabled`（点不动），说明挂在**外层 span 的 `title`**——`ui/button.tsx` 带 `disabled:pointer-events-none`，写在禁用按钮上的 `title` 永远等不到 hover，而且禁用按钮也不是键盘停留点 |
+
+文案一致性（issue #26 第 3、4 条）：
+
+- `开放` vs `打开`：`打开` 原本是工作台自画的 tracker 状态徽标；随头部删除一起消失，issue 状态现在只由页面
+  统一的 `开放` 表达，`打开` 只剩 PR 状态的 `pullRequestState.open` 一处含义。
+- `不可用 · disabled`：界面印读者词（`未启用`／`未定价`／`匹配不唯一`／`未找到匹配会话`／`远程主机`／`未归属`），
+  内部 token 退到同一个徽标的 `title`。§7.5 的三态规则本身没变，只是换了呈现层。
+- 未翻译的 `In progress`：那是 store 里的**工作区状态标签**（用户自建数据，`WorkspaceStatusDefinition.label`），
+  不是本仓库的文案。实现侧的处理是把它继续按数据原样渲染，而不是替用户数据编译文；若内置默认状态也要
+  本地化，那是 seed 数据与 `WorkspaceStatusDefinition` 的改动，属于另一件事。
+
+三处设计稿没写、实现时按"不造数据"补的取舍：
+
+1. **agent 行的状态词**复用看板分组词（`dashboardPopout.bucket.*`：Working / Needs You / Done / Idle），
+   那四个词六种语言都已翻译；`failed` / `interrupted` / `unverifiable` 三个裁决态另有自己的词
+   （`TaskWorkbenchAgentRow.state.*`）。有 `outcome` 的行印裁决词（Delivered / Failed / Cancelled），
+   F8 语义不变：失败轮永远读不出 Delivered，缺 `outcome` 也不算成功。
+2. **交付不自造状态词**：设计稿的 `[进行中]` 标签在 view 里没有对应字段（`DeliveryEvidence` 只有 commits /
+   PR / checks / review）。实现只在"没有证据"时印 `未读取`，有证据时直接列事实，不猜一个状态。
+3. **工作区折叠仍保留**：设计稿只画了 2 个工作区，没有画 3+ 与归档的取舍。契约 §4.3 的两条
+   （>2 折叠、归档折叠）没有变，只是折叠按钮从独立一行挪进了同一个面里。
+4. **交付的默认展开状态没改**：它仍由 `computeTaskWorkbenchLayout` 决定（宽屏有证据时默认展开），
+   所以真渲染下交付行下方会多一段证据体，与设计稿图里的收起态不同。改那个默认值属于布局合同
+   （issue #26 明确不碰降级阈值与双列边界），不在本轮范围内。
+
+六种语言的覆盖面（评审后写清）：本轮把**纯格式模板**同步到了全部六语——计数只印 `{{value0}}`
+（原来 es/fr/ja/ko 是 `… en total` / `au total` / `全 N 件` / `총 N개`）、agent 行 token 只印数字
+（原来带 `tokens` / `jetons` / `トークン` / `토큰`）；**词级文案**只覆盖 zh/en，es/fr/ja/ko 保留既有译文，
+既不回退也不在本轮调整。因此不能说"六种语言都完成了视觉收口"。
+
+证据层级：本节先是"代码 + 定向检查"，随后按 `orca` 的依赖树补齐了可执行证据（§7.4.5 有命令与结果）。
+变更点汇总：harness 期望表按新 DOM 更新（header 的 testid 整组删除，新增 `-facts`／`-row-icon`／`-row-action`／
+`workspace-host-chip`／`delivery-read`，token 断言改成"只比较有数字的行"，用量断言从内部 token 改成读者词）。
+
+#### 7.4.4 只读评审回执（codex-ark，2026-11-18）
+
+评审原文归档在 [review-codex-ark-issue-26.md](review-codex-ark-issue-26.md)（它当时针对的是 `b98133fe`）。
+
+写完之后起了一个 `codex-ark` 终端做只读评审（只读 diff 与文件，不改代码、不 commit）。它确认了
+F8 语义、未知 token 不渲染、三个空态不出现「假 0」都没有被改坏，也确认窄窗/双列的牺牲顺序没被重排；
+同时找出四处**必须改**的问题，本提交已全部修掉：
+
+| 问题 | 位置 | 处理 |
+| --- | --- | --- |
+| harness 里 `tokenRows` 在声明前被读（TDZ，`ReferenceError`） | `tests/tools/task-workbench-rendered/run.mjs` | 声明移到 `expectedTestIds` 之前；顺带把 `archivedVisibleCards` 从"仅 full 布局"改成两分支都用归档行数，把 secondary toggle 期望改成组件自己的 `collapseSecondary` |
+| join 单测仍期待裸 `feature/x`，新 join 返回 `repo · branch` | `lib/task-workbench/task-workbench-join.test.ts` | 更新两处字面量，并补 branchName 优先、缺 branchName 回退显示名、folder 不泄漏目录路径三个用例 |
+| 禁用按钮的 `title` 实际看不到（`disabled:pointer-events-none`，且不可聚焦） | 5 处未接线动作 | 新增 `task-workbench-pending-action.tsx`：按钮保持 `disabled`，说明放到可悬停的外层 |
+| 窄列里身份被挤没（身份 `flex-1`、其余 `shrink-0`、外层 `overflow-hidden`） | Workspaces 行、Agent 行 | 两行都改 `flex-wrap`，身份加 `min-w-32` 下限，次要元信息换行而不是吃掉名字 |
+| 文案 | en/zh | `Ambiguous → Multiple matches / 匹配不唯一`、`No session → No matching session / 未找到匹配会话`、`尚未接线 → 此版本暂不支持`、`Read → Load evidence / 读取证据`、PR `open` 的 zh 由 `打开` 改 `开放中`；仍是"状态词"，不是内部 token |
+
+第二轮复核（同一终端、仍只读）确认四处修复都已落地、39 个 testid 与期望表逐名对应、文案取舍认可，
+并再指出三处，本提交也一并改掉：
+
+| 二轮问题 | 处理 |
+| --- | --- |
+| compact 布局下 secondary toggle 的期望仍为 1，实际组件印 `+N more` 文本 | 期望改成 `layout.workspaces === 'full' && collapseSecondary` |
+| folder 用例没有目录路径输入，只证明了显示名回退，没证明路径不泄漏 | 把规则从 hook 抽成纯模块 `lib/task-workbench/task-workbench-workspace-branch.ts`，单测直接喂 `/Users/someone/work/docs` 这类路径：folder / 空串 / 缺字段一律 `undefined` |
+| 禁用说明只有鼠标可达，键盘与读屏仍无从得知 | `task-workbench-pending-action.tsx` 再补一条 `sr-only` 说明并用 `aria-describedby` 关联（`useId` 保证每行独立） |
+
+评审留下、本轮**没有**改的两条：
+
+1. **时间列**：`formatStartedAgo(now, now)` 让 fixture 渲染恒为"刚刚"。这是返工前就有的自锚定写法
+   （为了让截图可复现），不是本次引入；正确做法是注入时钟或隐藏该列，属于 P1b 的行为改动。
+2. **F8 与三个空态的整行渲染断言**：`TaskWorkbenchAgentRow.test.tsx` 只能挂载 dot 与投影，因为行本身
+   经 `@/lib/agent-catalog` 拉 `resources/`（sparse 检出没有该目录）。真正的整行断言要靠 harness 截图，
+   也就是上面那组尚未产出的真渲染图。
+
+#### 7.4.5 返工后的真渲染与执行证据（2026-11-18）
+
+依赖树按 `package.json` 的 pin 装好（`pnpm@12.0.0`，`pnpm install --offline --frozen-lockfile`，Electron 二进制
+从 `~/.cache/electron` 解出），于是 §7.4.3 里"没有跑过"的部分现在都有结果。
+
+**图**：下面 8 张是**当前代码**渲染的，仍走 §7.4.1 那条 harness（fixture → 生产组件 → CDP 截图，
+`devicePixelRatio = 1`），文件名同样在 `ui/`：
+
+| 面 | 图 | fixture · 视口 | 这张图能证明什么 |
+| --- | --- | --- | --- |
+| 宽屏双列 | `ui/impl-20261118-wide.png` | f1_baseline · 1440×900 | 左 Agents（`Working 1` + `History 1` 折叠控件在节标题右侧）、右 Workspaces + facts 带；工作区身份是 `web-app · feature/add-login`（分支名，不是显示名） |
+| 窄窗单列 | `ui/impl-20261118-narrow.png` | f1_baseline · 900×700 | `<1100px` 走 Workspaces → Agents → facts，Delivery 自动折成一行 `Expand`，用量降为一行摘要 |
+| 矮窗 | `ui/impl-20261118-short.png` | f1_baseline · 1280×479 | `<480px` 时 Workspaces 变紧凑行、Spend 摘要、Delivery 折叠 |
+| Agents 分组 | `ui/impl-20261118-agents.png` | f3_many_workspaces_agents · 1440×900 | `Working 4` / `Needs you 1`（tinted）/ `History 5`（展开后有独立组标题）；多工作区时每行带 `▦ api · feature/jwt-verify` pill |
+| 工作区归档折叠 | `ui/impl-20261118-workspaces-fold.png` | f5_archived_only · 1440×900 | 唯一工作区已归档时折叠默认展开、行带 `Archived`，且不带 `Default` 标记 |
+| facts 带（不可用态） | `ui/impl-20261118-facts.png` | f4_usage_disabled · 1440×900 | 用量印读者词 `Not enabled` + 一句原因 + `Settings`，交付印 `Not loaded` + 原因 + `Load evidence`；两行同一个面，虚线告警没有了 |
+| 0 工作区 | `ui/impl-20261118-empty.png` | f2a_zero_workspace_open · 1440×900 | 空态是事实 + 一个 disabled 的 `Create workspace`；用量 `No matching session`、交付 `Not loaded`，全程没有 `$0` |
+| 失败轮 | `ui/impl-20261118-failure.png` | f8_failure_outcome · 1440×900 | 行里印 `Failed` 且**没有** `Delivered`，点变 failed |
+
+**命令与结果**（都在 `orca/` 下执行；未提交 `node_modules` 与 `.bench-fixtures/`）：
+
+```sh
+node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 \
+  src/renderer/src/components/task-workbench src/renderer/src/lib/task-workbench
+#   Test Files 8 passed (8) / Tests 149 passed (149) / 3.4s
+
+node config/scripts/run-typecheck-projects-in-parallel.mjs          # 四个 tsc 项目，无输出，exit 0
+node node_modules/typescript/bin/tsc --noEmit -p config/tsconfig.tc.web.json   # exit 0
+node_modules/.bin/oxlint --config .oxlintrc.json src/renderer/src/components/task-workbench   # exit 0
+node_modules/.bin/oxlint --config config/oxlint-design-system.json src/renderer/src/components/task-workbench  # exit 0
+node config/scripts/check-max-lines-ratchet.mjs                    # OK，无新增 bypass
+node config/scripts/verify-localization-catalogs.mjs               # exit 0（zh 15046/15120，es/fr/ja/ko 各缺 250，均走既定回退）
+node config/scripts/generate-runtime-required-english-catalog.mjs  # exit 0：手写的 runtime catalog 与生成器一致
+node config/scripts/verify-localization-extraction.mjs             # exit 0
+
+DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all --calibrate
+#   summary: 17/17 passed, 21.7s（S1–S10d + F9 + 两条降级探针）
+```
+
+**还没做**：
+
+- `verify:localization-coverage` 在这条分支上是**红**的，但红的不是本次改动：它报
+  `IncidentDetailDrawer.tsx:131`（`sha256:`）与 `IncidentGrayTables.tsx:186`（`exit`）两处，两个文件的最后一次改动
+  是 `3a1469c8`，与本次提交无关。没有顺手把它们加进 allowlist——那会把一个真实缺口静音。
+- 仍**没有真机核对**：图是 fixture 数据的渲染，不经过 store / selector / RPC / 持久化，也不切 locale
+  （harness 用英文默认值）。"真机打开一个任务会看到什么"依然未验证。
+- 真机核对要看的三件事：(1) 真实 worktree 的 `branch` 是否总被填上（folder 之外）；(2) 窄窗里长 host /
+  长工作区状态是否按 `flex-wrap` 换行而不是被裁掉；(3) 未接线动作的 `aria-describedby` 在读屏里是否真的
+  念出原因。
+
 ### 7.5 状态矩阵（必须逐条实现，否则会出现"假 0"）
 
 | 场景 | 触发条件 | UI 表现 |
 | --- | --- | --- |
 | 用量可用 | `estimatedCostUsd !== null` | 数字 + 估算 tooltip |
-| 用量统计未启用 | `scanState.enabled === false` | 面板空态 + `[ Turn on usage tracking ]` 跳 Settings → Stats |
+| 用量统计未启用 | `scanState.enabled === false` | 徽标 `未启用` + 一句原因 + `设置` 动作（§7.4.3：徽标印读者词，`unavailable · disabled` 退到 tooltip） |
 | 未定价模型 | `hasUnpricedModels` | tokens 正常、花费显示 `—` + 说明 |
-| 会话归因歧义 | 时间窗内多个候选 | `unavailable · ambiguous_session`，不猜 |
-| 无匹配会话 | 窗口内无会话 | `unavailable · no_matching_session` |
-| 远端 / SSH 工作区 | `executionHostId` 非本地 | `unavailable · remote host` |
+| 会话归因歧义 | 时间窗内多个候选 | 徽标 `匹配不唯一`，原因句说明并列多个候选，不猜 |
+| 无匹配会话 | 窗口内无会话 | 徽标 `未找到匹配会话` + 原因句 |
+| 远端 / SSH 工作区 | `executionHostId` 非本地 | 工作区行带 host chip；用量徽标 `远程主机` + 原因句 |
 | 无关联工作区 | 任务无绑定 | 主按钮 `Create workspace from this task` |
-| 本地任务（无 tracker） | 仅在 worktree 侧存在 | 行内 `◇` 徽标 + 顶部筛选；按活跃工作区状态并入 Needs you/Working/Delivered，标题取 `displayName` |
+| 本地任务（无 tracker） | 仅在 worktree 侧存在 | 行内 `◇` 徽标 + 顶部筛选；按活跃工作区状态并入 Needs you/Working/Delivered，标题取 `displayName`（§7.4.3：工作台自身不再画身份徽标，这一列由列表页与页头承担） |
 | 工作区已归档 | `isArchived` | 折叠在 `Show archived` 下，不参与"Needs you"计数 |
-| 逐 Agent 成本不可归因 | 会话行无 `worktreeId` / `ambiguous_session` | 该行只显示 token；成本显示 `—`，文案说明"仅到工作区级" |
+| 逐 Agent 成本不可归因 | 会话行无 `worktreeId` / `ambiguous_session` | 该行只显示 token；token 未知时**整列不渲染**（§7.4.3），成本只到工作区级 |
 | 无 tracker 的工作区 | 无 `linkedWorkItem` 等字段 | 行内 `◇` 徽标 + 顶部筛选；不影响其状态分组 |
+
+徽标词与内部 token 的对应（§7.4.3）：`disabled → 未启用`、`unpriced → 未定价`、
+`ambiguous_session → 匹配不唯一`、`no_matching_session → 未找到匹配会话`、`remote_host → 远程主机`、
+`unattributed → 未归属`。token 本身不删，仍可通过同一个徽标的 `title` 读到。
 
 ### 7.6 组件与数据映射（实现清单草案）
 
@@ -1008,8 +1145,10 @@ setup 钩子"或"需要新装/重建依赖"。
   也没有实际点击行内徽标或 tracker pill。
 - P1 只接了 GitHub issue/PR 详情；Linear / GitLab / Jira 的 `Orca` tab 未实现，因此"面板合计 ==
   `projectBreakdown['worktree:<id>']`"这条对照只在 GitHub 侧成立。
-- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；那张版面**尚未实现**，
-  实现之后要按 §7.4.1 的方式补一组真渲染图，并做一次真机核对。
+- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；该版面已在 §7.4.3 实现，返工后的
+  真渲染与执行结果在 §7.4.5（8 张 `impl-20261118-*.png`、vitest 8/8 文件 149 用例、四个 tsc 项目、
+  harness 17/17）。仍缺 **真机核对**（图是 fixture 渲染，不经过 store / selector / RPC，也不切 locale），
+  以及 `verify:localization-coverage` 的两处既有红灯（`IncidentDetailDrawer` / `IncidentGrayTables`，与本次无关）。
 - `orca github create-issue` 只在单测里被验证过转发；`gh` 备通道的存在性、登录态与 `--repo` 实际行为未验证
   （只影响 agent 侧建单能力）。
 
