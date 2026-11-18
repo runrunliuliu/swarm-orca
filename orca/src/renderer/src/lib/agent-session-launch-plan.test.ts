@@ -22,7 +22,8 @@ vi.mock('@/lib/structured-agent-launch-settlement', () => ({
 import {
   adoptAgentSessionLaunchVerdict,
   planAgentSessionLaunch,
-  structuredAgentSessionLaunchFeasible
+  structuredAgentSessionLaunchFeasible,
+  withAgentSessionLaunchPrompt
 } from './agent-session-launch-plan'
 
 const store = { settings: {} } as unknown as AgentLaunchRouteStore
@@ -211,6 +212,55 @@ describe('adoptAgentSessionLaunchVerdict', () => {
       'wt-recovered',
       'codex',
       { prompt: 'Fix it', promptDelivery: 'draft' },
+      hooks
+    )
+  })
+
+  it('re-adopts a pre-planned empty verdict so the linked issue draft reaches the launch', async () => {
+    const plannedEmpty = adoptAgentSessionLaunchVerdict({
+      route: 'structured-native-chat',
+      agent: 'codex',
+      worktreeId: 'wt-1'
+    })
+
+    const plan = withAgentSessionLaunchPrompt(plannedEmpty, {
+      prompt: 'linked issue block',
+      promptDelivery: 'draft'
+    })
+
+    expect(plan.route).toBe('structured-native-chat')
+    expect(plan.worktreeId).toBe('wt-1')
+    await plan.launch(hooks)
+    expect(mocks.beginStructuredAgentLaunchSettlement).toHaveBeenCalledWith(
+      'wt-1',
+      'codex',
+      { prompt: 'linked issue block', promptDelivery: 'draft' },
+      hooks
+    )
+    expect(mocks.resolveAgentLaunchRoute).not.toHaveBeenCalled()
+  })
+
+  it('keeps the original resume source and delivery hook through that re-adoption', async () => {
+    const onPromptDelivered = vi.fn()
+    const resumeFrom = { providerSessionId: 'resume-1' }
+    const planned = adoptAgentSessionLaunchVerdict({
+      route: 'structured-native-chat',
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      resumeFrom,
+      onPromptDelivered
+    })
+
+    const plan = withAgentSessionLaunchPrompt(planned, {
+      prompt: 'linked issue block',
+      promptDelivery: 'draft'
+    })
+
+    await plan.launch(hooks)
+    expect(mocks.beginStructuredAgentLaunchSettlement).toHaveBeenCalledWith(
+      'wt-1',
+      'codex',
+      { prompt: 'linked issue block', promptDelivery: 'draft', resumeFrom, onPromptDelivered },
       hooks
     )
   })
