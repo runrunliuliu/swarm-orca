@@ -382,6 +382,12 @@ export type GlobalSettings = {
   visibleTaskProviders: TaskProvider[]
   /** Why: one-shot guard to make Jira visible for existing profiles once, without re-adding after a later opt-out. */
   visibleTaskProvidersDefaultedForJira: boolean
+  /**
+   * Prefill a newly opened agent's draft with the cached snapshot of the worktree's linked GitHub
+   * issue. Absent means enabled: the block is what makes the link useful, and only an explicit opt
+   * out (`false`) stops the injection. The draft is never auto-submitted either way.
+   */
+  prefillLinkedIssueContextOnAgentLaunch?: boolean
   /** Persisted repo selection (cross-repo tasks view). null = sticky-all (includes future-added repos);
    *  string[] = frozen curated subset (ineligible ids dropped on load; empty after drop is treated as null). */
   defaultRepoSelection: string[] | null

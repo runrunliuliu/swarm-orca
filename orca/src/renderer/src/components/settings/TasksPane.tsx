@@ -12,7 +12,7 @@ import { LinearIcon } from '@/components/icons/LinearIcon'
 import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store'
 import { SearchableSetting } from './SearchableSetting'
-import { SettingsSubsectionHeader } from './SettingsFormControls'
+import { SettingsSubsectionHeader, SettingsSwitchRow } from './SettingsFormControls'
 import { CodeHostSetupSteps, JiraSetupSteps } from './TaskSourceSimpleSetup'
 import { TaskSourceLinearSetup } from './TaskSourceLinearSetup'
 import { TaskSourceProviderCard } from './TaskSourceProviderCard'
@@ -264,6 +264,50 @@ export function TasksPane({ settings, updateSettings }: TasksPaneProps): React.J
             '. After Linear is connected, usage examples stay under Settings → Linear.'
           )}
         </p>
+      </section>
+
+      <section className="space-y-3">
+        <SettingsSubsectionHeader
+          title={translate(
+            'auto.components.settings.TasksPane.linkedIssueContextTitle',
+            'Linked issue context'
+          )}
+          description={translate(
+            'auto.components.settings.TasksPane.linkedIssueContextDescription',
+            'Controls what a workspace linked to a GitHub issue carries into the agent input box.'
+          )}
+        />
+
+        <SearchableSetting
+          title={translate(
+            'auto.components.settings.TasksPane.prefillLinkedIssueContextTitle',
+            'Prefill linked issue into agent drafts'
+          )}
+          description={translate(
+            'auto.components.settings.TasksPane.prefillLinkedIssueContextDescription',
+            'When you open a new agent in a workspace linked to a GitHub issue, its input box starts with that issue snapshot (number, title, URL, body) as quoted reference text. Nothing is submitted for you, and a prompt you typed yourself is never changed.'
+          )}
+          keywords={getTasksPaneSearchKeywords()}
+          className="py-2"
+        >
+          <SettingsSwitchRow
+            label={translate(
+              'auto.components.settings.TasksPane.prefillLinkedIssueContextTitle',
+              'Prefill linked issue into agent drafts'
+            )}
+            description={translate(
+              'auto.components.settings.TasksPane.prefillLinkedIssueContextToggleDescription',
+              'Uses the issue snapshot Orca captured when the workspace was created. Workspaces created before this setting existed have no snapshot, and the issue is not re-fetched later.'
+            )}
+            checked={settings.prefillLinkedIssueContextOnAgentLaunch !== false}
+            onChange={() =>
+              updateSettings({
+                prefillLinkedIssueContextOnAgentLaunch:
+                  settings.prefillLinkedIssueContextOnAgentLaunch === false
+              })
+            }
+          />
+        </SearchableSetting>
       </section>
     </div>
   )

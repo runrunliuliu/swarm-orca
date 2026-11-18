@@ -8,6 +8,7 @@ import { resolveWorktreeCreateRoute } from '../worktree-create-execution-host-ro
 import { ExecutionHostNotDispatchableError } from '../providers/execution-host-provider-dispatch'
 import { createRuntimeFolderWorktree } from './runtime-folder-worktree-create'
 import { createRuntimeLocalManagedWorktree } from './runtime-local-worktree-create'
+import { captureLinkedIssueContextForWorktree } from '../github/linked-issue-context-capture'
 import type { PreparationRearmHolder } from '../worktree-create-preparation'
 import { prepareRuntimeLocalWorktreeSetup } from './runtime-local-worktree-setup'
 import { invalidateAuthorizedRootsCacheForRepo } from '../ipc/filesystem-auth'
@@ -22,7 +23,19 @@ export class OrcaRuntimeWithCreateManagedWorktree extends OrcaRuntimeWithGetWork
     // still arm the replacement. On success it fires last, once the startup terminals are up.
     const rearm: PreparationRearmHolder = { fire: () => {} }
     try {
-      return await this.performManagedWorktreeCreate(args, rearm)
+      const result = await this.performManagedWorktreeCreate(args, rearm)
+      // Why fire-and-forget after the result: capture reads one issue body through `gh`, and every
+      // create caller (RPC, CLI, automations, federation) would otherwise wait on the network for
+      // enrichment that only the agent draft consumes. `onCaptured` pushes the new worktree state.
+      if (this.store) {
+        void captureLinkedIssueContextForWorktree({
+          store: this.store,
+          worktreeId: result.worktree.id,
+          worktreePath: result.worktree.path,
+          onCaptured: () => this.notifyWorktreesChanged(result.worktree.repoId)
+        })
+      }
+      return result
     } finally {
       rearm.fire()
     }

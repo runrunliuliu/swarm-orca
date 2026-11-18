@@ -107,6 +107,29 @@ export function adoptAgentSessionLaunchVerdict(
 }
 
 /**
+ * Re-adopt an already-decided plan with a different prompt and delivery mode.
+ *
+ * Why re-adopt instead of spreading fields onto the plan: `begin`/`launch` close over the verdict
+ * they were adopted with, so a spread plan still delivers the original prompt. The route stays the
+ * one already decided — this changes what the launch delivers, not where it launches, which is why
+ * no route is re-resolved here (a caller that planned a structured session keeps it).
+ */
+export function withAgentSessionLaunchPrompt(
+  plan: AgentSessionLaunchPlan,
+  delivery: { prompt: string; promptDelivery: NativeChatLaunchPromptDelivery }
+): AgentSessionLaunchPlan {
+  return adoptAgentSessionLaunchVerdict({
+    route: plan.route,
+    agent: plan.agent,
+    ...(plan.worktreeId ? { worktreeId: plan.worktreeId } : {}),
+    ...(delivery.prompt ? { prompt: delivery.prompt } : {}),
+    promptDelivery: delivery.promptDelivery,
+    ...(plan.resumeFrom ? { resumeFrom: plan.resumeFrom } : {}),
+    ...(plan.onPromptDelivered ? { onPromptDelivered: plan.onPromptDelivered } : {})
+  })
+}
+
+/**
  * Can this pair open a structured session at all? A feasibility QUERY for enable/disable UI, not a
  * launch decision: it resolves no route and builds no plan, so a list may ask it per row.
  */

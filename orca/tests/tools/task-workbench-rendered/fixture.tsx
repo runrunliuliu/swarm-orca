@@ -5,6 +5,13 @@ import type { VirtualItem } from '@tanstack/react-virtual'
 import { i18n } from '../../../src/renderer/src/i18n/i18n'
 import { TooltipProvider } from '../../../src/renderer/src/components/ui/tooltip'
 import { TaskWorkbenchPanel } from '../../../src/renderer/src/components/task-workbench/TaskWorkbenchPanel'
+import { TaskPageGitHubRows } from '../../../src/renderer/src/components/task-page/github/Rows'
+import { GITHUB_TASK_GRID_CLASS } from '../../../src/renderer/src/components/task-page-source-context'
+import type { TaskPageComposerActionsModel } from '../../../src/renderer/src/components/use-task-page-composer-actions'
+import { taskPageGitHubItemKey } from '../../../src/renderer/src/components/task-page-github-work-item-mutation-registry'
+import type { GitHubWorkItem } from '../../../src/shared/github/work-item-types'
+import type { Repo } from '../../../src/shared/repo-types'
+import type { TaskWorkbenchRowActivity } from '../../../src/renderer/src/lib/task-workbench/task-workbench-row-activity'
 import { renderFolderWorkspaceVirtualRow } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
 import type { FolderWorkspaceRowContext } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
 import type { FolderWorkspaceItemRow } from '../../../src/renderer/src/components/sidebar/worktree-list/listing/renderable-rows'
@@ -40,6 +47,116 @@ import './fixture.css'
 
 const fixtureKey = new URLSearchParams(window.location.search).get('fixture') ?? ''
 const fixture = getTaskWorkbenchFixture(fixtureKey)
+
+/**
+ * The GitHub task-list row fixture (issue #27): five rows on one page, one per
+ * row-activity claim plus a row with no Orca activity at all. The driver holds
+ * the same titles and expected marks, so a row that loses its badge — or a row
+ * that wrongly gets one — fails there instead of passing quietly.
+ */
+const GITHUB_ROWS_REPO: Repo = {
+  id: 'repo-github-rows',
+  displayName: 'acme/web-app',
+  badgeColor: '#3b82f6',
+  path: '/tmp/acme-web-app',
+  addedAt: 1
+}
+
+const GITHUB_ROW_ITEMS: GitHubWorkItem[] = [
+  githubRow(412, 'Add login auth'),
+  githubRow(413, 'Retry backfill on resume'),
+  githubRow(414, 'Sparse task workspace rollout'),
+  githubRow(415, 'Bump docs'),
+  githubRow(416, 'Unclaimed issue')
+]
+
+function githubRow(number: number, title: string): GitHubWorkItem {
+  return {
+    id: `issue:${number}`,
+    type: 'issue',
+    number,
+    title,
+    state: 'open',
+    url: `https://github.com/acme/web-app/issues/${number}`,
+    labels: [],
+    updatedAt: new Date(Date.UTC(2026, 10, 18, 9, 0, 0)).toISOString(),
+    author: 'octocat',
+    repoId: GITHUB_ROWS_REPO.id
+  }
+}
+
+/** The row claims the pure selector would return for these five rows; #416 has
+ *  no bound workspace, so it is absent from the map and renders no badge. */
+const GITHUB_ROW_ACTIVITY: { number: number; activity: TaskWorkbenchRowActivity }[] = [
+  {
+    number: 412,
+    activity: {
+      kind: 'working',
+      dotState: 'working',
+      workspaceCount: 1,
+      agentCount: 1,
+      taskKey: 'tracker:github:acme/web-app'
+    }
+  },
+  {
+    number: 413,
+    activity: {
+      kind: 'delivered',
+      dotState: 'done',
+      workspaceCount: 1,
+      agentCount: 2,
+      taskKey: 'tracker:github:acme/web-app'
+    }
+  },
+  {
+    number: 414,
+    activity: {
+      kind: 'workspace',
+      dotState: 'idle',
+      workspaceCount: 1,
+      agentCount: 0,
+      taskKey: 'tracker:github:acme/web-app'
+    }
+  },
+  {
+    number: 415,
+    activity: {
+      kind: 'needs-you',
+      dotState: 'blocked',
+      workspaceCount: 2,
+      agentCount: 2,
+      taskKey: 'tracker:github:acme/web-app'
+    }
+  }
+]
+
+function githubRowsModel(): TaskPageComposerActionsModel {
+  const rowActivityByKey = new Map<string, TaskWorkbenchRowActivity>()
+  for (const entry of GITHUB_ROW_ACTIVITY) {
+    rowActivityByKey.set(taskPageGitHubItemKey(GITHUB_ROWS_REPO.id, `issue:${entry.number}`), entry.activity)
+  }
+  // The rows read a dozen model fields and forward the rest; the other page
+  // stages (pagination, search, dialogs) never run in this fixture.
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the stub supplies every field `TaskPageGitHubRows` reads; the rest of the page model is not reached by the row component.
+  return {
+    repoMap: new Map([[GITHUB_ROWS_REPO.id, GITHUB_ROWS_REPO]]),
+    allWorktrees: [],
+    selectedRepos: [GITHUB_ROWS_REPO.id],
+    openGitHubDetailPage: () => {},
+    githubWorkItemMutation: {
+      isIntentPending: () => false,
+      softHiddenItemKeys: new Set<string>()
+    },
+    filteredWorkItems: GITHUB_ROW_ITEMS,
+    showGitHubTaskSkeletons: false,
+    showPRManagementColumns: false,
+    githubTaskGridClass: GITHUB_TASK_GRID_CLASS,
+    ensurePRChecksLoaded: () => {},
+    handleUseWorkItem: () => {},
+    handleOpenOrUseGitHubWorkItem: () => {},
+    rowActivityByKey
+  } as unknown as TaskPageComposerActionsModel
+}
 
 /** The sidebar row fixture's linked issue; `run.mjs`'s derive() holds the same number. */
 const LINKED_ISSUE_NUMBER = 412
@@ -184,6 +301,22 @@ function SidebarDraftRowFixture(): React.JSX.Element {
   )
 }
 
+function GitHubTaskRowsFixture(): React.JSX.Element {
+  return (
+    <main
+      data-testid="github-task-rows-fixture-root"
+      className="min-h-screen bg-background p-4 text-foreground"
+    >
+      <div
+        data-testid="github-task-rows-fixture-list"
+        className="overflow-hidden rounded-md border border-border/50 bg-background"
+      >
+        <TaskPageGitHubRows model={githubRowsModel()} />
+      </div>
+    </main>
+  )
+}
+
 function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element {
   return (
     <main className="min-h-screen bg-background p-6 text-foreground">
@@ -195,7 +328,7 @@ function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element
         Unknown task-workbench fixture: <code>{fixtureKey || '(missing)'}</code>. Known fixtures:{' '}
         <code>
           {Object.keys(TASK_WORKBENCH_FIXTURES)
-            .concat(['d5_sidebar_draft_row'])
+            .concat(['d5_sidebar_draft_row', 'd6_github_task_rows'])
             .join(', ')}
         </code>
       </div>
@@ -232,6 +365,8 @@ createRoot(root).render(
         <Fixture view={fixture.view} />
       ) : fixtureKey === 'd5_sidebar_draft_row' ? (
         <SidebarDraftRowFixture />
+      ) : fixtureKey === 'd6_github_task_rows' ? (
+        <GitHubTaskRowsFixture />
       ) : (
         <FixtureError fixtureKey={fixtureKey} />
       )}

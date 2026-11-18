@@ -2318,7 +2318,20 @@
         "linearModeHasWorktreeTooltip": "Linear tickets linked to an Orca workspace",
         "linearEmptyHasWorktree": "No Linear tickets are linked to an Orca workspace yet. Start work from a Linear issue to see it here.",
         "linearOpenAttachedWorkspace": "Open workspace attached to {{value0}}",
-        "linearWorktreesColumn": "Workspaces"
+        "linearWorktreesColumn": "Workspaces",
+        "rowActivity": {
+          "needsYou": "Needs you",
+          "working": "Working",
+          "workingDetail": "An agent is working in this task",
+          "delivered": "Delivered",
+          "deliveredDetail": "Delivered · agent done",
+          "workspace": "Workspace",
+          "workspaceDetail": "A workspace is bound; no agent reported a turn",
+          "failedDetail": "An agent failed; the turn did not finish",
+          "blockedDetail": "An agent is blocked",
+          "waitingDetail": "An agent is waiting for your input",
+          "interruptedDetail": "An agent’s turn was interrupted"
+        }
       },
       "Terminal": {
         "73768427cf": "Close",
@@ -8688,7 +8701,12 @@
           "integrationsHint": "Credentials for all providers also live under",
           "integrationsLink": "Integrations",
           "skillHint": ". After Linear is connected, usage examples stay under Settings → Linear.",
-          "incompleteBannerBodyWithLinear": "Hide providers you do not use, or expand a card and finish its steps. For Linear: API access, the agent skill, and Show in Tasks."
+          "incompleteBannerBodyWithLinear": "Hide providers you do not use, or expand a card and finish its steps. For Linear: API access, the agent skill, and Show in Tasks.",
+          "linkedIssueContextTitle": "Linked issue context",
+          "linkedIssueContextDescription": "Controls what a workspace linked to a GitHub issue carries into the agent input box.",
+          "prefillLinkedIssueContextTitle": "Prefill linked issue into agent drafts",
+          "prefillLinkedIssueContextDescription": "When you open a new agent in a workspace linked to a GitHub issue, its input box starts with that issue snapshot (number, title, URL, body) as quoted reference text. Nothing is submitted for you, and a prompt you typed yourself is never changed.",
+          "prefillLinkedIssueContextToggleDescription": "Uses the issue snapshot Orca captured when the workspace was created. Workspaces created before this setting existed have no snapshot, and the issue is not re-fetched later."
         },
         "TerminalAppearanceSection": {
           "a14a427ae4": "Thickness of the pane divider line.",
@@ -10535,7 +10553,9 @@
             "setup": "setup",
             "apiKey": "api key",
             "skill": "skill",
-            "connect": "connect"
+            "connect": "connect",
+            "prefillLinkedIssueContextTitle": "Prefill linked issue into agent drafts",
+            "prefillLinkedIssueContextDescription": "Start a new agent in a linked workspace with that issue quoted as reference text."
           }
         },
         "terminal": {

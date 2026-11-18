@@ -27,6 +27,14 @@ export function planLaunchAgentStartupPrompt(args: {
   prompt: string
   promptDelivery: 'auto-submit' | 'draft' | 'submit-after-ready'
   isFollowupPath: boolean
+  /**
+   * Force the launch-then-paste route even for agents whose draft rides in argv.
+   *
+   * Why: the injected linked-issue block can reach the 12000-char context budget, and argv prefill
+   * would put that on the launch command line (shell quoting, process listing, terminal echo). A
+   * paste after readiness carries the same text without touching the command.
+   */
+  pasteOnlyPrompt?: boolean
 }): LaunchAgentStartupPromptPlan {
   const { base, prompt, promptDelivery, isFollowupPath } = args
   const hasPrompt = prompt.length > 0
@@ -41,6 +49,11 @@ export function planLaunchAgentStartupPrompt(args: {
   if (hasPrompt && promptDelivery === 'submit-after-ready') {
     // Why: multi-line generated prompts are too large for a shell argv, so launch clean then paste+submit in the TUI.
     return pasteAfterReady(true)
+  }
+  // Why before the draft branch: the paste-only caller wants an unsubmitted draft regardless of
+  // the agent's argv-prefill support, and `buildAgentDraftLaunchPlan` would otherwise put it in argv.
+  if (hasPrompt && args.pasteOnlyPrompt === true) {
+    return pasteAfterReady(false)
   }
   if (hasPrompt && promptDelivery === 'draft') {
     const draftLaunchPlan = buildAgentDraftLaunchPlan({ ...base, draft: prompt })
