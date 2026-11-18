@@ -1,4 +1,4 @@
-import type { TaskPageGitHubListProjectionModel } from './use-task-page-github-list-projection'
+import type { TaskPageGitHubRowActivityModel } from './use-task-page-github-row-activity'
 import { useCallback, useEffect } from 'react'
 import { stripRepoQualifiers } from '../../../shared/task-query'
 import {
@@ -13,7 +13,7 @@ import { overlayPendingOnTaskPagePages } from '@/components/task-page-github-wor
 import { scopeGitHubTaskSearch } from '@/components/task-page-github-task-kind'
 import { useGitHubTaskSearchCommit } from '@/components/use-github-task-search-commit'
 import { getTaskPageRepoSourceContext } from './task-page-source-context'
-export function useTaskPageGitHubSearchPagination(model: TaskPageGitHubListProjectionModel) {
+export function useTaskPageGitHubSearchPagination(model: TaskPageGitHubRowActivityModel) {
   const {
     setTaskResumeState,
     selectedRepos,

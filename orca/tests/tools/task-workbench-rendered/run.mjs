@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, and the production folder-workspace row with its draft/linked marker. Proves data-testid presence/counts, the rendered layout decision, degradation copy, per-row draft badge/link text, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC or locale switching.'
+  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC or locale switching.'
 
 // Contract §4.2, copied by hand: the fixture data is the other side of this
 // pin, so a fixture edit that changes a count fails here instead of silently
@@ -67,7 +67,11 @@ const SHOT_MATRIX = [
   { id: 'S10b', fixture: 'f6_no_tracker', width: 1440, height: 900 },
   { id: 'S10c', fixture: 'f8_failure_outcome', width: 1440, height: 900 },
   { id: 'S10d', fixture: 'f12_new_workspace_no_agents', width: 1440, height: 900 },
-  { id: 'F9', fixture: 'f9_long_labels', width: 1440, height: 900 }
+  { id: 'F9', fixture: 'f9_long_labels', width: 1440, height: 900 },
+  // Issue #27: the wide list row, then the same rows at a narrow window, where
+  // §7.2's row priority must keep the mark on screen.
+  { id: 'G1', fixture: 'd6_github_task_rows', width: 1440, height: 900, mandatory: true },
+  { id: 'G2', fixture: 'd6_github_task_rows', width: 900, height: 700 }
 ]
 
 // Calibration probes, not part of S1-S10: these exercise the branches the
@@ -95,7 +99,31 @@ const SIDEBAR_FIXTURE = {
   ]
 }
 
+// Issue #27. The titles and the expected marks are duplicated in fixture.tsx on
+// purpose: the driver owns the verdict, so a fixture edit that drops a badge
+// fails here instead of moving the expectation with it.
+const GITHUB_ROWS_FIXTURE = {
+  fixture: 'd6_github_task_rows',
+  rows: [
+    { title: 'Add login auth', activity: 'working', label: 'Working' },
+    { title: 'Retry backfill on resume', activity: 'delivered', label: 'Delivered' },
+    { title: 'Sparse task workspace rollout', activity: 'workspace', label: 'Workspace' },
+    { title: 'Bump docs', activity: 'needs-you', label: 'Needs you' },
+    { title: 'Unclaimed issue', activity: null, label: null }
+  ]
+}
+
 export function derive(fixtureKey, width, height) {
+  if (fixtureKey === GITHUB_ROWS_FIXTURE.fixture) {
+    return {
+      found: true,
+      githubRows: GITHUB_ROWS_FIXTURE,
+      expectedTestIds: {
+        'github-task-rows-fixture-root': 1,
+        'github-task-rows-fixture-list': 1
+      }
+    }
+  }
   if (fixtureKey === SIDEBAR_FIXTURE.fixture) {
     return {
       found: true,
@@ -377,6 +405,35 @@ function compare(failures, name, actual, expected) {
   }
 }
 
+/**
+ * The GitHub task rows, located by their title so a row without a badge is still
+ * found: a missing mark must be reported as `activity: null`, not as a row that
+ * silently disappeared from the list.
+ */
+async function collectGithubRows(page) {
+  return page.evaluate(() => {
+    const text = (element) => (element?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    const rows = []
+    for (const heading of document.querySelectorAll('h3')) {
+      const row = heading.closest('[role="button"]')
+      if (!row) {
+        continue
+      }
+      const badge = row.querySelector('[data-row-activity]')
+      const pill = row.querySelector('[class*="group/status"]')
+      const rect = badge?.getBoundingClientRect() ?? null
+      rows.push({
+        title: text(heading),
+        activity: badge?.getAttribute('data-row-activity') ?? null,
+        badgeText: badge ? text(badge) : null,
+        pillText: text(pill),
+        badgeRect: rect ? { left: rect.left, right: rect.right, width: rect.width } : null
+      })
+    }
+    return rows
+  })
+}
+
 async function collectDom(page) {
   return page.evaluate(() => {
     const text = (element) => (element?.textContent ?? '').replace(/\s+/g, ' ').trim()
@@ -434,14 +491,16 @@ async function runOne(entry, builds) {
     const expectation = builds.derive(entry.fixture, entry.width, entry.height)
     report.expected = expectation.sidebar
       ? { sidebar: expectation.sidebar }
-      : expectation.found
+      : expectation.githubRows
+        ? { githubRows: expectation.githubRows }
+        : expectation.found
           ? { label: expectation.label, summary: expectation.summary, counts: expectation.counts, layout: expectation.layout, semantic: expectation.semantic }
           : { found: false }
     const contractCounts = CONTRACT_COUNTS[entry.fixture]
-    if (expectation.found && !expectation.sidebar && !contractCounts) {
+    if (expectation.found && !expectation.sidebar && !expectation.githubRows && !contractCounts) {
       failures.push({ name: 'counts:missing-contract-row', expected: 'a §4.2 row', actual: entry.fixture })
     }
-    if (expectation.found && !expectation.sidebar && contractCounts) {
+    if (expectation.found && !expectation.sidebar && !expectation.githubRows && contractCounts) {
       compare(failures, 'counts:contract', expectation.counts, contractCounts)
       compare(
         failures,
@@ -472,7 +531,7 @@ async function runOne(entry, builds) {
     const url = `${pathToFileURL(path.join(builds.renderer, 'index.html')).href}?fixture=${encodeURIComponent(entry.fixture)}`
     await page.goto(url)
     await page.waitForSelector(
-      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="sidebar-fixture-root"]',
+      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="sidebar-fixture-root"], [data-testid="github-task-rows-fixture-root"]',
       { timeout: 30000 }
     )
     await page.evaluate(() =>
@@ -532,6 +591,52 @@ async function runOne(entry, builds) {
       }
       if (expectation.sidebar) {
         await assertSidebar(failures, page, report, expectation.sidebar)
+      }
+    } else if (expectation.githubRows) {
+      for (const [id, expectedCount] of Object.entries(expectation.expectedTestIds)) {
+        const actualCount = dom.testIds[id] ?? 0
+        if (actualCount !== expectedCount) {
+          failures.push({ name: `testid:${id}`, expected: expectedCount, actual: actualCount })
+        }
+      }
+      for (const [id, actualCount] of Object.entries(dom.testIds)) {
+        if (!(id in expectation.expectedTestIds)) {
+          failures.push({ name: `testid:${id}:unexpected`, expected: 0, actual: actualCount })
+        }
+      }
+      const rows = await collectGithubRows(page)
+      report.githubRows = rows
+      compare(failures, 'github-rows:count', rows.length, expectation.githubRows.rows.length)
+      const byTitle = new Map(rows.map((row) => [row.title, row]))
+      for (const expectedRow of expectation.githubRows.rows) {
+        const actualRow = byTitle.get(expectedRow.title) ?? null
+        if (actualRow === null) {
+          failures.push({
+            name: `github-row:${expectedRow.title}:missing`,
+            expected: 'a rendered row',
+            actual: null
+          })
+          continue
+        }
+        // The badge is additive: the tracker pill keeps reporting the provider's
+        // own state on the same row, whatever the Orca mark says.
+        compare(failures, `github-row:${expectedRow.title}:tracker-state`, actualRow.pillText, 'Open')
+        compare(failures, `github-row:${expectedRow.title}:activity`, actualRow.activity, expectedRow.activity)
+        compare(failures, `github-row:${expectedRow.title}:label`, actualRow.badgeText, expectedRow.label)
+        if (expectedRow.activity === null) {
+          continue
+        }
+        // Why the geometry: §7.2's row priority says the mark survives the
+        // narrow window. A zero-width or off-screen pill is a badge that was
+        // squeezed out, which a text assertion alone would not catch.
+        const rect = actualRow.badgeRect
+        compare(failures, `github-row:${expectedRow.title}:badge-width`, rect !== null && rect.width > 0, true)
+        compare(
+          failures,
+          `github-row:${expectedRow.title}:badge-in-viewport`,
+          rect !== null && rect.left >= 0 && rect.right <= dom.viewport.width,
+          true
+        )
       }
     } else if (expectation.found) {
       compare(failures, 'panel:layout-columns', dom.layout?.columns ?? null, expectation.layout.columns)

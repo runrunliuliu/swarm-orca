@@ -2141,7 +2141,20 @@
         "jiraLinkSourceUnavailable": "Couldn’t link this Jira issue. Reconnect Jira or pick the matching site, then try again.",
         "loadPageUnreachable": "{{value0}} 페이지는 GitHub 검색이 반환할 수 있는 범위를 벗어났습니다.",
         "loadPageFailed": "GitHub에서 {{value0}} 페이지를 불러오지 못했습니다.",
-        "loadPageNoMoreResults": "{{value0}} 페이지에 더 이상 결과가 없습니다."
+        "loadPageNoMoreResults": "{{value0}} 페이지에 더 이상 결과가 없습니다.",
+        "rowActivity": {
+          "needsYou": "확인 필요",
+          "working": "작업 중",
+          "workingDetail": "에이전트가 이 작업에서 작업 중입니다",
+          "delivered": "전달됨",
+          "deliveredDetail": "전달됨 · 에이전트 완료",
+          "workspace": "워크스페이스",
+          "workspaceDetail": "워크스페이스가 연결되어 있습니다. 작업 중인 에이전트가 없습니다",
+          "failedDetail": "에이전트가 실패했습니다. 이번 턴이 완료되지 않았습니다",
+          "blockedDetail": "에이전트가 차단되었습니다",
+          "waitingDetail": "에이전트가 입력을 기다리고 있습니다",
+          "interruptedDetail": "에이전트의 턴이 중단되었습니다"
+        }
       },
       "Terminal": {
         "73768427cf": "닫기",

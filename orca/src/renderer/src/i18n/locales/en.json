@@ -2318,7 +2318,20 @@
         "linearModeHasWorktreeTooltip": "Linear tickets linked to an Orca workspace",
         "linearEmptyHasWorktree": "No Linear tickets are linked to an Orca workspace yet. Start work from a Linear issue to see it here.",
         "linearOpenAttachedWorkspace": "Open workspace attached to {{value0}}",
-        "linearWorktreesColumn": "Workspaces"
+        "linearWorktreesColumn": "Workspaces",
+        "rowActivity": {
+          "needsYou": "Needs you",
+          "working": "Working",
+          "workingDetail": "An agent is working in this task",
+          "delivered": "Delivered",
+          "deliveredDetail": "Delivered · agent done",
+          "workspace": "Workspace",
+          "workspaceDetail": "A workspace is bound; no agent is working",
+          "failedDetail": "An agent failed; the turn did not finish",
+          "blockedDetail": "An agent is blocked",
+          "waitingDetail": "An agent is waiting for your input",
+          "interruptedDetail": "An agent’s turn was interrupted"
+        }
       },
       "Terminal": {
         "73768427cf": "Close",

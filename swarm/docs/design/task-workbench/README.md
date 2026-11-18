@@ -293,12 +293,54 @@ skills / CLI 动词建单。
 - `◇` 是**属性徽标**（无 tracker），与分组正交；顶部 `◇ No tracker 5` 是筛选入口，不是第 4 个分组。
 - `Delivered` = **agent done**（产品 owner 2026-11-16 定，D12）：该任务下**任一活跃工作区**里有 agent 处于
   `done`，且同任务下没有 `working/blocked/waiting`（否则按 `Needs you > Working` 优先）。
-  - 有效 `done`：忽略 `sessionBoundary === true`（connect/resume/clear 落地，不是完成一轮）；
+  - 有效 `done`：`sessionBoundary === true` 的 done **不算**（connect/resume/clear 落地，不是完成一轮）；
     `outcome === 'failure' | 'cancellation'` **不算** Delivered；`outcome` 缺失（provider 未上报）仍算 done。
   - 语义：Delivered = "agent 声明这一轮做完了"，**不等于验收通过**。UI 文案只能说 `Delivered · agent done`，
     不得写"已完成/验收通过"，测试夹具也不得把它们当作等价。
   - resume 后状态回到 working → 自动离开 Delivered（派生，不缓存）；无 agent 或 0 工作区的任务不可能是 Delivered。
 - primary workspace 缺失时按"最近活动"兜底，并在 UI 显式标注为派生（不是用户选择）。
+
+**行内活动徽标（P3 前置薄切片，issue #27）**
+
+上面是分组规则；徽标是同一套判定的**行内**呈现，先于分组落地，不改列表主轴、不重排、不分组：
+
+- 呈现位置：每一行在 tracker 状态 pill **之外并列**一个 Orca 活动徽标。pill 仍是 provider 的事实
+  （`Open` / `Closed`），徽标是本地派生量；两者不合并、不互相覆写，pill 的编辑 popover 行为不变。
+  徽标落在**标题单元格**、标题右侧：该列是 sticky 列，窄窗降级时不会被挤掉（见本节"行内优先级"），
+  而状态列只有 100px，放不下第二个 pill。
+- 四态：`Needs you`（blocked / waiting，或 F8 的 failed / interrupted）、`Working`、`Delivered`
+  （= 上面 D12 的有效 done）、`Workspace`（灰、中性）。
+- **有工作区、无 agent（本节补的空白）**：显示灰色 `Workspace`，表示"已绑定工作区、当前没有 agent 在跑"。
+  不得伪造成 `Working`（没有 agent 在跑），也不得显示 `Delivered`（没有 agent 就不可能有 done）。
+  这与"0 工作区"不同：0 工作区**不渲染徽标**，也不留空占位（0 工作区的分组仍按上面的规则，属 P3）。
+- 归档工作区不参与任何一格；`Needs you > Working > Delivered` 的并集规则与分组完全一致。
+- glyph 复用 `AgentStateDot`（spinner=working / amber=needs you / red=blocked / emerald=done / gray=idle），
+  失败 / 中断 / 未定论沿用 F8 映射，不新造状态词汇；文案（含 tooltip）全部走 locale catalog，
+  `Delivered` 的文案只能是 `Delivered · agent done`。
+- 行级归属按 `repoId` + `linkedIssue` / `linkedPR` 反查，**不按** identity 的 `taskKey`：identity selector
+  的 GitHub key 是 owner/repo 级（`taskProviderIdentityCachePart` 不含 issue 号），拿它当行键会让同一
+  repo 的所有条目共享一行的活动。`taskKey` 仍记录在 selector 输出里，供 P3 分组用；每行 O(1) 查表由
+  一个列表页级批量 hook 提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量 selector
+  与 dashboard snapshot）。
+- 本切片不做：列表分组 / 重排 / 主轴切换、`◇` 徽标、一任务多工作区合并、
+  Linear / Jira / GitLab 列表、写回 tracker 状态、`taskRecords` 持久化。
+
+渲染证据（harness 的 CDP 截图，fixture 数据，非真机）：
+
+![GitHub 列表行活动徽标：宽屏](ui/impl-github-rows-badge-wide.png)
+![GitHub 列表行活动徽标：900×700，徽标仍在标题旁](ui/impl-github-rows-badge-narrow.png)
+
+```sh
+cd orca
+DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs \
+  --fixture d6_github_task_rows --width 1440 --height 900
+```
+
+两张图是同一次 fixture（`d6_github_task_rows`：working / delivered / workspace / needs-you / 无活动 五行）：
+宽屏 1440×900 与窄屏 900×700。driver 逐行（按标题定位）断言 `data-row-activity` 的取值、徽标可见文案、
+同一行的 tracker pill 仍是 `Open`、以及徽标矩形完整落在视口内——第五行必须没有徽标。这证明的是 DOM
+与几何，不是“真机验收”：selector 规则由纯单测覆盖，store→selector 接线由 `use-task-page-github-row-activity`
+的单测覆盖；没有用真实仓库数据或真实 agent 跑过。
 
 ### 7.3 图 B：任务详情（工作台）
 
@@ -960,6 +1002,9 @@ setup 钩子"或"需要新装/重建依赖"。
 - P1 只有 harness 与单测证据：`tests/tools/task-workbench-rendered` 覆盖组件与降级态，`tc:web` 通过；
   **没有真机交互验收**（打开详情 → 切换 tab → 点 `[ Open workspace ]` / `[ resume ]` 的实际行为未实测），
   也没有 P1b 的独立评审回执。
+- §7.2 的行内活动徽标（P3 前置薄切片）有 harness 的 CDP 截图（fixture `d6_github_task_rows`，G1/G2，
+  见 `ui/impl-github-rows-badge-*.png`）与纯单测，但**没有真机验收**：没有用真实仓库/真实 agent 跑过，
+  也没有实际点击行内徽标或 tracker pill。
 - P1 只接了 GitHub issue/PR 详情；Linear / GitLab / Jira 的 `Orca` tab 未实现，因此"面板合计 ==
   `projectBreakdown['worktree:<id>']`"这条对照只在 GitHub 侧成立。
 - §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；那张版面**尚未实现**，
