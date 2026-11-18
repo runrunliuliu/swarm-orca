@@ -48,7 +48,10 @@ const storeFreeSources: SourceFile[] = [
   { dir: libDir, file: 'task-workbench-selector-types.ts' },
   { dir: libDir, file: 'task-workbench-identity.ts' },
   { dir: libDir, file: 'task-workbench-usage.ts' },
-  { dir: libDir, file: 'task-workbench-join.ts' }
+  { dir: libDir, file: 'task-workbench-join.ts' },
+  // P3 thin slice (issue #27): the list-row activity selector is pure too —
+  // the list hook below is the only place that reads the store for it.
+  { dir: libDir, file: 'task-workbench-row-activity.ts' }
 ]
 
 /** Value imports that would make the shell read live data. Type imports are

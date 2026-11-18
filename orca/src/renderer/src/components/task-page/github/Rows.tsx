@@ -34,6 +34,8 @@ import { PRReviewCell } from './ReviewCell'
 import { PRChecksCell } from './ChecksCell'
 import { PRMergeCell } from './MergeCell'
 import { GHStatusCell } from './StatusCell'
+import { TaskPageGitHubRowActivityBadge } from './RowActivityBadge'
+import { taskPageGitHubItemKey } from '@/components/task-page-github-work-item-mutation-registry'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -58,6 +60,7 @@ export function TaskPageGitHubRows({
     showPRManagementColumns,
     githubTaskGridClass,
     ensurePRChecksLoaded,
+    rowActivityByKey,
     handleUseWorkItem,
     handleOpenOrUseGitHubWorkItem
   } = model
@@ -76,6 +79,9 @@ export function TaskPageGitHubRows({
             ? getWorktreeAttachmentLabel(attachedWorkspace)
             : null
           const prDelta = item.type === 'pr' ? formatPRDelta(item) : null
+          // Why a map lookup, not a hook: one page-wide projection (see
+          // `use-task-page-github-row-activity.ts`) instead of N task views.
+          const rowActivity = rowActivityByKey.get(taskPageGitHubItemKey(item.repoId, item.id))
           const githubTaskIdPill = (
             <span
               // Why: no fill — a muted wash on the pill stacks on the
@@ -140,6 +146,13 @@ export function TaskPageGitHubRows({
               <div className={GITHUB_TASK_STICKY_TITLE_CELL_CLASS}>
                 <div className="flex min-w-0 items-center gap-2">
                   <h3 className="truncate text-[13px] font-medium text-foreground">{item.title}</h3>
+                  {rowActivity ? (
+                    // Why the title cell: it is the sticky column, so the mark
+                    // survives the narrow-window degradation (README §7.2 row
+                    // priority) — the tracker pill keeps its own column and
+                    // popover untouched.
+                    <TaskPageGitHubRowActivityBadge activity={rowActivity} />
+                  ) : null}
                   {item.type === 'pr' && item.state !== 'open' && item.state !== 'draft' ? (
                     <TaskPageGitHubWorkItemStateBadge
                       item={item}

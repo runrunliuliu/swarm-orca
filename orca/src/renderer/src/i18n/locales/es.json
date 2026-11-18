@@ -1908,7 +1908,20 @@
         "jiraLinkSourceUnavailable": "Couldn’t link this Jira issue. Reconnect Jira or pick the matching site, then try again.",
         "loadPageUnreachable": "La página {{value0}} está más allá de lo que la búsqueda de GitHub puede devolver.",
         "loadPageFailed": "No se pudo cargar la página {{value0}} desde GitHub.",
-        "loadPageNoMoreResults": "No hay más resultados en la página {{value0}}."
+        "loadPageNoMoreResults": "No hay más resultados en la página {{value0}}.",
+        "rowActivity": {
+          "needsYou": "Needs You",
+          "working": "Working",
+          "workingDetail": "Un agente está trabajando en esta tarea",
+          "delivered": "Entregado",
+          "deliveredDetail": "Entregado · agente finalizado",
+          "workspace": "Espacio de trabajo",
+          "workspaceDetail": "Hay un espacio de trabajo vinculado, ningún agente ha reportado un turno",
+          "failedDetail": "Un agente falló, el turno no terminó",
+          "blockedDetail": "Un agente está bloqueado",
+          "waitingDetail": "Un agente está esperando tu respuesta",
+          "interruptedDetail": "El turno de un agente se interrumpió"
+        }
       },
       "Terminal": {
         "73768427cf": "Cerrar",

@@ -37,6 +37,12 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   and one `folder-draft-link` reading `linked to #412`; the unlinked row has the badge and no link;
   the normal row has neither and no `folder-draft-task-removed`. The document-level expected counts
   are badge 2 / link 1.
+- **The GitHub task rows (`d6_github_task_rows`).** The production `TaskPageGitHubRows` with five
+  rows — working, delivered, workspace-without-agent, needs-you, and one with no bound workspace —
+  driven by a hand-built page-model stub and a committed `rowActivityByKey` map. Per row, located by
+  title: the `data-row-activity` kind, the badge's visible label, the tracker pill still reading
+  `Open`, and the badge rectangle inside the viewport, so a mark squeezed out at the narrow width
+  fails. The fifth row must have no badge at all.
 
 ## What it does not prove
 
@@ -49,6 +55,10 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   drag, path status, PR decoration and grouping are not exercised. `folder-draft-task-removed` and
   the archived row state are not rendered here; they are covered by `folder-draft-marker`'s unit
   tests.
+- The GitHub task rows are rendered with a hand-built model and a committed activity map, so the
+  selector rules behind those claims are covered by `lib/task-workbench/task-workbench-row-activity`
+  unit tests and the store wiring by `use-task-page-github-row-activity.test.tsx`, not here. No row
+  is clicked; the tracker pill's popover is never opened.
 - The 1100/480 thresholds are design assumptions. S2 (1100×800) and S3 (1280×480) sit exactly on the
   inclusive boundaries (`>= 1100` is double, `< 480` is short), so they prove the boundary still
   fits, not the degraded layout. `--calibrate` adds 900×700 (single column) and 1280×479 (short)
@@ -72,6 +82,8 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 | S10 | `f5_archived_only`, `f6_no_tracker`, `f8_failure_outcome`, `f12_new_workspace_no_agents` | 1440×900 |
 | extra | `f9_long_labels` | 1440×900 |
 | P2b sidebar row | `d5_sidebar_draft_row` | 1440×900 |
+| G1 (mandatory) | `d6_github_task_rows` | 1440×900 |
+| G2 | `d6_github_task_rows` | 900×700 |
 | calibration | `f1_baseline` | 900×700, 1280×479 |
 
 The P2b sidebar row is a single-fixture run, not part of `--all`: it is listed here as the evidence
@@ -94,7 +106,9 @@ logo from it. No fixture renders that icon, so the harness Vite build resolves `
 imports to a transparent pixel. The sidebar row imports the card graph, which reaches the same
 module, so it relies on that same resolution; no component or source file is modified.
 
-`fixture.css` names `components/task-page` and `components/sidebar` as Tailwind `@source`s: the
-Vite root is this directory, so automatic content detection cannot see the classes of the sidebar
-row, and without them that fixture renders unstyled (no flex, no height cap, no overflow), which
-would make the row screenshot meaningless.
+`fixture.css` names `components/task-page`, `components/sidebar` and
+`components/task-page-source-context.tsx` as Tailwind `@source`s: the Vite root is this directory, so
+automatic content detection cannot see the classes of the sidebar row or of the GitHub task row (its
+`grid-cols` template lives in `task-page-source-context.tsx`), and without them those fixtures render
+unstyled — no flex, no height cap, no overflow, or one column where the row should have six — which
+would make the screenshots meaningless.

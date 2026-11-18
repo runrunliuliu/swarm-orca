@@ -2141,7 +2141,20 @@
         "jiraLinkSourceUnavailable": "この Jira Issue をリンクできませんでした。Jira に再接続するか該当するサイトを選択してから、もう一度お試しください。",
         "loadPageUnreachable": "ページ {{value0}} は GitHub 検索が返せる範囲を超えています。",
         "loadPageFailed": "GitHub からページ {{value0}} を読み込めませんでした。",
-        "loadPageNoMoreResults": "ページ {{value0}} にはこれ以上結果がありません。"
+        "loadPageNoMoreResults": "ページ {{value0}} にはこれ以上結果がありません。",
+        "rowActivity": {
+          "needsYou": "対応が必要",
+          "working": "作業中",
+          "workingDetail": "Agentがこのタスクで作業しています",
+          "delivered": "受け渡し済み",
+          "deliveredDetail": "受け渡し済み · Agent完了",
+          "workspace": "ワークスペース",
+          "workspaceDetail": "ワークスペースが紐づいています。Agent からのターン報告はありません",
+          "failedDetail": "Agentが失敗しました。このターンは完了していません",
+          "blockedDetail": "Agentがブロックされています",
+          "waitingDetail": "Agentが入力待ちです",
+          "interruptedDetail": "Agentのターンが中断されました"
+        }
       },
       "Terminal": {
         "73768427cf": "閉じる",
