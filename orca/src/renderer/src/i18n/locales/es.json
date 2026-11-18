@@ -1908,21 +1908,7 @@
         "jiraLinkSourceUnavailable": "Couldn’t link this Jira issue. Reconnect Jira or pick the matching site, then try again.",
         "loadPageUnreachable": "La página {{value0}} está más allá de lo que la búsqueda de GitHub puede devolver.",
         "loadPageFailed": "No se pudo cargar la página {{value0}} desde GitHub.",
-        "loadPageNoMoreResults": "No hay más resultados en la página {{value0}}.",
-        "taskDockPlaceholder": "Describe una tarea o un cambio...",
-        "taskDockSend": "Enviar",
-        "taskDockCancel": "Cancelar",
-        "taskDockExpand": "Expandir",
-        "taskDockSubmitHint": "⌘⏎ para enviar, Esc para contraer",
-        "taskDockPickTarget": "Elige primero un origen y un repositorio.",
-        "taskDockNoProjectGroup": "Elige un repositorio que pertenezca a un grupo de proyectos.",
-        "taskDockLocalRepoRequired": "Los borradores necesitan un repositorio local.",
-        "taskDockCreateWorkspaceFailed": "No se pudo crear el espacio de trabajo del borrador.",
-        "taskDockNoAgent": "No hay ningún agente habilitado, así que el borrador se creó sin sesión. Activa uno en Ajustes y vuelve a enviar.",
-        "taskDockAgentLaunchFailed": "No se pudo iniciar el agente en el espacio de trabajo del borrador.",
-        "taskDockOpenFailed": "No se pudo abrir el espacio de trabajo del borrador.",
-        "taskDockNoSession": "Este borrador no tiene sesión de agente. Ábrelo desde la barra lateral, inicia un agente y vuelve a enviar.",
-        "taskDockInstructionNotDelivered": "La sesión del borrador no aceptó la instrucción."
+        "loadPageNoMoreResults": "No hay más resultados en la página {{value0}}."
       },
       "Terminal": {
         "73768427cf": "Cerrar",

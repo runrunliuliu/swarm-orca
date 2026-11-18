@@ -9,6 +9,7 @@ import {
   // `Shapes` is lucide-react's own export name; exempted in config/oxlint-anti-slop.json.
   Shapes,
   SlidersHorizontal,
+  Terminal,
   Trash2
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -61,6 +62,8 @@ export type RepoHeaderProjectActions = {
   getWorktreeVisibilityDefaults: (repo: Repo) => WorktreeVisibilityDefaults | undefined
   onOpenRepoSettings: (projectId: string, sectionId?: string) => void
   onOpenWorktreeVisibility: (repo: Repo) => void
+  /** Starts the default TUI agent in the repo's own checkout: no branch, no new worktree. */
+  onOpenAgentInRepo: (repo: Repo) => void
   onCreateGroupFromRepo: (repo: Repo) => void
   onMoveProjectToGroup: (repo: Repo, groupId: string) => void
   onRemoveProjectFromGroup: (repo: Repo) => void
@@ -119,6 +122,19 @@ export function RepoHeaderProjectActionsMenu({
         onClick={stopRepoHeaderMenuEvent}
         onKeyDown={stopRepoHeaderMenuEvent}
       >
+        {isGitRepoKind(repo) ? (
+          <>
+            <DropdownMenuItem onSelect={() => actions.onOpenAgentInRepo(repo)}>
+              <Terminal className="size-3.5" />
+              {translate(
+                'auto.components.sidebar.WorktreeList.openAgentInRepo',
+                'Open agent in {{value0}}',
+                { value0: label }
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuItem onSelect={() => actions.onOpenRepoSettings(repo.id)}>
           <SlidersHorizontal className="size-3.5" />
           {translate('auto.components.sidebar.WorktreeList.2cdffbc728', 'Project Settings')}

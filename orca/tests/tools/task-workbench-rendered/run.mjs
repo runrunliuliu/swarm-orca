@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /**
  * Rendered harness for the task-workbench surfaces (w6-harness): the P1a
- * workbench shell and the P2a Tasks list-page dock.
+ * workbench shell.
  *
  * One fixture and one window size per process: the shared hidden-window host is
  * reused unmodified and its content size is set through the main process, then
@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, the production TaskDock (instruction, model select, Send/Close) rendered in a column that mirrors Frame.tsx with a real PaginationBar, and the production folder-workspace row with its draft/linked marker. Proves data-testid presence/counts, the rendered layout decision, degradation copy, dock presence per state, the dock sitting outside the list card, the card giving up height instead of the page scrolling, the dock keyboard path, the model select reaching the submit handler, per-row draft badge/link text, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, locale switching or the agent launch behind the dock submit.'
+  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, and the production folder-workspace row with its draft/linked marker. Proves data-testid presence/counts, the rendered layout decision, degradation copy, per-row draft badge/link text, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC or locale switching.'
 
 // Contract §4.2, copied by hand: the fixture data is the other side of this
 // pin, so a fixture edit that changes a count fails here instead of silently
@@ -67,10 +67,7 @@ const SHOT_MATRIX = [
   { id: 'S10b', fixture: 'f6_no_tracker', width: 1440, height: 900 },
   { id: 'S10c', fixture: 'f8_failure_outcome', width: 1440, height: 900 },
   { id: 'S10d', fixture: 'f12_new_workspace_no_agents', width: 1440, height: 900 },
-  { id: 'F9', fixture: 'f9_long_labels', width: 1440, height: 900 },
-  { id: 'S11', fixture: 'd1_dock_collapsed', width: 1440, height: 900, mandatory: true },
-  { id: 'S12', fixture: 'd2_dock_expanded', width: 1440, height: 900, mandatory: true },
-  { id: 'S13', fixture: 'd2_dock_expanded', width: 1100, height: 800 }
+  { id: 'F9', fixture: 'f9_long_labels', width: 1440, height: 900 }
 ]
 
 // Calibration probes, not part of S1-S10: these exercise the branches the
@@ -89,59 +86,6 @@ import { formatTokens } from './src/renderer/src/components/stats/usage-formatte
 
 const OUTCOME_TEXT = { success: 'Delivered', failure: 'Failed', cancellation: 'Cancelled' }
 
-// Hand-written on purpose: the dock fixtures are not data-driven, so the driver
-// holds its own expectation of which state each key renders, which text it types
-// and which model it picks. fixture.tsx holds the matching copy; a drift fails
-// the run.
-const DOCK_MODEL_OPTIONS = [
-  { id: 'claude-opus-4', label: 'Opus 4' },
-  { id: 'claude-sonnet-4', label: 'Sonnet 4' }
-]
-const DOCK_TRANSCRIPT = [
-  { text: 'Draft workspace ready: /tmp/task-drafts/add-login-retry', tone: 'meta' },
-  { text: '> Fix the flaky login test', tone: 'user' },
-  { text: 'Reading the failing test before I change anything.', tone: 'agent' },
-  { text: 'Opened src/renderer/src/lib/login-retry.test.ts', tone: 'agent' },
-  { text: 'The retry loop runs before the error branch is reached.', tone: 'agent' },
-  { text: 'Reproduced: second attempt re-enters the loop.', tone: 'agent' },
-  { text: 'Patching the loop to bail on the first failure.', tone: 'agent' },
-  { text: 'Running the suite…', tone: 'agent' },
-  { text: '12 passed, 1 failed (the timing test).', tone: 'agent' },
-  { text: 'The timing test asserted the old loop count.', tone: 'agent' },
-  { text: 'Updated the expectation to one attempt.', tone: 'agent' },
-  { text: 'Suite green. Next: report the change.', tone: 'agent' }
-]
-const DOCK_FIXTURES = {
-  d1_dock_collapsed: { state: 'collapsed', typedInstruction: null, selectedModel: 'claude-opus-4', transcript: [] },
-  d2_dock_expanded: {
-    state: 'expanded',
-    typedInstruction: 'Fix the flaky login test',
-    selectedModel: 'claude-opus-4',
-    transcript: DOCK_TRANSCRIPT
-  }
-}
-
-const DOCK_TEST_IDS = {
-  'dock-fixture-root': 1,
-  'dock-fixture-column': 1,
-  'dock-fixture-card': 1,
-  'dock-fixture-card-scroll': 1,
-  'dock-fixture-card-footer': 1,
-  'task-dock': 1
-}
-
-function dockTestIds(state) {
-  return state === 'expanded'
-    ? {
-        ...DOCK_TEST_IDS,
-        'task-dock-input': 1,
-        'task-dock-model': 1,
-        'task-dock-send': 1,
-        'task-dock-transcript': 1
-      }
-    : { ...DOCK_TEST_IDS, 'task-dock-collapsed': 1 }
-}
-
 const SIDEBAR_FIXTURE = {
   fixture: 'd5_sidebar_draft_row',
   rows: [
@@ -152,10 +96,6 @@ const SIDEBAR_FIXTURE = {
 }
 
 export function derive(fixtureKey, width, height) {
-  const dock = DOCK_FIXTURES[fixtureKey]
-  if (dock) {
-    return { found: true, dock, modelOptions: DOCK_MODEL_OPTIONS, expectedTestIds: dockTestIds(dock.state) }
-  }
   if (fixtureKey === SIDEBAR_FIXTURE.fixture) {
     return {
       found: true,
@@ -476,257 +416,6 @@ async function collectDom(page) {
   })
 }
 
-const DOCK_SCROLL_OFFSET = 160
-const DOCK_MIN_EXPANDED_HEIGHT = 40
-
-/** Reads the dock fixture's own state, its place in the column and the geometry
- *  acceptance point 1 is about. One evaluate, so all numbers come from the same
- *  layout pass. */
-async function readDock(page) {
-  return page.evaluate(() => {
-    const query = (testId) => document.querySelector('[data-testid="' + testId + '"]')
-    const root = query('dock-fixture-root')
-    const card = query('dock-fixture-card')
-    const column = query('dock-fixture-column')
-    const dock = query('task-dock')
-    const footer = query('dock-fixture-card-footer')
-    const scroll = query('dock-fixture-card-scroll')
-    const input = query('task-dock-input')
-    const modelField = query('task-dock-model')
-    const transcript = query('task-dock-transcript')
-    const pagination = footer === null ? null : footer.querySelector('nav[aria-label]')
-    const attr = (name) => (root === null ? null : root.getAttribute(name))
-    return {
-      submits: attr('data-dock-submits') === null ? -1 : Number(attr('data-dock-submits')),
-      lastInstruction: attr('data-dock-last-instruction'),
-      lastModel: attr('data-dock-last-model'),
-      instruction: attr('data-dock-instruction'),
-      selectedModel: attr('data-dock-model'),
-      expanded: attr('data-dock-expanded') === 'true',
-      typedValue: input === null ? null : input.value,
-      modelFieldKind: modelField === null ? null : modelField.tagName.toLowerCase(),
-      modelFieldValue: modelField === null ? null : modelField.value,
-      modelOptionLabels:
-        modelField === null || modelField.tagName.toLowerCase() !== 'select'
-          ? null
-          : [...modelField.options].map((option) => option.textContent.trim()),
-      modelOptionValues:
-        modelField === null || modelField.tagName.toLowerCase() !== 'select'
-          ? null
-          : [...modelField.options].map((option) => option.value),
-      transcriptStatus: transcript === null ? null : transcript.getAttribute('data-transcript-status'),
-      transcriptScrollTop: transcript === null ? null : transcript.scrollTop,
-      transcriptScrollHeight: transcript === null ? null : transcript.scrollHeight,
-      transcriptClientHeight: transcript === null ? null : transcript.clientHeight,
-      transcriptLines:
-        transcript === null ? [] : [...transcript.children].map((line) => (line.textContent ?? '').trim()),
-      transcriptTones:
-        transcript === null
-          ? []
-          : [...transcript.children].map((line) => line.getAttribute('data-transcript-tone')),
-      dockInsideCard: card !== null && dock !== null && card.contains(dock),
-      sameColumn:
-        card !== null &&
-        dock !== null &&
-        card.parentElement === column &&
-        dock.parentElement === column,
-      footerInsideCard: card !== null && footer !== null && card.contains(footer),
-      paginationInsideFooter: footer !== null && pagination !== null && footer.contains(pagination),
-      paginationLabel: pagination === null ? null : pagination.getAttribute('aria-label'),
-      scrollTop: scroll === null ? null : scroll.scrollTop,
-      scrollHeight: scroll === null ? null : scroll.scrollHeight,
-      clientHeight: scroll === null ? null : scroll.clientHeight,
-      dockHeight: dock === null ? null : dock.getBoundingClientRect().height,
-      scrollY: window.scrollY,
-      documentHeight: document.documentElement.scrollHeight,
-      viewportHeight: window.innerHeight
-    }
-  })
-}
-
-/** Per row, not per document: the marker must sit on the two draft rows and be
- *  absent from the normal folder workspace. */
-async function assertSidebar(failures, page, report, expected) {
-  const actual = await page.evaluate(() => {
-    const text = (element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()
-    return {
-      rows: [...document.querySelectorAll('[data-worktree-row-key]')].map((row) => ({
-        id: row.getAttribute('data-worktree-row-key'),
-        badges: [...row.querySelectorAll('[data-testid="folder-draft-badge"]')].map(text),
-        links: [...row.querySelectorAll('[data-testid="folder-draft-link"]')].map(text),
-        taskRemoved: row.querySelectorAll('[data-testid="folder-draft-task-removed"]').length
-      }))
-    }
-  })
-  report.sidebar = { rows: actual.rows }
-
-  compare(
-    failures,
-    'sidebar:row-ids',
-    actual.rows.map((row) => row.id),
-    expected.rows.map((row) => row.id)
-  )
-  const byId = new Map(actual.rows.map((row) => [row.id, row]))
-  for (const row of expected.rows) {
-    const found = byId.get(row.id)
-    compare(failures, `sidebar:${row.id}:badge`, found?.badges ?? null, row.badge === null ? [] : [row.badge])
-    compare(failures, `sidebar:${row.id}:link`, found?.links ?? null, row.link === null ? [] : [row.link])
-    compare(failures, `sidebar:${row.id}:task-removed`, found?.taskRemoved ?? null, 0)
-  }
-}
-
-/** The dock half of the matrix: presence per state, the dock outside the card,
- *  PaginationBar still in the card footer, and — expanded — the model select and
- *  the card giving up height to the dock instead of the page scrolling, plus the
- *  keyboard path. */
-async function assertDock(failures, page, report, expectation) {
-  const dock = expectation.dock
-  const isExpanded = dock.state === 'expanded'
-  const initial = await readDock(page)
-  report.dock = {
-    state: dock.state,
-    expanded: initial.expanded,
-    scrollTop: initial.scrollTop,
-    clientHeight: initial.clientHeight,
-    scrollHeight: initial.scrollHeight,
-    dockHeight: initial.dockHeight,
-    paginationLabel: initial.paginationLabel,
-    modelOptions: initial.modelOptionLabels
-  }
-
-  compare(failures, 'dock:expanded-state', initial.expanded, isExpanded)
-  compare(failures, 'dock:outside-card', initial.dockInsideCard, false)
-  compare(failures, 'dock:same-column-as-card', initial.sameColumn, true)
-  compare(failures, 'dock:footer-inside-card', initial.footerInsideCard, true)
-  compare(failures, 'dock:pagination-inside-footer', initial.paginationInsideFooter, true)
-  compare(failures, 'dock:pagination-label', initial.paginationLabel, 'Pagination')
-  compare(failures, 'dock:card-overflows', initial.scrollHeight > initial.clientHeight, true)
-
-  if (!isExpanded) {
-    return
-  }
-
-  // The model control is a select when the hook found models and a free-text
-  // input when it did not; the fixture supplies two options, so this run proves
-  // the select branch and that the picked id reaches `onSubmit`.
-  compare(failures, 'dock:model-is-select', initial.modelFieldKind, 'select')
-  compare(failures, 'dock:model-default-value', initial.modelFieldValue, '')
-  compare(
-    failures,
-    'dock:model-option-labels',
-    initial.modelOptionLabels,
-    ['Agent default', ...expectation.modelOptions.map((option) => option.label)]
-  )
-  compare(
-    failures,
-    'dock:model-option-values',
-    initial.modelOptionValues,
-    ['', ...expectation.modelOptions.map((option) => option.id)]
-  )
-
-  // The expanded dock carries the draft conversation above its input; the fixture pins the tail so
-  // a screenshot cannot show an empty panel while the driver reports success.
-  compare(failures, 'dock:transcript-status', initial.transcriptStatus, 'live')
-  compare(
-    failures,
-    'dock:transcript-lines',
-    initial.transcriptLines,
-    dock.transcript.map((line) => line.text)
-  )
-  compare(
-    failures,
-    'dock:transcript-tones',
-    initial.transcriptTones,
-    dock.transcript.map((line) => line.tone)
-  )
-
-  // A long tail must stay pinned to its newest line; otherwise the reader sees stale output.
-  compare(
-    failures,
-    'dock:transcript-follows-tail',
-    typeof initial.transcriptScrollTop === 'number' &&
-      typeof initial.transcriptScrollHeight === 'number' &&
-      typeof initial.transcriptClientHeight === 'number' &&
-      initial.transcriptScrollHeight > initial.transcriptClientHeight &&
-      Math.abs(
-        initial.transcriptScrollTop + initial.transcriptClientHeight - initial.transcriptScrollHeight
-      ) <= 1,
-    true
-  )
-
-  const scrollTopSet = await page.evaluate((offset) => {
-    const scroll = document.querySelector('[data-testid="dock-fixture-card-scroll"]')
-    scroll.scrollTop = offset
-    return scroll.scrollTop
-  }, DOCK_SCROLL_OFFSET)
-  const expanded = await readDock(page)
-
-  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control'
-  await page.focus('[data-testid="task-dock-input"]')
-  await page.keyboard.press('ControlOrMeta+a')
-  await page.keyboard.type(dock.typedInstruction)
-  await page.selectOption('[data-testid="task-dock-model"]', dock.selectedModel)
-  const typed = await readDock(page)
-  compare(failures, 'dock:typed-into-input', typed.typedValue, dock.typedInstruction)
-  compare(failures, 'dock:selected-model', typed.modelFieldValue, dock.selectedModel)
-  compare(failures, 'dock:no-submit-before-enter', typed.submits, 0)
-
-  await page.keyboard.press(modifier + '+Enter')
-  const submitted = await readDock(page)
-  compare(failures, 'dock:submits', submitted.submits, 1)
-  compare(failures, 'dock:last-instruction', submitted.lastInstruction, dock.typedInstruction)
-  compare(failures, 'dock:last-model', submitted.lastModel, dock.selectedModel)
-
-  await page.keyboard.press('Escape')
-  const collapsed = await readDock(page)
-  compare(failures, 'dock:escape-collapses', collapsed.expanded, false)
-  // Why the root attribute and not the textarea value: the collapsed dock
-  // unmounts the input, so only the fixture's own state can prove the text
-  // survived the collapse.
-  compare(failures, 'dock:escape-keeps-instruction', collapsed.instruction, dock.typedInstruction)
-  compare(failures, 'dock:escape-keeps-model', collapsed.selectedModel, dock.selectedModel)
-
-  const grew = expanded.dockHeight - collapsed.dockHeight
-  compare(failures, 'dock:scrolled-to-offset', scrollTopSet, DOCK_SCROLL_OFFSET)
-  compare(failures, 'dock:scroll-kept', collapsed.scrollTop, DOCK_SCROLL_OFFSET)
-  compare(failures, 'dock:page-not-scrolled', expanded.scrollY, 0)
-  compare(
-    failures,
-    'dock:page-did-not-grow',
-    expanded.documentHeight <= expanded.viewportHeight,
-    true
-  )
-  compare(failures, 'dock:expanded-height', expanded.dockHeight >= DOCK_MIN_EXPANDED_HEIGHT, true)
-  // Why the dock's *growth* and not its full height: the collapsed dock is still
-  // in the page at the collapsed measurement, so the card can only give up the
-  // extra height the expanded dock took. Both numbers are in the report.
-  compare(
-    failures,
-    'dock:card-gives-up-dock-growth',
-    collapsed.clientHeight - expanded.clientHeight >= grew - 1,
-    true
-  )
-  report.dock.geometry = {
-    scrollTopSet,
-    expandedClientHeight: expanded.clientHeight,
-    collapsedClientHeight: collapsed.clientHeight,
-    cardHeightGivenUp: collapsed.clientHeight - expanded.clientHeight,
-    expandedDockHeight: expanded.dockHeight,
-    collapsedDockHeight: collapsed.dockHeight,
-    dockGrowth: grew,
-    windowScrollY: expanded.scrollY,
-    documentHeight: expanded.documentHeight,
-    viewportHeight: expanded.viewportHeight,
-    fullDockHeightCheck: collapsed.clientHeight - expanded.clientHeight >= expanded.dockHeight - 1
-  }
-
-  // Why: the PNG for S12/S13 must show the state the fixture names, and this is
-  // the real expand affordance rather than a state reset.
-  await page.click('[data-testid="task-dock-collapsed"]')
-  const restored = await readDock(page)
-  compare(failures, 'dock:expand-affordance', restored.expanded, true)
-}
-
 async function runOne(entry, builds) {
   const startedAt = Date.now()
   const report = {
@@ -743,18 +432,16 @@ async function runOne(entry, builds) {
   let app
   try {
     const expectation = builds.derive(entry.fixture, entry.width, entry.height)
-    report.expected = expectation.dock
-      ? { dock: expectation.dock }
-      : expectation.sidebar
-        ? { sidebar: expectation.sidebar }
-        : expectation.found
+    report.expected = expectation.sidebar
+      ? { sidebar: expectation.sidebar }
+      : expectation.found
           ? { label: expectation.label, summary: expectation.summary, counts: expectation.counts, layout: expectation.layout, semantic: expectation.semantic }
           : { found: false }
     const contractCounts = CONTRACT_COUNTS[entry.fixture]
-    if (expectation.found && !expectation.dock && !expectation.sidebar && !contractCounts) {
+    if (expectation.found && !expectation.sidebar && !contractCounts) {
       failures.push({ name: 'counts:missing-contract-row', expected: 'a §4.2 row', actual: entry.fixture })
     }
-    if (expectation.found && !expectation.dock && !expectation.sidebar && contractCounts) {
+    if (expectation.found && !expectation.sidebar && contractCounts) {
       compare(failures, 'counts:contract', expectation.counts, contractCounts)
       compare(
         failures,
@@ -785,7 +472,7 @@ async function runOne(entry, builds) {
     const url = `${pathToFileURL(path.join(builds.renderer, 'index.html')).href}?fixture=${encodeURIComponent(entry.fixture)}`
     await page.goto(url)
     await page.waitForSelector(
-      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="dock-fixture-root"], [data-testid="sidebar-fixture-root"]',
+      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="sidebar-fixture-root"]',
       { timeout: 30000 }
     )
     await page.evaluate(() =>
@@ -831,7 +518,7 @@ async function runOne(entry, builds) {
       { width: entry.width, height: entry.height }
     )
 
-    if (expectation.dock || expectation.sidebar) {
+    if (expectation.sidebar) {
       for (const [id, expectedCount] of Object.entries(expectation.expectedTestIds)) {
         const actualCount = dom.testIds[id] ?? 0
         if (actualCount !== expectedCount) {
@@ -842,9 +529,6 @@ async function runOne(entry, builds) {
         if (!(id in expectation.expectedTestIds)) {
           failures.push({ name: `testid:${id}:unexpected`, expected: 0, actual: actualCount })
         }
-      }
-      if (expectation.dock) {
-        await assertDock(failures, page, report, expectation)
       }
       if (expectation.sidebar) {
         await assertSidebar(failures, page, report, expectation.sidebar)

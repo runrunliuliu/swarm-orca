@@ -4,7 +4,9 @@
 调研基线：本仓库的 `orca/` 层（upstream `v1.4.219` 快照，见 `orca/upstream.json`、`orca/UPSTREAM.md`）。
 文中 `orca/...` 路径均相对本仓库根目录。
 核对日：2026-11-09；2026-11-16 增补 §6.2、§6.3、§7.9（T2：列表页 dock 与任务草稿行）；
-2026-11-17 增补 §6.5、§7.10（T2 方向变更：dock 改为 agent 输入框，§7.9 的预览卡/状态机/创建链撤销）。
+2026-11-17 增补 §6.5、§7.10（T2 方向变更：dock 改为 agent 输入框，§7.9 的预览卡/状态机/创建链撤销）；
+同日后段**删除列表页 dock**（§6.6）：产品 owner 判定该位置不成立，renderer 侧代码已移除，本文相应小节
+转为历史记录。
 
 本文只记录"代码里有什么 / 能怎么改"。不修改任何 schema、启动器、已装技能或既有会话；不构成实施、合并、
 部署、重启或创建 worktree / Agent 的授权。文中行号与文件路径均为只读观察值，改动前需重新核对 HEAD。
@@ -264,6 +266,8 @@ D8/D9/D11 只描述一期的投影形态，**不等于**批准 `taskRecords` 落
 
 ### 6.5 方向变更（2026-11-17，dock 改为 agent 输入框）
 
+> **已被取代（2026-11-17 同日后段，见 §6.6）**：本节的形态已随 dock 一起删除，保留为当时的决策记录。
+
 产品 owner 推翻了 §7.9.6 / §7.9.7 的"app 侧创建链"，改为把任务创建交还给 agent 自己。原话：
 "任务列表页底部一个 TUI 输入框 → 选模型、输指令 → 发送后在新建的 taskDraft 草稿工作区里起 agent，
 agent 用 Orca 既有 tracker skills 自己建 issue。dock 不调 tracker RPC、没有预览卡、没有状态机。"
@@ -281,6 +285,43 @@ agent 用 Orca 既有 tracker skills 自己建 issue。dock 不调 tracker RPC�
 
 代价（记在被撤销的一侧，供以后判断是否值得回去）：app 侧不再能证明"写 tracker 前有人确认"——那一条
 验收标准随 D16 一起撤销；反过来，dock 也不再需要维护 16 个状态各自的 UI 与重试归属。
+
+### 6.6 删除 dock（2026-11-17 同日后段，用户决定）
+
+> 本节记录一次**反向**决策：§6.2–§6.5 造出来的列表页 dock 被删除，不是延期。产品 owner 的原话是
+> "在任务列表页加这个框意义不大，好像设计上不对"，随后给出删除指令。
+
+**为什么位置不成立（四条，均可在代码里复核）**：
+
+1. **它在把同步确定的事改成异步不确定的事**：dock 唯一的活是"建一个 tracker issue"，而各 provider 的
+   `＋ New issue` 表单本来就直接写；改成"起一个 agent 在 scratch 目录里用 skill 建单"之后，app 侧不再能
+   证明"写之前有人确认"（§6.5 已把 R9 一起撤销）。
+2. **它没有上下文**：它挂在**列表页**——没有选中 issue/PR 的页面。target 只能取 `selectedRepos[0]`，再加上
+   "落点必须是本地 + 必须属于项目组"的约束；"请选择属于项目组的仓库"这条报错就是这两个约束的直接产物，
+   而不是输入框的产物。
+3. **发完之后它是同一会话的第二个、更差的视图**：草稿行在侧栏、会话有自己的 tab；dock 又轮询 PTY 自绘
+   40 行纯文本尾巴，而结构化会话本来就有 `native-chat/` 的聊天面。
+4. **它违反本应用自己的输入约定**：`native-chat` 的 composer 是 Enter 发送、Shift+Enter 换行、带 IME
+   组合态保护（`use-native-chat-composer-keydown.ts:53,102`）；dock 自写裸 `Textarea` + `⌘/Ctrl↵`。
+
+**删除范围（renderer 侧，全部可达代码）**：
+`components/task-page/TaskDock.tsx`(＋test)、`hooks/use-task-page-dock-actions.ts`(＋test)、
+`lib/task-dock-transcript.ts`(＋test)、`lib/task-draft-agent-launch.ts`、`lib/task-draft-prompt.ts`(＋test)、
+`lib/task-draft-name.ts`(＋test)、`components/task-page/{Frame,Surface,TaskPage}.tsx` 的 dock 接线、
+六份 locale 与 `en-runtime-required.json` 的 `taskDock*` 串、渲染 harness 的 dock fixture 与断言
+(S11–S13)。
+
+**保留（用户明确要求）**：agent 侧 tracker 能力——`orca github create-issue`、`orca linear create` 等
+CLI 动词与对应 skills 文档一律不动；dock 是这些能力的一个入口，删入口不等于删能力。
+
+**未删的残留（已不可达，待决定）**：`FolderWorkspace.taskDraft` 字段与其持久化/规范化、
+`getTaskDraftDirectory` IPC、`task-draft-archive-sweep`、侧栏草稿徽标/菜单（`folder-draft-marker`、
+`WorktreeContextMenuDraftAction`）、计数排除（`task-draft-count-exclusion`）与 harness 的
+`d5_sidebar_draft_row`。renderer 侧已没有任何 `taskDraft: true` 的生产者，这些路径因此不可达；删除它们要动
+持久化与 RPC 校验，属独立一刀。
+
+**证据**：本轮为代码级删除，`orca/` 侧未跑 vitest/tsc（本 checkout 无 `node_modules`），故不声称渲染
+或类型门通过；harness fixture 与断言已同步移除，避免留下指向已删组件的测试。
 
 ---
 
@@ -603,7 +644,7 @@ M1 阶段它的正式定位是 **任务聚合视图**（§6.4），tab 名可以
 
 ### 7.9 列表页底部 dock 与任务草稿行（2026-11-16）
 
-状态：**提案已部分撤销（2026-11-17，见 §6.5）**。位置（D7）、草稿行与载体（D8/D9）、目录与会话
+状态：**已整体删除（2026-11-17 同日后段，见 §6.6）**；此前已部分撤销（见 §6.5）。位置（D7）、草稿行与载体（D8/D9）、目录与会话
 （§7.9.5）、生命周期（§7.9.8）、计数排除（§7.9.8 末段）仍然有效；**§7.9.6 的任务写通道、
 §7.9.7 的时序与状态机、§7.9.9 里的 `task-draft-issue-create.ts` / `task-draft-preview-card.tsx`
 已被撤销**，当前实现形态见 §7.10。本节其余内容保留为 2026-11-16 评审通过的原始提案，供对照。
@@ -867,8 +908,8 @@ Needs you、Recent、用量归因。排除逻辑必须是**一个** selector，�
 
 ### 7.10 实现形态（2026-11-17）：dock = agent 输入框
 
-状态：**已实现，分支 `task-workbench-p2a`（`891989fd`），未合入 `main`、未部署**。本节记录实际落地
-的形态与证据；与 §7.9 的差异按 D13–D17（§6.5）。
+状态：**已实现后删除（2026-11-17 同日后段，见 §6.6）**。实现曾落在分支 `task-workbench-p2a`（`891989fd`），
+未合入 `main`；renderer 侧代码现已移除。本节记录当时的形态与证据，供对照。
 
 形态（两个状态，没有第三个）：
 
@@ -1190,11 +1231,11 @@ setup 钩子"或"需要新装/重建依赖"。
 - §8 的降级结论（旧 build 保留未知 domain 并写回）来自代码阅读（`normalizeLoadedProfileState` 的 `{...parsed}`、
   `buildStateToSave` 的 `getDurableState()`），**没有跑过 round-trip 用例**；§8.9 第 1、2 条尚未执行。
 - 未确认 `orca profile state` 的 export/recovery 是否包含未知 domain。
-- §7.9 的 dock 与草稿行：**2026-11-17 已有渲染证据**（harness 18/18 + 侧栏行 1/1，见 §7.10），但仍是 fixture
-  级证据——没有真机端到端（真建草稿工作区、真起 agent、agent 真建出一条 issue）；草稿行在每种
-  Group by 模式下的 lane 与激活行为也仍未实测。
-- §7.10 的模型自由文本分支、`linked to #…` 回写（D17，未实现）与五份 locale 的新串翻译都是缺口。
-- `gh` 的存在性、登录态、远端宿主可用性，以及 `gh issue create` 在 scratch cwd 下配合 `--repo` 的实际行为未验证。
+- §7.9/§7.10 的 dock 已删除（§6.6），它们原有的缺口（`linked to #…` 回写、自由文本模型分支、真机端到端）
+  随之关闭；保留的缺陷记录只剩侧栏草稿行在每种 Group by 模式下的 lane 与激活行为仍未实测——而
+  renderer 已无 `taskDraft: true` 的生产者，该路径当前不可达。
+- `gh` 的存在性、登录态、远端宿主可用性，以及 `gh issue create` 在 scratch cwd 下配合 `--repo` 的实际行为未验证
+  （只影响 agent 侧建单能力，与已删除的 dock 无关）。
 
 ---
 
@@ -1205,7 +1246,7 @@ setup 钩子"或"需要新装/重建依赖"。
    AI Vault `totalTokens` 的一致性（只读，不改代码）。
 3. 若要走 M2：先在测试 fixture 里验证 §8.9 第 1–3 条（未知 domain round-trip / revision CAS / 记录级迁移），
    再拆实施清单（具体文件、domain 名、字段、测试与门禁）。
-4. 路标已改为 UI 优先（§9.0）：P1（工作台 UI）→ P2（T2 dock）→ P3（列表主轴）→ P4（持久化）。
-   P1a 可以先只交静态壳 + 截图，不需要真实数据或存储。
-5. T2 第二刀已按 §6.5 取消（预览卡 / 状态机 / app 侧创建链不再做）；剩下的 T2 缺口是 **D17 `linked to #…`
-   的薄 CLI 动词**，需单独授权。
+4. 路标已改为 UI 优先（§9.0）：P1（工作台 UI）→ P3（列表主轴）→ P4（持久化）。原 P2（T2 dock）已按 §6.6
+   删除，不再是路标上的阶段；P1a 可以先只交静态壳 + 截图，不需要真实数据或存储。
+5. T2 整体不再推进：dock 已删除（§6.6），D17 与 §7.10 的缺口随之关闭；agent 侧建单能力（skills / CLI 动词）
+   保留，作为任何 agent 会话都可用的能力。

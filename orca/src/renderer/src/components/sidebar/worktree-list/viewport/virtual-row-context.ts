@@ -94,6 +94,7 @@ export function buildWorktreeVirtualRowContext(args: BuildArgs): WorktreeVirtual
           ),
         onOpenRepoSettings: props.handleOpenRepoSettings,
         onOpenWorktreeVisibility: props.handleOpenWorktreeVisibility,
+        onOpenAgentInRepo: props.handleOpenAgentInRepo,
         onCreateGroupFromRepo: props.handleCreateGroupFromRepo,
         onMoveProjectToGroup: props.handleMoveProjectToGroup,
         onRemoveProjectFromGroup: props.handleRemoveProjectFromGroup,
