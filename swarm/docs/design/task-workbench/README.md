@@ -421,9 +421,8 @@ M1 阶段它的正式定位是 **任务聚合视图**（§6.2），tab 名可以
 下面 9 张是**当前代码渲染出来的**界面，按功能区拆开，源文件在 `ui/`（`impl-*.png`）。渲染方式是仓库既有的
 rendered harness，用 P1a 的 fixture 数据跑生产组件，再用 CDP 截图（`devicePixelRatio = 1`）：
 
-> **注意**：这 9 张是**视觉返工前**（2026-11-18 之前）的版面。§7.4.2 的目标形态已于 2026-11-18 实现
-> （§7.4.3），但本轮没有产出新的真渲染图，因此下面的图与表格描述的仍是旧版面的分区职责，
-> 不是当前代码的样子。
+> **注意**：这 9 张是**视觉返工前**（2026-11-18 之前）的版面，保留下来只作为"改之前长什么样"的历史证据；
+> 表格描述的是旧版面的分区职责。返工后的真渲染在 §7.4.5（`impl-20261118-*.png`），那才是当前代码的样子。
 
 ```sh
 cd orca
@@ -583,14 +582,9 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 （原来带 `tokens` / `jetons` / `トークン` / `토큰`）；**词级文案**只覆盖 zh/en，es/fr/ja/ko 保留既有译文，
 既不回退也不在本轮调整。因此不能说"六种语言都完成了视觉收口"。
 
-证据层级必须说清：本节只到**代码 + 定向检查**这一层。`tests/tools/task-workbench-rendered` 的期望表已按新 DOM
-更新（header 的 testid 整组删除，新增 `-facts`／`-row-icon`／`-row-action`／`workspace-host-chip`，token 断言改成
-"只比较有数字的行"，用量断言从内部 token 改成读者词），但**没有跑过**：该 harness 需要 `orca/node_modules`
-与 X display，这次检出两者都没有。因此：
-
-- 本轮**没有**新的真渲染图，`ui/` 下仍是 §7.4.1 那 9 张返工前截图 + §7.4.2 两张设计稿；
-- 本轮**没有**真机核对，也没有跑 vitest／type-check（同一依赖缺口）；
-- 补一组 `impl-*` 真渲染图与一次真机核对仍是未完成项（§12）。
+证据层级：本节先是"代码 + 定向检查"，随后按 `orca` 的依赖树补齐了可执行证据（§7.4.5 有命令与结果）。
+变更点汇总：harness 期望表按新 DOM 更新（header 的 testid 整组删除，新增 `-facts`／`-row-icon`／`-row-action`／
+`workspace-host-chip`／`delivery-read`，token 断言改成"只比较有数字的行"，用量断言从内部 token 改成读者词）。
 
 #### 7.4.4 只读评审回执（codex-ark，2026-11-18）
 
@@ -624,6 +618,56 @@ F8 语义、未知 token 不渲染、三个空态不出现「假 0」都没有�
 2. **F8 与三个空态的整行渲染断言**：`TaskWorkbenchAgentRow.test.tsx` 只能挂载 dot 与投影，因为行本身
    经 `@/lib/agent-catalog` 拉 `resources/`（sparse 检出没有该目录）。真正的整行断言要靠 harness 截图，
    也就是上面那组尚未产出的真渲染图。
+
+#### 7.4.5 返工后的真渲染与执行证据（2026-11-18）
+
+依赖树按 `package.json` 的 pin 装好（`pnpm@12.0.0`，`pnpm install --offline --frozen-lockfile`，Electron 二进制
+从 `~/.cache/electron` 解出），于是 §7.4.3 里"没有跑过"的部分现在都有结果。
+
+**图**：下面 8 张是**当前代码**渲染的，仍走 §7.4.1 那条 harness（fixture → 生产组件 → CDP 截图，
+`devicePixelRatio = 1`），文件名同样在 `ui/`：
+
+| 面 | 图 | fixture · 视口 | 这张图能证明什么 |
+| --- | --- | --- | --- |
+| 宽屏双列 | `ui/impl-20261118-wide.png` | f1_baseline · 1440×900 | 左 Agents（`Working 1` + `History 1` 折叠控件在节标题右侧）、右 Workspaces + facts 带；工作区身份是 `web-app · feature/add-login`（分支名，不是显示名） |
+| 窄窗单列 | `ui/impl-20261118-narrow.png` | f1_baseline · 900×700 | `<1100px` 走 Workspaces → Agents → facts，Delivery 自动折成一行 `Expand`，用量降为一行摘要 |
+| 矮窗 | `ui/impl-20261118-short.png` | f1_baseline · 1280×479 | `<480px` 时 Workspaces 变紧凑行、Spend 摘要、Delivery 折叠 |
+| Agents 分组 | `ui/impl-20261118-agents.png` | f3_many_workspaces_agents · 1440×900 | `Working 4` / `Needs you 1`（tinted）/ `History 5`（展开后有独立组标题）；多工作区时每行带 `▦ api · feature/jwt-verify` pill |
+| 工作区归档折叠 | `ui/impl-20261118-workspaces-fold.png` | f5_archived_only · 1440×900 | 唯一工作区已归档时折叠默认展开、行带 `Archived`，且不带 `Default` 标记 |
+| facts 带（不可用态） | `ui/impl-20261118-facts.png` | f4_usage_disabled · 1440×900 | 用量印读者词 `Not enabled` + 一句原因 + `Settings`，交付印 `Not loaded` + 原因 + `Load evidence`；两行同一个面，虚线告警没有了 |
+| 0 工作区 | `ui/impl-20261118-empty.png` | f2a_zero_workspace_open · 1440×900 | 空态是事实 + 一个 disabled 的 `Create workspace`；用量 `No matching session`、交付 `Not loaded`，全程没有 `$0` |
+| 失败轮 | `ui/impl-20261118-failure.png` | f8_failure_outcome · 1440×900 | 行里印 `Failed` 且**没有** `Delivered`，点变 failed |
+
+**命令与结果**（都在 `orca/` 下执行；未提交 `node_modules` 与 `.bench-fixtures/`）：
+
+```sh
+node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 \
+  src/renderer/src/components/task-workbench src/renderer/src/lib/task-workbench
+#   Test Files 8 passed (8) / Tests 149 passed (149) / 3.4s
+
+node config/scripts/run-typecheck-projects-in-parallel.mjs          # 四个 tsc 项目，无输出，exit 0
+node node_modules/typescript/bin/tsc --noEmit -p config/tsconfig.tc.web.json   # exit 0
+node_modules/.bin/oxlint --config .oxlintrc.json src/renderer/src/components/task-workbench   # exit 0
+node_modules/.bin/oxlint --config config/oxlint-design-system.json src/renderer/src/components/task-workbench  # exit 0
+node config/scripts/check-max-lines-ratchet.mjs                    # OK，无新增 bypass
+node config/scripts/verify-localization-catalogs.mjs               # exit 0（zh 15046/15120，es/fr/ja/ko 各缺 250，均走既定回退）
+node config/scripts/generate-runtime-required-english-catalog.mjs  # exit 0：手写的 runtime catalog 与生成器一致
+node config/scripts/verify-localization-extraction.mjs             # exit 0
+
+DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all --calibrate
+#   summary: 17/17 passed, 21.7s（S1–S10d + F9 + 两条降级探针）
+```
+
+**还没做**：
+
+- `verify:localization-coverage` 在这条分支上是**红**的，但红的不是本次改动：它报
+  `IncidentDetailDrawer.tsx:131`（`sha256:`）与 `IncidentGrayTables.tsx:186`（`exit`）两处，两个文件的最后一次改动
+  是 `3a1469c8`，与本次提交无关。没有顺手把它们加进 allowlist——那会把一个真实缺口静音。
+- 仍**没有真机核对**：图是 fixture 数据的渲染，不经过 store / selector / RPC / 持久化，也不切 locale
+  （harness 用英文默认值）。"真机打开一个任务会看到什么"依然未验证。
+- 真机核对要看的三件事：(1) 真实 worktree 的 `branch` 是否总被填上（folder 之外）；(2) 窄窗里长 host /
+  长工作区状态是否按 `flex-wrap` 换行而不是被裁掉；(3) 未接线动作的 `aria-describedby` 在读屏里是否真的
+  念出原因。
 
 ### 7.5 状态矩阵（必须逐条实现，否则会出现"假 0"）
 
@@ -1055,10 +1099,10 @@ setup 钩子"或"需要新装/重建依赖"。
   也没有 P1b 的独立评审回执。
 - P1 只接了 GitHub issue/PR 详情；Linear / GitLab / Jira 的 `Orca` tab 未实现，因此"面板合计 ==
   `projectBreakdown['worktree:<id>']`"这条对照只在 GitHub 侧成立。
-- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；该版面已在 §7.4.3 实现，
-  但**没有新的真渲染图**：rendered harness 需要 `orca/node_modules` 与 X display，这次检出两者都没有，
-  所以 vitest / type-check / 截图三者均未执行。§7.4.1 的 `impl-*` 仍是返工前的渲染。
-  待办：按 §7.4.1 的方式补一组真渲染图，并做一次真机核对。
+- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；该版面已在 §7.4.3 实现，返工后的
+  真渲染与执行结果在 §7.4.5（8 张 `impl-20261118-*.png`、vitest 8/8 文件 149 用例、四个 tsc 项目、
+  harness 17/17）。仍缺 **真机核对**（图是 fixture 渲染，不经过 store / selector / RPC，也不切 locale），
+  以及 `verify:localization-coverage` 的两处既有红灯（`IncidentDetailDrawer` / `IncidentGrayTables`，与本次无关）。
 - `orca github create-issue` 只在单测里被验证过转发；`gh` 备通道的存在性、登录态与 `--repo` 实际行为未验证
   （只影响 agent 侧建单能力）。
 
