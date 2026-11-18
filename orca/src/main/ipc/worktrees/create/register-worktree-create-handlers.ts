@@ -31,6 +31,7 @@ import type { CreateWorktreeArgsWithSystemProvenance } from '../ipc-context-sche
 import { createFolderWorkspace } from './folder-workspace-creation'
 import { findExactRepoOwner, isCapturedRepoCurrent } from '../listing/worktree-host-ownership'
 import { requireWorktreeCreateRoute } from '../../../worktree-create-execution-host-route'
+import { captureLinkedIssueContextForWorktree } from '../../../github/linked-issue-context-capture'
 import type { WorktreeIpcContext } from '../worktree-ipc-context'
 
 export function registerWorktreeCreateHandlers(context: WorktreeIpcContext): void {
@@ -104,6 +105,16 @@ export function registerWorktreeCreateHandlers(context: WorktreeIpcContext): voi
         if (isFolderRepo(repo)) {
           notifyWorktreesChanged(mainWindow, repo.id)
         }
+
+        // Why fire-and-forget and after the create returned: a linked issue body is enrichment,
+        // so a slow or failing `gh` must not delay or fail a create that already succeeded. The
+        // capture notifies on success, which is how the renderer learns about the snapshot.
+        void captureLinkedIssueContextForWorktree({
+          store,
+          worktreeId: result.worktree.id,
+          worktreePath: result.worktree.path,
+          onCaptured: () => notifyWorktreesChanged(mainWindow, repo.id)
+        })
 
         options?.onWorktreeLifecycle?.({
           kind: 'created',

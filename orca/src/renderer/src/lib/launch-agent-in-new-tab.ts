@@ -1,6 +1,11 @@
 import { useAppStore } from '@/store'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import { planLaunchAgentStartupPrompt } from '@/lib/launch-agent-startup-prompt-plan'
+import {
+  planLinkedIssueContextLaunch,
+  resolveLinkedIssueContextDraft
+} from '@/lib/linked-issue-context-draft'
+import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { persistAgentLaunchTabOrder } from '@/lib/launch-agent-tab-order'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { createPasteReadinessTimeoutNotice } from '@/lib/launch-agent-paste-timeout-notice'
@@ -29,6 +34,7 @@ import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-lau
 import { workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
 import {
   planAgentSessionLaunch,
+  withAgentSessionLaunchPrompt,
   type AgentSessionLaunchPlan
 } from '@/lib/agent-session-launch-plan'
 
@@ -111,7 +117,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     prompt,
     agentArgs,
     initialCwd,
-    promptDelivery = 'auto-submit',
+    promptDelivery: requestedPromptDelivery = 'auto-submit',
     launchSource,
     spawnedFromPaneKey,
     quickCommandLabel,
@@ -134,7 +140,27 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       ? agentArgs
       : resolveTuiAgentLaunchArgs(agent, store.settings?.agentDefaultArgs)
   const agentEnv = resolveTuiAgentLaunchEnv(agent, store.settings?.agentDefaultEnv)
-  const trimmedPrompt = prompt?.trim() ?? ''
+  // Why here: every "new agent in an existing worktree" entry point (sidebar spawn, tab-bar quick
+  // launch, canvas) funnels through this function, so one decision covers them all. The cached
+  // issue block only fills a launch that would otherwise start with no prompt at all.
+  const linkedIssuePlan = planLinkedIssueContextLaunch({
+    prompt,
+    promptDelivery: requestedPromptDelivery,
+    // Why only without a prompt: a user prompt wins untouched, so building the block for it would
+    // be wasted work on the hottest launch path.
+    draft: prompt?.trim()
+      ? null
+      : resolveLinkedIssueContextDraft({
+          // Why `?? {}`: the launch funnel also runs against partial store shapes (harnesses and
+          // previews); an absent catalog means "no cached issue", not a crash on the launch path.
+          worktree: findWorktreeById(store.worktreesByRepo ?? {}, worktreeId),
+          settings: store.settings
+        })
+  })
+  const trimmedPrompt = linkedIssuePlan.prompt.trim()
+  // Why: every later delivery decision must see the injected draft as a draft, not as the
+  // caller's requested delivery, or the block would be auto-submitted.
+  const promptDelivery = linkedIssuePlan.promptDelivery
   const hasPrompt = trimmedPrompt.length > 0
   const isFollowupPath = TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
   const workspaceKind = workspaceKindForWorktreeId(worktreeId)
@@ -163,7 +189,10 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     base: startupPlanBase,
     prompt: trimmedPrompt,
     promptDelivery,
-    isFollowupPath
+    isFollowupPath,
+    // Why never argv for the injected block: the block can reach the 12000-char budget and argv
+    // prefill would put it on the launch command line. Launch clean and paste it after readiness.
+    pasteOnlyPrompt: linkedIssuePlan.injectedIssueContext
   })
   let promptDeliveryResult: Promise<{ delivered: boolean; failureNotified: boolean }> | undefined
 
@@ -204,17 +233,26 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     }
   }
 
-  const plan =
-    agentSessionLaunchPlan ??
-    planAgentSessionLaunch(store, {
-      agent,
-      workspace: { kind: workspaceKind, worktreeId },
-      prompt: trimmedPrompt,
-      promptDelivery: viewModePromptDelivery,
-      tuiCustomization: { cwd: initialCwd },
-      initialSessionOptions: startupPlan.sessionOptions,
-      onPromptDelivered
-    })
+  // Why the injected draft re-adopts a precomputed plan: a caller (empty-workspace default chat)
+  // plans the route before this function sees the prompt, and the plan's begin/launch close over
+  // that empty verdict — reusing it as-is would silently drop the issue block on the structured
+  // route. Re-adoption keeps the decided route and changes only what it delivers.
+  const plan = agentSessionLaunchPlan
+    ? linkedIssuePlan.injectedIssueContext
+      ? withAgentSessionLaunchPrompt(agentSessionLaunchPlan, {
+          prompt: trimmedPrompt,
+          promptDelivery: viewModePromptDelivery
+        })
+      : agentSessionLaunchPlan
+    : planAgentSessionLaunch(store, {
+        agent,
+        workspace: { kind: workspaceKind, worktreeId },
+        prompt: trimmedPrompt,
+        promptDelivery: viewModePromptDelivery,
+        tuiCustomization: { cwd: initialCwd },
+        initialSessionOptions: startupPlan.sessionOptions,
+        onPromptDelivered
+      })
   if (plan?.route === 'structured-native-chat' && spawnedFromPaneKey) {
     // Why: this snapshot's structured launch/settlement contract cannot persist a provenance pin, and
     // falling through would silently downgrade the launch to a legacy terminal tab and lose structured

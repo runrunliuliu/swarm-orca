@@ -4,6 +4,7 @@ import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import type { Worktree } from '../../shared/worktree/types'
 import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../../shared/worktree/id'
 import { normalizeWorkspaceCreatorProvenance } from '../../shared/workspace-creator-provenance'
+import { normalizeLinkedIssueContextSnapshot } from '../../shared/linked-issue-context-snapshot'
 
 export function getRuntimeFolderWorkspaceRootId(repo: Repo): string {
   return `${repo.id}::${repo.path}`
@@ -56,6 +57,9 @@ export function mergeRuntimeFolderWorkspace(
     linkedGiteaPR: meta.linkedGiteaPR ?? null,
     linkedWorkItem: meta.linkedWorkItem ?? null,
     linkedTaskSourceContext: meta.linkedTaskSourceContext ?? null,
+    // Why null even though captures skip folder workspaces: a reader must never have to tell
+    // "this projection forgot the field" apart from "this worktree has no cached issue".
+    linkedIssueContext: normalizeLinkedIssueContextSnapshot(meta.linkedIssueContext),
     isArchived: meta.isArchived ?? false,
     isUnread: meta.isUnread ?? false,
     isPinned: meta.isPinned ?? false,

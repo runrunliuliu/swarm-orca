@@ -28,5 +28,16 @@ export const getTasksPaneSearchEntries = createLocalizedCatalog(() => [
       'Connect task providers, install the Linear agent skill, and choose what appears in Tasks.'
     ),
     keywords: getTasksPaneSearchKeywords()
+  },
+  {
+    title: translate(
+      'auto.components.settings.tasks.search.prefillLinkedIssueContextTitle',
+      'Prefill linked issue into agent drafts'
+    ),
+    description: translate(
+      'auto.components.settings.tasks.search.prefillLinkedIssueContextDescription',
+      'Start a new agent in a linked workspace with that issue quoted as reference text.'
+    ),
+    keywords: getTasksPaneSearchKeywords()
   }
 ])

@@ -2,6 +2,7 @@ import type { ExecutionHostId } from '../execution-host'
 import type { WorktreeCatalogVersion } from './catalog-version'
 import type { AutomationExecutionTargetType } from '../automations-types'
 import type { TaskSourceContext } from '../task-source-context'
+import type { LinkedIssueContextSnapshot } from '../linked-issue-context-snapshot'
 import type { TuiAgent } from '../tui-agent'
 import type { DiffComment, MobileDiffReviewState } from '../diff-comment-types'
 import type { EphemeralVmCheckoutMode } from '../orca-yaml-hook-types'
@@ -104,6 +105,10 @@ export type Worktree = {
   linkedGiteaPR?: number | null
   linkedWorkItem?: WorkspaceLinkedItem | null
   linkedTaskSourceContext?: TaskSourceContext | null
+  /** Write-once GitHub issue snapshot captured when Orca created the worktree. Absent for
+   *  worktrees created before the capture existed and for every non-GitHub link; readers must
+   *  treat absence as "no cached context", never as an empty issue. */
+  linkedIssueContext?: LinkedIssueContextSnapshot | null
   isArchived: boolean
   isUnread: boolean
   isPinned: boolean

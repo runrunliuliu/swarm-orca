@@ -39,6 +39,17 @@ export function mergeWorktreeMetaForWrite(
     ...normalizeGitHubPRSuppressionUpdate(updates),
     ...identity
   }
+  // Why here: every metadata writer (locator and host-qualified rows, IPC and RPC) funnels through
+  // this function, so no writer can leave a cached body attached to a link it was not read from.
+  // Only an explicit number or null retires the snapshot; `undefined` on a present key is not a
+  // link change, which is how the create and capture writes stay independent.
+  const nextLinkedIssue = Object.hasOwn(updates, 'linkedIssue') ? updates.linkedIssue : undefined
+  if (
+    nextLinkedIssue !== undefined &&
+    (nextLinkedIssue ?? null) !== (existing?.linkedIssue ?? null)
+  ) {
+    updated.linkedIssueContext = null
+  }
   updated.linkedWorkItem = normalizeWorkspaceLinkedItem(updated.linkedWorkItem)
   const sourceContext = normalizeStoredTaskSourceContext(updated.linkedTaskSourceContext)
   updated.linkedTaskSourceContext = isWorkspaceLinkedItemSourceContextMatch(

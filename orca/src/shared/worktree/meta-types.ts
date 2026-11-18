@@ -1,5 +1,6 @@
 import type { ExecutionHostId } from '../execution-host'
 import type { TaskSourceContext } from '../task-source-context'
+import type { LinkedIssueContextSnapshot } from '../linked-issue-context-snapshot'
 import type { EphemeralVmCheckoutMode } from '../orca-yaml-hook-types'
 import type {
   AutomationWorkspaceProvenance,
@@ -51,6 +52,10 @@ export type WorktreeMeta = {
   linkedGiteaPR?: number | null
   linkedWorkItem?: WorkspaceLinkedItem | null
   linkedTaskSourceContext?: TaskSourceContext | null
+  /** Cached issue body captured once at create time (see shared/linked-issue-context-snapshot.ts).
+   *  Cleared whenever the linked GitHub issue number changes or is unlinked, so a stale body can
+   *  never be injected into a worktree that points at a different issue. */
+  linkedIssueContext?: LinkedIssueContextSnapshot | null
   isArchived: boolean
   isUnread: boolean
   isPinned: boolean
