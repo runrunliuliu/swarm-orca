@@ -557,7 +557,7 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 
 - `开放` vs `打开`：`打开` 原本是工作台自画的 tracker 状态徽标；随头部删除一起消失，issue 状态现在只由页面
   统一的 `开放` 表达，`打开` 只剩 PR 状态的 `pullRequestState.open` 一处含义。
-- `不可用 · disabled`：界面印读者词（`未启用`／`未定价`／`无法归属`／`无匹配会话`／`远程主机`／`未归属`），
+- `不可用 · disabled`：界面印读者词（`未启用`／`未定价`／`匹配不唯一`／`未找到匹配会话`／`远程主机`／`未归属`），
   内部 token 退到同一个徽标的 `title`。§7.5 的三态规则本身没变，只是换了呈现层。
 - 未翻译的 `In progress`：那是 store 里的**工作区状态标签**（用户自建数据，`WorkspaceStatusDefinition.label`），
   不是本仓库的文案。实现侧的处理是把它继续按数据原样渲染，而不是替用户数据编译文；若内置默认状态也要
@@ -676,8 +676,8 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 | 用量可用 | `estimatedCostUsd !== null` | 数字 + 估算 tooltip |
 | 用量统计未启用 | `scanState.enabled === false` | 徽标 `未启用` + 一句原因 + `设置` 动作（§7.4.3：徽标印读者词，`unavailable · disabled` 退到 tooltip） |
 | 未定价模型 | `hasUnpricedModels` | tokens 正常、花费显示 `—` + 说明 |
-| 会话归因歧义 | 时间窗内多个候选 | 徽标 `无法归属`，原因句说明并列多个候选，不猜 |
-| 无匹配会话 | 窗口内无会话 | 徽标 `无匹配会话` + 原因句 |
+| 会话归因歧义 | 时间窗内多个候选 | 徽标 `匹配不唯一`，原因句说明并列多个候选，不猜 |
+| 无匹配会话 | 窗口内无会话 | 徽标 `未找到匹配会话` + 原因句 |
 | 远端 / SSH 工作区 | `executionHostId` 非本地 | 工作区行带 host chip；用量徽标 `远程主机` + 原因句 |
 | 无关联工作区 | 任务无绑定 | 主按钮 `Create workspace from this task` |
 | 本地任务（无 tracker） | 仅在 worktree 侧存在 | 行内 `◇` 徽标 + 顶部筛选；按活跃工作区状态并入 Needs you/Working/Delivered，标题取 `displayName`（§7.4.3：工作台自身不再画身份徽标，这一列由列表页与页头承担） |
@@ -686,7 +686,7 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 | 无 tracker 的工作区 | 无 `linkedWorkItem` 等字段 | 行内 `◇` 徽标 + 顶部筛选；不影响其状态分组 |
 
 徽标词与内部 token 的对应（§7.4.3）：`disabled → 未启用`、`unpriced → 未定价`、
-`ambiguous_session → 无法归属`、`no_matching_session → 无匹配会话`、`remote_host → 远程主机`、
+`ambiguous_session → 匹配不唯一`、`no_matching_session → 未找到匹配会话`、`remote_host → 远程主机`、
 `unattributed → 未归属`。token 本身不删，仍可通过同一个徽标的 `title` 读到。
 
 ### 7.6 组件与数据映射（实现清单草案）
