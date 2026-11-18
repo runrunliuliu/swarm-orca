@@ -21,6 +21,7 @@ import { SidebarWorktreeListDialogs } from './worktree-list/rows/ProjectGroupDia
 import { SidebarWorktreeListEmptyState } from './worktree-list/listing/EmptyState'
 import { VirtualizedWorktreeViewport } from './worktree-list/viewport/VirtualizedWorktreeViewport'
 import { markSidebarWorktreeActiveImmediately } from './worktree-list/rows/option-dom'
+import { startAgentInRepoCheckout } from '@/lib/start-agent-in-repo-checkout'
 import { EMPTY_PROJECT_GROUPS } from './worktree-list/viewport/viewport-props'
 import { NOOP_WORKSPACE_BOARD_DRAG_PREVIEW_CALLBACK } from './worktree-list/drag/drop-commit-context'
 import { useAgentSendTargetWorktreeId } from './worktree-list/listing/use-agent-send-target'
@@ -200,6 +201,9 @@ const WorktreeList = React.memo(function WorktreeList({
     },
     [openModal]
   )
+  const handleOpenAgentInRepo = useCallback((repo: Repo) => {
+    startAgentInRepoCheckout(repo)
+  }, [])
   const handleOpenRepoSettings = useCallback(
     (projectId: string, sectionId?: string) => {
       openSettingsTarget({ pane: 'repo', repoId: projectId, ...(sectionId ? { sectionId } : {}) })
@@ -298,6 +302,7 @@ const WorktreeList = React.memo(function WorktreeList({
         toggleGroup={toggleGroup}
         collapsedGroups={effectiveCollapsedGroups}
         handleCreateForRepo={handleCreateForRepo}
+        handleOpenAgentInRepo={handleOpenAgentInRepo}
         handleOpenRepoSettings={handleOpenRepoSettings}
         handleOpenWorktreeVisibility={handleOpenWorktreeVisibility}
         handleShowImportedWorktrees={externalWorktreeCards.handleShowImportedWorktrees}

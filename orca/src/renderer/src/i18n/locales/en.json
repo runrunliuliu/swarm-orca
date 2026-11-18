@@ -5748,6 +5748,8 @@
           "deleteDraft": "Delete draft"
         },
         "WorktreeList": {
+          "openAgentInRepo": "Open agent in {{value0}}",
+          "openAgentNoCheckout": "This project has no workspace on this host yet.",
           "7a8b9c0d1e": "Update required",
           "hostAuthNeeded": "Authentication needed",
           "hostDisconnected": "Disconnected",
