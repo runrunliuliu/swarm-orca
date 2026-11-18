@@ -5,14 +5,6 @@ import type { VirtualItem } from '@tanstack/react-virtual'
 import { i18n } from '../../../src/renderer/src/i18n/i18n'
 import { TooltipProvider } from '../../../src/renderer/src/components/ui/tooltip'
 import { TaskWorkbenchPanel } from '../../../src/renderer/src/components/task-workbench/TaskWorkbenchPanel'
-import { TASK_PAGE_COLUMN_CLASS } from '../../../src/renderer/src/components/task-page/Frame'
-import { PaginationBar } from '../../../src/renderer/src/components/task-page/PaginationBar'
-import { TaskDock } from '../../../src/renderer/src/components/task-page/TaskDock'
-import type {
-  TaskDockModel,
-  TaskDockModelOption,
-  TaskDockTranscriptLine
-} from '../../../src/renderer/src/components/task-page/TaskDock'
 import { renderFolderWorkspaceVirtualRow } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
 import type { FolderWorkspaceRowContext } from '../../../src/renderer/src/components/sidebar/worktree-list/rows/folder-row'
 import type { FolderWorkspaceItemRow } from '../../../src/renderer/src/components/sidebar/worktree-list/listing/renderable-rows'
@@ -32,9 +24,9 @@ import type {
 import './fixture.css'
 
 /**
- * Rendered fixture for the task-workbench surfaces: the P1a workbench shell, the
- * Tasks list-page agent dock and the sidebar draft row. One fixture and one
- * window size per run: `?fixture=<key>`.
+ * Rendered fixture for the task-workbench surfaces: the P1a workbench shell and
+ * the sidebar draft row. One fixture and one window size per run:
+ * `?fixture=<key>`.
  *
  * Why the layout comes from the viewport: P1a has no container tracking yet, so
  * the harness treats the window content area as the panel container. The run
@@ -49,128 +41,8 @@ import './fixture.css'
 const fixtureKey = new URLSearchParams(window.location.search).get('fixture') ?? ''
 const fixture = getTaskWorkbenchFixture(fixtureKey)
 
-const DOCK_FIXTURES: Record<string, 'collapsed' | 'expanded'> = {
-  d1_dock_collapsed: 'collapsed',
-  d2_dock_expanded: 'expanded'
-}
-const dockState = DOCK_FIXTURES[fixtureKey]
-
-// The typed instruction and the model list are deliberately duplicated in
-// `run.mjs`'s derive(): the driver retypes the instruction and picks a model, so
-// a fixture edit that changes either fails there instead of quietly weakening
-// the assertions.
-const DOCK_TYPED_INSTRUCTION = 'Fix the flaky login test'
-const DOCK_MODEL_OPTIONS: readonly TaskDockModelOption[] = [
-  { id: 'claude-opus-4', label: 'Opus 4' },
-  { id: 'claude-sonnet-4', label: 'Sonnet 4' }
-]
-
-// Duplicated in `run.mjs`'s derive() like the other dock pins: the driver owns the expected tail,
-// so a fixture edit that drops a line fails there instead of passing quietly.
-const DOCK_TRANSCRIPT: readonly TaskDockTranscriptLine[] = [
-  { text: 'Draft workspace ready: /tmp/task-drafts/add-login-retry', tone: 'meta' },
-  { text: '> Fix the flaky login test', tone: 'user' },
-  { text: 'Reading the failing test before I change anything.', tone: 'agent' },
-  { text: 'Opened src/renderer/src/lib/login-retry.test.ts', tone: 'agent' },
-  { text: 'The retry loop runs before the error branch is reached.', tone: 'agent' },
-  { text: 'Reproduced: second attempt re-enters the loop.', tone: 'agent' },
-  { text: 'Patching the loop to bail on the first failure.', tone: 'agent' },
-  { text: 'Running the suite…', tone: 'agent' },
-  { text: '12 passed, 1 failed (the timing test).', tone: 'agent' },
-  { text: 'The timing test asserted the old loop count.', tone: 'agent' },
-  { text: 'Updated the expectation to one attempt.', tone: 'agent' },
-  { text: 'Suite green. Next: report the change.', tone: 'agent' }
-]
-
-// Duplicated in `run.mjs`'s derive() for the same reason as the dock pins.
+/** The sidebar row fixture's linked issue; `run.mjs`'s derive() holds the same number. */
 const LINKED_ISSUE_NUMBER = 412
-
-/** The dock is the one interactive part of the Tasks list page, and it is the
- *  only thing this fixture mounts: a column that mirrors `Frame.tsx` (the
- *  padded class is imported, not retyped) around a real `PaginationBar`, with
- *  local state standing in for the dock action hook. */
-function DockFixture({ state }: { state: 'collapsed' | 'expanded' }): React.JSX.Element {
-  const [instruction, setInstruction] = React.useState(
-    state === 'expanded' ? DOCK_TYPED_INSTRUCTION : ''
-  )
-  const [expanded, setExpanded] = React.useState(state === 'expanded')
-  const [modelId, setModelId] = React.useState('')
-  const [submitting] = React.useState(false)
-  const [targetLabel] = React.useState<string | null>('github · acme/widgets')
-  const [errorMessage] = React.useState<string | null>(null)
-  const [submits, setSubmits] = React.useState(0)
-  const [lastInstruction, setLastInstruction] = React.useState('')
-  const [lastModel, setLastModel] = React.useState('')
-  const transcript = state === 'expanded' ? DOCK_TRANSCRIPT : []
-
-  const model: TaskDockModel = {
-    instruction,
-    expanded,
-    targetLabel,
-    model: modelId,
-    modelOptions: DOCK_MODEL_OPTIONS,
-    transcript,
-    transcriptStatus: transcript.length > 0 ? 'live' : 'none',
-    submitting,
-    errorMessage,
-    onInstructionChange: setInstruction,
-    onModelChange: setModelId,
-    onExpandedChange: setExpanded,
-    onSubmit: () => {
-      setSubmits((count) => count + 1)
-      setLastInstruction(instruction)
-      setLastModel(modelId)
-    }
-  }
-
-  return (
-    <main
-      data-testid="dock-fixture-root"
-      data-dock-submits={submits}
-      data-dock-last-instruction={lastInstruction}
-      data-dock-last-model={lastModel}
-      data-dock-instruction={instruction}
-      data-dock-model={modelId}
-      data-dock-expanded={String(expanded)}
-      className="flex h-screen flex-col bg-background p-4 text-foreground"
-    >
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Why: same shape as Frame.tsx — one padded column holding the list card and the dock,
-            so "the dock is outside the card" is tested against the real layout classes. */}
-        <div data-testid="dock-fixture-column" className={TASK_PAGE_COLUMN_CLASS}>
-          <div
-            data-testid="dock-fixture-card"
-            className="flex min-h-0 min-w-0 max-h-full flex-col overflow-hidden rounded-md border border-border/50 bg-background shadow-sm"
-          >
-            <div
-              data-testid="dock-fixture-card-scroll"
-              className="min-h-0 flex-initial overflow-auto scrollbar-sleek scrollbar-sleek-lg"
-              style={{ scrollbarGutter: 'stable' }}
-            >
-              {Array.from({ length: 40 }, (_, index) => (
-                <div
-                  key={index}
-                  className="flex h-10 items-center border-b border-border/40 px-4 text-sm text-muted-foreground"
-                >
-                  {`Synthetic task ${index + 1}`}
-                </div>
-              ))}
-            </div>
-            <div data-testid="dock-fixture-card-footer">
-              <PaginationBar
-                currentPage={0}
-                totalPages={5}
-                loadingTarget={null}
-                onPageChange={() => {}}
-              />
-            </div>
-          </div>
-          <TaskDock model={model} />
-        </div>
-      </div>
-    </main>
-  )
-}
 
 const PROJECT_GROUP: ProjectGroup = {
   id: 'project-group-drafts',
@@ -323,7 +195,7 @@ function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element
         Unknown task-workbench fixture: <code>{fixtureKey || '(missing)'}</code>. Known fixtures:{' '}
         <code>
           {Object.keys(TASK_WORKBENCH_FIXTURES)
-            .concat(Object.keys(DOCK_FIXTURES), ['d5_sidebar_draft_row'])
+            .concat(['d5_sidebar_draft_row'])
             .join(', ')}
         </code>
       </div>
@@ -358,8 +230,6 @@ createRoot(root).render(
     <TooltipProvider>
       {fixture ? (
         <Fixture view={fixture.view} />
-      ) : dockState ? (
-        <DockFixture state={dockState} />
       ) : fixtureKey === 'd5_sidebar_draft_row' ? (
         <SidebarDraftRowFixture />
       ) : (

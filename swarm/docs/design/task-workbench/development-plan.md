@@ -28,7 +28,7 @@
 | 路标 | 目标 | 看得到什么 | 主要工作包 | 不做 |
 | --- | --- | --- | --- | --- |
 | **P1 工作台 UI** | 先钉住那一屏 | 详情页 `Orca` tab：工作区、agent 行（带所属工作区）、token、用量三态、证据摘要 | WP1/WP2/WP3 的只读部分；P1a 明细见 [静态壳计划](p1a-ui-shell-plan.md) | 列表主轴、持久化、dock |
-| **P2 输入入口** | 任务"说得出来" | 列表页 dock（选模型 + 输指令）+ 侧栏草稿行，建单由草稿会话里的 agent 完成 | WP-T2a/WP-T2b（已实现）+ WP-T2d（除 `linked to #…`）；WP-T2c 已撤销 | 任务行、分组、app 侧建单链 |
+| ~~P2 输入入口~~ | ~~任务"说得出来"~~ | ~~列表页 dock + 侧栏草稿行~~ | **删除（2026-11-17，§6.6）**：位置不成立；agent 侧建单 skills/CLI 保留 | — |
 | **P3 列表主轴** | 任务"排得开" | 分组（Delivered = agent done）、`◇` 徽标、一任务多工作区 | WP1/WP5 + M2b 的 renderer 部分 | 持久化 |
 | **P4 持久化** | 任务"记得住" | primary、归档、结算快照、意图层 | WP0、WP4a–c（M2a → M2b） | 跨端 |
 
@@ -38,13 +38,10 @@
 - **旁路**：T1（Agent 派生树）可随时独立合入；M3（交付证据聚合）留在 P3 之后；M4（跨端）单独授权。
 - **P3 与 P4 的切分**：分组与多工作区反查是纯 renderer 投影（P3），primary/归档/结算/意图层需要
   `taskRecords`（P4 且以 M2a 判决为门槛）。
-- **顺序变化**：T2（dock）从"可先做"改为 P2，排在 P1 之后——因为 dock 建出的任务需要 P1 那一屏才能看；
-  T2 本身仍不依赖 `taskRecords`。
-- **P2 的两刀变成了"一刀 + 一个待办"（2026-11-17）**：第一刀（WP-T2a `TaskDock` + WP-T2b `taskDraft`
-  草稿工作区与 agent）已实现；第二刀 WP-T2c（预览确认、三 provider 闭环、§7.9.7 状态机）**撤销**，
-  改为让 agent 在自己的会话里用既有 skills 建单（设计文档 D14/D16），WP-T2d 除 `linked to #…`（D17）外
-  已完成。因此 **T2 不报"写 tracker 前必有预览确认"这条退出条件**——它已随方向变更撤销；
-  剩下未做的是 `linked to #…` 回写与真机端到端验证。
+- **P2（T2 dock）已删除（2026-11-17 同日后段）**：它曾被从"可先做"提到 P2、并经历一次方向变更
+  （§6.5，第二刀撤销），随后产品 owner 判定位置本身不成立，dock 与它的 renderer 链路整体删除，
+  记录见设计文档 §6.6。路标因此变成 P1 → P3 → P4；agent 侧的建单 skills / CLI 动词保留，
+  作为任何 agent 会话都可用的能力。
 
 ## 1. 目标与非目标
 
@@ -125,7 +122,11 @@
   - `pnpm tc`、定向 `pnpm test`、i18n 抽取与覆盖、`check:code-quality:changed` 通过。
 - 不做：列表主轴、分组、任务归档、移动端、逐 Agent 金额。
 
-### T2 列表页 dock + 任务草稿行（2–4 天，路标 P2；排在 P1 之后，仍独立于 `taskRecords`）
+### T2 列表页 dock + 任务草稿行（**已删除，2026-11-17 同日后段；见设计文档 §6.6**）
+
+> 本节保留为历史记录：产品 owner 判定"在任务列表页加这个框意义不大，设计上不对"，WP-T2a 的 dock 及
+> 其 renderer 链路（含 WP-T2b 的 dock 侧调用）已删除，不再作为路标阶段。下方"已实现"字样描述的是删除前
+> 的状态。以下是删除前的计划原文。
 
 需求与形态见[设计文档 §7.9](README.md)（位置、草稿行、目录与会话、生命周期仍然有效）与 §7.10
 （**当前实现形态**）。这条**不依赖**
@@ -280,8 +281,8 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 | WP-T1a | Agent 派生来源记录（tab additive 字段） | `orca/src/shared/terminal-tab-types.ts`、terminal create 路径 | M0（只锁定义） | 与 T1b/T1c 并行 |
 | WP-T1b | 层级渲染（复用 lineage / child row 模型） | `orca/src/renderer/src/components/sidebar/*` | WP-T1a | 否（串行收口） |
 | WP-T1c | 折叠、计数、关闭父 tab 的上提语义 | 同上 + Dashboard 行模型 | WP-T1b | 否 |
-| WP-T2a | 列表页 dock（两态：折叠行 / 展开态；目标 chip、模型 select、Send/Close） | `orca/src/renderer/src/components/task-page/TaskDock.tsx`、`task-page/Frame.tsx` | 无（P2 内部） | 已实现 |
-| WP-T2b | 草稿工作区：`taskDraft` 字段 + folder workspace 创建 + agent/prompt + 模型参数 | `orca/src/shared/folder-workspace-types.ts`、`shared/rpc-contract/folder-workspace-params.ts`、`hooks/use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`、`lib/task-draft-agent-launch.ts` | WP-T2a 的接口 | 已实现 |
+| ~~WP-T2a~~ | ~~列表页 dock（两态：折叠行 / 展开态；目标 chip、模型 select、Send/Close）~~ | ~~`task-page/TaskDock.tsx`、`task-page/Frame.tsx`~~ | — | **已删除（2026-11-17，§6.6）** |
+| ~~WP-T2b（dock 侧）~~ | ~~dock 调用的草稿工作区创建与 agent 启动~~ | ~~`hooks/use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`、`lib/task-draft-agent-launch.ts`、`lib/task-dock-transcript.ts`、`lib/task-draft-name.ts`~~ | — | **已删除（2026-11-17，§6.6）**；`taskDraft` 字段与 IPC 保留（已不可达，待决定） |
 | ~~WP-T2c~~ | ~~任务创建闭环（Linear RPC / `gh` / Jira 草稿）+ 预览确认 + 状态机~~ | ~~`lib/task-draft-issue-create.ts`、dock 预览卡片~~ | — | **撤销（2026-11-17，D16）；相关模块已删除** |
 | WP-T2d | 侧栏草稿行与计数排除（`linked to #…` 未做，见 D17） | `sidebar/worktree-list/rows/folder-row.tsx`、`lib/task-draft-count-exclusion.ts`、`sidebar/WorktreeContextMenuDraftAction.tsx` | WP-T2b | 除 `linked to #…` 外已实现 |
 | WP6 | 测试与基准 | 与各项同目录 `*.test.ts` | 全程 | 是 |

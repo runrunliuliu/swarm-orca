@@ -2244,21 +2244,7 @@
         "linearModeHasWorktreeTooltip": "Tickets Linear liés à un espace de travail Orca",
         "linearEmptyHasWorktree": "Aucun ticket Linear n'est encore lié à un espace de travail Orca. Démarrez le travail depuis une issue Linear pour le voir ici.",
         "linearOpenAttachedWorkspace": "Ouvrir l'espace de travail attaché à {{value0}}",
-        "linearWorktreesColumn": "Espaces de travail",
-        "taskDockPlaceholder": "Décrivez une tâche ou une modification...",
-        "taskDockSend": "Envoyer",
-        "taskDockCancel": "Annuler",
-        "taskDockExpand": "Développer",
-        "taskDockSubmitHint": "⌘⏎ pour envoyer, Esc pour replier",
-        "taskDockPickTarget": "Choisissez d'abord une source et un dépôt.",
-        "taskDockNoProjectGroup": "Choisissez un dépôt qui appartient à un groupe de projets.",
-        "taskDockLocalRepoRequired": "Les brouillons nécessitent un dépôt local.",
-        "taskDockCreateWorkspaceFailed": "Impossible de créer l'espace de travail du brouillon.",
-        "taskDockNoAgent": "Aucun agent n'est activé, le brouillon a donc été créé sans session. Activez-en un dans Paramètres, puis envoyez à nouveau.",
-        "taskDockAgentLaunchFailed": "L'agent n'a pas pu être lancé dans l'espace de travail du brouillon.",
-        "taskDockOpenFailed": "L'espace de travail du brouillon n'a pas pu être ouvert.",
-        "taskDockNoSession": "Ce brouillon n'a pas de session d'agent. Ouvrez-le depuis la barre latérale, démarrez un agent, puis envoyez à nouveau.",
-        "taskDockInstructionNotDelivered": "La session du brouillon n'a pas accepté l'instruction."
+        "linearWorktreesColumn": "Espaces de travail"
       },
       "Terminal": {
         "73768427cf": "Fermer",

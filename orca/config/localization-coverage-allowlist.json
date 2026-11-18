@@ -418,12 +418,5 @@
     "text": "draft",
     "dynamic": false,
     "count": 1
-  },
-  {
-    "filePath": "src/renderer/src/lib/task-draft-prompt.ts",
-    "kind": "object-property:title",
-    "text": "<title>",
-    "dynamic": false,
-    "count": 1
   }
 ]

@@ -141,10 +141,6 @@
         "cf82170065": "Could not star the repo. Make sure"
       },
       "TaskPage": {
-        "taskDockCancel": "Cancel",
-        "taskDockExpand": "Expand",
-        "taskDockNoAgent": "No agent is enabled, so the draft was created without a session. Turn one on in Settings, then send again.",
-        "taskDockSubmitHint": "⌘⏎ to send, Esc to collapse"
       },
       "TaskWorkbenchAgentRow": {
         "outcome": {
