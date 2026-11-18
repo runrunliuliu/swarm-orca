@@ -486,10 +486,55 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
    卡片上方，右侧只留一个固定窄列（token / 状态点 / outcome 徽标），所有行卡片等宽。截图是修后的渲染，
    修前形态可从 `git show 1bfea3cc:orca/.../TaskWorkbenchAgentRow.tsx` 复看。
 3. 图里的 `All agents ▾`／`⋯` 之类**不存在**于实现：Agent 区是分组 + History 折叠，Header 只有一个动作。
-   `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据。
+   `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据；2026-11-18 的目标形态见 §7.4.2。
 4. **Workspaces 卡上没有 token / 金额**：设计稿每张卡有 `1 agent · 412k tok · $1.20`，实现只渲染
    名称、分支、`local`/`remote`、`Default`、归档与动作；用量只在 Spend 区（任务级 + 分 provider）。
    这是 P1b 相对设计稿的保真度缺口，不是渲染失败。
+
+#### 7.4.2 视觉返工目标形态（2026-11-18，设计稿）
+
+§7.4.1 的 `impl-*` 是**当前代码**画出来的样子；本节是**目标形态**：同一份数据，去掉重复与噪声之后的版面。
+两张图都是 HTML/CSS 渲染的设计稿，不是生产组件渲染、也不是真机截图，证据层级低于 §7.4.1；
+图内数据为脱敏占位（`acme/web-app`、`build-host-a`），不含真实主机、任务与用量。
+
+**窄窗单列** · 793×560
+
+![目标形态：窄窗单列（1 工作区 / 1 智能体 / 用量未启用）](ui/design-workbench-20261118-narrow.png)
+
+**宽屏双列** · 1180×700
+
+![目标形态：宽屏双列（2 工作区 / 5 智能体 / 有用量与交付证据）](ui/design-workbench-20261118-wide.png)
+
+一句话：**一屏只讲一次——标题一次、工作区一次、状态一次；每个区只画一个面，不再卡片套卡片。**
+
+| 区 | 现状（§7.4.1 的渲染） | 目标形态 |
+| --- | --- | --- |
+| 工作台头部 | h2 重复页面 h1 的标题，再一行 `▦ repo · 显示名`，再加第二个 `Open workspace` | 整块去掉：嵌在详情页的 tab 里，标题与身份由页面 h1、topbar 与页头提供 |
+| 页头 meta | 多一个附加工作区 chip，内容就是工作区显示名（即标题） | 去掉；同一事实不在同一屏出现两次 |
+| 工作区 | `Card` 三行（身份 / `Default` 徽标 / host 行），`py-6` 且无左右内边距，徽标用伪斜体 | 每个工作区一行：`▦ repo · branch` + host chip + 状态点 + `Default`；身份用分支名，不用显示名 |
+| 智能体 | `AgentKanbanCard` 的 body + footer 两层，右侧固定 80px 列（无 token 时只有一个 `—`） | 每人一行：图标 · 会话名 · 状态 · 时长 · token · 动作；token 未知不渲染，不占位 |
+| 用量 / 交付 | 两张卡；用量徽标写内部状态（`unavailable · disabled`），交付用虚线框 +「不表示已交付」 | 一条两行 fact 带：`用量 [未启用] 一句原因 [设置]` / `交付 [未读取] 一句原因 [读取]`；空态是事实，不是告警 |
+| 折叠 | 标题行之后另起一个 `[Collapse ⌃]` 按钮 | 折叠动作挂在节标题右侧，同一行 |
+| 节标题 | `Workspaces · 1 total` / `Agents · 1` / `History · 1` 三套计数 | 统一 `名称 + 计数`；CJK 不用大写式 tracking |
+
+样式规则（实现时照此落地，不再逐尺寸调）：
+
+- 节标题 `12px/600` + `12px` muted 计数；区块间距 `20px`；行内 `13px`，分支与 SHA 用 `12.5px` 等宽；
+- 每个区一个 `8px` 圆角面，描边用 `inset 0 0 0 1px rgb(255 255 255 / .07)`，行间用 `inset 0 1px 0` 分隔；
+- 区块内动作一律 24px 高的 ghost/quiet 次级按钮；全屏只有一个白底主按钮（页头）；
+- CJK 不用 `italic`、不用 `tracking-wide` 的大写标题；`Default` 用 `--accent` 实心 tag。
+
+三处取舍要一起读：
+
+1. **工作台不再自报身份**。代价是这套面板放到独立窗口（图 B 场景）时要另给一个 variant；
+   嵌在详情页的 M1 里，页面 h1、topbar 与页头状态胶囊已经覆盖这件事。
+2. **身份行用分支名，不用工作区显示名**。Orca 生成的工作区显示名默认就是任务标题，
+   拿它做 `repo · X` 会让同一个标题在别的区再出现一次。
+3. **未接线的主按钮要画成禁用态**。目标形态里 `Open terminal` / `New workspace` / `Read evidence`
+   都画成可用样子；实现时若 P1b 尚未接线，必须渲染为禁用或明确标注，不能与可用按钮同形
+   （现状的 `Open workspace` / `Create workspace` / `Turn on in Settings` 都是无 handler 的可点按钮）。
+
+实现与验收见 issue #26。
 
 ### 7.5 状态矩阵（必须逐条实现，否则会出现"假 0"）
 
@@ -917,6 +962,8 @@ setup 钩子"或"需要新装/重建依赖"。
   也没有 P1b 的独立评审回执。
 - P1 只接了 GitHub issue/PR 详情；Linear / GitLab / Jira 的 `Orca` tab 未实现，因此"面板合计 ==
   `projectBreakdown['worktree:<id>']`"这条对照只在 GitHub 侧成立。
+- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；那张版面**尚未实现**，
+  实现之后要按 §7.4.1 的方式补一组真渲染图，并做一次真机核对。
 - `orca github create-issue` 只在单测里被验证过转发；`gh` 备通道的存在性、登录态与 `--repo` 实际行为未验证
   （只影响 agent 侧建单能力）。
 
