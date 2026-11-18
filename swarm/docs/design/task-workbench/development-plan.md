@@ -1,7 +1,8 @@
 # Tasks 工作台开发计划
 
-状态：**未开始**。设计仍为草案（见 [调研与设计](README.md)），本文只是实施计划与退出条件。
-本文不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权；阶段状态表（§9）在实施后才填。
+状态：**P1（= M1）已实现并合入 main**（GitHub issue/PR 的 `Orca` tab）；**P2（T2 列表页 dock）已删除**，
+不再推进；P3、P4 未开始。阶段状态见 §9。
+本文不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权。
 
 关联：[调研与设计](README.md)（数据链就绪度、UI、关系存储）、[任务与工作区模型](../task-workspaces.md)
 （一个任务如何绑定 worktree、如何续做）、[评审记录](discussion-record.md)（2026-11-09 只读 panel）。
@@ -28,7 +29,7 @@
 | 路标 | 目标 | 看得到什么 | 主要工作包 | 不做 |
 | --- | --- | --- | --- | --- |
 | **P1 工作台 UI** | 先钉住那一屏 | 详情页 `Orca` tab：工作区、agent 行（带所属工作区）、token、用量三态、证据摘要 | WP1/WP2/WP3 的只读部分；P1a 明细见 [静态壳计划](p1a-ui-shell-plan.md) | 列表主轴、持久化、dock |
-| ~~P2 输入入口~~ | ~~任务"说得出来"~~ | ~~列表页 dock + 侧栏草稿行~~ | **删除（2026-11-17，§6.6）**：位置不成立；agent 侧建单 skills/CLI 保留 | — |
+| ~~P2 输入入口~~ | ~~任务"说得出来"~~ | ~~列表页 dock + 侧栏草稿行~~ | **已删除（2026-11-17，设计文档 §6.3）**：设计正文与代码一起删，不保留为候选 | — |
 | **P3 列表主轴** | 任务"排得开" | 分组（Delivered = agent done）、`◇` 徽标、一任务多工作区 | WP1/WP5 + M2b 的 renderer 部分 | 持久化 |
 | **P4 持久化** | 任务"记得住" | primary、归档、结算快照、意图层 | WP0、WP4a–c（M2a → M2b） | 跨端 |
 
@@ -38,10 +39,8 @@
 - **旁路**：T1（Agent 派生树）可随时独立合入；M3（交付证据聚合）留在 P3 之后；M4（跨端）单独授权。
 - **P3 与 P4 的切分**：分组与多工作区反查是纯 renderer 投影（P3），primary/归档/结算/意图层需要
   `taskRecords`（P4 且以 M2a 判决为门槛）。
-- **P2（T2 dock）已删除（2026-11-17 同日后段）**：它曾被从"可先做"提到 P2、并经历一次方向变更
-  （§6.5，第二刀撤销），随后产品 owner 判定位置本身不成立，dock 与它的 renderer 链路整体删除，
-  记录见设计文档 §6.6。路标因此变成 P1 → P3 → P4；agent 侧的建单 skills / CLI 动词保留，
-  作为任何 agent 会话都可用的能力。
+- **P2（T2 dock）已删除（2026-11-17）**：产品 owner 判定位置本身不成立，dock 与它的 renderer 链路整体
+  删除，记录见设计文档 §6.3。路标因此是 P1（已实现）→ P3 → P4；agent 侧建单 skills / CLI 动词保留。
 
 ## 1. 目标与非目标
 
@@ -76,7 +75,7 @@
 
 ## 3. 阶段与退出条件
 
-本节按历史编号（M/T）排列，**执行顺序以 §0.5 路标为准**：P1(=M1) → P2(=T2) → P3 → P4。
+本节按历史编号（M/T）排列，**执行顺序以 §0.5 路标为准**：P1(=M1，已实现) → P3 → P4；T2 已删除。
 每个标题后的"路标"标注它落在哪一段。
 
 ### M0 决策冻结（0.5–1 天）
@@ -122,45 +121,12 @@
   - `pnpm tc`、定向 `pnpm test`、i18n 抽取与覆盖、`check:code-quality:changed` 通过。
 - 不做：列表主轴、分组、任务归档、移动端、逐 Agent 金额。
 
-### T2 列表页 dock + 任务草稿行（**已删除，2026-11-17 同日后段；见设计文档 §6.6**）
+### T2 列表页 dock + 任务草稿行（**已删除 2026-11-17；设计文档 §6.3**）
 
-> 本节保留为历史记录：产品 owner 判定"在任务列表页加这个框意义不大，设计上不对"，WP-T2a 的 dock 及
-> 其 renderer 链路（含 WP-T2b 的 dock 侧调用）已删除，不再作为路标阶段。下方"已实现"字样描述的是删除前
-> 的状态。以下是删除前的计划原文。
-
-需求与形态见[设计文档 §7.9](README.md)（位置、草稿行、目录与会话、生命周期仍然有效）与 §7.10
-（**当前实现形态**）。这条**不依赖**
-`taskRecords`，也**不需要 M2a 判决**：它只新增一个输入入口和一种"草稿工作区"用法，
-持久物仍是 provider 侧的 tracker 任务。
-
-**2026-11-17 方向变更（用户）**：第二刀（WP-T2c）**取消**。dock 改为 TUI 式 agent 输入框：
-选模型 + 输指令 → 发送后在新建的 `taskDraft` 草稿工作区里起 agent，agent 用 Orca 既有 tracker
-skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、没有状态机（设计文档 D13–D16）。
-`linked to #…` 回写推迟为独立待办（D17）。第一刀（WP-T2a + WP-T2b）已实现，见 §9。
-
-- 范围：Tasks 列表页底部 dock（折叠/展开、目标 chip、模型 select 或自由文本、Send/Close）；
-  发送后建 `taskDraft` folder workspace 并在其中起 agent；第二条指令投同一会话。
-  **零新 RPC、零新 domain、无 DDL**；app 侧不写 tracker。
-- 交付：
-  - WP-T2a dock：`task-page/TaskDock.tsx`（两态：折叠行、展开态；`⌘↵` 发送、`Esc` 折叠），
-    插在 `task-page/Frame.tsx` 的列表卡片外、frame 内边距里。
-  - WP-T2b 草稿工作区：`taskDraft` additive 字段 + `getTaskDraftDirectory` + `createFolderWorkspace`
-    调用（**必须显式传 `folderPath`**，缺省会回落到 `projectGroup.parentPath`）+ agent 启动与 prompt
-    （`use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`、`lib/task-draft-agent-launch.ts`）；
-    模型以 `--model` 追加。目录放 userData scratch，**不**是仓库 checkout。
-  - WP-T2c ~~创建闭环（三 provider 提议/预览/状态机）~~：**撤销**，相关模块已删除。
-    保留 `orca github create-issue` / `orca linear create` 作为 **agent 通道**。
-  - WP-T2d 侧栏与计数：草稿徽标、一个统一的计数/Recent 排除 selector
-    （`task-draft-count-exclusion.ts`）、草稿菜单动作。**已完成**；`linked to #…` 未做（D17）。
-- 退出（按新方向重写）：
-  - dock 能选模型并发送，发送建出草稿工作区并起 agent，agent 收到"自己用 skills 建单并回报 URL"的指令；
-  - 草稿行在每种 Group by 模式下可见，且不计入工作区计数 / Needs you / Recent；
-  - 命名走 `getWorkspaceIntentName` 且改名只走显式动作；
-  - `pnpm tc`、定向 `pnpm test`、i18n 抽取与覆盖、`check:code-quality:changed` 通过；有 CDP 截图。
-  - **不再要求**"写 tracker 前必有预览确认"与"三个 provider 各建出一条任务"——那两条随 D16/修正后的
-    D14 一起撤销；agent 是否确实建单目前只能靠真实会话验证，fixture 级证据不覆盖。
-- 不做：`taskRecords` 落库、一句话多任务、跨 repo 批量、无盘"虚拟工作区"、移动端 / 配对端、
-  app 侧 tracker 写入与预览卡/状态机。
+> 不保留计划原文。dock、草稿行的 renderer 链路与"app 侧建单链"都已从代码删除，是删除不是延期；
+> 残留（`FolderWorkspace.taskDraft`、`app:getTaskDraftDirectory` IPC、archive sweep、侧栏草稿徽标/菜单、
+> 计数排除）不可达，清理属独立一刀，清单见设计文档 §6.3。
+> 保留：`orca github create-issue`、`orca linear create` 作为 agent 通道。
 
 ### M2a 存储兼容验证（1–2 天，只读；P4 的门槛）
 
@@ -281,10 +247,7 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 | WP-T1a | Agent 派生来源记录（tab additive 字段） | `orca/src/shared/terminal-tab-types.ts`、terminal create 路径 | M0（只锁定义） | 与 T1b/T1c 并行 |
 | WP-T1b | 层级渲染（复用 lineage / child row 模型） | `orca/src/renderer/src/components/sidebar/*` | WP-T1a | 否（串行收口） |
 | WP-T1c | 折叠、计数、关闭父 tab 的上提语义 | 同上 + Dashboard 行模型 | WP-T1b | 否 |
-| ~~WP-T2a~~ | ~~列表页 dock（两态：折叠行 / 展开态；目标 chip、模型 select、Send/Close）~~ | ~~`task-page/TaskDock.tsx`、`task-page/Frame.tsx`~~ | — | **已删除（2026-11-17，§6.6）** |
-| ~~WP-T2b（dock 侧）~~ | ~~dock 调用的草稿工作区创建与 agent 启动~~ | ~~`hooks/use-task-page-dock-actions.ts`、`lib/task-draft-prompt.ts`、`lib/task-draft-agent-launch.ts`、`lib/task-dock-transcript.ts`、`lib/task-draft-name.ts`~~ | — | **已删除（2026-11-17，§6.6）**；`taskDraft` 字段与 IPC 保留（已不可达，待决定） |
-| ~~WP-T2c~~ | ~~任务创建闭环（Linear RPC / `gh` / Jira 草稿）+ 预览确认 + 状态机~~ | ~~`lib/task-draft-issue-create.ts`、dock 预览卡片~~ | — | **撤销（2026-11-17，D16）；相关模块已删除** |
-| WP-T2d | 侧栏草稿行与计数排除（`linked to #…` 未做，见 D17） | `sidebar/worktree-list/rows/folder-row.tsx`、`lib/task-draft-count-exclusion.ts`、`sidebar/WorktreeContextMenuDraftAction.tsx` | WP-T2b | 除 `linked to #…` 外已实现 |
+| ~~WP-T2a / WP-T2b / WP-T2c / WP-T2d~~ | ~~列表页 dock、草稿工作区创建、创建闭环、侧栏草稿行~~ | — | — | **已删除（2026-11-17，设计文档 §6.3）**；只留不可达残留 |
 | WP6 | 测试与基准 | 与各项同目录 `*.test.ts` | 全程 | 是 |
 
 约束：
@@ -292,7 +255,6 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 - 新文件按职责命名，不用 `helpers`/`utils`；不新增 `max-lines` 豁免，触发 ratchet 就拆文件。
 - 并行写入必须文件所有权不重叠：WP4 只写 main 与 shared，WP1–WP3 只写 renderer；共享类型先由 WP4 冻结。
 - 不修改 `mobile/`、`agent-status-*`、`*/usage/*` 的归因实现（只读消费）。
-- T2 只写 renderer 与共享类型的 additive 字段；不碰 main 的归因、扫描与持久化实现。
 
 ## 5. 测试矩阵
 
@@ -311,7 +273,6 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 | i18n / 样式 | 全部新文案进 catalog；只用 `components/ui/` primitive；无 raw 色值 |
 | Agent 派生树 | 从 A 启动 B/C 的两层渲染与折叠计数；CLI 启动的 D 保持平级；关闭 A 后 B/C 上提并带"来源已关闭"；provider subagent 与用户派生共存不重复计数；旧 build 忽略未知字段仍能恢复 tab |
 | UX 验收 | 分组优先级与 `Delivered` 定义；loading/未授权/部分失败/过期/scan failed 态；三态文案不被读成 0；动作在已归档/不可恢复时禁用并有说明；迁移后 `conversation/checks/files` 可发现；键盘与焦点返回；屏幕阅读器名称与非颜色表达；窄桌面/长标题/大数字布局边界；primary fallback 标识；Agent 内容隐私遮蔽 |
-| T2 dock 与草稿行 | 发送 → 创建参数（name / `taskDraft` / **显式 `folderPath`** / 模型作为 `--model`）；`⌘↵` 发送、`Esc` 折叠且文本与模型不丢；模型 select 选中值进入 onSubmit；第二条指令投同一会话而不新建行；草稿行每种 Group by 下可见且不计入计数/Needs you/Recent；中文指令命名 fallback 与重名后缀；归档/删除不级联删任务；旧 build 忽略 `taskDraft` 未知字段。**不包含**：预览确认、状态机逐态用例、三 provider 建单——已随 D16 撤销 |
 
 命令：`pnpm tc`、`pnpm test <path>`、`pnpm run check:code-quality:changed`、
 `pnpm run verify:rpc-params-catalog`（仅若动契约）、`pnpm run verify:localization-extraction`。
@@ -326,8 +287,8 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 
 ## 7. 顺序、依赖与风险
 
-顺序：M0 → **P1（1a → 1b）→ P2 → P3 → P4**；T1 旁路（可随时合入），M3 跟在 P3 后，M4 单独授权。
-旧标签的对应关系：P1 = M1；P2 = T2；P3 = M2b 的 renderer 部分；P4 = M2a + M2b 的 main 部分。
+顺序：M0 → **P1（1a → 1b，已实现）→ P3 → P4**；T1 旁路（可随时合入），M3 跟在 P3 后，M4 单独授权。
+旧标签的对应关系：P1 = M1；P3 = M2b 的 renderer 部分；P4 = M2a + M2b 的 main 部分；P2 = T2 已删除。
 
 | 风险 | 处理 |
 | --- | --- |
@@ -341,28 +302,21 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 | M2a 结论被跳过 | M2b 的开工条件写成"M2a 判决通过"，没有判决不得写 `taskRecords` |
 | 派生树靠猜父子 | 只认创建时写入的来源指针；无来源一律平级，不做标题/时间相似度推断 |
 | 并行工作包互相踩文件 | §4 的所有权划分 + 共享类型先冻结 |
-| 草稿行在侧栏越积越多 | 创建成功后折叠标记 + 30 天无活动且已关联任务自动归档（设计文档 §7.9.8）；不自动删除 |
-| 草稿被当成代码工作区（agent 改主检出） | 草稿目录固定为 userData scratch；不给草稿建 git worktree；不把仓库 checkout 作为 cwd |
-| GitHub 备通道依赖用户环境里的 `gh` | 主通道走 `github.createIssue` RPC；备通道发送前探测存在性与登录态、一律 `--repo`；两条都不通时显式不可用 |
-| agent 直接写共享 tracker 写错 | 一律先渲染标题/正文/标签预览，用户确认后才执行；不提供"免确认"开关 |
-| `taskDraft` 字段影响 RPC 契约 | additive optional；跑 `verify:rpc-params-catalog`；确认旧 build 忽略未知字段 |
+| agent 直接写共享 tracker（能力保留） | 不再由 app 保证"写前有人确认"：建单由 agent 按技能约束或用户指令执行；UI 不承诺二次确认 |
+| `taskDraft` 残留字段影响 RPC 契约 | 已无生产者；删除时按 additive 字段下线处理（跑 `verify:rpc-params-catalog`），不静默迁移 |
 
 回滚：
 
 - M1 是纯 UI + 只读 hook，可整体 revert，无数据残留。
-- T2 是 UI + additive 字段；回滚 = 停止创建草稿，已有草稿行与目录保留（可显式删除），
-  不在 tracker 侧做任何回滚动作。
+- 已删除的 T2 无需回滚计划；残留字段与 IPC 按独立一刀清理。
 - M2 落地后回滚 = 停止写入并保留 domain 行（旧 build 保留未知 domain），**不删数据**；
   清理需单独授权。
 
 ## 8. 未决输入
 
 - D1/D3/D5/D6（设计文档 §6）尚未拍板；D4 已由 R1 定。
-- D7–D9、D11（设计文档 §6.2，列表页 dock 与任务草稿行）已于 2026-11-16 定；**D10（任务写通道）已被
-  D14 取代（2026-11-17）：app 侧不写 tracker，建单由草稿会话里的 agent 完成**；R9 的 16 态状态机随
-  D16 撤销。D17（`linked to #…` 回写）未实现，需要薄 CLI 动词转发 `folderWorkspace.update`，需单独授权。
-  该节其余遗留（一行多任务、草稿名规则、Jira 表单交接形态、远端宿主文案）中，Jira 表单与远端宿主两条
-  已随 app 侧创建链一起失效；一行多任务与草稿名规则仍未决，见设计文档 §7.9.13。
+- 原 D7–D17 与 R8–R15 随列表页 dock 一起删除（设计文档 §6.3），不再是待决输入。
+- P1 是否扩到 Linear / Jira / GitLab 的 `Orca` tab 未决；目前只有 GitHub issue/PR 接了真实数据。
 - 移动端是否在一期之后做（D5）未知。
 - 是否允许真机渲染验收与远端/计费场景验证，需单独授权。
 
@@ -370,14 +324,14 @@ skills 自己建单并回报 URL；dock 不调 tracker RPC、没有预览卡、�
 
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
-| **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 1a、1b 已合入（2026-11-17）；真机交互验收未做 | `swarm-orca` main `42232cbd`（P1a）→ `e91e115d`（P1b）；父仓库 pin `36e06e3a`、`dev_liuliu` merge `08ce3fa7`；线上构件 `0.1.0+39a6ecbc2818` 于 2026-11-17 重启后核验（`buildId` 一致、`source=pointer`、`pointer.state=ok`）。缺口：只有 `tests/tools/task-workbench-rendered` 的渲染证据，无交互验收；仓库内未找到 P1b 独立评审回执 |
-| **P2 输入入口**（= T2） | 第一刀已实现（2026-11-17，分支 `task-workbench-p2a` 的 `891989fd`，未合入 `main`）；第二刀已取消（D16） | dock 两态 + 模型 select；harness 18/18 + 侧栏行 1/1；定向 vitest 10 文件 85 passed（第 11 个文件因稀疏检出缺 `orca/resources` 在套件级失败）、task-page/task-workbench 51 文件 494 passed、main IPC/archive sweep/cli github 31 passed；`tc:web` rc 0；六份 oxlint 改动集干净；`check-max-lines-ratchet` 与两个 localization 脚本 rc 0。缺口：无真机端到端（未验"agent 真的用 skill 建出 issue"）、`linked to #…` 未做（D17）、5 份 locale 的 3 个新串未翻译 |
+| **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 已实现：1a、1b 与真实 `Orca` tab 均合入 main（GitHub issue/PR）；真机交互验收未做 | `swarm-orca` main `42232cbd`（P1a）→ `e91e115d`（P1b）；父仓库 pin `36e06e3a`、`dev_liuliu` merge `08ce3fa7`；线上构件 `0.1.0+39a6ecbc2818` 于 2026-11-17 重启后核验（`buildId` 一致、`source=pointer`、`pointer.state=ok`）。缺口：只有 `tests/tools/task-workbench-rendered` 的渲染证据，无交互验收；仓库内未找到 P1b 独立评审回执 |
+| **P2 输入入口**（= T2） | **已删除**（2026-11-17）：dock 与 renderer 链路移除，未合入 main | 不需要证据；删除范围与残留清单见设计文档 §6.3 |
 | **P3 列表主轴**（= M2b renderer） | 未开始 | — |
 | **P4 持久化**（= M2a + M2b main） | 未开始 | — |
 | T1 Agent 派生树（旁路） | 未开始 | — |
-| T2 列表页 dock + 任务草稿行（= P2） | 第一刀（WP-T2a + WP-T2b）已实现，待合入；第二刀（WP-T2c）**撤销**；WP-T2d 除 `linked to #…` 外已实现 | 见 §T2 与设计文档 §6.5 / §7.10 |
-| M0 决策冻结 | 部分（D7–D12 已定，D1/D3/D5/D6 待定） | — |
-| M1 只读面板 | 未开始 | — |
+| T2 列表页 dock + 任务草稿行（= P2） | **已删除** | 设计文档 §6.3 |
+| M0 决策冻结 | 部分：D12（`Delivered` = agent done）已定，D1/D3/D5/D6 待定；D7–D11、D13–D17 已随 dock 删除 | — |
+| M1 只读面板（= P1） | 已实现（GitHub issue/PR；Linear/Jira/GitLab 未接） | 见 P1 行 |
 | M2a 存储兼容验证 | 未开始 | — |
 | M2b 列表主轴 + 落库 | 未开始 | — |
 | M3 交付证据聚合 | 未开始 | — |

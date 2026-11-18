@@ -8,7 +8,8 @@
 ## 焦点
 
 **任务工作台 = 点开一个任务后看到的那一屏**（设计文档里的"图 B"）。它是这次讨论的唯一主对象；
-列表页（图 A）只在它与工作台的边界上讨论。T2 的底部 dock 与草稿行（§7.9）是本轮**上下文**，不是评审对象。
+列表页（图 A）只在它与工作台的边界上讨论。T2 的底部 dock 与草稿行是本轮**上下文**，不是评审对象
+（该提案已于 2026-11-17 整体删除，设计文档 §6.3）。
 
 我的判断（请证伪或确认）：工作台是基础——因为"任务 → 工作区(0..N) → Agent → 用量 → 交付证据"这套 IA
 一旦定下来，列表行语义、侧栏草稿行、计数分组、T2 的演化方向都跟着它走；反过来先抠 dock 细节，
@@ -21,9 +22,9 @@
 - `swarm/docs/design/task-workbench/README.md`
   - §1 结论、§5 与既有视图的分工、§6 / §6.1 / §6.2 / §6.3（决策与评审修正）
   - **§7.1 信息架构、§7.3 图 B（主对象）、§7.5 状态矩阵、§7.7 交互**
-  - §7.2 图 A（列表主轴）、§7.4 图 C（详情页 Orca tab）、§7.9（T2 上下文，只看边界，不抠细节）
+  - §7.2 图 A（列表主轴）、§7.4 图 C（详情页 Orca tab）
   - §8（只读参考：关系/存储的现实约束，别在本轮重新设计存储）
-- `swarm/docs/design/task-workbench/{discussion-record.md,discussion-record-t2-dock.md}`（前两轮结论与失效条件）
+- `swarm/docs/design/task-workbench/discussion-record.md`（前两轮结论与失效条件）
 - `swarm/docs/design/task-workspaces.md`（任务与工作区的通用模型）
 - `orca/` 代码（快照，只读）：`task-page/`、`sidebar/`（行模型与分组）、`dashboard/`（Agent 行模型）、
   `shared/*usage-types.ts`、`right-sidebar/ai-vault-*`、`pull-request-page/`

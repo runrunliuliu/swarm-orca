@@ -119,7 +119,7 @@
   <text x="800" y="272" class="h2 t">AGENTS</text>
   <rect x="800" y="282" width="440" height="52" rx="8" fill="#fbfbfc" stroke="#e4e7ec"/>
   <text x="816" y="302" class="sm m">No agents yet — a workspace gives the agent a cwd.</text>
-  <text x="816" y="320" class="xs s">不做“无 workspace 的漂浮 agent”（§7.9.5）</text>
+  <text x="816" y="320" class="xs s">不做“无 workspace 的漂浮 agent”</text>
 
   <text x="800" y="356" class="h2 t">SPEND</text>
   <rect x="800" y="366" width="440" height="44" rx="8" fill="#fffbeb" stroke="#fde68a"/>
@@ -209,5 +209,5 @@
   <text x="816" y="811" class="xs" fill="#1d4ed8">fixture 编号与截图编号一一对应，进 PR 描述</text>
   <circle cx="786" cy="662" r="9" class="num"/><text x="783" y="665" class="numtext">4</text>
 
-  <text x="24" y="836" class="xs s">设计示意（非实现截图）· 依据 README §6.4 / §7.2 / §7.3 / §7.3.1 与 p1a-ui-shell-plan.md · 2026-11-16</text>
+  <text x="24" y="836" class="xs s">设计示意（非实现截图）· 依据 README §6.2 / §7.2 / §7.3 / §7.3.1 与 p1a-ui-shell-plan.md</text>
 </svg>
