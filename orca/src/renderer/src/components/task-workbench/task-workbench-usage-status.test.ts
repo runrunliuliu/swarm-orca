@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { AgentTokenView, SpendReason, SpendView } from './task-workbench-view'
 import {
   USAGE_STATUS_ORDER,
+  USAGE_STATUS_WORD,
   spendStatus,
   tokenText,
   usageStatusIsUnavailable,
-  usageStatusLabelKey
+  usageStatusLabelKey,
+  usageStatusWordKey
 } from './task-workbench-usage-status'
 
 // Spell every reason token out. These strings are the copy of record that F4 /
@@ -104,6 +106,35 @@ describe('usageStatusLabelKey', () => {
     expect(usageStatusLabelKey('unattributed')).toBe(
       'auto.components.TaskWorkbenchSpend.status.unattributed'
     )
+  })
+})
+
+describe('USAGE_STATUS_WORD', () => {
+  // README §7.4.2: the interface prints the reader's word. These are literals on
+  // purpose — a word that silently changed would be a copy change nobody reviewed.
+  it('gives every status a word, and never prints the internal token', () => {
+    expect(USAGE_STATUS_WORD).toEqual({
+      available: 'Available',
+      disabled: 'Not enabled',
+      unpriced: 'Unpriced',
+      ambiguous_session: 'Ambiguous',
+      no_matching_session: 'No session',
+      remote_host: 'Remote host',
+      unattributed: 'Unattributed'
+    })
+    for (const word of Object.values(USAGE_STATUS_WORD)) {
+      expect(word).not.toContain('_')
+      expect(word).not.toContain('unavailable')
+    }
+  })
+
+  it('keeps the verbatim token reachable through the label key', () => {
+    // The word and the token are two different keys: the tooltip still resolves
+    // `unavailable · disabled`, the row prints `Not enabled`.
+    expect(usageStatusWordKey('disabled')).toBe(
+      'auto.components.TaskWorkbenchSpend.statusWord.disabled'
+    )
+    expect(usageStatusWordKey('disabled')).not.toBe(usageStatusLabelKey('disabled'))
   })
 })
 

@@ -17179,7 +17179,6 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokensUnavailable": "—",
         "tokens": "{{value0}} トークン",
         "outcome": {
           "success": "納品済み",
@@ -17220,21 +17219,6 @@
           "pending": "レビュー待ち",
           "approved": "レビュー承認済み",
           "changes-requested": "変更をリクエスト済み"
-        }
-      },
-      "TaskWorkbenchHeader": {
-        "noTracker": "トラッカーなし",
-        "pullRequestNumber": "PR #{{value0}}",
-        "openWorkspace": "ワークスペースを開く",
-        "trackerState": {
-          "open": "オープン",
-          "closed": "クローズ"
-        },
-        "pullRequestState": {
-          "draft": "下書き",
-          "open": "オープン",
-          "merged": "マージ済み",
-          "closed": "クローズ"
         }
       },
       "TaskWorkbenchPanel": {
@@ -17280,7 +17264,6 @@
           "folder": "フォルダー"
         },
         "reviewNumber": "PR #{{value0}}",
-        "remoteHint": "リモートホスト · 使用量と操作はローカルにとどまります",
         "create": "ワークスペースを作成",
         "noActive": "アクティブなワークスペースはありません",
         "moreWorkspaces": "+{{value0}} 件",

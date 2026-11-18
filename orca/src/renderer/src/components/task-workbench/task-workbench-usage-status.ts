@@ -38,6 +38,32 @@ export function usageStatusLabelKey(status: UsageStatus): string {
   return `auto.components.TaskWorkbenchSpend.status.${status}`
 }
 
+/** Locale key of the visible status word. */
+export function usageStatusWordKey(status: UsageStatus): string {
+  return `auto.components.TaskWorkbenchSpend.statusWord.${status}`
+}
+
+/**
+ * The word a reader sees, and the reason the verbatim token is only a tooltip.
+ *
+ * README §7.4.2 removed the internal state token from the interface: a Chinese
+ * panel that printed `不可用 · disabled` was showing the implementation's
+ * vocabulary as if it were the reader's. The word below is the reader's
+ * vocabulary; `usageStatusLabelKey` still renders the token in the tooltip, so a
+ * reader who needs the exact state (and a bug report) can still find it.
+ *
+ * Every member is present, so a new `UsageStatus` cannot ship with no word.
+ */
+export const USAGE_STATUS_WORD: Record<UsageStatus, string> = {
+  available: 'Available',
+  disabled: 'Not enabled',
+  unpriced: 'Unpriced',
+  ambiguous_session: 'Ambiguous',
+  no_matching_session: 'No session',
+  remote_host: 'Remote host',
+  unattributed: 'Unattributed'
+}
+
 /** `available` is the only status that carries a figure; every other status is an
  *  absence and must render as an em dash or a reason, never as `0` / `$0`. */
 export function usageStatusIsUnavailable(status: UsageStatus): boolean {

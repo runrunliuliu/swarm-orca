@@ -51,6 +51,11 @@ P1a 存在的唯一理由：2026-11-16 两轮评审把"图 B 没有真机渲染�
 约定：一个区一个文件；`TaskWorkbenchPanel.tsx` 只编排不写业务判断；空态归属见上表（顶层 vs 子区），
 不许两个组件各写一份。
 
+**2026-11-18 后记（issue #26，见 README §7.4.3）**：上表的 `TaskWorkbenchHeader.tsx` 已删除——嵌在详情页的
+M1 不需要工作台再自报一次身份；新增 `TaskWorkbenchFacts.tsx`（用量 + 交付共用一条 fact 带）与
+`task-workbench-section-heading.tsx`（统一的 `名称 + 计数` 节标题）；`TaskWorkbenchAgentRow.tsx` 不再以
+`AgentKanbanCard` 为底座，改为自画一行。本表其余条目不变。
+
 ## 2.1 输入形状（P1b 由 selector 填充，R17/R18）
 
 ```ts

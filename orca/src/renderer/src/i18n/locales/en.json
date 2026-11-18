@@ -17545,19 +17545,25 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokensUnavailable": "—",
-        "tokens": "{{value0}} tok",
+        "tokens": "{{value0}}",
         "outcome": {
           "success": "Delivered",
           "failure": "Failed",
           "cancellation": "Cancelled"
-        }
+        },
+        "state": {
+          "failed": "Failed",
+          "interrupted": "Interrupted",
+          "unverifiable": "No recent update"
+        },
+        "notWired": "Not wired in this build yet",
+        "openTerminal": "Open terminal"
       },
       "TaskWorkbenchAgents": {
         "heading": "Agents",
         "agentCount": "{{value0}}",
         "empty": "No agents on this task yet.",
-        "activeHeading": "Active",
+        "activeHeading": "Working",
         "attentionHeading": "Needs you",
         "historyHeading": "History",
         "historyCount": "{{value0}}",
@@ -17567,7 +17573,7 @@
       },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
-        "noEvidence": "Delivery evidence has not been read for this task. Nothing here says it was delivered.",
+        "noEvidence": "This view runs no git or PR lookup, so nothing here says the task was delivered.",
         "heading": "Delivery",
         "commitCount": "{{value0}} commits",
         "checksCount": "checks {{value0}}/{{value1}}",
@@ -17586,36 +17592,25 @@
           "pending": "Review pending",
           "approved": "Review approved",
           "changes-requested": "Changes requested"
-        }
-      },
-      "TaskWorkbenchHeader": {
-        "noTracker": "No tracker",
-        "pullRequestNumber": "PR #{{value0}}",
-        "openWorkspace": "Open workspace",
-        "trackerState": {
-          "open": "open",
-          "closed": "closed"
         },
-        "pullRequestState": {
-          "draft": "draft",
-          "open": "open",
-          "merged": "merged",
-          "closed": "closed"
-        }
+        "notRead": "Not read",
+        "read": "Read",
+        "notWired": "Not wired in this build yet"
       },
       "TaskWorkbenchPanel": {
         "emptyTitle": "No workspace is linked to this task yet",
         "emptyBody": "Create a workspace to start an agent on this task.",
-        "createWorkspace": "Create workspace"
+        "createWorkspace": "Create workspace",
+        "notWired": "Not wired in this build yet"
       },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} tokens",
         "estimatedCost": "est. ${{value0}}",
         "costUnknown": "A model in this task has no price, so no amount is estimated.",
         "costEstimated": "Estimated from provider pricing.",
-        "heading": "Spend",
+        "heading": "Usage",
         "unattributedSessions": "{{value0}} sessions unattributed",
-        "turnOnTracking": "Turn on in Settings",
+        "turnOnTracking": "Settings",
         "reason": {
           "disabled": "Usage tracking is off. No spend is recorded for this task.",
           "unpriced": "Some models in this task have no price, so the total is unknown.",
@@ -17632,6 +17627,17 @@
           "no_matching_session": "unavailable · no_matching_session",
           "remote_host": "unavailable · remote_host",
           "unattributed": "unavailable · unattributed"
+        },
+        "notWired": "Not wired in this build yet",
+        "providerCost": "${{value0}}",
+        "statusWord": {
+          "available": "Available",
+          "disabled": "Not enabled",
+          "unpriced": "Unpriced",
+          "ambiguous_session": "Ambiguous",
+          "no_matching_session": "No session",
+          "remote_host": "Remote host",
+          "unattributed": "Unattributed"
         }
       },
       "TaskWorkbenchWorkspaces": {
@@ -17646,14 +17652,14 @@
           "folder": "folder"
         },
         "reviewNumber": "PR #{{value0}}",
-        "remoteHint": "Remote host · usage and actions stay local",
-        "create": "Create workspace",
+        "create": "New workspace",
         "noActive": "No active workspace",
         "moreWorkspaces": "+{{value0}} more",
         "showArchived": "Show archived ({{value0}})",
         "heading": "Workspaces",
-        "workspaceCount": "{{value0}} total",
-        "showMore": "Show {{value0}} more workspaces"
+        "workspaceCount": "{{value0}}",
+        "showMore": "Show {{value0}} more workspaces",
+        "notWired": "Not wired in this build yet"
       }
     },
     "i18n": {

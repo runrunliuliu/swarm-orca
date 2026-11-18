@@ -143,16 +143,22 @@
       "TaskPage": {
       },
       "TaskWorkbenchAgentRow": {
+        "notWired": "Not wired in this build yet",
+        "openTerminal": "Open terminal",
         "outcome": {
           "cancellation": "Cancelled",
           "failure": "Failed",
           "success": "Delivered"
         },
-        "tokens": "{{value0}} tok",
-        "tokensUnavailable": "—"
+        "state": {
+          "failed": "Failed",
+          "interrupted": "Interrupted",
+          "unverifiable": "No recent update"
+        },
+        "tokens": "{{value0}}"
       },
       "TaskWorkbenchAgents": {
-        "activeHeading": "Active",
+        "activeHeading": "Working",
         "agentCount": "{{value0}}",
         "attentionHeading": "Needs you",
         "collapse": "Collapse",
@@ -170,7 +176,9 @@
         "expand": "Expand",
         "heading": "Delivery",
         "lastCommit": "Last commit: {{value0}}",
-        "noEvidence": "Delivery evidence has not been read for this task. Nothing here says it was delivered.",
+        "noEvidence": "This view runs no git or PR lookup, so nothing here says the task was delivered.",
+        "notRead": "Not read",
+        "notWired": "Not wired in this build yet",
         "pullRequestNumber": "PR #{{value0}}",
         "pullRequestState": {
           "closed": "closed",
@@ -178,6 +186,7 @@
           "merged": "merged",
           "open": "open"
         },
+        "read": "Read",
         "readOnly": "Read-only evidence. This shell runs no git, polling or PR refresh.",
         "review": {
           "approved": "Review approved",
@@ -186,31 +195,19 @@
         },
         "reviewDetail": "Review state: {{value0}}"
       },
-      "TaskWorkbenchHeader": {
-        "noTracker": "No tracker",
-        "openWorkspace": "Open workspace",
-        "pullRequestNumber": "PR #{{value0}}",
-        "pullRequestState": {
-          "closed": "closed",
-          "draft": "draft",
-          "merged": "merged",
-          "open": "open"
-        },
-        "trackerState": {
-          "closed": "closed",
-          "open": "open"
-        }
-      },
       "TaskWorkbenchPanel": {
         "createWorkspace": "Create workspace",
         "emptyBody": "Create a workspace to start an agent on this task.",
-        "emptyTitle": "No workspace is linked to this task yet"
+        "emptyTitle": "No workspace is linked to this task yet",
+        "notWired": "Not wired in this build yet"
       },
       "TaskWorkbenchSpend": {
         "costEstimated": "Estimated from provider pricing.",
         "costUnknown": "A model in this task has no price, so no amount is estimated.",
         "estimatedCost": "est. ${{value0}}",
-        "heading": "Spend",
+        "heading": "Usage",
+        "notWired": "Not wired in this build yet",
+        "providerCost": "${{value0}}",
         "reason": {
           "ambiguous_session": "More than one session matches this task, so usage cannot be attributed.",
           "disabled": "Usage tracking is off. No spend is recorded for this task.",
@@ -228,13 +225,22 @@
           "unattributed": "unavailable · unattributed",
           "unpriced": "unavailable · unpriced"
         },
+        "statusWord": {
+          "ambiguous_session": "Ambiguous",
+          "available": "Available",
+          "disabled": "Not enabled",
+          "no_matching_session": "No session",
+          "remote_host": "Remote host",
+          "unattributed": "Unattributed",
+          "unpriced": "Unpriced"
+        },
         "tokensValue": "{{value0}} tokens",
-        "turnOnTracking": "Turn on in Settings",
+        "turnOnTracking": "Settings",
         "unattributedSessions": "{{value0}} sessions unattributed"
       },
       "TaskWorkbenchWorkspaces": {
         "archived": "Archived",
-        "create": "Create workspace",
+        "create": "New workspace",
         "defaultExplicit": "Default",
         "defaultFromActivity": "Default · recent activity",
         "heading": "Workspaces",
@@ -247,11 +253,11 @@
         },
         "moreWorkspaces": "+{{value0}} more",
         "noActive": "No active workspace",
-        "remoteHint": "Remote host · usage and actions stay local",
+        "notWired": "Not wired in this build yet",
         "reviewNumber": "PR #{{value0}}",
         "showArchived": "Show archived ({{value0}})",
         "showMore": "Show {{value0}} more workspaces",
-        "workspaceCount": "{{value0}} total"
+        "workspaceCount": "{{value0}}"
       },
       "Terminal": {
         "cdc9ac4b2d": "editor"

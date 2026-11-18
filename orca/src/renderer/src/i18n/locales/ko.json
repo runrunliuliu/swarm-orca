@@ -17179,7 +17179,6 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokensUnavailable": "—",
         "tokens": "{{value0}} 토큰",
         "outcome": {
           "success": "전달됨",
@@ -17220,21 +17219,6 @@
           "pending": "리뷰 대기 중",
           "approved": "리뷰 승인됨",
           "changes-requested": "변경 요청됨"
-        }
-      },
-      "TaskWorkbenchHeader": {
-        "noTracker": "트래커 없음",
-        "pullRequestNumber": "PR #{{value0}}",
-        "openWorkspace": "워크스페이스 열기",
-        "trackerState": {
-          "open": "열림",
-          "closed": "닫힘"
-        },
-        "pullRequestState": {
-          "draft": "초안",
-          "open": "열림",
-          "merged": "병합됨",
-          "closed": "닫힘"
         }
       },
       "TaskWorkbenchPanel": {
@@ -17280,7 +17264,6 @@
           "folder": "폴더"
         },
         "reviewNumber": "PR #{{value0}}",
-        "remoteHint": "원격 호스트 · 사용량과 작업은 로컬에만 유지됩니다",
         "create": "워크스페이스 만들기",
         "noActive": "활성 워크스페이스 없음",
         "moreWorkspaces": "+{{value0}}개",

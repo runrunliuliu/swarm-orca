@@ -154,8 +154,14 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       const workspace = projected.get(worktree.id)
       // The store's own activity signal (the sidebar's "Recent" key): newest
       // wins the default workspace, and 0 can only lose that comparison.
+      const branchName = workspaceBranchName(workspace?.workspaceKind, worktree)
       return workspace
-        ? { ...workspace, isArchived: worktree.isArchived, lastActivityAt: worktree.lastActivityAt }
+        ? {
+            ...workspace,
+            isArchived: worktree.isArchived,
+            lastActivityAt: worktree.lastActivityAt,
+            ...(branchName ? { branchName } : {})
+          }
         : projectMissingWorkspace(repo, worktree)
     })
     const activeWorktrees = joinedWorktrees.filter((workspace) => !workspace.isArchived)
@@ -318,6 +324,7 @@ function projectMissingWorkspace(repo: Repo | undefined, worktree: Worktree): Jo
     undefined,
     readDashboardClientHost().platform
   )
+  const branchName = workspaceBranchName(metadata.workspaceKind, worktree)
   return {
     repoId: worktree.repoId,
     worktreeId: worktree.id,
@@ -325,10 +332,27 @@ function projectMissingWorkspace(repo: Repo | undefined, worktree: Worktree): Jo
     // has no display name; its id is shown rather than an empty label.
     repoName: boundedLabel(repo?.displayName ?? worktree.repoId),
     worktreeName: boundedLabel(worktree.displayName),
+    // `metadata.workspaceKind` is the same projection the active rows get, so a
+    // folder workspace hides a directory path here for the same reason it does
+    // there (README §7.4.2: a workspace identity names a branch, or nothing).
+    ...(branchName ? { branchName } : {}),
     ...metadata,
     isArchived: worktree.isArchived,
     lastActivityAt: worktree.lastActivityAt
   }
+}
+
+/** The branch a workspace identity may print, or undefined when there is none.
+ *  Only a git worktree has one: a folder workspace's `branch` is not a branch,
+ *  and an empty string is an absence, not a name (README §7.4.2 取舍 2). */
+function workspaceBranchName(
+  workspaceKind: 'worktree' | 'folder' | undefined,
+  worktree: Pick<Worktree, 'branch'>
+): string | undefined {
+  if (workspaceKind === 'folder' || !worktree.branch) {
+    return undefined
+  }
+  return worktree.branch
 }
 
 /** One provider's rows normalized to `UsageBreakdownRow`, keeping only keys that

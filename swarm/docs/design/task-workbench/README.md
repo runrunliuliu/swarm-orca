@@ -421,6 +421,10 @@ M1 阶段它的正式定位是 **任务聚合视图**（§6.2），tab 名可以
 下面 9 张是**当前代码渲染出来的**界面，按功能区拆开，源文件在 `ui/`（`impl-*.png`）。渲染方式是仓库既有的
 rendered harness，用 P1a 的 fixture 数据跑生产组件，再用 CDP 截图（`devicePixelRatio = 1`）：
 
+> **注意**：这 9 张是**视觉返工前**（2026-11-18 之前）的版面。§7.4.2 的目标形态已于 2026-11-18 实现
+> （§7.4.3），但本轮没有产出新的真渲染图，因此下面的图与表格描述的仍是旧版面的分区职责，
+> 不是当前代码的样子。
+
 ```sh
 cd orca
 DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs \
@@ -486,7 +490,8 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
    卡片上方，右侧只留一个固定窄列（token / 状态点 / outcome 徽标），所有行卡片等宽。截图是修后的渲染，
    修前形态可从 `git show 1bfea3cc:orca/.../TaskWorkbenchAgentRow.tsx` 复看。
 3. 图里的 `All agents ▾`／`⋯` 之类**不存在**于实现：Agent 区是分组 + History 折叠，Header 只有一个动作。
-   `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据；2026-11-18 的目标形态见 §7.4.2。
+   `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据；2026-11-18 的目标形态见 §7.4.2，
+   实现状态见 §7.4.3。
 4. **Workspaces 卡上没有 token / 金额**：设计稿每张卡有 `1 agent · 412k tok · $1.20`，实现只渲染
    名称、分支、`local`/`remote`、`Default`、归档与动作；用量只在 Spend 区（任务级 + 分 provider）。
    这是 P1b 相对设计稿的保真度缺口，不是渲染失败。
@@ -536,21 +541,71 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 
 实现与验收见 issue #26。
 
+#### 7.4.3 视觉返工实现状态（2026-11-18）
+
+§7.4.2 的版面已按图落地（issue #26），代码全在 `orca/src/renderer/src/components/task-workbench/`：
+
+| 目标形态的一条 | 落地位置 | 说明 |
+| --- | --- | --- |
+| 工作台头部整块去掉 | `TaskWorkbenchPanel.tsx`；`TaskWorkbenchHeader.tsx` 删除 | 页面 h1、topbar 与页头状态已说清身份；第二个 `Open workspace` 随之消失，填色主按钮只剩页头那一个 |
+| 节标题统一 `名称 + 计数` | `task-workbench-section-heading.tsx` | 12px/600 + 12px muted 计数，折叠控件挂在同一行右侧；CJK 不再用 `uppercase`／`tracking-wide`／`italic` |
+| 工作区每工作区一行 | `TaskWorkbenchWorkspaces.tsx` | 一个 8px 圆角面 + 行间 `inset 0 1px 0`；身份改印**分支名**（`TaskWorkbenchWorkspace.branchName`，由 `use-task-workbench-view.ts` 从 `Worktree.branch` 填入），没有分支时回退显示名；`local` 主机不再占一个 chip |
+| 智能体每人一行 | `TaskWorkbenchAgentRow.tsx` | 不再渲染 `AgentKanbanCard`（body + footer 两层）；图标 · 会话名 · 状态 · 时长 · token · 动作；未知 token **不渲染**，不留 `—` 空列 |
+| 用量 / 交付一条两行 fact 带 | `TaskWorkbenchFacts.tsx` + 两个 section 各一行 | 用量徽标改印读者词（`未启用`），内部状态 token 只留在 tooltip；交付空态是带 `未读取` 标签的事实，不是虚线告警 |
+| 未接线动作画成禁用态 | 各 section 的 `notWired` key | `打开终端`／`新建工作区`／`设置`／`读取` 均 `disabled`，`title` 说明尚未接线 |
+
+文案一致性（issue #26 第 3、4 条）：
+
+- `开放` vs `打开`：`打开` 原本是工作台自画的 tracker 状态徽标；随头部删除一起消失，issue 状态现在只由页面
+  统一的 `开放` 表达，`打开` 只剩 PR 状态的 `pullRequestState.open` 一处含义。
+- `不可用 · disabled`：界面印读者词（`未启用`／`未定价`／`无法归属`／`无匹配会话`／`远程主机`／`未归属`），
+  内部 token 退到同一个徽标的 `title`。§7.5 的三态规则本身没变，只是换了呈现层。
+- 未翻译的 `In progress`：那是 store 里的**工作区状态标签**（用户自建数据，`WorkspaceStatusDefinition.label`），
+  不是本仓库的文案。实现侧的处理是把它继续按数据原样渲染，而不是替用户数据编译文；若内置默认状态也要
+  本地化，那是 seed 数据与 `WorkspaceStatusDefinition` 的改动，属于另一件事。
+
+三处设计稿没写、实现时按"不造数据"补的取舍：
+
+1. **agent 行的状态词**复用看板分组词（`dashboardPopout.bucket.*`：Working / Needs You / Done / Idle），
+   那四个词六种语言都已翻译；`failed` / `interrupted` / `unverifiable` 三个裁决态另有自己的词
+   （`TaskWorkbenchAgentRow.state.*`）。有 `outcome` 的行印裁决词（Delivered / Failed / Cancelled），
+   F8 语义不变：失败轮永远读不出 Delivered，缺 `outcome` 也不算成功。
+2. **交付不自造状态词**：设计稿的 `[进行中]` 标签在 view 里没有对应字段（`DeliveryEvidence` 只有 commits /
+   PR / checks / review）。实现只在"没有证据"时印 `未读取`，有证据时直接列事实，不猜一个状态。
+3. **工作区折叠仍保留**：设计稿只画了 2 个工作区，没有画 3+ 与归档的取舍。契约 §4.3 的两条
+   （>2 折叠、归档折叠）没有变，只是折叠按钮从独立一行挪进了同一个面里。
+4. **交付的默认展开状态没改**：它仍由 `computeTaskWorkbenchLayout` 决定（宽屏有证据时默认展开），
+   所以真渲染下交付行下方会多一段证据体，与设计稿图里的收起态不同。改那个默认值属于布局合同
+   （issue #26 明确不碰降级阈值与双列边界），不在本轮范围内。
+
+证据层级必须说清：本节只到**代码 + 定向检查**这一层。`tests/tools/task-workbench-rendered` 的期望表已按新 DOM
+更新（header 的 testid 整组删除，新增 `-facts`／`-row-icon`／`-row-action`／`workspace-host-chip`，token 断言改成
+"只比较有数字的行"，用量断言从内部 token 改成读者词），但**没有跑过**：该 harness 需要 `orca/node_modules`
+与 X display，这次检出两者都没有。因此：
+
+- 本轮**没有**新的真渲染图，`ui/` 下仍是 §7.4.1 那 9 张返工前截图 + §7.4.2 两张设计稿；
+- 本轮**没有**真机核对，也没有跑 vitest／type-check（同一依赖缺口）；
+- 补一组 `impl-*` 真渲染图与一次真机核对仍是未完成项（§12）。
+
 ### 7.5 状态矩阵（必须逐条实现，否则会出现"假 0"）
 
 | 场景 | 触发条件 | UI 表现 |
 | --- | --- | --- |
 | 用量可用 | `estimatedCostUsd !== null` | 数字 + 估算 tooltip |
-| 用量统计未启用 | `scanState.enabled === false` | 面板空态 + `[ Turn on usage tracking ]` 跳 Settings → Stats |
+| 用量统计未启用 | `scanState.enabled === false` | 徽标 `未启用` + 一句原因 + `设置` 动作（§7.4.3：徽标印读者词，`unavailable · disabled` 退到 tooltip） |
 | 未定价模型 | `hasUnpricedModels` | tokens 正常、花费显示 `—` + 说明 |
-| 会话归因歧义 | 时间窗内多个候选 | `unavailable · ambiguous_session`，不猜 |
-| 无匹配会话 | 窗口内无会话 | `unavailable · no_matching_session` |
-| 远端 / SSH 工作区 | `executionHostId` 非本地 | `unavailable · remote host` |
+| 会话归因歧义 | 时间窗内多个候选 | 徽标 `无法归属`，原因句说明并列多个候选，不猜 |
+| 无匹配会话 | 窗口内无会话 | 徽标 `无匹配会话` + 原因句 |
+| 远端 / SSH 工作区 | `executionHostId` 非本地 | 工作区行带 host chip；用量徽标 `远程主机` + 原因句 |
 | 无关联工作区 | 任务无绑定 | 主按钮 `Create workspace from this task` |
-| 本地任务（无 tracker） | 仅在 worktree 侧存在 | 行内 `◇` 徽标 + 顶部筛选；按活跃工作区状态并入 Needs you/Working/Delivered，标题取 `displayName` |
+| 本地任务（无 tracker） | 仅在 worktree 侧存在 | 行内 `◇` 徽标 + 顶部筛选；按活跃工作区状态并入 Needs you/Working/Delivered，标题取 `displayName`（§7.4.3：工作台自身不再画身份徽标，这一列由列表页与页头承担） |
 | 工作区已归档 | `isArchived` | 折叠在 `Show archived` 下，不参与"Needs you"计数 |
-| 逐 Agent 成本不可归因 | 会话行无 `worktreeId` / `ambiguous_session` | 该行只显示 token；成本显示 `—`，文案说明"仅到工作区级" |
+| 逐 Agent 成本不可归因 | 会话行无 `worktreeId` / `ambiguous_session` | 该行只显示 token；token 未知时**整列不渲染**（§7.4.3），成本只到工作区级 |
 | 无 tracker 的工作区 | 无 `linkedWorkItem` 等字段 | 行内 `◇` 徽标 + 顶部筛选；不影响其状态分组 |
+
+徽标词与内部 token 的对应（§7.4.3）：`disabled → 未启用`、`unpriced → 未定价`、
+`ambiguous_session → 无法归属`、`no_matching_session → 无匹配会话`、`remote_host → 远程主机`、
+`unattributed → 未归属`。token 本身不删，仍可通过同一个徽标的 `title` 读到。
 
 ### 7.6 组件与数据映射（实现清单草案）
 
@@ -962,8 +1017,10 @@ setup 钩子"或"需要新装/重建依赖"。
   也没有 P1b 的独立评审回执。
 - P1 只接了 GitHub issue/PR 详情；Linear / GitLab / Jira 的 `Orca` tab 未实现，因此"面板合计 ==
   `projectBreakdown['worktree:<id>']`"这条对照只在 GitHub 侧成立。
-- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；那张版面**尚未实现**，
-  实现之后要按 §7.4.1 的方式补一组真渲染图，并做一次真机核对。
+- §7.4.2 的两张目标形态图是 HTML/CSS 渲染的设计稿，不是生产组件渲染；该版面已在 §7.4.3 实现，
+  但**没有新的真渲染图**：rendered harness 需要 `orca/node_modules` 与 X display，这次检出两者都没有，
+  所以 vitest / type-check / 截图三者均未执行。§7.4.1 的 `impl-*` 仍是返工前的渲染。
+  待办：按 §7.4.1 的方式补一组真渲染图，并做一次真机核对。
 - `orca github create-issue` 只在单测里被验证过转发；`gh` 备通道的存在性、登录态与 `--repo` 实际行为未验证
   （只影响 agent 侧建单能力）。
 

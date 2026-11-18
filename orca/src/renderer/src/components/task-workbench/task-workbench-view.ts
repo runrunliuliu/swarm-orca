@@ -22,10 +22,20 @@ import type { TaskProviderIdentity } from '../../../../shared/task-provider-iden
  *   when it enters the popout, or mobile / wire (R18); this shell does neither.
  */
 
-/** The only additive field over the snapshot shape (R17): `DashboardWorkspace`
- *  has no lifecycle flag, so archived state rides here. P1b fills it; P1a
- *  fixtures hard-code it. Archived workspaces never join Active or Needs you. */
-export type TaskWorkbenchWorkspace = DashboardWorkspace & { archived?: boolean }
+/** Additive fields over the snapshot shape (R17): `DashboardWorkspace` carries
+ *  neither a lifecycle flag nor a branch, so both ride here. P1b fills them; P1a
+ *  fixtures hard-code them. Archived workspaces never join Active or Needs you.
+ *
+ * `branchName` exists because a workspace identity must name the branch, not the
+ * display name: Orca names a generated worktree after the task title, so
+ * `repo · worktreeName` would print the page's h1 a second time (README §7.4.2
+ * 取舍 2). Optional because a folder workspace and a row persisted before the
+ *  field existed both have no branch; the renderer then falls back to
+ *  `worktreeName` rather than inventing one. */
+export type TaskWorkbenchWorkspace = DashboardWorkspace & {
+  archived?: boolean
+  branchName?: string
+}
 
 /** Reasons a token or cost figure is absent. These tokens are the copy of
  *  record: the Spend status text prints them verbatim (README §7.5), so never

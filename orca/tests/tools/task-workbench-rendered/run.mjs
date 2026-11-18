@@ -86,6 +86,18 @@ import { formatTokens } from './src/renderer/src/components/stats/usage-formatte
 
 const OUTCOME_TEXT = { success: 'Delivered', failure: 'Failed', cancellation: 'Cancelled' }
 
+/** Mirrors USAGE_STATUS_WORD in task-workbench-usage-status.ts: the visible word
+ *  of an absent figure. Kept as a literal so a copy edit in the component has to
+ *  be a deliberate edit here too. */
+const SPEND_STATUS_WORD = {
+  disabled: 'Not enabled',
+  unpriced: 'Unpriced',
+  ambiguous_session: 'Ambiguous',
+  no_matching_session: 'No session',
+  remote_host: 'Remote host',
+  unattributed: 'Unattributed'
+}
+
 const SIDEBAR_FIXTURE = {
   fixture: 'd5_sidebar_draft_row',
   rows: [
@@ -135,12 +147,16 @@ export function derive(fixtureKey, width, height) {
   const secondary = active.filter((workspace) => workspace !== primary)
   const collapseSecondary = view.workspaces.length > 2 && secondary.length > 0
   const archivedOpen = active.length === 0 && archived.length > 0
-  const visibleCards =
+  // README §7.4.2 renders the compact form as the same rows in the same surface,
+  // so both branches show workspace rows: full keeps the primary + the rest (or
+  // the fold), compact keeps the primary and any archived row it opened.
+  const visibleWorkspaceRows = (
     layout.workspaces === 'full'
-      ? (primary ? 1 : 0) +
-        (collapseSecondary ? 0 : secondary.length) +
-        (archivedOpen ? archived.length : 0)
-      : 0
+      ? [primary, ...(collapseSecondary ? [] : secondary), ...(archivedOpen ? archived : [])]
+      : [primary, ...(archivedOpen ? archived : [])]
+  ).filter((workspace) => workspace != null)
+  const visibleCards = visibleWorkspaceRows.length
+  const hostChips = visibleWorkspaceRows.filter((workspace) => workspace.hostKind !== 'local').length
 
   // History rows are unmounted while the group is collapsed, so row counts and
   // row copy are over visible rows, not over every agent in the fixture.
@@ -159,13 +175,6 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-panel': 1,
     'task-workbench-panel-layout': 1,
     'task-workbench-empty-state': hasWorkspaces ? 0 : 1,
-    'task-workbench-header': 1,
-    'task-workbench-header-title': 1,
-    'task-workbench-header-provider': view.identity.kind === 'tracker' ? 1 : 0,
-    'task-workbench-header-local-badge': view.identity.kind === 'workspace' ? 1 : 0,
-    'task-workbench-header-branch': hasWorkspaces ? 1 : 0,
-    'task-workbench-header-pr': delivery && delivery.pullRequest ? 1 : 0,
-    'task-workbench-header-primary-action': hasWorkspaces ? 1 : 0,
     'task-workbench-agents': 1,
     'task-workbench-agents-empty': counts.agents === 0 ? 1 : 0,
     'task-workbench-agents-active':
@@ -177,7 +186,9 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-agents-history-records':
       historyExpanded && counts.historyAgents > 0 ? 1 : 0,
     'task-workbench-agent-row': visibleRows.length,
-    'task-workbench-agent-row-tokens': visibleRows.length,
+    'task-workbench-agent-row-icon': visibleRows.length,
+    'task-workbench-agent-row-action': visibleRows.length,
+    'task-workbench-agent-row-tokens': tokenRows.length,
     'task-workbench-agent-row-dot': visibleRows.filter(
       ({ outcome, sessionBoundary }) =>
         outcome === 'failure' || outcome === 'cancellation' || sessionBoundary === true
@@ -189,6 +200,7 @@ export function derive(fixtureKey, width, height) {
         : 0,
     'task-workbench-workspaces': hasWorkspaces ? 1 : 0,
     'task-workbench-workspace-card': visibleCards,
+    'task-workbench-workspace-host-chip': hostChips,
     'task-workbench-workspace-card-default': defaultIsActive ? 1 : 0,
     'task-workbench-workspaces-create': 1,
     // Contract §4.3 says >2; the compact branch renders "+N more" instead of a
@@ -196,6 +208,7 @@ export function derive(fixtureKey, width, height) {
     // contract condition rather than encoding that branch.
     'task-workbench-workspaces-secondary-toggle': view.workspaces.length > 2 ? 1 : 0,
     'task-workbench-workspaces-archived-toggle': archived.length > 0 ? 1 : 0,
+    'task-workbench-facts': 1,
     'task-workbench-spend': 1,
     'task-workbench-spend-total': spend.kind === 'available' ? 1 : 0,
     'task-workbench-spend-status': spend.kind === 'unavailable' ? 1 : 0,
@@ -217,14 +230,16 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-delivery-review': delivery && delivery.review ? 1 : 0
   }
 
+  // An unknown token count renders nothing at all (README §7.4.2): the chip only
+  // exists for rows that have a figure, so the expectation is the known subset.
+  const tokenRows = visibleRows.filter((row) => row.tokens.kind !== 'unavailable')
   const semantic = {
-    tokenChips: visibleRows
-      .map((row) =>
-        row.tokens.kind === 'unavailable' ? '—' : formatTokens(row.tokens.tokens) + ' tok'
-      )
-      .sort(),
+    tokenChips: tokenRows.map((row) => formatTokens(row.tokens.tokens)).sort(),
     outcomeBadges: outcomes.map((outcome) => OUTCOME_TEXT[outcome]).sort(),
-    spendStatusReason: spend.kind === 'unavailable' ? spend.reason : null,
+    // README §7.4.2 prints the reader's word; the internal token
+    // ('unavailable · disabled') is only the tag's tooltip.
+    spendStatusWord:
+      spend.kind === 'unavailable' ? SPEND_STATUS_WORD[spend.reason] : null,
     spendTotal:
       spend.kind === 'available'
         ? {
@@ -234,12 +249,7 @@ export function derive(fixtureKey, width, height) {
         : null,
     deliveredExpected: successOutcomes > 0,
     archivedVisibleCards:
-      layout.workspaces === 'full' && archivedOpen ? archived.length : 0,
-    remoteHint:
-      layout.workspaces === 'full' &&
-      view.workspaces.some((workspace) => workspace.hostKind !== 'local'),
-    headerTitle: view.title,
-    localBadge: view.identity.kind === 'workspace'
+      layout.workspaces === 'full' && archivedOpen ? archived.length : 0
   }
 
   return {
@@ -402,7 +412,6 @@ async function collectDom(page) {
       outcomeBadges: texts('[data-testid="task-workbench-agent-row-outcome"]'),
       spendStatus: text(document.querySelector('[data-testid="task-workbench-spend-status"]')),
       spendTotal: text(document.querySelector('[data-testid="task-workbench-spend-total"]')),
-      headerTitle: text(document.querySelector('[data-testid="task-workbench-header-title"]')),
       archivedCards: document.querySelectorAll(
         '[data-testid="task-workbench-workspace-card"][data-archived="true"]'
       ).length,
@@ -506,7 +515,6 @@ async function runOne(entry, builds) {
         deliveredText: dom.bodyText.includes('Delivered'),
         spendStatus: dom.spendStatus,
         spendTotal: dom.spendTotal,
-        headerTitle: dom.headerTitle,
         archivedCards: dom.archivedCards
       }
     }
@@ -556,24 +564,12 @@ async function runOne(entry, builds) {
         compare(failures, 'semantic:f8-delivered-text', dom.bodyText.includes('Delivered'), false)
       }
       const statusText = dom.spendStatus === '' ? null : dom.spendStatus
-      if (semantic.spendStatusReason === null) {
-        compare(failures, 'semantic:spend-status-reason', statusText, null)
-      } else {
-        compare(
-          failures,
-          'semantic:spend-status-reason',
-          statusText !== null && statusText.includes(semantic.spendStatusReason),
-          true
-        )
-      }
+      compare(failures, 'semantic:spend-status-word', statusText, semantic.spendStatusWord)
       if (semantic.spendTotal) {
         compare(failures, 'semantic:spend-total-tokens', dom.spendTotal.includes(semantic.spendTotal.tokens), true)
         compare(failures, 'semantic:spend-total-cost', dom.spendTotal.includes(semantic.spendTotal.cost), true)
       }
-      compare(failures, 'semantic:header-title', dom.headerTitle, semantic.headerTitle)
       compare(failures, 'semantic:archived-cards', dom.archivedCards, semantic.archivedVisibleCards)
-      compare(failures, 'semantic:remote-hint', dom.bodyText.includes('Remote host · usage and actions stay local'), semantic.remoteHint)
-      compare(failures, 'semantic:local-badge', dom.bodyText.includes('No tracker'), semantic.localBadge)
       compare(failures, 'semantic:no-fake-zero', /\$0(?:\.00)?(?![\d.])/.test(dom.bodyText), false)
       compare(failures, 'semantic:delivered-text', dom.bodyText.includes('Delivered'), semantic.deliveredExpected)
     } else {

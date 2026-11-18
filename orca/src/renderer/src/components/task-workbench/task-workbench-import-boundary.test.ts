@@ -32,11 +32,12 @@ type SourceFile = { dir: string; file: string }
 
 const storeFreeSources: SourceFile[] = [
   { dir: sourceDir, file: 'TaskWorkbenchPanel.tsx' },
-  { dir: sourceDir, file: 'TaskWorkbenchHeader.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchAgents.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchAgentRow.tsx' },
   { dir: sourceDir, file: 'task-workbench-agent-row-dot.tsx' },
+  { dir: sourceDir, file: 'task-workbench-section-heading.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchWorkspaces.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchFacts.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchSpend.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchDelivery.tsx' },
   { dir: sourceDir, file: 'task-workbench-view.ts' },
@@ -97,7 +98,11 @@ describe('task workbench import boundary', () => {
     expect(forbiddenIn(sourceFile)).toEqual([])
   })
 
-  it('keeps the base renderer contained to the one overlay file', () => {
+  it('renders agent rows itself instead of borrowing the board card', () => {
+    // README §7.4.2: the board's body + footer card inside this section was the
+    // card-in-a-card this rework removed, and it dragged the board's 80px token
+    // column along. Reintroducing it here would restore both, so the absence is
+    // the assertion — the flat row is the workbench's own file.
     const baseImporters = storeFreeSources
       .filter((sourceFile) =>
         importSpecifiers(readSource(sourceFile)).some((specifier) =>
@@ -105,7 +110,7 @@ describe('task workbench import boundary', () => {
         )
       )
       .map((sourceFile) => sourceFile.file)
-    expect(baseImporters).toEqual(['TaskWorkbenchAgentRow.tsx'])
+    expect(baseImporters).toEqual([])
   })
 
   it('keeps the one store reader in the hook, outside the shell source set', () => {

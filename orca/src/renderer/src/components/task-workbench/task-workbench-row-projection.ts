@@ -1,6 +1,7 @@
 import { formatTokens } from '../stats/usage-formatters'
 import { tokenText } from './task-workbench-usage-status'
 import type { AgentOutcome, AgentRowView, DashboardCard } from './task-workbench-view'
+import type { AgentDotState } from '@/components/AgentStateDot'
 
 /**
  * The one place the dashboard's four lifecycle buckets become the workbench's
@@ -107,5 +108,52 @@ export function projectAgentRow(
     sessionBoundary: row.sessionBoundary,
     workspaceLabel: opts.showWorkspaceLabel ? row.workspaceLabel : undefined,
     showsDelivered: row.outcome === 'success'
+  }
+}
+
+/**
+ * The visible state word of a flat agent row (README §7.4.2: `图标 · 会话名 ·
+ * 状态 · 时长 · token · 动作`).
+ *
+ * Why the dashboard's bucket catalog and not a new workbench vocabulary: those
+ * four words (`Needs You` / `Working` / `Done` / `Idle`) are already the words a
+ * reader met on the agent board, and they are translated in all six locales.
+ * `blocked` / `waiting` / `permission` all read as attention because the sidebar
+ * already collapses them that way; `monitoring` stays `Working` because the agent
+ * is still running background work.
+ *
+ * The three overlay states have no bucket word — a failed or cancelled turn is a
+ * verdict, not a lifecycle column — so they get their own copy here, and
+ * `unverifiable` reuses `AgentStateDot`'s sentence instead of inventing a second
+ * one.
+ */
+export function agentStateWord(state: AgentDotState): { key: string; fallback: string } {
+  switch (state) {
+    case 'working':
+    case 'monitoring':
+      return { key: 'dashboardPopout.bucket.working', fallback: 'Working' }
+    case 'blocked':
+    case 'waiting':
+    case 'permission':
+      return { key: 'dashboardPopout.bucket.attention', fallback: 'Needs You' }
+    case 'done':
+      return { key: 'dashboardPopout.bucket.done', fallback: 'Done' }
+    case 'idle':
+      return { key: 'dashboardPopout.bucket.idle', fallback: 'Idle' }
+    case 'failed':
+      return {
+        key: 'auto.components.TaskWorkbenchAgentRow.state.failed',
+        fallback: 'Failed'
+      }
+    case 'interrupted':
+      return {
+        key: 'auto.components.TaskWorkbenchAgentRow.state.interrupted',
+        fallback: 'Interrupted'
+      }
+    case 'unverifiable':
+      return {
+        key: 'auto.components.TaskWorkbenchAgentRow.state.unverifiable',
+        fallback: 'No recent update'
+      }
   }
 }
