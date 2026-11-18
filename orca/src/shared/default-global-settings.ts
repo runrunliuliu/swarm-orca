@@ -207,6 +207,9 @@ export function buildDefaultSettings(args: {
     defaultTaskSource: 'github',
     visibleTaskProviders: [...TASK_PROVIDERS],
     visibleTaskProvidersDefaultedForJira: true,
+    // Why on: the linked-issue block is the point of linking an issue to a worktree; the draft is
+    // never submitted, so the default costs the user nothing but a visible, editable draft.
+    prefillLinkedIssueContextOnAgentLaunch: true,
     defaultRepoSelection: null,
     defaultLinearTeamSelection: null,
     opencodeSessionCookie: '',

@@ -1,5 +1,6 @@
 import type { WorktreeMeta } from '../../shared/worktree/meta-types'
 import type { Worktree } from '../../shared/worktree/types'
+import { normalizeLinkedIssueContextSnapshot } from '../../shared/linked-issue-context-snapshot'
 
 type LinkedWorkItemMetadata = Pick<
   Worktree,
@@ -10,6 +11,7 @@ type LinkedWorkItemMetadata = Pick<
   | 'linkedGiteaPR'
   | 'linkedWorkItem'
   | 'linkedTaskSourceContext'
+  | 'linkedIssueContext'
 >
 
 export function getLinkedWorkItemMetadata(meta: WorktreeMeta | undefined): LinkedWorkItemMetadata {
@@ -20,6 +22,9 @@ export function getLinkedWorkItemMetadata(meta: WorktreeMeta | undefined): Linke
     linkedAzureDevOpsPR: meta?.linkedAzureDevOpsPR ?? null,
     linkedGiteaPR: meta?.linkedGiteaPR ?? null,
     linkedWorkItem: meta?.linkedWorkItem ?? null,
-    linkedTaskSourceContext: meta?.linkedTaskSourceContext ?? null
+    linkedTaskSourceContext: meta?.linkedTaskSourceContext ?? null,
+    // Why still projected as null: readers gate the whole feature on a snapshot existing, and a
+    // renderer that received `undefined` would have to spell out both absences at every call site.
+    linkedIssueContext: normalizeLinkedIssueContextSnapshot(meta?.linkedIssueContext)
   }
 }
