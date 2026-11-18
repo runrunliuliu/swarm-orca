@@ -2149,7 +2149,7 @@
           "delivered": "전달됨",
           "deliveredDetail": "전달됨 · 에이전트 완료",
           "workspace": "워크스페이스",
-          "workspaceDetail": "워크스페이스가 연결되어 있습니다. 작업 중인 에이전트가 없습니다",
+          "workspaceDetail": "워크스페이스가 연결되어 있습니다. 에이전트의 턴 보고가 없습니다",
           "failedDetail": "에이전트가 실패했습니다. 이번 턴이 완료되지 않았습니다",
           "blockedDetail": "에이전트가 차단되었습니다",
           "waitingDetail": "에이전트가 입력을 기다리고 있습니다",

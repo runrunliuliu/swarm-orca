@@ -2149,7 +2149,7 @@
           "delivered": "受け渡し済み",
           "deliveredDetail": "受け渡し済み · Agent完了",
           "workspace": "ワークスペース",
-          "workspaceDetail": "ワークスペースが紐づいています。Agentは動作していません",
+          "workspaceDetail": "ワークスペースが紐づいています。Agent からのターン報告はありません",
           "failedDetail": "Agentが失敗しました。このターンは完了していません",
           "blockedDetail": "Agentがブロックされています",
           "waitingDetail": "Agentが入力待ちです",

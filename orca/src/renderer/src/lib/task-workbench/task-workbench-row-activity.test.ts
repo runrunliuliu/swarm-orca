@@ -138,6 +138,16 @@ describe('resolveTaskWorkbenchRowActivity', () => {
       expected: { kind: 'needs-you', dotState: 'interrupted' }
     },
     {
+      name: 'never reads a legacy interrupted row as delivery',
+      worktrees: bound([agent({ dotState: 'done', interrupted: true })]),
+      expected: { kind: 'needs-you', dotState: 'interrupted' }
+    },
+    {
+      name: 'never counts a success verdict on a row that is not done',
+      worktrees: bound([agent({ dotState: 'idle', outcome: 'success' })]),
+      expected: { kind: 'workspace', dotState: 'idle' }
+    },
+    {
       name: 'keeps a bound workspace with no agent as the neutral gray Workspace mark',
       worktrees: bound([]),
       expected: { kind: 'workspace', dotState: 'idle', workspaceCount: 1, agentCount: 0 }
@@ -202,6 +212,13 @@ describe('rows that stay unbadged', () => {
 })
 
 describe('row scoping', () => {
+  it('badges a PR row from a worktree linked to that PR', () => {
+    const pr = issueRow({ rowKey: 'repo-1\0pr:12', itemType: 'pr' })
+    expect(
+      activityFor([worktree({ worktreeId: 'wt-1', linkedPR: 12, agents: [WORKING] })], pr)
+    ).toMatchObject({ kind: 'working' })
+  })
+
   it('does not share one repo worktree across that repo issues', () => {
     const otherIssue = issueRow({ rowKey: 'repo-1\0issue:13', itemNumber: 13 })
     const activity = resolveTaskWorkbenchRowActivity({

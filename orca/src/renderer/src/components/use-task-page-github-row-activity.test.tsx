@@ -27,7 +27,7 @@ vi.mock('@/components/dashboard/useLiveDashboardSnapshot', () => ({
 }))
 
 import { useAppStore } from '@/store'
-import { makeWorktree } from '@/store/slices/store-test-helpers'
+import { makeTab, makeWorktree } from '@/store/slices/store-test-helpers'
 import type { TaskWorkbenchRowActivity } from '@/lib/task-workbench/task-workbench-row-activity'
 import { useTaskPageGitHubRowActivity } from './use-task-page-github-row-activity'
 import type { TaskPageGitHubRowActivitySource } from './use-task-page-github-row-activity'
@@ -132,11 +132,44 @@ const STATUS_CASES: {
     status: { sessionBoundary: true },
     card: { dotState: 'done', bucket: 'done' },
     expected: { kind: 'workspace', dotState: 'idle' }
+  },
+  {
+    name: 'keeps a legacy interrupted row out of Delivered',
+    status: { state: 'done', interrupted: true },
+    card: { dotState: 'done', bucket: 'done' },
+    expected: { kind: 'needs-you', dotState: 'interrupted' }
   }
 ]
 
+/** A completed agent whose live entry is gone: the dashboard still projects its
+ *  card, and only `retainedAgentsByPaneKey` holds the verdict. */
+function retainAgentStatus(entry: Partial<AgentStatusEntry>): void {
+  useAppStore.setState({
+    agentStatusByPaneKey: {},
+    retainedAgentsByPaneKey: {
+      [PANE_KEY]: {
+        entry: {
+          state: 'done',
+          prompt: 'Add login auth',
+          updatedAt: 1,
+          stateStartedAt: 1,
+          agentType: 'claude',
+          paneKey: PANE_KEY,
+          stateHistory: [],
+          ...entry
+        },
+        worktreeId: 'wt-1',
+        tab: makeTab({ id: 'tab-1', worktreeId: 'wt-1' }),
+        agentType: 'claude',
+        startedAt: 1
+      }
+    }
+  })
+}
+
 beforeEach(() => {
   snapshot = { generatedAt: 0, cards: [] }
+  useAppStore.setState({ retainedAgentsByPaneKey: {} })
   setAgentStatus({})
 })
 
@@ -154,6 +187,14 @@ describe('useTaskPageGitHubRowActivity', () => {
     expect(
       activityByKey([makeWorktree({ id: 'wt-1', repoId: REPO_ID, linkedIssue: 12 })]).get(ITEM_12)
     ).toMatchObject(expected)
+  })
+
+  it('reads a retained entry, so a completed failure is not read as Delivered', () => {
+    retainAgentStatus({ mainAgent: { state: 'done', outcome: 'failure', stateStartedAt: 1 } })
+    snapshot = { generatedAt: 0, cards: [card({ dotState: 'done', bucket: 'idle' })] }
+    expect(
+      activityByKey([makeWorktree({ id: 'wt-1', repoId: REPO_ID, linkedIssue: 12 })]).get(ITEM_12)
+    ).toMatchObject({ kind: 'needs-you', dotState: 'failed' })
   })
 
   it('ignores a card belonging to an archived worktree', () => {

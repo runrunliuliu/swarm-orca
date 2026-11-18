@@ -35,7 +35,7 @@ describe('row activity badge copy', () => {
       getTaskPageGitHubRowActivityCopy({ ...base, kind: 'workspace', dotState: 'idle' })
     ).toEqual({
       label: 'Workspace',
-      detail: 'A workspace is bound; no agent is working'
+      detail: 'A workspace is bound; no agent reported a turn'
     })
   })
 

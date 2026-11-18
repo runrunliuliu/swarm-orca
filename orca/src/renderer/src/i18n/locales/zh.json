@@ -2149,7 +2149,7 @@
           "delivered": "已交付",
           "deliveredDetail": "已交付 · 代理完成",
           "workspace": "工作区",
-          "workspaceDetail": "已绑定工作区，没有代理在工作",
+          "workspaceDetail": "已绑定工作区，没有任何代理上报任务轮次",
           "failedDetail": "代理执行失败，这一轮没有完成",
           "blockedDetail": "代理被阻塞",
           "waitingDetail": "代理正在等待你的输入",

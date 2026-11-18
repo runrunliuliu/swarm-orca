@@ -47,9 +47,13 @@ export function getTaskPageGitHubRowActivityCopy(
     case 'workspace':
       return {
         label: translate('auto.components.TaskPage.rowActivity.workspace', 'Workspace'),
+        // Why the copy stops there: this mark is the absence of a claim, and it
+        // also covers an agent whose report is unknown (the dashboard collapses
+        // `unverifiable`/`no-evidence` into idle). Saying "no agent is working"
+        // would assert a fact Orca does not have.
         detail: translate(
           'auto.components.TaskPage.rowActivity.workspaceDetail',
-          'A workspace is bound; no agent is working'
+          'A workspace is bound; no agent reported a turn'
         )
       }
   }
@@ -93,6 +97,10 @@ export function TaskPageGitHubRowActivityBadge({
       <TooltipTrigger asChild>
         <span
           data-row-activity={activity.kind}
+          // Why the name carries both parts: the pill is not focusable, so the
+          // tooltip alone would hide the state from assistive tech, and the
+          // visible label must remain part of the accessible name.
+          aria-label={`${label}. ${detail}`}
           // Why: no fill — a muted wash would stack on the row's hover:bg-accent
           // and read as a second hover tint (same reason as the ID pill). The
           // dot carries the state color, so the pill stays neutral in both themes

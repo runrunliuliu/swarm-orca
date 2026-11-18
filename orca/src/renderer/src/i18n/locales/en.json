@@ -2326,7 +2326,7 @@
           "delivered": "Delivered",
           "deliveredDetail": "Delivered · agent done",
           "workspace": "Workspace",
-          "workspaceDetail": "A workspace is bound; no agent is working",
+          "workspaceDetail": "A workspace is bound; no agent reported a turn",
           "failedDetail": "An agent failed; the turn did not finish",
           "blockedDetail": "An agent is blocked",
           "waitingDetail": "An agent is waiting for your input",

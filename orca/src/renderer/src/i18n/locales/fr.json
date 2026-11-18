@@ -2252,7 +2252,7 @@
           "delivered": "Livré",
           "deliveredDetail": "Livré · agent terminé",
           "workspace": "Espace de travail",
-          "workspaceDetail": "Un espace de travail est associé, aucun agent n’est en activité",
+          "workspaceDetail": "Un espace de travail est associé, aucun agent n’a signalé de tour",
           "failedDetail": "Un agent a échoué, le tour n’est pas allé au bout",
           "blockedDetail": "Un agent est bloqué",
           "waitingDetail": "Un agent attend votre saisie",

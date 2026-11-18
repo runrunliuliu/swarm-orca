@@ -33,23 +33,29 @@ import type { IdentityWorktree } from './task-workbench-selector-types'
  * module): §7.2 defined "0 workspaces" and "has an agent", leaving "workspace
  * bound, no agent yet" blank. That is a real state — the user created the
  * workspace and may not have started an agent — so it gets a neutral gray mark.
- * It is never `Working` (nothing is running) and never `Delivered` (no agent
- * means no finished turn). 0 workspaces is not this state at all: there is
- * nothing Orca owns, so the row gets no mark and no placeholder.
+ * It means **no agent made a claim**: no agent at all, an idle one, or one whose
+ * report is unknown (the dashboard collapses `unverifiable`/`no-evidence` into
+ * `idle`, `dashboard-row-bucket.ts:20-24`), and the copy must not claim more
+ * than that. It is never `Working` (no agent reports a turn) and never
+ * `Delivered` (no agent reports a finished turn). 0 workspaces is not this
+ * state at all: there is nothing Orca owns, so the row gets no mark and no
+ * placeholder.
  *
  * Rules, taken from README §7.2 / D12 rather than restated as new policy:
  * - only non-archived worktrees participate (`Needs you` > `Working` > `Delivered`);
  * - Needs you = a live attention row (`blocked` / `waiting`) or an F8 verdict
  *   (`failed` / `interrupted`), because a failed main agent is news even when a
  *   subagent still runs (`task-workbench-agent-row-dot.tsx:20-40`);
- * - Delivered = agent done: `sessionBoundary` never counts (a connect/resume/clear
- *   landing is not a finished turn), `failure` / `cancellation` never count, and
- *   an absent `outcome` still counts when the row reports `done`.
+ * - Delivered = agent done: the row must report `done`, `sessionBoundary` never
+ *   counts (a connect/resume/clear landing is not a finished turn), an
+ *   `interrupted` row never counts (legacy hosts record a user stop there, with
+ *   no verdict), `failure` / `cancellation` never count, and an absent `outcome`
+ *   still counts when the row reports `done`.
  */
 
-/** What the row claims about Orca activity. `workspace` is the "bound, nothing
- *  running" state this module adds to README §7.2; the other three are that
- *  section's grouping order. */
+/** What the row claims about Orca activity. `workspace` is the "bound, no claim"
+ *  state this module adds to README §7.2; the other three are that section's
+ *  grouping order. */
 export type TaskWorkbenchRowActivityKind = 'needs-you' | 'working' | 'delivered' | 'workspace'
 
 /** One agent in a worktree, as the caller already projected it. The four F8
@@ -60,6 +66,10 @@ export type TaskWorkbenchRowAgent = {
   dotState: DashboardCardDotState
   outcome?: AgentOutcome
   sessionBoundary?: boolean
+  /** Legacy user-stop marker on an entry whose `state` is `done`
+   *  (`agent-status-types.ts:140`). Older hosts set it without a `mainAgent`
+   *  verdict, so it is the only interruption evidence there. */
+  interrupted?: boolean
 }
 
 /** A worktree plus the two facts the row lookup needs. `IdentityWorktree`
@@ -248,7 +258,7 @@ function agentClaim(agent: TaskWorkbenchRowAgent): AgentClaim | null {
   if (agent.dotState === 'waiting') {
     return { kind: 'needs-you', dotState: 'waiting' }
   }
-  if (overlay === 'interrupted') {
+  if (overlay === 'interrupted' || agent.interrupted === true) {
     return { kind: 'needs-you', dotState: 'interrupted' }
   }
   if (agent.dotState === 'working') {
@@ -264,17 +274,23 @@ function agentClaim(agent: TaskWorkbenchRowAgent): AgentClaim | null {
 
 /**
  * D12: `Delivered` is "the agent said this turn is done", not "the work passed
- * review". A session boundary is a connect/resume/clear landing and never a
- * finished turn; a failed or cancelled turn is not delivery; an absent outcome
- * (the provider never reported one) still counts when the row reports `done`,
- * because the lifecycle state is the evidence the store actually holds.
+ * review". The row must report `done` — an `outcome` alone is not the lifecycle
+ * evidence, since a verdict can outlive the state it describes. A session
+ * boundary is a connect/resume/clear landing and never a finished turn; an
+ * `interrupted` row is a user stop, which older hosts recorded on a `done` row
+ * with no verdict at all; a failed or cancelled turn is not delivery; an absent
+ * outcome (the provider never reported one) still counts, because the lifecycle
+ * state is the evidence the store actually holds.
  */
 function isDelivered(agent: TaskWorkbenchRowAgent): boolean {
-  if (agent.sessionBoundary === true) {
+  if (agent.dotState !== 'done') {
+    return false
+  }
+  if (agent.sessionBoundary === true || agent.interrupted === true) {
     return false
   }
   if (agent.outcome === 'failure' || agent.outcome === 'cancellation') {
     return false
   }
-  return agent.outcome === 'success' || (agent.outcome === undefined && agent.dotState === 'done')
+  return agent.outcome === 'success' || agent.outcome === undefined
 }

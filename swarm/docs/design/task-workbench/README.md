@@ -310,8 +310,8 @@ skills / CLI 动词建单。
   而状态列只有 100px，放不下第二个 pill。
 - 四态：`Needs you`（blocked / waiting，或 F8 的 failed / interrupted）、`Working`、`Delivered`
   （= 上面 D12 的有效 done）、`Workspace`（灰、中性）。
-- **有工作区、无 agent（本节补的空白）**：显示灰色 `Workspace`，表示"已绑定工作区、当前没有 agent 在跑"。
-  不得伪造成 `Working`（没有 agent 在跑），也不得显示 `Delivered`（没有 agent 就不可能有 done）。
+- **有工作区、无 agent（本节补的空白）**：显示灰色 `Workspace`，含义是"已绑定工作区、**没有任何 agent 做出状态声明**"——涵盖没有 agent、agent `idle`、以及上报缺失/失效三种情况（dashboard 会把 `unverifiable`/`no-evidence` 折成 `idle`）。
+  不得伪造成 `Working`，也不得显示 `Delivered`（没有 agent 声明完成就不可能有 done）。徽标文案也不得写"没有 agent 在跑"：那是对第三种的越界断言，tooltip 只说"已绑定工作区、没有 agent 上报任务轮次"。
   这与"0 工作区"不同：0 工作区**不渲染徽标**，也不留空占位（0 工作区的分组仍按上面的规则，属 P3）。
 - 归档工作区不参与任何一格；`Needs you > Working > Delivered` 的并集规则与分组完全一致。
 - glyph 复用 `AgentStateDot`（spinner=working / amber=needs you / red=blocked / emerald=done / gray=idle），
@@ -319,9 +319,10 @@ skills / CLI 动词建单。
   `Delivered` 的文案只能是 `Delivered · agent done`。
 - 行级归属按 `repoId` + `linkedIssue` / `linkedPR` 反查，**不按** identity 的 `taskKey`：identity selector
   的 GitHub key 是 owner/repo 级（`taskProviderIdentityCachePart` 不含 issue 号），拿它当行键会让同一
-  repo 的所有条目共享一行的活动。`taskKey` 仍记录在 selector 输出里，供 P3 分组用；每行 O(1) 查表由
-  一个列表页级批量 hook 提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量 selector
-  与 dashboard snapshot）。
+   repo 的所有条目共享一行的活动。`taskKey` 仍记录在 selector 输出里，但它是 **repo 级、含 host** 的
+   身份、不是条目身份：P3 分组前必须先把 key 扩到条目粒度，不能直接当分组键。每行 O(1) 查表由
+   一个列表页级批量 hook 提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量
+   selector 与 dashboard snapshot）。
 - 本切片不做：列表分组 / 重排 / 主轴切换、`◇` 徽标、一任务多工作区合并、
   Linear / Jira / GitLab 列表、写回 tracker 状态、`taskRecords` 持久化。
 

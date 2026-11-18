@@ -48,20 +48,32 @@ export function useTaskPageGitHubRowActivity<Model extends TaskPageGitHubRowActi
   const { filteredWorkItems, allWorktrees, repoMap } = model
   const snapshot = useLiveDashboardSnapshot()
   const agentStatusByPaneKey = useAppStore((state) => state.agentStatusByPaneKey)
+  // Why retained too: a completed agent whose live entry is gone keeps its last
+  // entry in this map (`RetainedAgentEntry`), and the dashboard still projects a
+  // `done` card for it. Reading the verdict from the live map alone would turn a
+  // retained failure into `Delivered`; the same `live ?? retained` precedence is
+  // what `retraction-pane-ownership.ts:83` uses.
+  const retainedAgentsByPaneKey = useAppStore((state) => state.retainedAgentsByPaneKey)
 
   const rowActivityByKey = useMemo<ReadonlyMap<string, TaskWorkbenchRowActivity>>(() => {
     // One pass over the snapshot, not one per row: a card names its worktree,
     // and the row lookup below is a map read.
     const agentsByWorktree = new Map<string, TaskWorkbenchRowAgent[]>()
     for (const card of snapshot.cards) {
-      const entry = agentStatusByPaneKey[card.paneKey]
+      // One source per agent: the entry that describes this card, live first and
+      // retained second. Status, verdict and boundary never come from two rows.
+      const entry =
+        agentStatusByPaneKey[card.paneKey] ?? retainedAgentsByPaneKey[card.paneKey]?.entry
       // `outcome` goes through `isAgentJournalTurnOutcome` instead of a cast, so
       // an absent or unexpected verdict stays unknown (same rule as the tab).
       const outcome = entry?.mainAgent?.outcome
       const agent: TaskWorkbenchRowAgent = {
         dotState: card.dotState,
         ...(isAgentJournalTurnOutcome(outcome) ? { outcome } : {}),
-        ...(entry?.sessionBoundary === true ? { sessionBoundary: true } : {})
+        ...(entry?.sessionBoundary === true ? { sessionBoundary: true } : {}),
+        // Why: older hosts record a user stop on a `done` row without a
+        // `mainAgent` verdict, so `interrupted` is the only evidence there.
+        ...(entry?.interrupted === true ? { interrupted: true } : {})
       }
       const existing = agentsByWorktree.get(card.worktreeId)
       if (existing) {
@@ -102,7 +114,14 @@ export function useTaskPageGitHubRowActivity<Model extends TaskPageGitHubRowActi
     })
 
     return resolveTaskWorkbenchRowActivity({ rows, worktrees })
-  }, [agentStatusByPaneKey, allWorktrees, filteredWorkItems, repoMap, snapshot])
+  }, [
+    agentStatusByPaneKey,
+    retainedAgentsByPaneKey,
+    allWorktrees,
+    filteredWorkItems,
+    repoMap,
+    snapshot
+  ])
 
   // Why the assertion: the page model grows by mutation (every
   // `use-task-page-*` stage narrows `typeof model` the same way), so the field
