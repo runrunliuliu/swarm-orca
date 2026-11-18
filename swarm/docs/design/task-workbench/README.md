@@ -462,7 +462,7 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 | 功能区 | 图 | 来源（fixture · 视口） | 这张图能证明什么 |
 | --- | --- | --- | --- |
 | Header | `ui/impl-header.png` | f1_baseline · 1440×900 | 标题、`GitHub acme/web-app open` 身份行、`web-app feature/add-login PR #431 draft` 默认工作区行、唯一主动作 `Open workspace` |
-| Agents（分组） | `ui/impl-agents-groups.png` | f3_many_workspaces_agents · 1440×1200 | `Active 4` + `Needs you 1` 两组（`History 5` 见下一张）、每行带所属工作区 pill / `N subagent` / `just now`；逐 Agent 只有 token |
+| Agents（分组） | `ui/impl-agents-groups.png` | f3_many_workspaces_agents · 1440×1200 | `Active 4` + `Needs you 1` 两组（`History 5` 见下一张）；workspace pill 在卡片上方一行，右侧窄列只有 token；`N subagent` / `just now` 在卡片内 |
 | Agents（失败轮） | `ui/impl-agents-failure.png` | f8_failure_outcome · 1440×900 | History 行带红色 `Failed` 徽标、状态点变 failed；语义上不出现 Delivered |
 | Workspaces | `ui/impl-workspaces.png` | f1_baseline · 1440×900 | 工作区卡：`web-app · feature/add-login · Default`、`local` host chip、`Create workspace` |
 | Spend | `ui/impl-spend.png` | f1_baseline · 1440×900 | `1.3M tokens · —`（有未定价模型）、逐 provider（`claude … est. $1.20` / `codex … —`），未知不写 0 |
@@ -513,10 +513,10 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 
 1. 这些是 **fixture 数据**的渲染：不经过 store、selector、RPC、持久化，也不切 locale（`i18n.ts` 给英文默认值）。
    它证明的是"组件按这份 view 数据会画成什么样"，不是"真机打开一个任务会看到什么"。
-2. 截图里能看到一处**当前渲染缺陷**：agent 行右侧的 token chip（以及 `Failed` 徽标）溢出在行卡片外，
-   落在列间空白上（见 `ui-agents-groups.png` 与 `ui-agents-failure.png`）。行组件是
-   `flex … card(flex-1) + overlay(shrink-0)`，overlay 比列宽时把卡片挤窄而不是自身换行；它出现在
-   F1/F3/F8 三张图里，未修。
+2. agent 行的**布局缺陷已修**（2026-11-18）：原来是 `card(flex-1) + overlay，auto 宽度`，带 workspace
+   pill 的行把卡片挤窄、不带的行不挤，卡片宽度因此参差，token 文本又贴着列边；现在 pill 单独一行放在
+   卡片上方，右侧只留一个固定窄列（token / 状态点 / outcome 徽标），所有行卡片等宽。截图是修后的渲染，
+   修前形态可从 `git show 1bfea3cc:orca/.../TaskWorkbenchAgentRow.tsx` 复看。
 3. 图里的 `All agents ▾`／`⋯` 之类**不存在**于实现：Agent 区是分组 + History 折叠，Header 只有一个动作。
    `ui/design-workbench.svg/png` 仍是 2026-11-16 的设计稿，与这些截图不是同一层证据。
 4. **Workspaces 卡上没有 token / 金额**：设计稿每张卡有 `1 agent · 412k tok · $1.20`，实现只渲染
@@ -943,7 +943,8 @@ setup 钩子"或"需要新装/重建依赖"。
 - §8 的降级结论（旧 build 保留未知 domain 并写回）来自代码阅读（`normalizeLoadedProfileState` 的 `{...parsed}`、
   `buildStateToSave` 的 `getDurableState()`），**没有跑过 round-trip 用例**；§8.9 第 1、2 条尚未执行。
 - 未确认 `orca profile state` 的 export/recovery 是否包含未知 domain。
-- 渲染缺陷：agent 行的 token chip 与结果徽标溢出卡片右侧（§7.4.1 的三张 Agents 截图可见），未修。
+- agent 行的卡片宽度参差 + token 贴列边已修（§7.4.1 限制第 2 条），修后只重跑了 f1/f3/f8 与两个降级尺寸，
+  没有真机复核。
 - P1 只有 harness 与单测证据：`tests/tools/task-workbench-rendered` 覆盖组件与降级态，`tc:web` 通过；
   **没有真机交互验收**（打开详情 → 切换 tab → 点 `[ Open workspace ]` / `[ resume ]` 的实际行为未实测），
   也没有 P1b 的独立评审回执。

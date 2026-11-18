@@ -63,43 +63,51 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
     : translate(rowKeys('tokens'), '{{value0}} tok', { value0: row.tokenText.text })
 
   return (
-    <div data-testid="task-workbench-agent-row" className="flex min-w-0 items-start gap-2">
-      <div className="min-w-0 flex-1">
-        <AgentKanbanCard card={row.base} now={now} onOpenTerminal={noop} />
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1 pt-1">
-        {row.workspaceLabel ? (
-          <Badge
-            data-testid="task-workbench-agent-row-workspace-pill"
-            variant="outline"
-            className="max-w-40"
-          >
-            <span aria-hidden="true">▦</span>
-            <span className="min-w-0 truncate">{row.workspaceLabel}</span>
-          </Badge>
-        ) : null}
-        <span
-          data-testid="task-workbench-agent-row-tokens"
-          className={cn(
-            'text-xs tabular-nums',
-            row.tokenText.unavailable ? 'text-muted-foreground' : 'text-foreground'
-          )}
+    <div data-testid="task-workbench-agent-row" className="flex min-w-0 flex-col gap-1">
+      {/* Why the pill sits on its own line: the overlay is a sibling of the card,
+          so a pill inside the meta column changed every row's card width (rows
+          with a workspace pill squeezed the card, rows without one did not) and
+          the token text ended up flush against the column edge. Row-level facts
+          go above the card; only the short numeric/badge column stays beside it,
+          and that column is a fixed narrow width so all cards align. */}
+      {row.workspaceLabel ? (
+        <Badge
+          data-testid="task-workbench-agent-row-workspace-pill"
+          variant="outline"
+          className="w-fit max-w-full"
         >
-          {tokenLabel}
-        </span>
-        {row.outcome || row.sessionBoundary ? (
-          <div className="flex items-center gap-1">
-            <TaskWorkbenchAgentRowDot row={row} />
-            {row.outcome ? (
-              <Badge
-                data-testid="task-workbench-agent-row-outcome"
-                variant={OUTCOME_VARIANT[row.outcome]}
-              >
-                {translate(rowKeys(`outcome.${row.outcome}`), OUTCOME_COPY[row.outcome])}
-              </Badge>
-            ) : null}
-          </div>
-        ) : null}
+          <span aria-hidden="true">▦</span>
+          <span className="min-w-0 truncate">{row.workspaceLabel}</span>
+        </Badge>
+      ) : null}
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <AgentKanbanCard card={row.base} now={now} onOpenTerminal={noop} />
+        </div>
+        <div className="flex w-20 shrink-0 flex-col items-start gap-1 pt-1">
+          <span
+            data-testid="task-workbench-agent-row-tokens"
+            className={cn(
+              'max-w-full truncate text-xs tabular-nums',
+              row.tokenText.unavailable ? 'text-muted-foreground' : 'text-foreground'
+            )}
+          >
+            {tokenLabel}
+          </span>
+          {row.outcome || row.sessionBoundary ? (
+            <div className="flex min-w-0 items-center gap-1">
+              <TaskWorkbenchAgentRowDot row={row} />
+              {row.outcome ? (
+                <Badge
+                  data-testid="task-workbench-agent-row-outcome"
+                  variant={OUTCOME_VARIANT[row.outcome]}
+                >
+                  {translate(rowKeys(`outcome.${row.outcome}`), OUTCOME_COPY[row.outcome])}
+                </Badge>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   )
