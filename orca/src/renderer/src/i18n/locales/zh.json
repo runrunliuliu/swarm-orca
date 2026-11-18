@@ -17387,9 +17387,9 @@
         "state": {
           "failed": "失败",
           "interrupted": "已中断",
-          "unverifiable": "无最近更新"
+          "unverifiable": "暂无最近更新"
         },
-        "notWired": "尚未接线",
+        "notWired": "此版本暂不支持",
         "openTerminal": "打开终端"
       },
       "TaskWorkbenchAgents": {
@@ -17417,7 +17417,7 @@
         "readOnly": "只读证据。此界面不运行 git、轮询或 PR 刷新。",
         "pullRequestState": {
           "draft": "草稿",
-          "open": "打开",
+          "open": "开放中",
           "merged": "已合并",
           "closed": "已关闭"
         },
@@ -17426,15 +17426,15 @@
           "approved": "评审已通过",
           "changes-requested": "已请求修改"
         },
-        "notRead": "未读取",
-        "read": "读取",
-        "notWired": "尚未接线"
+        "notRead": "尚未读取",
+        "read": "读取证据",
+        "notWired": "此版本暂不支持"
       },
       "TaskWorkbenchPanel": {
         "emptyTitle": "此任务尚未关联任何工作区",
         "emptyBody": "创建工作区，即可在此任务上启动智能体。",
         "createWorkspace": "创建工作区",
-        "notWired": "尚未接线"
+        "notWired": "此版本暂不支持"
       },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} token",
@@ -17461,14 +17461,14 @@
           "remote_host": "不可用 · remote_host",
           "unattributed": "不可用 · unattributed"
         },
-        "notWired": "尚未接线",
+        "notWired": "此版本暂不支持",
         "providerCost": "${{value0}}",
         "statusWord": {
           "available": "可用",
           "disabled": "未启用",
           "unpriced": "未定价",
-          "ambiguous_session": "无法归属",
-          "no_matching_session": "无匹配会话",
+          "ambiguous_session": "匹配不唯一",
+          "no_matching_session": "未找到匹配会话",
           "remote_host": "远程主机",
           "unattributed": "未归属"
         }
@@ -17492,7 +17492,7 @@
         "heading": "工作区",
         "workspaceCount": "{{value0}}",
         "showMore": "再显示 {{value0}} 个工作区",
-        "notWired": "尚未接线"
+        "notWired": "此版本暂不支持"
       }
     },
     "i18n": {

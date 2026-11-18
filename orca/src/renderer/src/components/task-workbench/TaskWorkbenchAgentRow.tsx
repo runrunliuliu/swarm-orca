@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { AgentIcon } from '@/lib/agent-catalog'
 import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { dashboardCardDisplayState } from '../../../../shared/dashboard-snapshot'
@@ -13,6 +12,7 @@ import {
   TaskWorkbenchAgentRowDot,
   taskWorkbenchOverlayDotState
 } from './task-workbench-agent-row-dot'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import type { AgentOutcome } from './task-workbench-view'
 
 /**
@@ -81,7 +81,11 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
 
   return (
     <div data-testid="task-workbench-agent-row" className="flex min-w-0 flex-col gap-1 px-3 py-1.5">
-      <div className="flex min-w-0 items-center gap-2">
+      {/* Why flex-wrap and a floor on the name: one row carries an icon, a name, an
+          optional workspace pill, a status cluster and an action. With every
+          neighbour `shrink-0`, the name used to be squeezed to zero first; now the
+          name keeps `min-w-32` and the trailing cluster wraps under it. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span
           className="inline-flex shrink-0"
           title={formatAgentTypeLabel(row.base.agentType)}
@@ -90,7 +94,7 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
           <AgentIcon agent={agentTypeToIconAgent(row.base.agentType)} size={14} />
         </span>
 
-        <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{heading}</span>
+        <span className="min-w-32 flex-1 truncate text-[13px] text-foreground">{heading}</span>
 
         {/* Contract §4.3: with more than one live workspace a row must say which
             one it belongs to. Inline instead of a line of its own — the branch
@@ -99,14 +103,14 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
           <Badge
             data-testid="task-workbench-agent-row-workspace-pill"
             variant="hostContext"
-            className="max-w-[45%] min-w-0"
+            className="max-w-[45%] min-w-0 truncate"
           >
             <span aria-hidden="true">▦</span>
             <span className="truncate">{row.workspaceLabel}</span>
           </Badge>
         ) : null}
 
-        <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-1.5 gap-y-1 text-[12px] text-muted-foreground">
           <TaskWorkbenchAgentRowDot row={row} fallbackState={displayState} />
           <span
             data-testid={row.outcome === undefined ? undefined : 'task-workbench-agent-row-outcome'}
@@ -131,17 +135,11 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
           )}
         </span>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled
-          title={translate(rowKeys('notWired'), NOT_WIRED)}
-          data-testid="task-workbench-agent-row-action"
-          className="shrink-0"
-        >
-          {translate(rowKeys('openTerminal'), 'Open terminal')}
-        </Button>
+        <TaskWorkbenchPendingAction
+          label={translate(rowKeys('openTerminal'), 'Open terminal')}
+          hint={translate(rowKeys('notWired'), NOT_WIRED)}
+          testId="task-workbench-agent-row-action"
+        />
       </div>
 
       {/* A needs-you row owes the reader the question, not just the state. */}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import type { DeliveryEvidence, TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
 
 /**
@@ -103,7 +104,7 @@ export function TaskWorkbenchDelivery({
       >
         {label}
         <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-inset ring-border/60">
-          {translate(deliveryKeys('notRead'), 'Not read')}
+          {translate(deliveryKeys('notRead'), 'Not loaded')}
         </span>
         <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
           {translate(
@@ -111,16 +112,11 @@ export function TaskWorkbenchDelivery({
             'This view runs no git or PR lookup, so nothing here says the task was delivered.'
           )}
         </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled
-          title={translate(deliveryKeys('notWired'), NOT_WIRED)}
-          className="shrink-0 text-muted-foreground"
-        >
-          {translate(deliveryKeys('read'), 'Read')}
-        </Button>
+        <TaskWorkbenchPendingAction
+          label={translate(deliveryKeys('read'), 'Load evidence')}
+          hint={translate(deliveryKeys('notWired'), NOT_WIRED)}
+          testId="task-workbench-delivery-read"
+        />
       </section>
     )
   }

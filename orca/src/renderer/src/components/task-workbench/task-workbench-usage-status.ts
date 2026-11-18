@@ -8,8 +8,9 @@ import type { AgentTokenView, SpendView } from './task-workbench-view'
  * importing them would drag an automation data path into a pure presentation
  * module, and the workbench needs two states that source does not have
  * (`disabled` for tracking switched off, `unpriced` for a model with no price).
- * The strings themselves are the copy of record — the Spend status text prints
- * them verbatim — so they must never be reworded here.
+ * They stay verbatim (never reworded) because tests and bug reports quote them;
+ * what changed in README §7.4.2 is only where they are shown — the badge prints
+ * `USAGE_STATUS_WORD` and the token became its tooltip.
  */
 export type UsageStatus =
   | 'available'
@@ -58,8 +59,11 @@ export const USAGE_STATUS_WORD: Record<UsageStatus, string> = {
   available: 'Available',
   disabled: 'Not enabled',
   unpriced: 'Unpriced',
-  ambiguous_session: 'Ambiguous',
-  no_matching_session: 'No session',
+  // "Ambiguous" alone reads like a property of the number; naming the many
+  // matches says what the reader has to resolve (README §7.5).
+  ambiguous_session: 'Multiple matches',
+  // Not "No session": a session may exist and simply not match this task.
+  no_matching_session: 'No matching session',
   remote_host: 'Remote host',
   unattributed: 'Unattributed'
 }

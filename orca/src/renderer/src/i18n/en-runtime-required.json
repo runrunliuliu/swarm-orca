@@ -143,7 +143,7 @@
       "TaskPage": {
       },
       "TaskWorkbenchAgentRow": {
-        "notWired": "Not wired in this build yet",
+        "notWired": "Not available in this version",
         "openTerminal": "Open terminal",
         "outcome": {
           "cancellation": "Cancelled",
@@ -177,8 +177,8 @@
         "heading": "Delivery",
         "lastCommit": "Last commit: {{value0}}",
         "noEvidence": "This view runs no git or PR lookup, so nothing here says the task was delivered.",
-        "notRead": "Not read",
-        "notWired": "Not wired in this build yet",
+        "notRead": "Not loaded",
+        "notWired": "Not available in this version",
         "pullRequestNumber": "PR #{{value0}}",
         "pullRequestState": {
           "closed": "closed",
@@ -186,7 +186,7 @@
           "merged": "merged",
           "open": "open"
         },
-        "read": "Read",
+        "read": "Load evidence",
         "readOnly": "Read-only evidence. This shell runs no git, polling or PR refresh.",
         "review": {
           "approved": "Review approved",
@@ -199,14 +199,14 @@
         "createWorkspace": "Create workspace",
         "emptyBody": "Create a workspace to start an agent on this task.",
         "emptyTitle": "No workspace is linked to this task yet",
-        "notWired": "Not wired in this build yet"
+        "notWired": "Not available in this version"
       },
       "TaskWorkbenchSpend": {
         "costEstimated": "Estimated from provider pricing.",
         "costUnknown": "A model in this task has no price, so no amount is estimated.",
         "estimatedCost": "est. ${{value0}}",
         "heading": "Usage",
-        "notWired": "Not wired in this build yet",
+        "notWired": "Not available in this version",
         "providerCost": "${{value0}}",
         "reason": {
           "ambiguous_session": "More than one session matches this task, so usage cannot be attributed.",
@@ -226,10 +226,10 @@
           "unpriced": "unavailable · unpriced"
         },
         "statusWord": {
-          "ambiguous_session": "Ambiguous",
+          "ambiguous_session": "Multiple matches",
           "available": "Available",
           "disabled": "Not enabled",
-          "no_matching_session": "No session",
+          "no_matching_session": "No matching session",
           "remote_host": "Remote host",
           "unattributed": "Unattributed",
           "unpriced": "Unpriced"
@@ -253,7 +253,7 @@
         },
         "moreWorkspaces": "+{{value0}} more",
         "noActive": "No active workspace",
-        "notWired": "Not wired in this build yet",
+        "notWired": "Not available in this version",
         "reviewNumber": "PR #{{value0}}",
         "showArchived": "Show archived ({{value0}})",
         "showMore": "Show {{value0}} more workspaces",

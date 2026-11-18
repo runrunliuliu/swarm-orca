@@ -14810,7 +14810,7 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokens": "{{value0}} tokens",
+        "tokens": "{{value0}}",
         "outcome": {
           "success": "Entregado",
           "failure": "Fallido",
@@ -14900,7 +14900,7 @@
         "moreWorkspaces": "+{{value0}} más",
         "showArchived": "Mostrar archivados ({{value0}})",
         "heading": "Espacios de trabajo",
-        "workspaceCount": "{{value0}} en total",
+        "workspaceCount": "{{value0}}",
         "showMore": "Mostrar {{value0}} espacios de trabajo más"
       }
     },

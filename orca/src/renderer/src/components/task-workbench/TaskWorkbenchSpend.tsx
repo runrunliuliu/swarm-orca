@@ -1,10 +1,10 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowUpRight } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatTokens } from '@/components/stats/usage-formatters'
 import { translate } from '@/i18n/i18n'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import {
   USAGE_STATUS_WORD,
   spendStatus,
@@ -207,18 +207,14 @@ export function TaskWorkbenchSpend({
         {/* Why a CTA rather than `$0`: tracking being off is a state to fix, not a
             measured zero (README §7.5). Disabled until P1b wires the hop. */}
         {spend.kind === 'unavailable' && spend.reason === 'disabled' ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            disabled
-            title={translate(spendKeys('notWired'), NOT_WIRED)}
-            data-testid="task-workbench-spend-cta"
-            className="ml-auto shrink-0 text-muted-foreground"
+          <TaskWorkbenchPendingAction
+            label={translate(spendKeys('turnOnTracking'), 'Settings')}
+            hint={translate(spendKeys('notWired'), NOT_WIRED)}
+            testId="task-workbench-spend-cta"
+            className="ml-auto"
           >
-            {translate(spendKeys('turnOnTracking'), 'Settings')}
             <ArrowUpRight aria-hidden="true" className="size-3.5" />
-          </Button>
+          </TaskWorkbenchPendingAction>
         ) : null}
       </div>
 

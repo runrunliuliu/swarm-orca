@@ -1,9 +1,9 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
 import { TaskWorkbenchAgents } from './TaskWorkbenchAgents'
 import { TaskWorkbenchFacts } from './TaskWorkbenchFacts'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import { TaskWorkbenchWorkspaces } from './TaskWorkbenchWorkspaces'
 import type { TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
 
@@ -58,16 +58,12 @@ function EmptyState(): React.JSX.Element {
           {translate(panelKeys('emptyBody'), 'Create a workspace to start an agent on this task.')}
         </p>
       </div>
-      <Button
-        type="button"
+      <TaskWorkbenchPendingAction
         variant="outline"
-        size="xs"
-        disabled
-        title={translate(panelKeys('notWired'), NOT_WIRED)}
-        data-testid="task-workbench-workspaces-create"
-      >
-        {translate(panelKeys('createWorkspace'), 'Create workspace')}
-      </Button>
+        label={translate(panelKeys('createWorkspace'), 'Create workspace')}
+        hint={translate(panelKeys('notWired'), NOT_WIRED)}
+        testId="task-workbench-workspaces-create"
+      />
     </section>
   )
 }

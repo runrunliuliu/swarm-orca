@@ -17556,7 +17556,7 @@
           "interrupted": "Interrupted",
           "unverifiable": "No recent update"
         },
-        "notWired": "Not wired in this build yet",
+        "notWired": "Not available in this version",
         "openTerminal": "Open terminal"
       },
       "TaskWorkbenchAgents": {
@@ -17593,15 +17593,15 @@
           "approved": "Review approved",
           "changes-requested": "Changes requested"
         },
-        "notRead": "Not read",
-        "read": "Read",
-        "notWired": "Not wired in this build yet"
+        "notRead": "Not loaded",
+        "read": "Load evidence",
+        "notWired": "Not available in this version"
       },
       "TaskWorkbenchPanel": {
         "emptyTitle": "No workspace is linked to this task yet",
         "emptyBody": "Create a workspace to start an agent on this task.",
         "createWorkspace": "Create workspace",
-        "notWired": "Not wired in this build yet"
+        "notWired": "Not available in this version"
       },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} tokens",
@@ -17628,14 +17628,14 @@
           "remote_host": "unavailable · remote_host",
           "unattributed": "unavailable · unattributed"
         },
-        "notWired": "Not wired in this build yet",
+        "notWired": "Not available in this version",
         "providerCost": "${{value0}}",
         "statusWord": {
           "available": "Available",
           "disabled": "Not enabled",
           "unpriced": "Unpriced",
-          "ambiguous_session": "Ambiguous",
-          "no_matching_session": "No session",
+          "ambiguous_session": "Multiple matches",
+          "no_matching_session": "No matching session",
           "remote_host": "Remote host",
           "unattributed": "Unattributed"
         }
@@ -17659,7 +17659,7 @@
         "heading": "Workspaces",
         "workspaceCount": "{{value0}}",
         "showMore": "Show {{value0}} more workspaces",
-        "notWired": "Not wired in this build yet"
+        "notWired": "Not available in this version"
       }
     },
     "i18n": {

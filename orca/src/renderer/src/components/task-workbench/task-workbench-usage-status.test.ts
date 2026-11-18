@@ -117,8 +117,8 @@ describe('USAGE_STATUS_WORD', () => {
       available: 'Available',
       disabled: 'Not enabled',
       unpriced: 'Unpriced',
-      ambiguous_session: 'Ambiguous',
-      no_matching_session: 'No session',
+      ambiguous_session: 'Multiple matches',
+      no_matching_session: 'No matching session',
       remote_host: 'Remote host',
       unattributed: 'Unattributed'
     })

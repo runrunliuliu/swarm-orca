@@ -547,12 +547,12 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 
 | 目标形态的一条 | 落地位置 | 说明 |
 | --- | --- | --- |
-| 工作台头部整块去掉 | `TaskWorkbenchPanel.tsx`；`TaskWorkbenchHeader.tsx` 删除 | 页面 h1、topbar 与页头状态已说清身份；第二个 `Open workspace` 随之消失，填色主按钮只剩页头那一个 |
+| 工作台头部整块去掉 | `TaskWorkbenchPanel.tsx`；`TaskWorkbenchHeader.tsx` 删除 | 在 GitHub issue/PR 详情这条嵌入路径上，外层标题、编号与页头状态已经说清身份，第二个 `Open workspace` 随之消失，填色主按钮只剩页头那一个。**成立范围仅限这个入口**：PR 页头提供的是「从 PR 起草工作区」而不是「打开已关联工作区」，面板也不再画 `◇ No tracker` 身份徽标；将来若加独立窗口入口，由那个入口补一块最小身份区，不要恢复重复标题与重复主操作（§7.4.2 取舍 1） |
 | 节标题统一 `名称 + 计数` | `task-workbench-section-heading.tsx` | 12px/600 + 12px muted 计数，折叠控件挂在同一行右侧；CJK 不再用 `uppercase`／`tracking-wide`／`italic` |
 | 工作区每工作区一行 | `TaskWorkbenchWorkspaces.tsx` | 一个 8px 圆角面 + 行间 `inset 0 1px 0`；身份改印**分支名**（`TaskWorkbenchWorkspace.branchName`，由 `use-task-workbench-view.ts` 从 `Worktree.branch` 填入），没有分支时回退显示名；`local` 主机不再占一个 chip |
 | 智能体每人一行 | `TaskWorkbenchAgentRow.tsx` | 不再渲染 `AgentKanbanCard`（body + footer 两层）；图标 · 会话名 · 状态 · 时长 · token · 动作；未知 token **不渲染**，不留 `—` 空列 |
 | 用量 / 交付一条两行 fact 带 | `TaskWorkbenchFacts.tsx` + 两个 section 各一行 | 用量徽标改印读者词（`未启用`），内部状态 token 只留在 tooltip；交付空态是带 `未读取` 标签的事实，不是虚线告警 |
-| 未接线动作画成禁用态 | 各 section 的 `notWired` key | `打开终端`／`新建工作区`／`设置`／`读取` 均 `disabled`，`title` 说明尚未接线 |
+| 未接线动作画成禁用态 | `task-workbench-pending-action.tsx` | `打开终端`／`新建工作区`／`设置`／`读取证据` 统一走这个组件：按钮 `disabled`（点不动），说明挂在**外层 span 的 `title`**——`ui/button.tsx` 带 `disabled:pointer-events-none`，写在禁用按钮上的 `title` 永远等不到 hover，而且禁用按钮也不是键盘停留点 |
 
 文案一致性（issue #26 第 3、4 条）：
 
@@ -578,6 +578,11 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
    所以真渲染下交付行下方会多一段证据体，与设计稿图里的收起态不同。改那个默认值属于布局合同
    （issue #26 明确不碰降级阈值与双列边界），不在本轮范围内。
 
+六种语言的覆盖面（评审后写清）：本轮把**纯格式模板**同步到了全部六语——计数只印 `{{value0}}`
+（原来 es/fr/ja/ko 是 `… en total` / `au total` / `全 N 件` / `총 N개`）、agent 行 token 只印数字
+（原来带 `tokens` / `jetons` / `トークン` / `토큰`）；**词级文案**只覆盖 zh/en，es/fr/ja/ko 保留既有译文，
+既不回退也不在本轮调整。因此不能说"六种语言都完成了视觉收口"。
+
 证据层级必须说清：本节只到**代码 + 定向检查**这一层。`tests/tools/task-workbench-rendered` 的期望表已按新 DOM
 更新（header 的 testid 整组删除，新增 `-facts`／`-row-icon`／`-row-action`／`workspace-host-chip`，token 断言改成
 "只比较有数字的行"，用量断言从内部 token 改成读者词），但**没有跑过**：该 harness 需要 `orca/node_modules`
@@ -586,6 +591,28 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 - 本轮**没有**新的真渲染图，`ui/` 下仍是 §7.4.1 那 9 张返工前截图 + §7.4.2 两张设计稿；
 - 本轮**没有**真机核对，也没有跑 vitest／type-check（同一依赖缺口）；
 - 补一组 `impl-*` 真渲染图与一次真机核对仍是未完成项（§12）。
+
+#### 7.4.4 只读评审回执（codex-ark，2026-11-18）
+
+写完之后起了一个 `codex-ark` 终端做只读评审（只读 diff 与文件，不改代码、不 commit）。它确认了
+F8 语义、未知 token 不渲染、三个空态不出现「假 0」都没有被改坏，也确认窄窗/双列的牺牲顺序没被重排；
+同时找出四处**必须改**的问题，本提交已全部修掉：
+
+| 问题 | 位置 | 处理 |
+| --- | --- | --- |
+| harness 里 `tokenRows` 在声明前被读（TDZ，`ReferenceError`） | `tests/tools/task-workbench-rendered/run.mjs` | 声明移到 `expectedTestIds` 之前；顺带把 `archivedVisibleCards` 从"仅 full 布局"改成两分支都用归档行数，把 secondary toggle 期望改成组件自己的 `collapseSecondary` |
+| join 单测仍期待裸 `feature/x`，新 join 返回 `repo · branch` | `lib/task-workbench/task-workbench-join.test.ts` | 更新两处字面量，并补 branchName 优先、缺 branchName 回退显示名、folder 不泄漏目录路径三个用例 |
+| 禁用按钮的 `title` 实际看不到（`disabled:pointer-events-none`，且不可聚焦） | 5 处未接线动作 | 新增 `task-workbench-pending-action.tsx`：按钮保持 `disabled`，说明放到可悬停的外层 |
+| 窄列里身份被挤没（身份 `flex-1`、其余 `shrink-0`、外层 `overflow-hidden`） | Workspaces 行、Agent 行 | 两行都改 `flex-wrap`，身份加 `min-w-32` 下限，次要元信息换行而不是吃掉名字 |
+| 文案 | en/zh | `Ambiguous → Multiple matches / 匹配不唯一`、`No session → No matching session / 未找到匹配会话`、`尚未接线 → 此版本暂不支持`、`Read → Load evidence / 读取证据`、PR `open` 的 zh 由 `打开` 改 `开放中`；仍是"状态词"，不是内部 token |
+
+评审留下、本轮**没有**改的两条：
+
+1. **时间列**：`formatStartedAgo(now, now)` 让 fixture 渲染恒为"刚刚"。这是返工前就有的自锚定写法
+   （为了让截图可复现），不是本次引入；正确做法是注入时钟或隐藏该列，属于 P1b 的行为改动。
+2. **F8 与三个空态的整行渲染断言**：`TaskWorkbenchAgentRow.test.tsx` 只能挂载 dot 与投影，因为行本身
+   经 `@/lib/agent-catalog` 拉 `resources/`（sparse 检出没有该目录）。真正的整行断言要靠 harness 截图，
+   也就是上面那组尚未产出的真渲染图。
 
 ### 7.5 状态矩阵（必须逐条实现，否则会出现"假 0"）
 

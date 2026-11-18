@@ -39,7 +39,12 @@ const DOT_STATE: Record<Bucket, DashboardCard['dotState']> = {
 function worktree(
   worktreeId: string,
   worktreeName: string,
-  options: { archived?: boolean; lastActivityAt?: number } = {}
+  options: {
+    archived?: boolean
+    lastActivityAt?: number
+    branchName?: string
+    workspaceKind?: JoinWorktree['workspaceKind']
+  } = {}
 ): JoinWorktree {
   return {
     repoId: 'repo-web-app',
@@ -48,8 +53,12 @@ function worktree(
     worktreeName,
     hostKind: 'local',
     executionHostId: LOCAL_EXECUTION_HOST_ID,
-    workspaceKind: 'worktree',
+    workspaceKind: options.workspaceKind ?? 'worktree',
     isArchived: options.archived ?? false,
+    // `branchName` is absent unless a case means it: the store leaves it out for
+    // a folder workspace and for rows persisted before it existed, and the label
+    // rule has to survive both (README §7.4.2 取舍 2).
+    ...(options.branchName === undefined ? {} : { branchName: options.branchName }),
     // Absent stays absent: `lastActivityAt` is the "nothing proved yet" signal,
     // so a fixture that means it must not write a number.
     ...(options.lastActivityAt === undefined ? {} : { lastActivityAt: options.lastActivityAt })
@@ -232,13 +241,20 @@ describe('joinTaskWorkbench — archived worktrees', () => {
       attentionAgents: 1,
       historyAgents: 0
     })
-    expect(result.agents.map((row) => row.workspaceLabel)).toEqual(['feature/one', 'feature/two'])
+    // The label is `repo · branch` now: a bare worktree name is the display name
+    // Orca derives from the task title, which repeated the page heading.
+    expect(result.agents.map((row) => row.workspaceLabel)).toEqual([
+      'web-app · feature/one',
+      'web-app · feature/two'
+    ])
   })
 })
 
 describe('joinTaskWorkbench — one task, many workspaces', () => {
-  it('labels every row with its own worktree name when several workspaces are live', () => {
-    const feature = worktree('wt-feature', 'feature/add-login')
+  it('labels every row with its own workspace when several workspaces are live', () => {
+    const feature = worktree('wt-feature', 'Add login auth', {
+      branchName: 'feature/add-login'
+    })
     const fix = worktree('wt-fix', 'fix/login-redirect')
 
     const result = joinTaskWorkbench(
@@ -251,9 +267,13 @@ describe('joinTaskWorkbench — one task, many workspaces', () => {
       })
     )
 
+    // Branch first: the display name above is the task title, which is exactly
+    // what a `repo · worktreeName` label would have printed a second time.
+    // Second row has no `branchName`, so it falls back to its display name
+    // instead of rendering `web-app · undefined`.
     expect(result.agents.map((row) => row.workspaceLabel)).toEqual([
-      'feature/add-login',
-      'fix/login-redirect'
+      'web-app · feature/add-login',
+      'web-app · fix/login-redirect'
     ])
     expect(result.agents.map((row) => row.base.worktreeId)).toEqual(['wt-feature', 'wt-fix'])
     expect(result.counts).toEqual({
@@ -262,6 +282,32 @@ describe('joinTaskWorkbench — one task, many workspaces', () => {
       attentionAgents: 0,
       historyAgents: 1
     })
+  })
+})
+
+describe('joinTaskWorkbench — workspace label source', () => {
+  it('never invents a branch: a folder workspace keeps its display name', () => {
+    // `useTaskWorkbenchView` omits `branchName` for a folder workspace, because
+    // its `branch` is a directory path, not a branch. The join must therefore
+    // render the display name rather than an empty or path-like label.
+    const folder = worktree('wt-folder', 'docs', { workspaceKind: 'folder' })
+    const other = worktree('wt-other', 'feature/other')
+
+    const result = joinTaskWorkbench(
+      makeInput({
+        worktrees: [folder, other],
+        agentsByWorktree: {
+          'wt-folder': [agent(folder, 'pane-folder', 'working')],
+          'wt-other': [agent(other, 'pane-other', 'working')]
+        }
+      })
+    )
+
+    expect(result.agents.map((row) => row.workspaceLabel)).toEqual([
+      'web-app · docs',
+      'web-app · feature/other'
+    ])
+    expect(result.agents.map((row) => row.workspaceLabel).join(' ')).not.toContain('undefined')
   })
 })
 

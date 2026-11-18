@@ -36,6 +36,7 @@ const storeFreeSources: SourceFile[] = [
   { dir: sourceDir, file: 'TaskWorkbenchAgentRow.tsx' },
   { dir: sourceDir, file: 'task-workbench-agent-row-dot.tsx' },
   { dir: sourceDir, file: 'task-workbench-section-heading.tsx' },
+  { dir: sourceDir, file: 'task-workbench-pending-action.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchWorkspaces.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchFacts.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchSpend.tsx' },

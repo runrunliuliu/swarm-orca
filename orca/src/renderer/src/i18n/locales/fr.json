@@ -17278,7 +17278,7 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokens": "{{value0}} jetons",
+        "tokens": "{{value0}}",
         "outcome": {
           "success": "Livré",
           "failure": "Échec",
@@ -17368,7 +17368,7 @@
         "moreWorkspaces": "+{{value0}} de plus",
         "showArchived": "Afficher les archivés ({{value0}})",
         "heading": "Espaces de travail",
-        "workspaceCount": "{{value0}} au total",
+        "workspaceCount": "{{value0}}",
         "showMore": "Afficher {{value0}} espaces de travail de plus"
       }
     },

@@ -37,9 +37,11 @@ export type TaskWorkbenchWorkspace = DashboardWorkspace & {
   branchName?: string
 }
 
-/** Reasons a token or cost figure is absent. These tokens are the copy of
- *  record: the Spend status text prints them verbatim (README §7.5), so never
- *  read an absent figure as `0`. */
+/** Reasons a token or cost figure is absent. These tokens stay the vocabulary of
+ *  record for diagnostics and tests, but since README §7.4.2 they are no longer
+ *  printed as interface copy: the Spend row shows a translated word and keeps the
+ *  token in that badge's tooltip. What still holds for every consumer is the rule
+ *  they exist for — never read an absent figure as `0`. */
 export type SpendReason =
   | 'disabled'
   | 'unpriced'

@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import { TaskWorkbenchSectionHeading } from './task-workbench-section-heading'
 import type {
   TaskWorkbenchLayout,
@@ -107,12 +108,17 @@ function WorkspaceRow({
     <div
       data-testid="task-workbench-workspace-card"
       data-archived={archivedFlag}
-      className="flex min-w-0 items-center gap-2 px-3 py-2"
+      // Why flex-wrap + a floor on the identity: with `shrink-0` metadata and an
+      // `overflow-hidden` surface, a long host name / status / default marker used
+      // to squeeze the identity to nothing in the right-hand double column. The
+      // identity now keeps `min-w-32` and the secondary cluster moves to a second
+      // line instead of eating it.
+      className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2"
     >
       <span aria-hidden="true" className="shrink-0 text-muted-foreground">
         ▦
       </span>
-      <span className="min-w-0 flex-1 truncate text-[13px]">
+      <span className="min-w-32 flex-1 truncate text-[13px]">
         <span className="text-muted-foreground">{workspace.repoName}</span>
         <span className="mx-1.5 text-muted-foreground/60">·</span>
         <span className="font-mono text-[12.5px] text-foreground">
@@ -120,7 +126,7 @@ function WorkspaceRow({
         </span>
       </span>
 
-      <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+      <span className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-x-1.5 gap-y-1 text-[12px] text-muted-foreground">
         {/* Only a non-local host is worth a chip: "local" is the unmarked default
             and repeating it on every row is the noise this rework removes. */}
         {workspace.hostKind === 'local' ? null : (
@@ -165,18 +171,15 @@ function WorkspaceRow({
 }
 
 function CreateWorkspaceButton(): React.JSX.Element {
+  // P1b owns workspace creation; the disabled form and its hover explanation
+  // live in `task-workbench-pending-action.tsx` (README §7.4.2 取舍 3).
   return (
-    <Button
-      type="button"
+    <TaskWorkbenchPendingAction
       variant="outline"
-      size="xs"
-      disabled
-      title={translate(workspacesKeys('notWired'), NOT_WIRED)}
-      data-testid="task-workbench-workspaces-create"
-      className="shrink-0"
-    >
-      {translate(workspacesKeys('create'), 'New workspace')}
-    </Button>
+      label={translate(workspacesKeys('create'), 'New workspace')}
+      hint={translate(workspacesKeys('notWired'), NOT_WIRED)}
+      testId="task-workbench-workspaces-create"
+    />
   )
 }
 

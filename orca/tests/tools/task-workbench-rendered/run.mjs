@@ -92,8 +92,8 @@ const OUTCOME_TEXT = { success: 'Delivered', failure: 'Failed', cancellation: 'C
 const SPEND_STATUS_WORD = {
   disabled: 'Not enabled',
   unpriced: 'Unpriced',
-  ambiguous_session: 'Ambiguous',
-  no_matching_session: 'No session',
+  ambiguous_session: 'Multiple matches',
+  no_matching_session: 'No matching session',
   remote_host: 'Remote host',
   unattributed: 'Unattributed'
 }
@@ -170,6 +170,11 @@ export function derive(fixtureKey, width, height) {
   const delivery = view.delivery
   const outcomes = visibleRows.flatMap((row) => (row.outcome ? [row.outcome] : []))
   const successOutcomes = outcomes.filter((outcome) => outcome === 'success').length
+  // An unknown token count renders nothing at all (README §7.4.2), so the chip
+  // only exists for rows that have a figure. Declared before expectedTestIds:
+  // the table below reads it, and a const read before its declaration is a
+  // runtime ReferenceError, not a wrong count.
+  const tokenRows = visibleRows.filter((row) => row.tokens.kind !== 'unavailable')
 
   const expectedTestIds = {
     'task-workbench-panel': 1,
@@ -203,10 +208,10 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-workspace-host-chip': hostChips,
     'task-workbench-workspace-card-default': defaultIsActive ? 1 : 0,
     'task-workbench-workspaces-create': 1,
-    // Contract §4.3 says >2; the compact branch renders "+N more" instead of a
-    // toggle. No run below pairs compact with >2 workspaces, so this stays the
-    // contract condition rather than encoding that branch.
-    'task-workbench-workspaces-secondary-toggle': view.workspaces.length > 2 ? 1 : 0,
+    // Mirrors collapseSecondary above, which is the component's own condition:
+    // >2 workspaces *and* at least one row left over. The compact branch renders
+    // "+N more" text instead of this toggle, which the conditional covers.
+    'task-workbench-workspaces-secondary-toggle': collapseSecondary ? 1 : 0,
     'task-workbench-workspaces-archived-toggle': archived.length > 0 ? 1 : 0,
     'task-workbench-facts': 1,
     'task-workbench-spend': 1,
@@ -221,6 +226,9 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-spend-cta':
       spend.kind === 'unavailable' && spend.reason === 'disabled' ? 1 : 0,
     'task-workbench-delivery': 1,
+    // The "not read yet" row owns the Load evidence action; with evidence the row
+    // offers the fold instead (README §7.4.3).
+    'task-workbench-delivery-read': delivery === undefined ? 1 : 0,
     'task-workbench-delivery-toggle': delivery !== undefined ? 1 : 0,
     'task-workbench-delivery-body':
       delivery !== undefined && layout.delivery === 'expanded' ? 1 : 0,
@@ -230,9 +238,6 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-delivery-review': delivery && delivery.review ? 1 : 0
   }
 
-  // An unknown token count renders nothing at all (README §7.4.2): the chip only
-  // exists for rows that have a figure, so the expectation is the known subset.
-  const tokenRows = visibleRows.filter((row) => row.tokens.kind !== 'unavailable')
   const semantic = {
     tokenChips: tokenRows.map((row) => formatTokens(row.tokens.tokens)).sort(),
     outcomeBadges: outcomes.map((outcome) => OUTCOME_TEXT[outcome]).sort(),
@@ -248,8 +253,9 @@ export function derive(fixtureKey, width, height) {
           }
         : null,
     deliveredExpected: successOutcomes > 0,
-    archivedVisibleCards:
-      layout.workspaces === 'full' && archivedOpen ? archived.length : 0
+    // Both branches render every archived row once the fold is open, so this is
+    // the archived count, not "the full layout only".
+    archivedVisibleCards: archivedOpen ? archived.length : 0
   }
 
   return {

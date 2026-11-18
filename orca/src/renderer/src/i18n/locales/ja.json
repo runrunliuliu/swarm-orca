@@ -17179,7 +17179,7 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokens": "{{value0}} トークン",
+        "tokens": "{{value0}}",
         "outcome": {
           "success": "納品済み",
           "failure": "失敗",
@@ -17269,7 +17269,7 @@
         "moreWorkspaces": "+{{value0}} 件",
         "showArchived": "アーカイブ済みを表示 ({{value0}})",
         "heading": "ワークスペース",
-        "workspaceCount": "全 {{value0}} 件",
+        "workspaceCount": "{{value0}}",
         "showMore": "残り {{value0}} 件のワークスペースを表示"
       }
     },

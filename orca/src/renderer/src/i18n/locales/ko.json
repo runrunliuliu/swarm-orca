@@ -17179,7 +17179,7 @@
         }
       },
       "TaskWorkbenchAgentRow": {
-        "tokens": "{{value0}} 토큰",
+        "tokens": "{{value0}}",
         "outcome": {
           "success": "전달됨",
           "failure": "실패",
@@ -17269,7 +17269,7 @@
         "moreWorkspaces": "+{{value0}}개",
         "showArchived": "보관된 항목 표시 ({{value0}})",
         "heading": "워크스페이스",
-        "workspaceCount": "총 {{value0}}개",
+        "workspaceCount": "{{value0}}",
         "showMore": "워크스페이스 {{value0}}개 더 보기"
       }
     },
