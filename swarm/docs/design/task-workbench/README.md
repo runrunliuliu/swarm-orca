@@ -594,6 +594,8 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 
 #### 7.4.4 只读评审回执（codex-ark，2026-11-18）
 
+评审原文归档在 [review-codex-ark-issue-26.md](review-codex-ark-issue-26.md)（它当时针对的是 `b98133fe`）。
+
 写完之后起了一个 `codex-ark` 终端做只读评审（只读 diff 与文件，不改代码、不 commit）。它确认了
 F8 语义、未知 token 不渲染、三个空态不出现「假 0」都没有被改坏，也确认窄窗/双列的牺牲顺序没被重排；
 同时找出四处**必须改**的问题，本提交已全部修掉：
