@@ -136,6 +136,9 @@ cat /opt/orca/current/.orca-build.json # 那份产物自称的构建身份
   现有 Coordinator 门禁、Worker 并发、预算和生命周期规则不因跨 Project 而放宽。
 - 任务绑定、范围变更、交付状态及证据应持久保存，以便换入口或恢复后核验。
   持久记录不证明旧进程已退出；续接前仍需对账未决动作、执行者和文件状态。
+- 项目块菜单的 `Open agent in <project>` 只是在仓库自己的 checkout（`isMainWorktree`）上开一个 agent tab：
+  不建分支、不建 worktree、不产生绑定，也就**不提供**本节要的隔离。用它改代码等于回到主检出，
+  自行承担后果；要隔离仍然走下面的任务模式入口。
 - 创建失败或结果不明时停在准备阶段，不退回主检出目录写入，也不盲目重复创建。
   超时可能只是响应丢失；核对原操作、目录、Git 状态和原生登记，确认结果后再推进。
   恢复不通过新任务、新 worktree 或新 Run 重置原预算、尝试记录或未决操作。
@@ -158,7 +161,7 @@ cat /opt/orca/current/.orca-build.json # 那份产物自称的构建身份
 
 ## 当前实现状态
 
-核对日 2026-11-08，基线是文档重构前的 `swarm-orca` main（`4c8cd6df`，M0–M5 最小版均已合入；
+核对日 2026-11-08（2026-11-18 复核：新增项目块 checkout 起 agent 入口，见下表；M0–M5 事实未变），基线是文档重构前的 `swarm-orca` main（`4c8cd6df`，M0–M5 最小版均已合入；
 本次重构只改文档，不改实现）。本节只记录“代码里有什么”，不是验收结论；没有跑过的用例和没有做过的原生闭环
 一律记为未验证。实现事实以代码与各契约文档为准，不要用本节 SHA 推断当前 HEAD。
 阶段划分与退出条件见 [Sparse 任务工作区开发计划](sparse-task-workspace/development-plan.md)
@@ -193,6 +196,7 @@ legacy sparse 的行为、默认值和回滚策略不变。
 | 就绪门禁与副作用分离（M3） | 已实现：带 `sparseTaskBinding` 的工作区在 runtime 后台终端、桌面终端、Agent 会话、移动端会话与终端分屏前校验绑定/基线祖先/cone/必需路径，失败即拒绝（`sparse_task_start_gate_failed`）；`worktree show` 的 `taskWorkspace` 可只读查看状态与原因。跨宿主按决定报 `not_probed`；task sparse 创建要求 `--setup skip`（服务端强制） |
 | 可恢复创建（M4） | 已实现。失败不删除/不回滚，失败路径给 `[sparse_task_create_needs_reconciliation]` + 坐标；创建前写意图记录（`pending`→`created`/`failed`/`needs_reconciliation`），`orca worktree create-status` 并列打印记录态与现场态并给出 `live`/`exited`/`unverifiable` 分类，进程启动时自动补一次分类。仍不做自动重试与自动清理（见[对账手册](sparse-task-workspace/reconciliation.md)） |
 | 任务绑定与交接（M5） | 最小版已实现。成功创建的 `pinnedSha`/`baseSource`/`resolvedRef`/请求 cone/必需路径写成 `WorktreeMeta.sparseTaskBinding`（带自摘要，严格读取）；swarm 侧软件任务记录可选镜像同一组字段供复核。仍未做：逻辑任务 ID 与跨入口路由 |
+| 从项目块在 checkout 起 agent | 已实现（2026-11-18 复核，`1bfea3cc` 在 main）：项目菜单 `Open agent in <project>` 定位该 repo 的 main worktree，先切过去再 `launchAgentInNewTab`。不建分支/worktree、不写 `sparseTaskBinding`、不受 M3 启动门禁保护；agent 走默认 agent 解析（与 `tab.newAgent` 同源），模型由 agent CLI 自己的配置决定。它是"在 checkout 里起会话"的入口，不是任务入口 |
 | 写入硬隔离 | 未实现。cone 只是检出范围，不是写权限或授权边界；`cd`、提示词和 Git hook 都不构成隔离 |
 | Swarm 侧接入 | Worker 规划仍生成 legacy `--sparse-dir`（依赖原生 `orchestration.worker-sparse-checkout.v1`），不发送 `mode`；任务 sparse 入口目前只有 CLI `worktree create` 一种。要接 Worker 需先决定谁发 `mode` 与 `requiredPaths` |
 

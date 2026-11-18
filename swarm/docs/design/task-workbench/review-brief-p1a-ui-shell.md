@@ -9,9 +9,9 @@
 
 上下文（按需读，不要重读全部）：
 
-- `README.md` §6.4（冻结/不冻结）、§7.2（分组规则）、§7.3（图 B）、§7.3.1（降级顺序）、§7.5（状态矩阵）、§7.9（T2 上下文）
+- `README.md` §6.2（冻结/不冻结）、§7.2（分组规则）、§7.3（图 B）、§7.3.1（降级顺序）、§7.5（状态矩阵）
 - `discussion-record-task-workspace-ui.md`（前两轮结论：M1 先做、图 B 像素不冻结、Delivered = agent done）
-- `task-workbench-ui.svg`（工作台示意图，含 0 工作区与降级两格）
+- `ui/design-workbench.svg`（工作台示意图，含 0 工作区与降级两格）
 - `orca/` 代码（只读）：`components/dashboard/`、`components/native-chat/`、`shared/dashboard-snapshot.ts`、
   `shared/agent-status-types.ts`、`components/ui/`、`renderer/src/components/settings/`（DEV 入口先例）
 
