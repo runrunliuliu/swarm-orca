@@ -208,9 +208,8 @@ function ToggleRow({
         aria-expanded={expanded}
         aria-controls={controls}
         onClick={onToggle}
-        className="text-muted-foreground"
       >
-        {label}
+        <span className="text-muted-foreground">{label}</span>
         <ChevronDown
           aria-hidden="true"
           className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}

@@ -103,10 +103,10 @@ export function TaskWorkbenchAgentRow({ row }: { row: TaskWorkbenchRowView }): R
           <Badge
             data-testid="task-workbench-agent-row-workspace-pill"
             variant="hostContext"
-            className="max-w-[45%] min-w-0 truncate"
+            className="max-w-[45%] min-w-0"
           >
             <span aria-hidden="true">▦</span>
-            <span className="truncate">{row.workspaceLabel}</span>
+            <span className="min-w-0 truncate">{row.workspaceLabel}</span>
           </Badge>
         ) : null}
 

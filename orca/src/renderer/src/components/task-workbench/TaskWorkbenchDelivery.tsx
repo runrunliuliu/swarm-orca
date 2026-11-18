@@ -165,11 +165,13 @@ export function TaskWorkbenchDelivery({
             aria-expanded={expanded}
             aria-controls={BODY_ID}
             onClick={() => setOverride(!expanded)}
-            className="ml-auto shrink-0 text-muted-foreground"
+            className="ml-auto shrink-0"
           >
-            {expanded
-              ? translate(deliveryKeys('collapse'), 'Collapse')
-              : translate(deliveryKeys('expand'), 'Expand')}
+            <span className="text-muted-foreground">
+              {expanded
+                ? translate(deliveryKeys('collapse'), 'Collapse')
+                : translate(deliveryKeys('expand'), 'Expand')}
+            </span>
             <ChevronDown
               aria-hidden="true"
               className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}

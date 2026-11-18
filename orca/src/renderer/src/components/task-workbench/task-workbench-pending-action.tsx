@@ -53,9 +53,11 @@ export function TaskWorkbenchPendingAction({
         aria-disabled="true"
         aria-describedby={hintId}
         data-testid={testId}
-        className="text-muted-foreground"
       >
-        {label}
+        {/* Why the muted tone is on the text, not on the Button: the design-system
+            lint forbids restyling <Button>'s own color, and `ghost` alone is the
+            section's quiet treatment (docs/STYLEGUIDE.md color roles). */}
+        <span className="text-muted-foreground">{label}</span>
         {children}
       </Button>
       <span id={hintId} className="sr-only">

@@ -68,7 +68,9 @@ function RowGroup({
   testId
 }: {
   label?: string
-  count?: number
+  /** `null` hides the count: the History fold's count already sits in the heading
+   *  control, and printing it twice on one screen is what §7.4.2 removed. */
+  count?: number | null
   rows: AgentRowView[]
   showWorkspaceLabel: boolean
   tone: 'neutral' | 'attention'
@@ -86,9 +88,11 @@ function RowGroup({
           >
             {label}
           </span>
-          <span className="shrink-0 tabular-nums text-muted-foreground">
-            {String(count ?? rows.length)}
-          </span>
+          {count === null ? null : (
+            <span className="shrink-0 tabular-nums text-muted-foreground">
+              {String(count ?? rows.length)}
+            </span>
+          )}
         </div>
       )}
       <div
@@ -226,6 +230,8 @@ export function TaskWorkbenchAgents({
           <CollapsibleContent id={HISTORY_BODY_ID}>
             <div data-testid="task-workbench-agents-history-records" className="pt-0.5">
               <RowGroup
+                label={translate(agentsKeys('historyHeading'), 'History')}
+                count={null}
                 rows={historyRows}
                 showWorkspaceLabel={showWorkspaceLabel}
                 tone="neutral"
