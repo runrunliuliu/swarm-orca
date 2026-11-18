@@ -208,10 +208,10 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-workspace-host-chip': hostChips,
     'task-workbench-workspace-card-default': defaultIsActive ? 1 : 0,
     'task-workbench-workspaces-create': 1,
-    // Mirrors collapseSecondary above, which is the component's own condition:
-    // >2 workspaces *and* at least one row left over. The compact branch renders
-    // "+N more" text instead of this toggle, which the conditional covers.
-    'task-workbench-workspaces-secondary-toggle': collapseSecondary ? 1 : 0,
+    // Mirrors the component: >2 workspaces with a leftover row *and* the full
+    // layout. The compact branch prints "+N more" text instead of this toggle.
+    'task-workbench-workspaces-secondary-toggle':
+      layout.workspaces === 'full' && collapseSecondary ? 1 : 0,
     'task-workbench-workspaces-archived-toggle': archived.length > 0 ? 1 : 0,
     'task-workbench-facts': 1,
     'task-workbench-spend': 1,

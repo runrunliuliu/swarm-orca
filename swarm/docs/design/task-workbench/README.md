@@ -606,6 +606,15 @@ F8 语义、未知 token 不渲染、三个空态不出现「假 0」都没有�
 | 窄列里身份被挤没（身份 `flex-1`、其余 `shrink-0`、外层 `overflow-hidden`） | Workspaces 行、Agent 行 | 两行都改 `flex-wrap`，身份加 `min-w-32` 下限，次要元信息换行而不是吃掉名字 |
 | 文案 | en/zh | `Ambiguous → Multiple matches / 匹配不唯一`、`No session → No matching session / 未找到匹配会话`、`尚未接线 → 此版本暂不支持`、`Read → Load evidence / 读取证据`、PR `open` 的 zh 由 `打开` 改 `开放中`；仍是"状态词"，不是内部 token |
 
+第二轮复核（同一终端、仍只读）确认四处修复都已落地、39 个 testid 与期望表逐名对应、文案取舍认可，
+并再指出三处，本提交也一并改掉：
+
+| 二轮问题 | 处理 |
+| --- | --- |
+| compact 布局下 secondary toggle 的期望仍为 1，实际组件印 `+N more` 文本 | 期望改成 `layout.workspaces === 'full' && collapseSecondary` |
+| folder 用例没有目录路径输入，只证明了显示名回退，没证明路径不泄漏 | 把规则从 hook 抽成纯模块 `lib/task-workbench/task-workbench-workspace-branch.ts`，单测直接喂 `/Users/someone/work/docs` 这类路径：folder / 空串 / 缺字段一律 `undefined` |
+| 禁用说明只有鼠标可达，键盘与读屏仍无从得知 | `task-workbench-pending-action.tsx` 再补一条 `sr-only` 说明并用 `aria-describedby` 关联（`useId` 保证每行独立） |
+
 评审留下、本轮**没有**改的两条：
 
 1. **时间列**：`formatStartedAgo(now, now)` 让 fixture 渲染恒为"刚刚"。这是返工前就有的自锚定写法

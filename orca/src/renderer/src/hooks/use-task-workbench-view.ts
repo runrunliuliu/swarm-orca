@@ -14,6 +14,7 @@ import { dashboardCardMapWorkspaceMetadata } from '@/components/dashboard/dashbo
 import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
 import type { TaskWorkbenchView } from '@/components/task-workbench/task-workbench-view'
 import { resolveTaskIdentity } from '@/lib/task-workbench/task-workbench-identity'
+import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspace-branch'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
 import {
   worktreeUsageKey,
@@ -340,19 +341,6 @@ function projectMissingWorkspace(repo: Repo | undefined, worktree: Worktree): Jo
     isArchived: worktree.isArchived,
     lastActivityAt: worktree.lastActivityAt
   }
-}
-
-/** The branch a workspace identity may print, or undefined when there is none.
- *  Only a git worktree has one: a folder workspace's `branch` is not a branch,
- *  and an empty string is an absence, not a name (README §7.4.2 取舍 2). */
-function workspaceBranchName(
-  workspaceKind: 'worktree' | 'folder' | undefined,
-  worktree: Pick<Worktree, 'branch'>
-): string | undefined {
-  if (workspaceKind === 'folder' || !worktree.branch) {
-    return undefined
-  }
-  return worktree.branch
 }
 
 /** One provider's rows normalized to `UsageBreakdownRow`, keeping only keys that

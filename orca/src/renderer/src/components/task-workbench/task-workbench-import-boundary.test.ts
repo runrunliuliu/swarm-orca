@@ -50,7 +50,8 @@ const storeFreeSources: SourceFile[] = [
   { dir: libDir, file: 'task-workbench-selector-types.ts' },
   { dir: libDir, file: 'task-workbench-identity.ts' },
   { dir: libDir, file: 'task-workbench-usage.ts' },
-  { dir: libDir, file: 'task-workbench-join.ts' }
+  { dir: libDir, file: 'task-workbench-join.ts' },
+  { dir: libDir, file: 'task-workbench-workspace-branch.ts' }
 ]
 
 /** Value imports that would make the shell read live data. Type imports are
