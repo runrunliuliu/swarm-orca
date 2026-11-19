@@ -130,6 +130,9 @@ archive.
 
 Before **physical** removal, verify:
 
+- the history decision is made and recorded: whether this task's workspace identity, agent sessions and
+  resume entries must stay reachable from its issue tab afterwards — if they must, this is an archive,
+  not a removal (see below);
 - the authorized integration/publication is complete (for squash, use the accepted review and
   integrated diff/tests rather than only ancestry);
 - no uncommitted/untracked work, private evidence or unpushed commits would be lost;
@@ -143,6 +146,42 @@ needed or checked out. On refusal preserve and report; do not switch to raw Git 
 or lock deletion to bypass native safety. Keep rollback artifacts according to retention policy.
 Worker settlement/release and strict retirement remain Coordinator-owned under the native protocol;
 worktree deletion is not a substitute.
+
+### Removal also destroys history, which no file check sees
+
+A workspace row carries more than a checkout: the worktree directory is itself the carrier of
+`linkedTaskSourceContext`, and the task's agent rows and resume entry points are resolved through it.
+A clean, merged, fully pushed workspace can therefore be removed and still leave the issue's tab empty
+while every artifact check above passed. Decide explicitly, before cleanup, which case holds:
+
+- **The history must stay reachable** → archive instead of removing. `worktree archive` keeps the
+  checkout, Git registration, metadata, terminals and trace on disk; the workspace leaves the active
+  list and appears only under `Show archived`, taking no part in `Needs you` / `Working`
+  (`swarm/docs/design/task-workbench/README.md` §7.2 and §7.10). Sleep is the variant for sessions that
+  should hibernate and resume.
+- **The history is not needed, but a record is** → land the report, the summary and its pointers
+  (session id, resume command) in the repository or archive first, so removal is not the only copy.
+- **Neither** → removal is allowed, subject to the checks above.
+
+Two losses are irreversible and are not covered by “the branch is merged and pushed”:
+
+- `worktree rm` deletes the checkout, so the task↔workspace binding and the retained agent rows go with
+  it. `taskRunHistory` keeps a `deleted`-state identity row (issue #31 S2), which makes the tab report
+  the trace as deleted instead of “never started”; the workspace, its agents and its resume entry do
+  not come back.
+- `terminal close --worktree <sel> --all` *durably removes that workspace's terminal tabs, layouts and
+  resume records* (`orca terminal close --help`). Nothing restores its `terminal-history` entries.
+
+What usually survives is the provider transcript on disk — the agent's own session records under its
+state directory, and the session-search index with the resume command. The loss is reachability, not
+storage: sessions map to a workspace by `cwd`, and with the worktree gone nothing in Orca resolves them.
+
+**If it already happened**, recovery is cheap but partial: recreate the worktree at the *same* canonical
+path (the workspace ID is `<repoId>::<path>`, so the same path yields the same ID), resume the original
+session from the recorded session id or resume command, and re-link the task with
+`orca worktree set --worktree <id> --issue <n>` (or the tracker flag that task used). The workspace
+returns to that issue's tab; the removed terminal layouts, `terminal-history` entries and deleted
+session records do not come back. Prefer an archive over this repair.
 
 ### Reconcile ambiguous lifecycle results
 
