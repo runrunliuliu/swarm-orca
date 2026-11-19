@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections rendered with the committed P1a fixtures, the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC or locale switching.'
+  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a fixtures, the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, history facts/compact/trace-lost claims, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC or locale switching.'
 
 // Contract §4.2, copied by hand: the fixture data is the other side of this
 // pin, so a fixture edit that changes a count fails here instead of silently
@@ -38,6 +38,8 @@ const CONTRACT_COUNTS = {
   f1_baseline: { workspaces: 1, agents: 2, activeAgents: 1, attentionAgents: 0, historyAgents: 1 },
   f2a_zero_workspace_open: { workspaces: 0, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
   f2b_zero_workspace_closed: { workspaces: 0, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
+  f2c_archived_only_closed: { workspaces: 1, agents: 2, activeAgents: 0, attentionAgents: 0, historyAgents: 2 },
+  f2d_deleted_with_history: { workspaces: 0, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
   f3_many_workspaces_agents: { workspaces: 3, agents: 10, activeAgents: 4, attentionAgents: 1, historyAgents: 5 },
   f4_usage_disabled: { workspaces: 1, agents: 2, activeAgents: 1, attentionAgents: 0, historyAgents: 1 },
   f5_archived_only: { workspaces: 1, agents: 1, activeAgents: 0, attentionAgents: 0, historyAgents: 1 },
@@ -58,6 +60,12 @@ const SHOT_MATRIX = [
   { id: 'S4', fixture: 'f2a_zero_workspace_open', width: 1440, height: 900, mandatory: true },
   { id: 'S3', fixture: 'f1_baseline', width: 1280, height: 480 },
   { id: 'S5', fixture: 'f2b_zero_workspace_closed', width: 1440, height: 900 },
+  // Issue #31: the two "ran before, but is not here now" states. F2c keeps the
+  // archived workspace (agent rows in the History fold); F2d has no row left and
+  // the strip carries its own run list. The narrow probe pins the compact form.
+  { id: 'F2c', fixture: 'f2c_archived_only_closed', width: 1440, height: 900 },
+  { id: 'F2c-narrow', fixture: 'f2c_archived_only_closed', width: 900, height: 700 },
+  { id: 'F2d', fixture: 'f2d_deleted_with_history', width: 1440, height: 900 },
   { id: 'S6', fixture: 'f3_many_workspaces_agents', width: 1440, height: 900 },
   { id: 'S7', fixture: 'f4_usage_disabled', width: 1440, height: 900 },
   { id: 'S8', fixture: 'f7_remote_workspace', width: 1440, height: 900 },
@@ -194,6 +202,18 @@ export function derive(fixtureKey, width, height) {
     return bucket === 'working' || bucket === 'attention' || historyExpanded
   })
   const hasWorkspaces = view.workspaces.length > 0
+  const history = view.history
+  // The strip is the "ran before, but is not here now" face (issue #31): only
+  // an archived or deleted record gets one, never a task whose workspace is live.
+  const hasHistory = history !== undefined && history.trace !== 'none'
+  // The deleted form has no row left, so the panel drops Agents / Workspaces and
+  // the strip is the whole record (issue #31).
+  const deletedTrace = history?.trace === 'deleted'
+  const historyCompact = layout.columns === 'single' || layout.agentHistory === 'collapsed'
+  // The compact form starts collapsed; its notes, actions and run list mount only
+  // after the Details toggle is used, which this screenshot pass never does.
+  const historyDetailsOpen = !historyCompact
+  const historyRuns = hasHistory && deletedTrace && historyDetailsOpen ? history.runs.length : 0
   const spend = view.spend
   const delivery = view.delivery
   const outcomes = visibleRows.flatMap((row) => (row.outcome ? [row.outcome] : []))
@@ -207,40 +227,61 @@ export function derive(fixtureKey, width, height) {
   const expectedTestIds = {
     'task-workbench-panel': 1,
     'task-workbench-panel-layout': 1,
-    'task-workbench-empty-state': hasWorkspaces ? 0 : 1,
-    'task-workbench-agents': 1,
-    'task-workbench-agents-empty': counts.agents === 0 ? 1 : 0,
+    'task-workbench-empty-state': hasWorkspaces || hasHistory ? 0 : 1,
+    'task-workbench-history': hasHistory ? 1 : 0,
+    'task-workbench-history-facts': hasHistory ? 1 : 0,
+    'task-workbench-history-archived-note':
+      hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
+    'task-workbench-history-trace-lost':
+      hasHistory && deletedTrace && historyDetailsOpen ? 1 : 0,
+    'task-workbench-history-trace':
+      hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
+    'task-workbench-history-trace-locate':
+      hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
+    'task-workbench-history-trace-resume':
+      hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
+    'task-workbench-history-runs': hasHistory && deletedTrace && historyDetailsOpen ? 1 : 0,
+    'task-workbench-history-run': historyRuns,
+    'task-workbench-history-details': hasHistory && historyCompact ? 1 : 0,
+    'task-workbench-agents': deletedTrace ? 0 : 1,
+    'task-workbench-agents-empty': !deletedTrace && counts.agents === 0 ? 1 : 0,
     'task-workbench-agents-active':
-      counts.activeAgents + counts.attentionAgents > 0 ? 1 : 0,
-    'task-workbench-agents-attention': counts.attentionAgents > 0 ? 1 : 0,
-    'task-workbench-agents-history-toggle': counts.historyAgents > 0 ? 1 : 0,
-    'task-workbench-agents-history-count': counts.historyAgents > 0 ? 1 : 0,
-    'task-workbench-agents-history-empty': counts.historyAgents === 0 ? 1 : 0,
+      !deletedTrace && counts.activeAgents + counts.attentionAgents > 0 ? 1 : 0,
+    'task-workbench-agents-attention':
+      !deletedTrace && counts.attentionAgents > 0 ? 1 : 0,
+    'task-workbench-agents-history-toggle':
+      !deletedTrace && counts.historyAgents > 0 ? 1 : 0,
+    'task-workbench-agents-history-count': !deletedTrace && counts.historyAgents > 0 ? 1 : 0,
+    'task-workbench-agents-history-empty':
+      !deletedTrace && counts.historyAgents === 0 ? 1 : 0,
     'task-workbench-agents-history-records':
-      historyExpanded && counts.historyAgents > 0 ? 1 : 0,
-    'task-workbench-agent-row': visibleRows.length,
-    'task-workbench-agent-row-icon': visibleRows.length,
-    'task-workbench-agent-row-action': visibleRows.length,
-    'task-workbench-agent-row-tokens': tokenRows.length,
-    'task-workbench-agent-row-dot': visibleRows.filter(
-      ({ outcome, sessionBoundary }) =>
-        outcome === 'failure' || outcome === 'cancellation' || sessionBoundary === true
-    ).length,
-    'task-workbench-agent-row-outcome': outcomes.length,
+      !deletedTrace && historyExpanded && counts.historyAgents > 0 ? 1 : 0,
+    'task-workbench-agent-row': deletedTrace ? 0 : visibleRows.length,
+    'task-workbench-agent-row-icon': deletedTrace ? 0 : visibleRows.length,
+    'task-workbench-agent-row-action': deletedTrace ? 0 : visibleRows.length,
+    'task-workbench-agent-row-tokens': deletedTrace ? 0 : tokenRows.length,
+    'task-workbench-agent-row-dot': deletedTrace
+      ? 0
+      : visibleRows.filter(
+          ({ outcome, sessionBoundary }) =>
+            outcome === 'failure' || outcome === 'cancellation' || sessionBoundary === true
+        ).length,
+    'task-workbench-agent-row-outcome': deletedTrace ? 0 : outcomes.length,
     'task-workbench-agent-row-workspace-pill':
-      view.workspaces.length > 1
+      !deletedTrace && view.workspaces.length > 1
         ? visibleRows.filter((row) => row.workspaceLabel !== undefined).length
         : 0,
-    'task-workbench-workspaces': hasWorkspaces ? 1 : 0,
-    'task-workbench-workspace-card': visibleCards,
-    'task-workbench-workspace-host-chip': hostChips,
-    'task-workbench-workspace-card-default': defaultIsActive ? 1 : 0,
-    'task-workbench-workspaces-create': 1,
+    'task-workbench-workspaces': !deletedTrace && hasWorkspaces ? 1 : 0,
+    'task-workbench-workspace-card': deletedTrace ? 0 : visibleCards,
+    'task-workbench-workspace-host-chip': deletedTrace ? 0 : hostChips,
+    'task-workbench-workspace-card-default': !deletedTrace && defaultIsActive ? 1 : 0,
+    'task-workbench-workspaces-create': deletedTrace ? 0 : 1,
     // Mirrors the component: >2 workspaces with a leftover row *and* the full
     // layout. The compact branch prints "+N more" text instead of this toggle.
     'task-workbench-workspaces-secondary-toggle':
-      layout.workspaces === 'full' && collapseSecondary ? 1 : 0,
-    'task-workbench-workspaces-archived-toggle': archived.length > 0 ? 1 : 0,
+      !deletedTrace && layout.workspaces === 'full' && collapseSecondary ? 1 : 0,
+    'task-workbench-workspaces-archived-toggle':
+      !deletedTrace && archived.length > 0 ? 1 : 0,
     'task-workbench-facts': 1,
     'task-workbench-spend': 1,
     'task-workbench-spend-total': spend.kind === 'available' ? 1 : 0,
@@ -283,7 +324,19 @@ export function derive(fixtureKey, width, height) {
     deliveredExpected: successOutcomes > 0,
     // Both branches render every archived row once the fold is open, so this is
     // the archived count, not "the full layout only".
-    archivedVisibleCards: archivedOpen ? archived.length : 0
+    archivedVisibleCards: archivedOpen ? archived.length : 0,
+    // Issue #31: the strip must state all three fact fields, say when the trace
+    // is out of reach, and compress on a narrow window instead of clipping.
+    history: hasHistory
+      ? {
+          fields: ['agents', 'wall', 'tokens'],
+          agents: history.agents,
+          traceLost: deletedTrace && historyDetailsOpen,
+          archivedNote: history.trace === 'archived' && historyDetailsOpen,
+          runs: historyRuns,
+          compact: historyCompact
+        }
+      : null
   }
 
   return {
@@ -478,6 +531,19 @@ async function collectDom(page) {
       archivedCards: document.querySelectorAll(
         '[data-testid="task-workbench-workspace-card"][data-archived="true"]'
       ).length,
+      history: (() => {
+        const node = document.querySelector('[data-testid="task-workbench-history"]')
+        if (!node) {
+          return null
+        }
+        const facts = text(document.querySelector('[data-testid="task-workbench-history-facts"]'))
+        return {
+          facts,
+          compact: node.getAttribute('data-compact') === 'true',
+          traceLost: text(document.querySelector('[data-testid="task-workbench-history-trace-lost"]')),
+          runs: document.querySelectorAll('[data-testid="task-workbench-history-run"]').length
+        }
+      })(),
       bodyText: document.body.innerText,
       viewport: {
         width: window.innerWidth,
@@ -580,7 +646,11 @@ async function runOne(entry, builds) {
         deliveredText: dom.bodyText.includes('Delivered'),
         spendStatus: dom.spendStatus,
         spendTotal: dom.spendTotal,
-        archivedCards: dom.archivedCards
+        archivedCards: dom.archivedCards,
+        historyFacts: dom.history?.facts ?? null,
+        historyCompact: dom.history?.compact ?? null,
+        historyTraceLost: dom.history?.traceLost ?? null,
+        historyRuns: dom.history?.runs ?? null
       }
     }
 
@@ -682,6 +752,39 @@ async function runOne(entry, builds) {
       }
       compare(failures, 'semantic:archived-cards', dom.archivedCards, semantic.archivedVisibleCards)
       compare(failures, 'semantic:no-fake-zero', /\$0(?:\.00)?(?![\d.])/.test(dom.bodyText), false)
+      // Issue #31 acceptance: the strip states all three fields, never a "0
+      // tokens" placeholder, and the deleted form says the trace is gone.
+      if (semantic.history) {
+        for (const field of semantic.history.fields) {
+          compare(
+            failures,
+            `history:fact-${field}`,
+            (dom.history?.facts ?? '').toLowerCase().includes(field),
+            true
+          )
+        }
+        if (semantic.history.agents !== null) {
+          // The fold lists exactly the rows the facts line counts, so the strip
+          // and the agents section cannot tell two stories.
+          compare(
+            failures,
+            'history:agents-count',
+            (dom.history?.facts ?? '').includes(`${semantic.history.agents} agents`),
+            true
+          )
+        }
+        compare(failures, 'history:compact', dom.history?.compact ?? null, semantic.history.compact)
+        compare(failures, 'history:runs', dom.history?.runs ?? null, semantic.history.runs)
+        compare(
+          failures,
+          'history:trace-lost',
+          (dom.history?.traceLost ?? '') !== '',
+          semantic.history.traceLost
+        )
+        compare(failures, 'history:no-zero-tokens', /\b0 tokens\b/.test(dom.bodyText), false)
+      } else {
+        compare(failures, 'history:absent', dom.history, null)
+      }
       compare(failures, 'semantic:delivered-text', dom.bodyText.includes('Delivered'), semantic.deliveredExpected)
     } else {
       const errorNode = dom.testIds['task-workbench-fixture-error'] ?? 0

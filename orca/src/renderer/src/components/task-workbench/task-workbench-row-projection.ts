@@ -13,6 +13,11 @@ import type { AgentDotState } from '@/components/AgentStateDot'
 export type TaskWorkbenchRowBucket = 'active' | 'attention' | 'history'
 
 export function rowBucket(row: AgentRowView): TaskWorkbenchRowBucket {
+  // An archived workspace is history whatever its last status said (issue #31):
+  // keeping a stale `working` row would resurrect a task the user put away.
+  if (row.archivedWorkspace === true) {
+    return 'history'
+  }
   switch (row.base.bucket) {
     case 'attention':
       return 'attention'

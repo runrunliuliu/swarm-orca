@@ -65,7 +65,7 @@ describe('resolveTaskIdentity — task source context', () => {
       },
       taskKey: 'tracker:github:acme/web-app',
       source: 'task-source-context',
-      matchedWorktreeIds: ['wt-b', 'wt-a']
+      matchedWorktreeIds: ['wt-b', 'wt-archived', 'wt-a']
     })
   })
 
@@ -210,9 +210,27 @@ describe('resolveTaskIdentity — no identity', () => {
     expect(resolveTaskIdentity({ taskSourceContext: null, worktrees: [] })).toBeNull()
   })
 
-  it('returns null when only archived worktrees exist', () => {
+  it('names a task whose only worktree was archived (issue #31)', () => {
+    // A closed task keeps its history: the archived worktree is the last proof
+    // of which task this is, so the tab must not fall back to "no identity".
     expect(
       resolveTaskIdentity({ worktrees: [worktree('wt-old', GITHUB_ACME_WEB_APP, true)] })
-    ).toBeNull()
+    ).toEqual({
+      identity: {
+        kind: 'tracker',
+        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
+      },
+      taskKey: 'tracker:github:acme/web-app',
+      source: 'archived-worktree',
+      matchedWorktreeIds: ['wt-old']
+    })
+    expect(
+      resolveTaskIdentity({ worktrees: [worktree('wt-old', null, true)] })
+    ).toEqual({
+      identity: { kind: 'workspace', primaryWorktreeId: 'wt-old' },
+      taskKey: 'workspace:wt-old',
+      source: 'archived-worktree',
+      matchedWorktreeIds: ['wt-old']
+    })
   })
 })

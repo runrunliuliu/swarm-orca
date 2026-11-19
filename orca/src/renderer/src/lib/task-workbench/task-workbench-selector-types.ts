@@ -8,6 +8,7 @@ import type {
   AgentTokenView,
   DeliveryEvidence,
   SpendView,
+  TaskWorkbenchHistory,
   TaskWorkbenchWorkspace
 } from '@/components/task-workbench/task-workbench-view'
 
@@ -56,7 +57,10 @@ export type IdentityResolution = {
   identity: TaskWorkbenchIdentity
   /** Deterministic, never localized, stable across reloads: the grouping key. */
   taskKey: string
-  source: 'task-source-context' | 'worktree' | 'workspace-fallback'
+  /** How the task key was resolved. `archived-worktree` means the only
+   *  provenance left is a workspace the user put away (issue #31): still the
+   *  same task, and still worth naming when nothing live is around. */
+  source: 'task-source-context' | 'worktree' | 'archived-worktree' | 'workspace-fallback'
   /** Non-archived worktrees matching the identity, in input order. */
   matchedWorktreeIds: string[]
 }
@@ -171,7 +175,8 @@ export type JoinInput = {
   identity: IdentityResolution
   /** Every worktree of this task, active and archived, in display order. */
   worktrees: readonly JoinWorktree[]
-  /** Rows per worktreeId, already projected. Archived worktrees are ignored. */
+  /** Rows per worktreeId, already projected. Archived worktrees contribute
+   *  marked history rows only: they never enter Working or Needs you. */
   agentsByWorktree: Readonly<Record<string, readonly JoinAgentInput[]>>
   /** Per-worktree delivery evidence; the join merges, it does not derive. */
   deliveryByWorktree?: Readonly<Record<string, DeliveryEvidence | undefined>>
@@ -185,10 +190,16 @@ export type JoinResult = {
   workspaces: TaskWorkbenchWorkspace[]
   activeWorktreeIds: string[]
   archivedWorktreeIds: string[]
-  /** Active worktrees only: archived rows never enter Active / Needs you. */
+  /** Active and archived rows. An archived row carries `archivedWorkspace`, so
+   *  it lands in History and cannot contribute Working / Needs you. */
   agents: AgentRowView[]
-  /** Bucket counts for the layout input, computed from `agents`. */
+  /** Bucket counts for the layout input, computed from `agents`. Archived rows
+   *  count as history only, never as active or attention. */
   counts: { agents: number; activeAgents: number; attentionAgents: number; historyAgents: number }
   delivery?: DeliveryEvidence
   defaultWorkspace: { workspaceId: string; source: 'explicit' | 'recent-activity' | 'none' }
+  /** What the task can still say about work it already ran (issue #31). Active
+   *  and archived rows both feed it; a deleted workspace cannot, so the join
+   *  reports the archived state and the caller may set the deleted one. */
+  history: TaskWorkbenchHistory
 }

@@ -10,7 +10,24 @@ import { createWorktreeAgentRowsCache } from './worktree-agent-rows-cache'
  * relays a serialized snapshot instead (useDashboardSnapshot); in-window there
  * is no relay, so we derive it here from the same builder the bridge uses.
  */
-export function useLiveDashboardSnapshot(): DashboardSnapshot {
+export type LiveDashboardSnapshotArgs = {
+  /** Archived worktree ids the caller still wants cards for (issue #31). The
+   *  board passes nothing; the task workbench passes one task's archived rows. */
+  includeArchivedWorktreeIds?: readonly string[]
+}
+
+/**
+ * Builds the dashboard snapshot directly from the live renderer store for the
+ * in-window screen popover. The pop-out window can't read this store, so it
+ * relays a serialized snapshot instead (useDashboardSnapshot); in-window there
+ * is no relay, so we derive it here from the same builder the bridge uses.
+ */
+export function useLiveDashboardSnapshot(
+  args: LiveDashboardSnapshotArgs = {}
+): DashboardSnapshot {
+  // The id list is rebuilt by the caller on every render; join it into a
+  // primitive so the memo reruns only when the ids actually change.
+  const includeArchivedKey = args.includeArchivedWorktreeIds?.join('\n') ?? ''
   const rowsCacheRef = useRef<ReturnType<typeof createWorktreeAgentRowsCache>>(undefined!)
   rowsCacheRef.current ??= createWorktreeAgentRowsCache()
   const repos = useAppStore((s) => s.repos)
@@ -108,7 +125,12 @@ export function useLiveDashboardSnapshot(): DashboardSnapshot {
         Date.now(),
         // Why: unchanged worktrees reuse their row pipeline; card assembly still runs
         // fresh against the review/host/status slices this memo subscribes to.
-        { rowsCache: rowsCacheRef.current, rowsGeneration: agentStatusEpoch }
+        {
+          rowsCache: rowsCacheRef.current,
+          rowsGeneration: agentStatusEpoch,
+          includeArchivedWorktreeIds:
+            includeArchivedKey === '' ? undefined : includeArchivedKey.split('\n')
+        }
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -143,7 +165,8 @@ export function useLiveDashboardSnapshot(): DashboardSnapshot {
       detectedAgentIds,
       remoteDetectedAgentIds,
       runtimeDetectedAgentIds,
-      agentStatusEpoch
+      agentStatusEpoch,
+      includeArchivedKey
     ]
   )
 }

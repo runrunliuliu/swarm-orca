@@ -39,6 +39,7 @@ const storeFreeSources: SourceFile[] = [
   { dir: sourceDir, file: 'task-workbench-pending-action.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchWorkspaces.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchFacts.tsx' },
+  { dir: sourceDir, file: 'TaskWorkbenchHistory.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchSpend.tsx' },
   { dir: sourceDir, file: 'TaskWorkbenchDelivery.tsx' },
   { dir: sourceDir, file: 'task-workbench-view.ts' },

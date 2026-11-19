@@ -26,6 +26,12 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 - Degradation copy: an unavailable figure is `—` (never `0`/`$0`), Spend prints its reason token
   verbatim, no view prints `Delivered`, an archived-only task shows its card under the archived
   toggle, and a remote workspace shows the remote hint.
+- **The run-history strip (issue #31).** F2c renders the archived form: the strip exists, its facts
+  line contains `agents` / `wall` / `tokens`, the archived note and the two trace placeholders are
+  present, and the two archived agent rows sit in the History fold with the same count. F2d renders
+  the deleted form: no `task-workbench-empty-state`, no Agents / Workspaces section, exactly two run
+  rows, the trace-lost sentence, and neither `0 tokens` nor `$0` anywhere. F2c at 900×700 asserts
+  `data-compact="true"` plus the Details control, and no note/action is mounted until it is used.
 - No `pageerror`, and every `BrowserWindow` is `!visible && !focused`.
 - A per-run `task-workbench-<fixture>-<w>x<h>.report.json` and a PNG of the same name under
   `.bench-fixtures/` (git-ignored). `--all` also writes `task-workbench-summary.json`.
@@ -50,7 +56,9 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   fixtures there is no click, keyboard, resize or interaction path; the collapsible and archived
   toggles are only asserted in their initial state.
 - No store, selector, RPC, persistence or locale switching is exercised. `i18n.ts` serves the
-  English defaults; no locale file is fetched.
+  English defaults; no locale file is fetched. F2d's `trace: 'deleted'` is fixture data: no
+  persisted probe can produce it yet (issue #31 S2), so this run proves the rendering, not the
+  live deletion path.
 - The sidebar row is rendered with a no-op row context and no project-group header, so selection,
   drag, path status, PR decoration and grouping are not exercised. `folder-draft-task-removed` and
   the archived row state are not rendered here; they are covered by `folder-draft-marker`'s unit
@@ -80,6 +88,9 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 | S8 | `f7_remote_workspace` | 1440×900 |
 | S9 | `f10_ambiguous_session`, `f11_no_matching_session` | 1440×900 |
 | S10 | `f5_archived_only`, `f6_no_tracker`, `f8_failure_outcome`, `f12_new_workspace_no_agents` | 1440×900 |
+| F2c | `f2c_archived_only_closed` | 1440×900 |
+| F2c-narrow | `f2c_archived_only_closed` | 900×700 |
+| F2d | `f2d_deleted_with_history` | 1440×900 |
 | extra | `f9_long_labels` | 1440×900 |
 | P2b sidebar row | `d5_sidebar_draft_row` | 1440×900 |
 | G1 (mandatory) | `d6_github_task_rows` | 1440×900 |

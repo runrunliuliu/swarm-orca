@@ -140,7 +140,9 @@ describe('buildRetainedAgentsSyncSnapshot', () => {
       now: 10_000 + AGENT_STATUS_STALE_AFTER_MS + 1
     })
 
-    expect([...snapshot.existingWorktreeIds]).toEqual(['wt-active'])
+    // The archived id stays in the prune allowlist (issue #31): archiving must
+    // not delete the retained rows of a task the user finished.
+    expect([...snapshot.existingWorktreeIds]).toEqual(['wt-active', 'wt-archived'])
     expect(snapshot.currentAgents.get(ACTIVE_PANE_KEY)?.row.state).toBe('idle')
     expect(snapshot.currentAgents.get(ARCHIVED_PANE_KEY)).toBeUndefined()
   })
@@ -173,7 +175,8 @@ describe('buildRetainedAgentsSyncSnapshot', () => {
       now: 10_000
     })
 
-    expect([...snapshot.existingWorktreeIds]).toEqual([workspaceKey])
+    // Both ids are prune-allowlisted; only the live one contributes rows.
+    expect([...snapshot.existingWorktreeIds]).toEqual([workspaceKey, archivedWorkspaceKey])
     expect(snapshot.currentAgents.get(FOLDER_PANE_KEY)?.worktreeId).toBe(workspaceKey)
     expect(snapshot.currentAgents.get(ARCHIVED_FOLDER_PANE_KEY)).toBeUndefined()
   })

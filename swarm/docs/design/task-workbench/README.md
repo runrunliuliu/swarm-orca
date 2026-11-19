@@ -882,6 +882,44 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 
 ---
 
+### 7.10 已完成任务的历史：三态与 S1 落地（issue #31）
+
+状态：**S1（渲染层）+「第 0 步止血」已实现**；S2（`issue → worktreeId` 持久映射）与 S3（session-search
+事实条、`orca history task` 出口）**未开始**。S4（真快照）不在范围。
+
+「没有工作区」不再是唯一空态，三种状态分开：
+
+| 状态 | 判据 | 界面 |
+| --- | --- | --- |
+| 从未开始 | 无工作区，且无历史记录 | 保留 `Create workspace` 空态（f2a/f2b） |
+| 跑过 + 工作区已归档 | `history.trace === 'archived'` | `Run history` 事实条 + 归档注 + Workspaces 折叠区；归档 agent 行进 History 折叠区（f2c） |
+| 跑过 + 工作区已删除 | `history.trace === 'deleted'` | 事实条自给自足（自带 run 列表），无 Agents / Workspaces 段，明确写 trace 不可达（f2d） |
+
+落地位置：
+
+| 改动 | 文件 | 关键规则 |
+| --- | --- | --- |
+| 事实条与 run 列表 | `orca/src/renderer/src/components/task-workbench/TaskWorkbenchHistory.tsx` | 未知不写 0：`agents: null → agents unknown`、token 不可用 → `tokens unknown`；墙钟带 `measured / partial / unknown` 来源 |
+| 空态分流 | `TaskWorkbenchPanel.tsx` | `hasHistory`（`trace !== 'none'` 或有记录）时不渲染 `task-workbench-empty-state`；`deleted` 时不渲染 Agents / Workspaces |
+| 归档 agent 行 | `task-workbench-join.ts`、`task-workbench-row-projection.ts` | 归档工作树的行带 `archivedWorkspace`，`rowBucket` 一律归 History；不参与 Active / Needs you / 默认工作区 / 交付 |
+| 保留记录不再被剪 | `useRetainedAgents.ts` | prune allowlist 收录归档工作区 id；归档不再等于删除历史。被**删除**的工作区仍不在 allowlist（无记录可保） |
+| 归档身份 | `task-workbench-identity.ts` | 无 live 工作区时，归档 provenance 作为 `archived-worktree` 回退，关闭任务不再掉到「无标识」 |
+| 归档行投影 | `use-task-workbench-view.ts`、`build-dashboard-snapshot.ts`、`dashboard-snapshot-workspaces.ts` | 新增 `includeArchivedWorktreeIds`：看板仍只看活跃工作区，工作台只为**本任务**的归档工作区取卡片 |
+
+口径（沿用 §7.5）：墙钟 = 首个 `startedAt` → 末个 `finishedAt`；缺任一端的行让整体降为 `partial`，不拿「现在」补。
+Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`（原因沿用 `SpendReason`）。`trace` 只给位置与
+「复制恢复命令」的占位动作，不内联 transcript。
+
+**证据缺口（明说）**：`trace: 'deleted'` 目前只有渲染 fixture 能产生。真实「已删除」任务需要 S2 的那一行
+持久映射（issue #31 的结论）；没有它，删除工作区后 `cwd / branch` 这个 join key 一起消失，渲染层无法把
+session 反推回 issue。因此真实删除任务仍走「从未开始」空态，这是当前的诚实上限，不是已修复项。
+
+验收证据：`tests/tools/task-workbench-rendered/run.mjs --all`（F2c / F2c-narrow / F2d 三个新用例，
+20/20 通过）与 `task-workbench-join` / `task-workbench-identity` / `useRetainedAgentsSync` /
+`build-dashboard-snapshot` 单测。
+
+---
+
 ## 8. 关系怎么存：持久化设计
 
 上一版只说了"渲染层投影"，没有回答关系存哪。这一节补齐，并明确**哪些关系不该存**。
