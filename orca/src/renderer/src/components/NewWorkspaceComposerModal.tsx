@@ -13,6 +13,7 @@ import AgentSettingsDialog from '@/components/agent/AgentSettingsDialog'
 import type { AddRepoDialogHostedController } from '@/components/sidebar/use-add-repo-hosted-controller'
 import { useComposerState } from '@/hooks/useComposerState'
 import {
+  isTaskSourceWorkItemSelectionKind,
   pickQuickWorkspaceAgent,
   resolveQuickWorkspaceAgentSelection
 } from '@/lib/quick-workspace-agent-selection'
@@ -167,12 +168,28 @@ function QuickTabBody({
   const [quickAgentOverride, setQuickAgentOverride] = useState<TuiAgent | null | undefined>(
     undefined
   )
+  const hasTaskSourceWorkItem = useMemo<boolean>(
+    () => isTaskSourceWorkItemSelectionKind(cardProps.smartNameSelection?.kind),
+    [cardProps.smartNameSelection]
+  )
   const preferredQuickAgent = useMemo<TuiAgent | null>(() => {
     const pref = settings?.defaultTuiAgent
     // Why: detection can still be pending when quick-create submits; keep the
     // prior catalog fallback while filtering disabled agents out of that choice.
-    return pickQuickWorkspaceAgent(pref, cardProps.detectedAgentIds, settings?.disabledTuiAgents)
-  }, [cardProps.detectedAgentIds, settings?.defaultTuiAgent, settings?.disabledTuiAgents])
+    return pickQuickWorkspaceAgent(pref, cardProps.detectedAgentIds, settings?.disabledTuiAgents, {
+      // Why: the Start-from work item (issue/PR/MR) is the single source of this
+      // flag for every entry point — the in-modal picker and any caller that
+      // seeds `linkedWorkItem` both surface as `smartNameSelection` here, so a
+      // P1b issue-tab "Create workspace" reuses this default instead of adding
+      // a second implementation.
+      taskSourceWorkItem: hasTaskSourceWorkItem
+    })
+  }, [
+    cardProps.detectedAgentIds,
+    hasTaskSourceWorkItem,
+    settings?.defaultTuiAgent,
+    settings?.disabledTuiAgents
+  ])
   const resolvedQuickAgentSelection = resolveQuickWorkspaceAgentSelection({
     quickAgentOverride,
     preferredQuickAgent,

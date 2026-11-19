@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TUI_AGENT_AUTO_PICK_ORDER } from '../../../shared/tui-agent-selection'
 import { AGENT_CATALOG } from './agent-catalog'
 import {
+  isTaskSourceWorkItemSelectionKind,
   pickQuickWorkspaceAgent,
   resolveQuickWorkspaceAgentSelection
 } from './quick-workspace-agent-selection'
@@ -29,6 +30,80 @@ describe('pickQuickWorkspaceAgent', () => {
   it('uses detected enabled agents after detection resolves', () => {
     expect(pickQuickWorkspaceAgent(null, ['codex'], ['claude'])).toBe('codex')
     expect(pickQuickWorkspaceAgent('codex', ['claude', 'codex'], ['codex'])).toBe('claude')
+  })
+
+  it('keeps the global default and auto order for workspaces without a work item', () => {
+    expect(pickQuickWorkspaceAgent('codex', ['claude', 'pi', 'codex'], [])).toBe('codex')
+    expect(pickQuickWorkspaceAgent(null, ['claude', 'pi'], [])).toBe('claude')
+    expect(
+      pickQuickWorkspaceAgent('codex', ['claude', 'pi', 'codex'], [], {
+        taskSourceWorkItem: false
+      })
+    ).toBe('codex')
+  })
+})
+
+describe('pickQuickWorkspaceAgent for a task source work item', () => {
+  it('preselects the task source default over the global default', () => {
+    expect(
+      pickQuickWorkspaceAgent('claude', ['claude', 'pi'], [], { taskSourceWorkItem: true })
+    ).toBe('pi')
+    expect(
+      pickQuickWorkspaceAgent('codex', ['claude', 'pi', 'codex'], [], { taskSourceWorkItem: true })
+    ).toBe('pi')
+  })
+
+  it('preselects the task source default while detection is still pending', () => {
+    expect(pickQuickWorkspaceAgent(null, null, [], { taskSourceWorkItem: true })).toBe('pi')
+    expect(pickQuickWorkspaceAgent('claude', null, [], { taskSourceWorkItem: true })).toBe('pi')
+  })
+
+  it('falls back to the global default when the task source default is disabled', () => {
+    expect(
+      pickQuickWorkspaceAgent('codex', ['claude', 'pi', 'codex'], ['pi'], {
+        taskSourceWorkItem: true
+      })
+    ).toBe('codex')
+  })
+
+  it('falls back to the auto pick order when the task source default is not detected', () => {
+    expect(
+      pickQuickWorkspaceAgent(null, ['claude', 'codex'], [], { taskSourceWorkItem: true })
+    ).toBe('claude')
+    expect(
+      pickQuickWorkspaceAgent('codex', ['claude', 'codex'], [], { taskSourceWorkItem: true })
+    ).toBe('codex')
+  })
+
+  it('keeps an explicit no-agent preference over the task source default', () => {
+    expect(
+      pickQuickWorkspaceAgent('blank', ['claude', 'pi'], [], { taskSourceWorkItem: true })
+    ).toBeNull()
+  })
+
+  it('never leaves the agent field empty when no agent is usable', () => {
+    expect(pickQuickWorkspaceAgent(null, [], [], { taskSourceWorkItem: true })).toBeNull()
+    expect(
+      pickQuickWorkspaceAgent(null, ['claude'], ['claude'], { taskSourceWorkItem: true })
+    ).toBeNull()
+  })
+})
+
+describe('isTaskSourceWorkItemSelectionKind', () => {
+  it('recognises issue and pull request sources only', () => {
+    for (const kind of [
+      'github-issue',
+      'github-pr',
+      'gitlab-issue',
+      'gitlab-mr',
+      'linear',
+      'jira'
+    ] as const) {
+      expect(isTaskSourceWorkItemSelectionKind(kind)).toBe(true)
+    }
+    expect(isTaskSourceWorkItemSelectionKind('branch')).toBe(false)
+    expect(isTaskSourceWorkItemSelectionKind(null)).toBe(false)
+    expect(isTaskSourceWorkItemSelectionKind(undefined)).toBe(false)
   })
 })
 
