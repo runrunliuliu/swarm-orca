@@ -166,6 +166,16 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     .filter((worktree) => worktree.isArchived)
     .map((worktree) => worktree.id)
 
+  // The delivery confirm's default target branch: the repo's main worktree
+  // branch, and only when the store named that worktree (`isMainWorktree` +
+  // `branch`). `Worktree.branch` keeps the ref `git worktree list` reports
+  // (`refs/heads/<name>`), and the form asks a person for a branch name that is
+  // then handed to `git`/`gh` as one, so only the name is kept. An unscanned or
+  // detached main worktree leaves it absent, so the form starts empty and asks
+  // instead of naming `main` (§7.11.3 rule 3).
+  const mainRef = (worktrees ?? []).find((worktree) => worktree.isMainWorktree)?.branch
+  const targetBranchDefault = mainRef?.replace(/^refs\/heads\//, '').trim() || undefined
+
   // The in-window dashboard projection: one card per agent, one workspace per
   // active worktree (plus this task's archived ones). Reusing this hook is the
   // point (development-plan §2): a second row pipeline would give the workbench
@@ -194,15 +204,19 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       const workspace = projected.get(worktree.id)
       // The store's own activity signal (the sidebar's "Recent" key): newest
       // wins the default workspace, and 0 can only lose that comparison.
-      const branchName = workspaceBranchName(workspace?.workspaceKind, worktree)
-      return workspace
-        ? {
-            ...workspace,
-            isArchived: worktree.isArchived,
-            lastActivityAt: worktree.lastActivityAt,
-            ...(branchName ? { branchName } : {})
-          }
-        : projectMissingWorkspace(repo, worktree)
+      const base = workspace ?? projectMissingWorkspace(repo, worktree)
+      const branchName = workspaceBranchName(base.workspaceKind, worktree)
+      return {
+        ...base,
+        isArchived: worktree.isArchived,
+        lastActivityAt: worktree.lastActivityAt,
+        ...(branchName ? { branchName } : {}),
+        // The delivery entry's eligibility (§7.11.3 rule 7 / A9): the sidebar
+        // already hides a primary checkout from its archivable targets, and this
+        // is the same existing store fact, carried so the task-page route can
+        // apply the same rule (no new store read).
+        isMainWorktree: worktree.isMainWorktree
+      }
     })
     const activeWorktrees = joinedWorktrees.filter((workspace) => !workspace.isArchived)
     const activeIds = activeWorktrees.map((workspace) => workspace.worktreeId)
@@ -318,11 +332,13 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       spend: usage.spend,
       delivery: join.delivery,
       history,
-      historyPending: runHistory.pending
+      historyPending: runHistory.pending,
+      ...(targetBranchDefault ? { targetBranchDefault } : {})
     }
   }, [
     resolution,
     taskWorktrees,
+    targetBranchDefault,
     repo,
     snapshot,
     agentStatusByPaneKey,

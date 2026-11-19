@@ -326,3 +326,68 @@ describe('useTaskWorkbenchView — item scope', () => {
     expect(current.result.current).toBeNull()
   })
 })
+
+describe('useTaskWorkbenchView — delivery eligibility facts', () => {
+  it('carries the store’s isMainWorktree flag onto each workspace', () => {
+    // §7.11.3 rule 7 / A9: the delivery projection needs the existing store
+    // fact to skip the repository's own checkout. The hook is where the view is
+    // assembled, so this pins that the fact travels (no new store read).
+    seed([
+      makeWorktree({
+        id: 'repo-1::/repo',
+        repoId: REPO_ID,
+        branch: 'refs/heads/trunk',
+        isMainWorktree: true,
+        linkedIssue: 9,
+        linkedTaskSourceContext: GITHUB_WEB_APP
+      }),
+      issueWorktree('wt-9', 9)
+    ])
+
+    const current = view({ number: 9 })
+    const flags = new Map(
+      current?.workspaces.map((workspace) => [workspace.worktreeId, workspace.isMainWorktree])
+    )
+    expect(flags.get('repo-1::/repo')).toBe(true)
+    expect(flags.get('wt-9')).toBe(false)
+  })
+})
+
+describe('useTaskWorkbenchView — delivery target branch default', () => {
+  it('fills targetBranchDefault from the repo main worktree branch', () => {
+    // The store shape: `Worktree.branch` keeps the ref `git worktree list`
+    // reports (`refs/heads/<name>`), and `isMainWorktree` marks the main working
+    // tree. The delivery form asks for a branch name, so the ref prefix is not
+    // carried into it.
+    seed([
+      makeWorktree({
+        id: 'repo-1::/repo',
+        repoId: REPO_ID,
+        branch: 'refs/heads/trunk',
+        isMainWorktree: true
+      }),
+      issueWorktree('wt-9', 9, { branch: 'refs/heads/feat/task-431' })
+    ])
+
+    const current = view({ number: 9 })
+
+    expect(current?.targetBranchDefault).toBe('trunk')
+    // The linked worktree's own branch is a workspace fact, never the default.
+    expect(current?.workspaces.map((workspace) => workspace.worktreeId)).toEqual(['wt-9'])
+  })
+
+  it('leaves targetBranchDefault absent when the main worktree has no branch', () => {
+    // A detached main worktree reports no branch line at all, which the store
+    // keeps as ''; unknown is not "main".
+    seed([
+      makeWorktree({
+        id: 'repo-1::/repo',
+        repoId: REPO_ID,
+        branch: '',
+        isMainWorktree: true
+      })
+    ])
+
+    expect(view({ number: 9 })?.targetBranchDefault).toBeUndefined()
+  })
+})

@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Send,
   Unlink,
   Workflow,
   FolderInput,
@@ -58,6 +60,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     deleteLabel,
     deletingContext,
     deletingSubtree,
+    deliverProjection,
     developerMenuRevealed,
     eligibleParentCount,
     effectiveSelectedWorktrees,
@@ -71,6 +74,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     handleCopyPath,
     handleCreateGroupFromRepo,
     handleDelete,
+    handleDeliver,
     handleMoveProjectToGroup,
     handleOpenParent,
     handleOpenParentPicker,
@@ -106,6 +110,54 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     workspaceStatuses
   } = model
   const deleteShortcut = useOptionalShortcutLabel('workspace.delete')
+  // Why an id: the reason is sr-only text the item points at with
+  // `aria-describedby`. What that establishes is a description *when the item
+  // is focused*; it does not make a non-focusable item reachable, which is why
+  // the item itself stays focusable (see `deliverItem`).
+  const deliverDisabledReasonId = useId()
+  const deliverAction = deliverProjection.action
+  const deliverDisabledReason =
+    deliverAction.kind === 'deliver' && !deliverAction.enabled
+      ? translate(deliverAction.disabledReason.key, deliverAction.disabledReason.fallback)
+      : null
+  // Why the frozen `openTerminal` key and not `deliver`: rule 4 makes an
+  // existing DELIVER session open its terminal at this same position, and the
+  // task-page entry calls that `打开终端` (`TaskWorkbenchDeliver.openTerminal`).
+  // Both entries name the same action, so a reader never sees two verbs for it.
+  const deliverLabel =
+    deliverAction.kind === 'open-terminal'
+      ? translate('auto.components.TaskWorkbenchDeliver.openTerminal', 'Open terminal')
+      : translate('auto.components.sidebar.WorktreeContextMenu.deliver', 'Deliver…')
+  // Why the same eligibility as Archive: Deliver and Archive are one group with
+  // one subject — a linked git worktree of the project. The repository's own
+  // checkout is not archivable and is never a delivery target (the launch
+  // contract says "never the primary checkout"), and a folder workspace is not
+  // a git worktree at all.
+  const showsDeliver =
+    !isMultiContext &&
+    !isTaskDraft &&
+    archivableWorktrees.length > 0 &&
+    deliverAction.kind !== 'none'
+  const deliverItem = (
+    <DropdownMenuItem
+      data-testid="worktree-context-menu-deliver"
+      // Why `aria-disabled` and not Radix's `disabled`: the primitive sets
+      // `focusable: false` for a disabled item and filters it out of arrow-key
+      // navigation, so the reason would only be reachable in a screen reader's
+      // browse mode. An `aria-disabled` item stays focusable and keeps pointer
+      // events, so hover reads `title` and focus reads `aria-describedby`;
+      // `onSelect` is prevented, so the focus path can never launch.
+      aria-disabled={deliverDisabledReason !== null ? true : undefined}
+      title={deliverDisabledReason ?? undefined}
+      aria-describedby={deliverDisabledReason !== null ? deliverDisabledReasonId : undefined}
+      onSelect={
+        deliverDisabledReason !== null ? (event) => event.preventDefault() : handleDeliver
+      }
+    >
+      <Send className="size-3.5" />
+      {deliverLabel}
+    </DropdownMenuItem>
+  )
   return (
     <div
       ref={scopeRef}
@@ -307,6 +359,22 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
               <WorktreeDeveloperMenu worktreeId={worktree.id} disabled={isDeleting} />
               <DropdownMenuSeparator />
             </>
+          ) : null}
+          {showsDeliver ? (
+            deliverDisabledReason !== null ? (
+              // Why the wrapper: it only hosts the sr-only sentence the item
+              // describes itself with. The item itself is focusable and
+              // hoverable (`aria-disabled`), so `title` sits on the item where
+              // both a mouse and a keyboard user can reach it.
+              <div>
+                {deliverItem}
+                <span id={deliverDisabledReasonId} className="sr-only">
+                  {deliverDisabledReason}
+                </span>
+              </div>
+            ) : (
+              deliverItem
+            )
           ) : null}
           {!isTaskDraft && archivableWorktrees.length > 0 ? (
             <DropdownMenuItem onSelect={handleArchive} disabled={deletingContext}>

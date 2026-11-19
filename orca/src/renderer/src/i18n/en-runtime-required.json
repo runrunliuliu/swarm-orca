@@ -169,6 +169,26 @@
         "historyEmpty": "No history yet.",
         "historyHeading": "History"
       },
+      "TaskWorkbenchDeliver": {
+        "action": "Deliver…",
+        "archiveAfter": "Archive this workspace after delivery",
+        "archiveAfterHint": "Archiving keeps the checkout and its records; it only hides the row.",
+        "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
+        "cancel": "Cancel",
+        "close": "Close",
+        "confirmHeading": "Deliver {{value0}}",
+        "disabledWorking": "A working agent already owns this workspace; delivery waits for one writer.",
+        "integrationMode": "Integration",
+        "integrationMode.localMerge": "Local merge",
+        "integrationMode.pr": "PR",
+        "integrationMode.squash": "Squash",
+        "openTerminal": "Open terminal",
+        "policy": "Delivery integrates through a pull request; nothing is written to the primary checkout.",
+        "start": "Start delivery",
+        "targetBranch": "Target branch",
+        "targetBranchDefault": "Default · needs confirmation",
+        "targetBranchRequired": "Choose a target branch first."
+      },
       "TaskWorkbenchDelivery": {
         "checksCount": "checks {{value0}}/{{value1}}",
         "collapse": "Collapse",

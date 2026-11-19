@@ -1,11 +1,25 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
+import {
+  TASK_WORKBENCH_DELIVER_NO_AGENT_NOTICE,
+  launchTaskWorkbenchDeliver,
+  revealTaskWorkbenchDeliverTab
+} from '@/lib/task-workbench/task-workbench-deliver-launch'
 import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
+import {
+  TaskWorkbenchDeliverConfirm,
+  type TaskWorkbenchDeliverConfirmValue
+} from './task-workbench-deliver-confirm'
+import {
+  projectTaskWorkbenchDeliver,
+  type TaskWorkbenchDeliverAction
+} from './task-workbench-deliver-state'
 import type { DeliveryEvidence, TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
 
 /**
@@ -23,6 +37,17 @@ import type { DeliveryEvidence, TaskWorkbenchLayout, TaskWorkbenchView } from '.
  *
  * Why the fold is on the row: §7.4.2 moved every section action onto its own
  * heading/row line, so `[Collapse ⌃]` no longer starts a line of its own.
+ *
+ * Why the delivery entry sits at the row's right end (§7.11): the reader who
+ * wants to hand the workspace off is already reading "what do we know about this
+ * task from outside the agents", and "delivered" is the fact that follows. It is
+ * the last thing on the row, after the fold toggle, and it never adds a second
+ * filled primary — the entry and the confirmation's submit are both `outline`
+ * (README §7.4.2, §7.11.3 rule 2).
+ *
+ * The state and the one action come from `projectTaskWorkbenchDeliver`, the same
+ * projection the sidebar entry reads, so the two entries cannot disagree about
+ * whether this workspace may be delivered (§7.11.3 rule 1, rule 4).
  */
 
 /** Stable id so the toggle's `aria-controls` names exactly the body it unfolds.
@@ -35,6 +60,82 @@ const NOT_WIRED = 'Not wired in this build yet'
 
 function deliveryKeys(key: string): string {
   return `auto.components.TaskWorkbenchDelivery.${key}`
+}
+
+function deliverKeys(key: string): string {
+  return `auto.components.TaskWorkbenchDeliver.${key}`
+}
+
+/**
+ * The entry itself, in whichever of the four shapes the projection emitted.
+ *
+ * - `none` renders nothing at all: no disabled ghost, no row. A workspace that
+ *   is archived or absent gets no delivery entry (`no-workspace` / `archived`).
+ * - `open-terminal` reveals the `DELIVER` session that already exists and never
+ *   starts a second one (rule 4 / A4). When the reveal finds nothing (a row
+ *   whose name says `DELIVER` but whose marker tab is gone), it falls back to
+ *   the confirmation instead of being a dead click (K4).
+ * - `deliver` + `enabled: false` reuses `TaskWorkbenchPendingAction` for its
+ *   reachability shape — the wrapper owns the `title` because a disabled
+ *   `Button` cannot be hovered, and the reason is also `sr-only` text the button
+ *   is `aria-describedby`, so a keyboard reader hears it too.
+ * - `deliver` + enabled is a live `Button` that only opens the confirmation.
+ */
+function DeliverEntry({
+  action,
+  entryRef,
+  onOpen,
+  onReveal
+}: {
+  action: TaskWorkbenchDeliverAction
+  entryRef: React.RefObject<HTMLSpanElement | null>
+  onOpen: () => void
+  onReveal: () => void
+}): React.JSX.Element | null {
+  if (action.kind === 'none') {
+    return null
+  }
+  let body: React.JSX.Element
+  if (action.kind === 'open-terminal') {
+    body = (
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        data-testid="task-workbench-deliver-action"
+        onClick={onReveal}
+      >
+        {translate(deliverKeys('openTerminal'), 'Open terminal')}
+      </Button>
+    )
+  } else if (!action.enabled) {
+    body = (
+      <TaskWorkbenchPendingAction
+        label={translate(deliverKeys('action'), 'Deliver…')}
+        hint={translate(action.disabledReason.key, action.disabledReason.fallback)}
+        testId="task-workbench-deliver-action"
+        variant="outline"
+      />
+    )
+  } else {
+    body = (
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        data-testid="task-workbench-deliver-action"
+        onClick={onOpen}
+      >
+        {translate(deliverKeys('action'), 'Deliver…')}
+        <ChevronDown aria-hidden="true" className="opacity-60" />
+      </Button>
+    )
+  }
+  return (
+    <span ref={entryRef} className="inline-flex shrink-0">
+      {body}
+    </span>
+  )
 }
 
 const PULL_REQUEST_STATE_COPY: Record<
@@ -90,6 +191,147 @@ export function TaskWorkbenchDelivery({
   const delivery = view.delivery
   const expanded = override ?? layout.delivery === 'expanded'
 
+  // §7.11's one projection, read here exactly as the sidebar entry reads it.
+  const projection = projectTaskWorkbenchDeliver(view)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  // Why the guard lives for the whole panel lifetime: the launch is synchronous
+  // once it starts, but a second click in the same panel must not be able to
+  // start a second agent, and nothing here may clear the guard before the panel
+  // closes (the launcher's own store re-check is the other half).
+  const [submitting, setSubmitting] = React.useState(false)
+  const entryRef = React.useRef<HTMLSpanElement | null>(null)
+  const [confirmStyle, setConfirmStyle] = React.useState<React.CSSProperties | undefined>(undefined)
+
+  // Why measured: the facts strip clips its children (`overflow-hidden` in
+  // TaskWorkbenchFacts.tsx), so the panel is placed with `position: fixed`
+  // against the entry's own box instead of nesting an absolute child that would
+  // be cut off at the strip's edge.
+  const openConfirm = React.useCallback((): void => {
+    const rect = entryRef.current?.getBoundingClientRect()
+    setConfirmStyle(
+      rect
+        ? {
+            position: 'fixed',
+            top: rect.bottom + 6,
+            right: Math.max(8, window.innerWidth - rect.right)
+          }
+        : undefined
+    )
+    setConfirmOpen(true)
+  }, [])
+
+  const closeConfirm = React.useCallback((): void => {
+    setConfirmOpen(false)
+    setSubmitting(false)
+  }, [])
+
+  const revealDeliverSession = React.useCallback((): void => {
+    const workspaceId = projection.workspaceId
+    if (workspaceId === undefined) {
+      return
+    }
+    // K4: a `conversationName` of DELIVER does not prove a marker tab exists
+    // (a plain `customTitle` can produce the name). Reveal first; when there is
+    // nothing to reveal, fall back to the confirmation, as the sidebar does.
+    if (!revealTaskWorkbenchDeliverTab(workspaceId)) {
+      openConfirm()
+    }
+  }, [projection.workspaceId, openConfirm])
+
+  // The only launch site for this entry. The three values go to
+  // `launchTaskWorkbenchDeliver` untouched: the form decides them, the launcher
+  // decides whether a session may start (§7.11.3 rules 3, 4).
+  const submitDeliver = (value: TaskWorkbenchDeliverConfirmValue): void => {
+    const workspaceId = projection.workspaceId
+    if (workspaceId === undefined || submitting) {
+      return
+    }
+    // K1: re-project at submit time. The panel stays mounted across a view
+    // change (an agent can start Working, the workspace can be archived), and
+    // the launcher only re-checks the DELIVER marker — not this eligibility.
+    // A target that moved, disappeared or lost its right to deliver must not
+    // launch; the one-writer case states the frozen reason, the rest just close.
+    const current = projectTaskWorkbenchDeliver(view)
+    if (current.workspaceId !== workspaceId || current.action.kind === 'none') {
+      closeConfirm()
+      return
+    }
+    if (current.action.kind === 'deliver' && !current.action.enabled) {
+      closeConfirm()
+      toast.error(
+        translate(current.action.disabledReason.key, current.action.disabledReason.fallback)
+      )
+      return
+    }
+    // `open-terminal` deliberately falls through: the launcher re-checks the
+    // live marker, so a real session is revealed (`already-delivering`) and a
+    // stale name-only row still launches (K4).
+    setSubmitting(true)
+    const result = launchTaskWorkbenchDeliver({
+      worktreeId: workspaceId,
+      targetBranch: value.targetBranch,
+      integrationMode: value.integrationMode,
+      archiveAfter: value.archiveAfter,
+      source: 'task_page'
+    })
+    if (result.ok) {
+      closeConfirm()
+      return
+    }
+    if (result.reason === 'no-agent') {
+      // The panel stays open with its guard still on; the shared terminal copy
+      // says why, and closing it is the reader's next move (F6: one exported
+      // pair, not a second copy in this host).
+      toast.error(
+        translate(
+          TASK_WORKBENCH_DELIVER_NO_AGENT_NOTICE.key,
+          TASK_WORKBENCH_DELIVER_NO_AGENT_NOTICE.fallback
+        )
+      )
+      return
+    }
+    // A DELIVER session appeared between render and click (the documented
+    // reopen case): point at it instead of starting another one.
+    revealTaskWorkbenchDeliverTab(workspaceId)
+    closeConfirm()
+  }
+
+  const targetWorkspace =
+    projection.workspaceId === undefined
+      ? undefined
+      : view.workspaces.find((workspace) => workspace.worktreeId === projection.workspaceId)
+  const confirmHeading = targetWorkspace
+    ? [targetWorkspace.repoName, targetWorkspace.branchName ?? targetWorkspace.worktreeName]
+        .filter((part) => part !== '')
+        .join(' · ')
+    : ''
+  // `open-terminal` is included on purpose: a failed reveal opens this panel
+  // (K4), and submit re-projects before deciding whether to launch (K1).
+  const confirm =
+    confirmOpen && projection.action.kind !== 'none' && projection.workspaceId !== undefined ? (
+      <TaskWorkbenchDeliverConfirm
+        heading={confirmHeading}
+        {...(view.targetBranchDefault !== undefined
+          ? { defaultTargetBranch: view.targetBranchDefault }
+          : {})}
+        attention={projection.attention}
+        submitting={submitting}
+        onCancel={closeConfirm}
+        onClose={closeConfirm}
+        onSubmit={submitDeliver}
+        style={confirmStyle}
+      />
+    ) : null
+
+  const entry = (
+    <DeliverEntry
+      action={projection.action}
+      entryRef={entryRef}
+      onOpen={openConfirm}
+      onReveal={revealDeliverSession}
+    />
+  )
+
   const label = (
     <span className="shrink-0 text-[12px] font-semibold text-foreground">
       {translate(deliveryKeys('heading'), 'Delivery')}
@@ -117,6 +359,8 @@ export function TaskWorkbenchDelivery({
           hint={translate(deliveryKeys('notWired'), NOT_WIRED)}
           testId="task-workbench-delivery-read"
         />
+        {entry}
+        {confirm}
       </section>
     )
   }
@@ -177,6 +421,10 @@ export function TaskWorkbenchDelivery({
               className={cn('size-3.5 transition-transform', expanded && 'rotate-180')}
             />
           </Button>
+
+          {/* Rule 1: one action, one row line — the entry is the row's right end,
+              after the fold toggle, never a row of its own. */}
+          {entry}
         </div>
 
         <CollapsibleContent id={BODY_ID}>
@@ -224,6 +472,7 @@ export function TaskWorkbenchDelivery({
           </div>
         </CollapsibleContent>
       </Collapsible>
+      {confirm}
     </section>
   )
 }
