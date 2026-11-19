@@ -24,6 +24,7 @@ import {
   normalizeLoadedLocalSession,
   normalizeLoadedProjectCatalog
 } from './normalize-loaded-state-collections'
+import { normalizeTaskRunHistory } from '../../../shared/task-run-history'
 import { normalizeRetiredNameRegistryMap } from './retired-name-registry-normalization'
 import { hydrateWorktreeMetaAliasProjection } from './worktree-meta-alias-projection'
 
@@ -91,6 +92,7 @@ export function normalizeLoadedProfileState(
     deletedSshConfigAliases: Array.isArray(parsed.deletedSshConfigAliases)
       ? parsed.deletedSshConfigAliases.filter((alias): alias is string => typeof alias === 'string')
       : [],
+    taskRunHistory: normalizeTaskRunHistory(parsed.taskRunHistory),
     retiredWorktreeNamesByRepo: normalizeRetiredNameRegistryMap(parsed.retiredWorktreeNamesByRepo),
     retiredWorktreeNamesByNamespace: normalizeRetiredNameRegistryMap(
       parsed.retiredWorktreeNamesByNamespace

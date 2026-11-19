@@ -177,6 +177,23 @@ describe('buildDashboardSnapshot', () => {
     })
   })
 
+  it('includes an archived worktree only when its id is asked for (issue #31)', () => {
+    const archived = { ...worktree('w2', 'wt-archived'), isArchived: true }
+    const state = baseState({ worktreesByRepo: { r1: [worktree(), archived] } })
+
+    // The board stays active-only: no caller asks, no archived workspace.
+    expect(buildDashboardSnapshot(state, NOW).workspaces?.map((w) => w.worktreeId)).toEqual([
+      'w1'
+    ])
+    // The task workbench asks for one task's archived ids, so a closed task can
+    // render its own workspace row and agent history.
+    expect(
+      buildDashboardSnapshot(state, NOW, { includeArchivedWorktreeIds: ['w2'] }).workspaces?.map(
+        (w) => w.worktreeId
+      )
+    ).toEqual(['w1', 'w2'])
+  })
+
   it('maps a live working agent to the working bucket with a resolved ptyId', () => {
     const snapshot = buildDashboardSnapshot(
       baseState({

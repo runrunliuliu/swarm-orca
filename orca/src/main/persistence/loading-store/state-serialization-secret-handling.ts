@@ -83,6 +83,12 @@ export class StateSerializationSecretHandlingOperations {
         case 'worktreeMeta':
           stateToSave[domain] = omitDefaultWorktreeMetaFieldsInMap(this.runtime.state.worktreeMeta)
           break
+        case 'taskRunHistory':
+          stateToSave[domain] = this.runtime.state.taskRunHistory ?? {
+            version: 1,
+            records: []
+          }
+          break
         case 'worktreeMetaByIdentity':
           if (this.runtime.state.worktreeMetaByIdentity !== undefined) {
             stateToSave[domain] = omitDefaultWorktreeMetaFieldsInMap(

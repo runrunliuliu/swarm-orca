@@ -42,6 +42,7 @@ import {
   removeCustomWorktreeSourcePreference
 } from '../../../../shared/worktree/visibility-source-preferences'
 import HiddenWorktreeRecoveryList from './HiddenWorktreeRecoveryList'
+import ArchivedWorktreeList from './ArchivedWorktreeList'
 import { worktreeVisibilityUpdateError } from './worktree-visibility-update-error'
 import { useRepoOwnerVisibilityDefaults } from './use-repo-owner-visibility-defaults'
 import {
@@ -383,6 +384,8 @@ export default function WorktreeVisibilityDialog(): React.JSX.Element | null {
           toggling={effectivelyToggling}
           onShow={handleShowWorktree}
         />
+
+        <ArchivedWorktreeList repo={repo} />
 
         {actionState?.error ? (
           <p className="text-xs text-destructive" role="alert">

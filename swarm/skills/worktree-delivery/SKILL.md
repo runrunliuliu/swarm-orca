@@ -2,8 +2,9 @@
 name: worktree-delivery
 description: >-
   Verify and deliver completed Orca worktree changes: independent review, integration into a
-  confirmed target branch, optional authorized deployment, and safe cleanup. Use for merge,
-  delivery or worktree-cleanup requests; not for starting new work or automatic service operations.
+  confirmed target branch, optional authorized deployment, and non-destructive cleanup by
+  default (physical removal only on explicit request). Use for merge, delivery or
+  worktree-cleanup requests; not for starting new work or automatic service operations.
 ---
 
 # Worktree delivery
@@ -110,16 +111,31 @@ and an unchanged adjacent case. A down service is a diagnostic checkpoint, not a
 to force-start it. Follow the runbook's recovery and rollback gates. Mirror private deployment-script
 changes in the private source, never in public examples.
 
-## 5. Cleanup is explicit and last
+## 5. Cleanup is non-destructive by default
 
-Before deleting a worktree or branch, verify:
+“Clean up” in a delivery request means non-destructive cleanup: settle only the workers that are
+proven finished, then archive the workspace with `worktree archive`, and report it as retained;
+leave it in place when no cleanup was asked for. Archiving keeps the checkout, Git worktree
+registration, metadata, terminals and recorded trace on disk, and `worktree unarchive` restores the
+row. It does not stop terminals or delete the branch; use workspace Sleep when sessions should
+hibernate and resume. The same action is in the workspace context menu, and Restore is in the
+worktree visibility dialog. Do not simulate an archive by editing metadata or running raw Git.
+
+Physical removal (`worktree rm`) is a separate, destructive outcome that needs an explicit
+instruction naming the workspace, or an explicit “delete it / reclaim the disk”. Do not infer it
+from “done”, “clean up”, “ship it” or a merged PR. Removal deletes the checkout, its retained agent
+rows and the terminal scrollback a recorded trace points at (issue #31); archiving is what keeps
+that record while taking the row out of the active list. Never substitute `worktree rm` for an
+archive.
+
+Before **physical** removal, verify:
 
 - the authorized integration/publication is complete (for squash, use the accepted review and
   integrated diff/tests rather than only ancestry);
 - no uncommitted/untracked work, private evidence or unpushed commits would be lost;
 - no live or unresolved Agent/Worker/job, pending request, worktree child or deployment depends on it;
 - evidence and usage have been preserved and remaining resources have owners;
-- deletion is within the user's scope.
+- deletion is within the user's scope and explicitly requested.
 
 Use the selected runtime's supported worktree removal procedure with the exact ID, without default
 `--force`. Never remove a main checkout. Use safe branch deletion only after verifying it is no longer
@@ -175,6 +191,7 @@ projection, not just Git:
 ## 6. Report distinct outcomes
 
 Report reviewed and integrated commits, target branch/remote, push status, post-integration tests,
-deployed version (if any), live checks, rollback reference, cleanup performed — including whether the
-client-facing projection was verified or is still stale — resources retained and coverage gaps. If blocked, name the last proven step and next owner. Do not call “committed” merged,
-“deployed” accepted, or an absent terminal exited.
+deployed version (if any), live checks, rollback reference, cleanup performed — retained by default,
+removed only when explicitly requested — including whether the client-facing projection was verified
+or is still stale, resources retained and coverage gaps. If blocked, name the last proven step and
+next owner. Do not call “committed” merged, “deployed” accepted, or an absent terminal exited.

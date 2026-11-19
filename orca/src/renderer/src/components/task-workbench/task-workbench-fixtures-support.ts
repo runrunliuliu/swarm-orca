@@ -4,7 +4,11 @@ import type {
   AgentTokenView,
   DashboardCard,
   ProviderSpend,
+  TaskWorkbenchHistory,
+  TaskWorkbenchHistoryRun,
+  TaskWorkbenchHistoryTrace,
   TaskWorkbenchView,
+  TaskWorkbenchWallClock,
   TaskWorkbenchWorkspace
 } from './task-workbench-view'
 
@@ -19,6 +23,10 @@ import type {
 
 const NOW = 1_767_000_000_000
 const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+/** Fixture-relative clock, exported so a history fact can use the same anchor as
+ *  the rows it summarises instead of a second literal. */
+export const FIXTURE_NOW = NOW
 const GITHUB = { provider: 'github', owner: 'acme', repo: 'web-app' } as const
 
 /** Worktree ids derive from the branch so the default-workspace marker can
@@ -96,7 +104,7 @@ export function row(
   state: FixtureRowState,
   task: string,
   tokens: AgentTokenView,
-  options: Partial<Pick<AgentRowView, 'outcome'>> & {
+  options: Partial<Pick<AgentRowView, 'outcome' | 'archivedWorkspace'>> & {
     ws?: TaskWorkbenchWorkspace
     subagents?: DashboardCard['subagents']
   } = {}
@@ -125,6 +133,7 @@ export function row(
     },
     tokens,
     outcome: options.outcome,
+    ...(options.archivedWorkspace === true ? { archivedWorkspace: true } : {}),
     // The pill names the workspace by branch for the same reason the Workspaces
     // section does: the display name is usually the task title (README §7.4.2).
     workspaceLabel: ws ? `${ws.repoName} · ${ws.branchName ?? ws.worktreeName}` : undefined
@@ -133,6 +142,37 @@ export function row(
 
 export const rollup = (tokens: number): AgentTokenView => ({ kind: 'rollup', tokens })
 export const vault = (tokens: number): AgentTokenView => ({ kind: 'ai-vault', tokens })
+
+/** A measured wall clock, in fixture-relative hours/minutes before `FIXTURE_NOW`. */
+export function measuredWall(hours: number, minutes: number): TaskWorkbenchWallClock {
+  const span = hours * HOUR + minutes * MINUTE
+  return { kind: 'measured', startedAt: NOW - span, endedAt: NOW }
+}
+
+/** The run-history facts of issue #31, hand-written like every other fixture:
+ *  the page must render what it is given, so no fixture derives its own facts
+ *  from the rows and notices a missing field. */
+export function runHistory(args: {
+  agents: number | null
+  wall: TaskWorkbenchWallClock
+  tokens: TaskWorkbenchHistory['tokens']
+  lastActivityAt?: number
+  archivedWorkspaces?: number
+  deletedWorkspaces?: number
+  trace: TaskWorkbenchHistoryTrace
+  runs?: TaskWorkbenchHistoryRun[]
+}): TaskWorkbenchHistory {
+  return {
+    agents: args.agents,
+    wall: args.wall,
+    tokens: args.tokens,
+    ...(args.lastActivityAt === undefined ? {} : { lastActivityAt: args.lastActivityAt }),
+    archivedWorkspaces: args.archivedWorkspaces ?? 0,
+    deletedWorkspaces: args.deletedWorkspaces ?? 0,
+    trace: args.trace,
+    runs: args.runs ?? []
+  }
+}
 
 export function providerSpend(
   provider: string,

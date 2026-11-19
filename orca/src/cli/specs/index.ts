@@ -4,6 +4,7 @@ import { BROWSER_ADVANCED_COMMAND_SPECS } from './browser-advanced'
 import { BROWSER_BASIC_COMMAND_SPECS } from './browser-basic'
 import { AUTOMATION_COMMAND_SPECS } from './automations'
 import { CORE_COMMAND_SPECS } from './core'
+import { WORKTREE_ARCHIVE_COMMAND_SPECS } from './worktree-archive'
 import { FILE_COMMAND_SPECS } from './file'
 import { GITHUB_COMMAND_SPECS } from './github'
 import { PROJECT_COMMAND_SPECS } from './project'
@@ -24,6 +25,7 @@ import { INCIDENT_COMMAND_SPECS } from './incident'
 
 export const COMMAND_SPECS: CommandSpec[] = [
   ...CORE_COMMAND_SPECS,
+  ...WORKTREE_ARCHIVE_COMMAND_SPECS,
   ...ARTIFACT_COMMAND_SPECS,
   ...ACCOUNT_COMMAND_SPECS,
   ...PROJECT_COMMAND_SPECS,

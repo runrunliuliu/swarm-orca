@@ -3,6 +3,8 @@ import type {
   AgentRowView,
   AgentTokenView,
   DeliveryEvidence,
+  SpendReason,
+  TaskWorkbenchHistory,
   TaskWorkbenchWorkspace
 } from '@/components/task-workbench/task-workbench-view'
 import type { JoinInput, JoinResult, JoinWorktree } from './task-workbench-selector-types'
@@ -23,7 +25,9 @@ import type { JoinInput, JoinResult, JoinWorktree } from './task-workbench-selec
  * list item whose state is the union of its live workspaces, never its primary.
  * An archived workspace is something the user put away; letting it contribute a
  * `working` or `attention` row would resurrect a task they closed, so archived
- * worktrees contribute no rows, no counts and no delivery.
+ * worktrees contribute no active or attention rows and no delivery. Since issue
+ * #31 they do contribute their history rows (marked `archivedWorkspace`), so a
+ * closed task can still state what it ran instead of claiming it never started.
  *
  * Pure on purpose: no React, no store, no RPC, no clock. The only store-shaped
  * concern here is order, and order is the caller's (input order is display
@@ -49,8 +53,8 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
   // the branch the worktree identity now carries, falling back to the display
   // name the card already has — never a synthesised one and never the id. The
   // display name alone would usually repeat the task title (README §7.4.2).
-  const showWorkspaceLabel = activeWorktrees.length > 1
-  const agents = activeWorktrees.flatMap((worktree) =>
+  const showWorkspaceLabel = activeWorktrees.length + archivedWorktrees.length > 1
+  const activeAgents = activeWorktrees.flatMap((worktree) =>
     (input.agentsByWorktree[worktree.worktreeId] ?? []).map(
       (agent): AgentRowView => ({
         base: agent.card,
@@ -65,6 +69,25 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
       })
     )
   )
+  // Archived rows last, so the History fold reads them after the live history.
+  // The flag — not the card's bucket — decides the section: a retained row is
+  // already `done`, but an archived worktree can still hold a stale working
+  // status, and that must not resurrect `Working` on a task the user closed.
+  const archivedAgents = archivedWorktrees.flatMap((worktree) =>
+    (input.agentsByWorktree[worktree.worktreeId] ?? []).map(
+      (agent): AgentRowView => ({
+        base: agent.card,
+        tokens: agent.tokens ?? UNATTRIBUTED_TOKENS,
+        outcome: agent.outcome,
+        sessionBoundary: agent.sessionBoundary,
+        workspaceLabel: showWorkspaceLabel
+          ? `${worktree.repoName} · ${worktree.branchName ?? worktree.worktreeName}`
+          : undefined,
+        archivedWorkspace: true
+      })
+    )
+  )
+  const agents = [...activeAgents, ...archivedAgents]
 
   const defaultWorkspace = selectDefaultWorkspace(input.primaryWorktreeId, activeWorktrees)
 
@@ -74,14 +97,15 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
     archivedWorktreeIds,
     agents,
     // Same function the panel's layout uses, so a count can never disagree with
-    // the section it counts.
+    // the section it counts. Archived rows land in `historyAgents` only.
     counts: countRowBuckets(agents),
     delivery: selectDelivery(
       input.deliveryByWorktree,
       defaultWorkspace.workspaceId,
       activeWorktreeIds
     ),
-    defaultWorkspace
+    defaultWorkspace,
+    history: buildHistory(agents, worktrees)
   }
 }
 
@@ -139,6 +163,97 @@ function selectDefaultWorkspace(
 
 function activityOf(worktree: JoinWorktree): number {
   return worktree.lastActivityAt ?? Number.NEGATIVE_INFINITY
+}
+
+/**
+ * The facts a closed task can still state (issue #31). Every absence stays an
+ * absence: a token figure is the sum only when every row's figure is known, and
+ * the wall clock is `measured` only when every row has both edges, so a task
+ * with one agent still running reports `partial` instead of "now".
+ *
+ * The join can prove the archived form and nothing more. A deleted workspace has
+ * already lost the rows this function would read, so `trace: 'deleted'` is set by
+ * whoever holds that record (today: a rendered fixture; the persisted probe is
+ * the S2 slice of #31).
+ */
+function buildHistory(
+  agents: readonly AgentRowView[],
+  worktrees: readonly JoinWorktree[]
+): TaskWorkbenchHistory {
+  const archived = worktrees.filter((worktree) => worktree.isArchived)
+
+  let startedAt = Number.POSITIVE_INFINITY
+  let endedAt = Number.NEGATIVE_INFINITY
+  let everyStart = true
+  let everyEnd = true
+  let tokenTotal = 0
+  let tokenAbsence: SpendReason | null = null
+
+  for (const agent of agents) {
+    if (agent.base.startedAt > 0) {
+      startedAt = Math.min(startedAt, agent.base.startedAt)
+    } else {
+      everyStart = false
+    }
+    if (typeof agent.base.finishedAt === 'number') {
+      endedAt = Math.max(endedAt, agent.base.finishedAt)
+    } else {
+      everyEnd = false
+    }
+    if (agent.tokens.kind === 'unavailable') {
+      tokenAbsence ??= agent.tokens.reason
+    } else {
+      tokenTotal += agent.tokens.tokens
+    }
+  }
+
+  const hasStart = startedAt !== Number.POSITIVE_INFINITY
+  const hasEnd = endedAt !== Number.NEGATIVE_INFINITY
+  const wall: TaskWorkbenchHistory['wall'] =
+    agents.length === 0
+      ? { kind: 'unknown' }
+      : everyStart && everyEnd
+        ? { kind: 'measured', startedAt, endedAt }
+        : {
+            kind: 'partial',
+            ...(hasStart ? { startedAt } : {}),
+            ...(hasEnd ? { endedAt } : {})
+          }
+
+  let lastActivityAt: number | undefined
+  for (const worktree of worktrees) {
+    if (worktree.lastActivityAt === undefined) {
+      continue
+    }
+    lastActivityAt = Math.max(lastActivityAt ?? Number.NEGATIVE_INFINITY, worktree.lastActivityAt)
+  }
+  if (hasEnd) {
+    lastActivityAt = Math.max(lastActivityAt ?? Number.NEGATIVE_INFINITY, endedAt)
+  }
+
+  return {
+    // Zero rows is unknown, not zero agents: the record can outlive its rows.
+    agents: agents.length === 0 ? null : agents.length,
+    wall,
+    tokens:
+      agents.length === 0
+        ? { kind: 'unavailable', reason: 'no_matching_session' }
+        : tokenAbsence
+          ? { kind: 'unavailable', reason: tokenAbsence }
+          : { kind: 'available', tokens: tokenTotal },
+    ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+    archivedWorkspaces: archived.length,
+    deletedWorkspaces: 0,
+    trace: archived.length > 0 ? 'archived' : 'none',
+    runs: agents.map((agent) => ({
+      key: agent.base.paneKey,
+      title: agent.base.conversationName ?? agent.base.task ?? agent.base.worktreeName,
+      ...(agent.base.agentType ? { agentType: agent.base.agentType } : {}),
+      ...(agent.base.startedAt > 0 ? { startedAt: agent.base.startedAt } : {}),
+      ...(typeof agent.base.finishedAt === 'number' ? { endedAt: agent.base.finishedAt } : {}),
+      ...(agent.outcome ? { outcome: agent.outcome } : {})
+    }))
+  }
 }
 
 /**

@@ -131,7 +131,17 @@ describe('joinTaskWorkbench — no workspace', () => {
       archivedWorktreeIds: [],
       agents: [],
       counts: { agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
-      defaultWorkspace: { workspaceId: '', source: 'none' }
+      defaultWorkspace: { workspaceId: '', source: 'none' },
+      // Nothing ran: unknown, not a pair of zeros that would read as measured.
+      history: {
+        agents: null,
+        wall: { kind: 'unknown' },
+        tokens: { kind: 'unavailable', reason: 'no_matching_session' },
+        archivedWorkspaces: 0,
+        deletedWorkspaces: 0,
+        trace: 'none',
+        runs: []
+      }
     })
     // `''` is a sentinel, not a worktree id: the panel must not open anything.
     expect(result.delivery).toBeUndefined()
@@ -231,21 +241,52 @@ describe('joinTaskWorkbench — archived worktrees', () => {
     expect(result.archivedWorktreeIds).toEqual(['wt-parked'])
   })
 
-  it('drops archived rows from agents and from every count', () => {
+  it('keeps archived rows as history without letting them claim Working', () => {
     const result = resultWithArchive()
 
-    expect(result.agents.map((row) => row.base.paneKey)).toEqual(['pane-one', 'pane-two'])
+    // The archived row is listed last and is marked, so the panel can fold it
+    // into History; its stale `working` bucket must not resurrect Active.
+    expect(result.agents.map((row) => row.base.paneKey)).toEqual([
+      'pane-one',
+      'pane-two',
+      'pane-parked'
+    ])
+    expect(result.agents.map((row) => row.archivedWorkspace === true)).toEqual([
+      false,
+      false,
+      true
+    ])
     expect(result.counts).toEqual({
-      agents: 2,
+      agents: 3,
       activeAgents: 1,
       attentionAgents: 1,
-      historyAgents: 0
+      historyAgents: 1
     })
     // The label is `repo · branch` now: a bare worktree name is the display name
     // Orca derives from the task title, which repeated the page heading.
     expect(result.agents.map((row) => row.workspaceLabel)).toEqual([
       'web-app · feature/one',
-      'web-app · feature/two'
+      'web-app · feature/two',
+      'web-app · feature/parked'
+    ])
+  })
+
+  it('states the archived history instead of a zero-agent empty state', () => {
+    const result = resultWithArchive()
+
+    expect(result.history.agents).toBe(3)
+    expect(result.history.archivedWorkspaces).toBe(1)
+    expect(result.history.deletedWorkspaces).toBe(0)
+    expect(result.history.trace).toBe('archived')
+    // One row never finished (the archived `working` card), so the wall clock is
+    // partial rather than "3h since the first start until now".
+    expect(result.history.wall.kind).toBe('partial')
+    // Untokened rows stay unavailable: no fabricated share, no 0.
+    expect(result.history.tokens).toEqual({ kind: 'unavailable', reason: 'unattributed' })
+    expect(result.history.runs.map((run) => run.key)).toEqual([
+      'pane-one',
+      'pane-two',
+      'pane-parked'
     ])
   })
 })

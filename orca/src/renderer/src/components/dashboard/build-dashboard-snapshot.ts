@@ -89,6 +89,9 @@ export function buildDashboardSnapshot(
     rowsCache?: WorktreeAgentRowsCache
     /** Freshness token for rowsCache (agentStatusEpoch); required for the cache to be safe. */
     rowsGeneration?: unknown
+    /** Archived worktree ids to include. The board itself never asks; the task
+     *  workbench does, to render a closed task's own history (issue #31). */
+    includeArchivedWorktreeIds?: readonly string[]
   } = {}
 ): DashboardSnapshot {
   const cards: DashboardCard[] = []
@@ -99,7 +102,15 @@ export function buildDashboardSnapshot(
   const includeCardDetails = options.includeCardDetails !== false
   const generatedTitlesEnabled = state.settings?.tabAutoGenerateTitle === true
   const showIdle = state.settings?.experimentalAgentDashboardShowIdle === true
-  const activeWorktrees = collectActiveDashboardWorkspaces(state, includeCardDetails)
+  const includeArchivedWorktreeIds =
+    options.includeArchivedWorktreeIds && options.includeArchivedWorktreeIds.length > 0
+      ? new Set(options.includeArchivedWorktreeIds)
+      : undefined
+  const activeWorktrees = collectActiveDashboardWorkspaces(
+    state,
+    includeCardDetails,
+    includeArchivedWorktreeIds
+  )
   const filterOptions =
     options.includeFilterOptions === false
       ? undefined

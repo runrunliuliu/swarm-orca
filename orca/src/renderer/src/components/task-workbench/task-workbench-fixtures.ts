@@ -13,9 +13,12 @@ import {
   WS_SPIKE,
   availableSpend,
   deliveryEvidence,
+  FIXTURE_NOW,
+  measuredWall,
   providerSpend,
   row,
   rollup,
+  runHistory,
   tracked,
   vault,
   workspace,
@@ -65,6 +68,71 @@ export const TASK_WORKBENCH_FIXTURES = {
     label: 'F2b · zero workspaces, tracker closed',
     summary: 'A closed tracker with no workspace must not render as delivered.',
     view: zeroWorkspace('Retire the legacy deploy script', 'closed')
+  },
+
+  f2c_archived_only_closed: {
+    label: 'F2c · archived workspace, closed tracker',
+    summary:
+      'The only workspace was archived: state what ran instead of offering Create workspace.',
+    view: tracked('Retire the legacy deploy script', null, 'closed', {
+      workspaces: [WS_ARCHIVED],
+      agents: [
+        row('f2c-1', 'claude', 'done', 'Remove the legacy export', vault(1_180_000), {
+          ws: WS_ARCHIVED,
+          archivedWorkspace: true
+        }),
+        row('f2c-2', 'codex', 'done', 'Verify the export is gone', rollup(140_000), {
+          ws: WS_ARCHIVED,
+          archivedWorkspace: true
+        })
+      ],
+      spend: availableSpend(1_320_000, 1.82, [
+        providerSpend('claude', 1_180_000, 1.52),
+        providerSpend('codex', 140_000, 0.3)
+      ]),
+      history: runHistory({
+        agents: 2,
+        wall: measuredWall(3, 14),
+        tokens: { kind: 'available', tokens: 1_320_000 },
+        lastActivityAt: FIXTURE_NOW,
+        archivedWorkspaces: 1,
+        trace: 'archived'
+      })
+    })
+  },
+
+  f2d_deleted_with_history: {
+    label: 'F2d · deleted workspace with recorded history',
+    summary:
+      'The workspace is gone: list the runs and say the trace is out of reach, without a fake zero.',
+    view: tracked('Retire the legacy deploy script', null, 'closed', {
+      agents: [],
+      spend: { kind: 'unavailable', reason: 'unattributed' },
+      history: runHistory({
+        agents: 2,
+        wall: measuredWall(5, 2),
+        tokens: { kind: 'unavailable', reason: 'unattributed' },
+        lastActivityAt: FIXTURE_NOW,
+        deletedWorkspaces: 1,
+        trace: 'deleted',
+        runs: [
+          {
+            key: 'f2d-1',
+            title: 'Remove the legacy export',
+            agentType: 'claude',
+            startedAt: FIXTURE_NOW - 302 * 60_000,
+            endedAt: FIXTURE_NOW - 206 * 60_000
+          },
+          {
+            key: 'f2d-2',
+            title: 'Verify the export is gone',
+            agentType: 'codex',
+            startedAt: FIXTURE_NOW - 200 * 60_000,
+            endedAt: FIXTURE_NOW
+          }
+        ]
+      })
+    })
   },
 
   f3_many_workspaces_agents: {

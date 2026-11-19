@@ -97,8 +97,12 @@ orca worktree show --worktree active --json
 orca worktree create --repo id:<repoId> --name fix-login --json
 orca worktree create --name child-task --agent codex --prompt "Investigate the flaky login test" --json
 orca worktree set --worktree active --comment "reproduced failure; testing token refresh fix" --json
+orca worktree archive --worktree active --json
+orca worktree unarchive --worktree id:<worktreeId> --json
 orca worktree rm --worktree id:<worktreeId> --force --json
 ```
+
+`worktree archive` hides a finished workspace from the active list without deleting it: the checkout, Git registration, metadata, terminals and trace stay on disk, and `worktree unarchive` restores the row. It does not stop terminals or delete the branch; use workspace Sleep when sessions should hibernate and resume. `worktree rm` is the only physical delete and should be an explicit request.
 
 When `worktree create` runs from inside an Orca-managed worktree, Orca records the new worktree as a child when it can infer the relationship. Pass `--parent-worktree active` to be explicit, or `--no-parent` when the new work is independent.
 

@@ -70,10 +70,15 @@ function buildLiveTabIndex(args: {
   for (const repo of args.repos) {
     const worktrees = args.worktreesByRepo[repo.id] ?? []
     for (const worktree of worktrees) {
+      // Why archived ids count here (issue #31): this set is the prune allowlist.
+      // Excluding an archived worktree used to delete its retained agent rows the
+      // moment the user put it away, so a finished task lost its history. An
+      // archived workspace still owns those rows; its tabs, however, are no
+      // longer live, so it contributes no tab index.
+      existingWorktreeIds.add(worktree.id)
       if (worktree.isArchived) {
         continue
       }
-      existingWorktreeIds.add(worktree.id)
       const tabs = args.tabsByWorktree[worktree.id] ?? []
       for (const tab of tabs) {
         tabIndex.set(tab.id, { tab, worktreeId: worktree.id })
@@ -82,11 +87,12 @@ function buildLiveTabIndex(args: {
   }
 
   for (const folderWorkspace of args.folderWorkspaces) {
+    const workspaceKey = folderWorkspaceKey(folderWorkspace.id)
+    // Same allowlist rule as a worktree above.
+    existingWorktreeIds.add(workspaceKey)
     if (folderWorkspace.isArchived) {
       continue
     }
-    const workspaceKey = folderWorkspaceKey(folderWorkspace.id)
-    existingWorktreeIds.add(workspaceKey)
     for (const tab of args.tabsByWorktree[workspaceKey] ?? []) {
       tabIndex.set(tab.id, { tab, worktreeId: workspaceKey })
     }

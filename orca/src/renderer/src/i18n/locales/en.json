@@ -5725,6 +5725,12 @@
           "d1113f4660": "Failed to open browser",
           "fed49903c9": "{{value0}} live {{value1}}"
         },
+        "ArchivedWorktreeList": {
+          "heading": "Archived workspaces ({{value0}})",
+          "description": "Hidden from the sidebar; the checkout and its recorded trace are still on disk.",
+          "restore": "Restore",
+          "restoreAria": "Restore {{value0}}"
+        },
         "WorktreeContextMenu": {
           "c39c37676a": "Create a group and move this project into it.",
           "6664418e98": "New Project Group",
@@ -5758,6 +5764,8 @@
           "sleepWithDescendantsDescription": "Close active panels in this workspace and every nested descendant to free up memory and CPU.",
           "deleteWithDescendants": "Delete with Descendants…",
           "archiveDraft": "Archive draft",
+          "archive": "Archive workspace",
+          "archiveMany": "Archive {{value0}} workspaces",
           "deleteDraft": "Delete draft"
         },
         "WorktreeList": {
@@ -17616,6 +17624,33 @@
         "notRead": "Not loaded",
         "read": "Load evidence",
         "notWired": "Not available in this version"
+      },
+      "TaskWorkbenchHistory": {
+        "newBadge": "NEW",
+        "heading": "Run history",
+        "totalScope": "Total: every run",
+        "details": "Details",
+        "collapse": "Collapse",
+        "agentsKnown": "{{value0}} agents",
+        "agentsUnknown": "agents unknown",
+        "wallMeasured": "{{value0}} wall",
+        "wallPartial": "{{value0}} wall (partial)",
+        "wallUnknown": "wall unknown",
+        "tokensKnown": "{{value0}} tokens",
+        "tokensUnknown": "tokens unknown",
+        "lastActivity": "last {{value0}}",
+        "archivedOne": "1 workspace archived; its content is still on this machine.",
+        "archivedMany": "{{value0}} archived workspaces; their content is still on this machine.",
+        "traceLost": "Workspace deleted; the recorded trace is out of reach.",
+        "locateTrace": "Locate trace",
+        "copyResume": "Copy resume command",
+        "notWired": "Not available in this version",
+        "runDone": "done",
+        "run": {
+          "success": "delivered",
+          "failure": "failed",
+          "cancellation": "cancelled"
+        }
       },
       "TaskWorkbenchPanel": {
         "emptyTitle": "No workspace is linked to this task yet",

@@ -3,23 +3,19 @@ import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { isAgentJournalTurnOutcome } from '../../../shared/agent-turn-outcome'
 import type { DashboardCard, DashboardWorkspace } from '../../../shared/dashboard-snapshot'
-import { LOCAL_EXECUTION_HOST_ID, getWorktreeExecutionHostId } from '../../../shared/execution-host'
-import { isFolderRepo } from '../../../shared/repo-kind'
-import type { Repo } from '../../../shared/repo-types'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
-import type { Worktree } from '../../../shared/worktree/types'
-import { boundedLabel } from '@/components/dashboard/dashboard-card-labels'
-import { readDashboardClientHost } from '@/components/dashboard/dashboard-client-host'
-import { dashboardCardMapWorkspaceMetadata } from '@/components/dashboard/dashboard-snapshot-workspaces'
 import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
+import { projectMissingWorkspace } from '@/components/dashboard/project-missing-workspace'
 import type { TaskWorkbenchView } from '@/components/task-workbench/task-workbench-view'
+import { useTaskRunHistory } from './use-task-run-history'
 import { resolveTaskIdentity } from '@/lib/task-workbench/task-workbench-identity'
 import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspace-branch'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
+import { mergeTaskRunHistory } from '@/lib/task-workbench/task-workbench-history-merge'
 import {
   worktreeUsageKey,
   type JoinAgentInput,
-  type JoinWorktree,
   type UsageBreakdownRow,
   type UsageSelectorInput
 } from '@/lib/task-workbench/task-workbench-selector-types'
@@ -98,17 +94,10 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     openCodeScanState?.enabled === true ||
     museScanState?.enabled === true
 
-  // The in-window dashboard projection, built by the same hook the agent
-  // dashboard popover uses: one card per agent, one workspace per active
-  // worktree. Reusing it is the point (development-plan §2) — a second row
-  // pipeline would give the workbench its own bucket and label rules, and a
-  // second copy of the `DashboardSnapshotState` key list would drift the moment
-  // a slice is added upstream.
-  const snapshot = useLiveDashboardSnapshot()
-
   const resolution = useMemo(() => {
-    // Provenance the identity selector reads; archived rows are handed over as
-    // such so it can refuse to name a task by a worktree the user put away.
+    // Provenance the identity selector reads. Archived rows are handed over as
+    // such; since issue #31 they are a fallback identity rather than a refusal,
+    // because a closed task whose only workspace was archived still has a name.
     const identityWorktrees = (worktrees ?? []).map((worktree) => ({
       worktreeId: worktree.id,
       isArchived: worktree.isArchived,
@@ -120,6 +109,41 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     })
   }, [worktrees, taskSourceContext])
 
+  // Matched worktrees are a 0..N question that includes archived rows: the
+  // single-row `find*WorkspaceAttachment` helpers return at most one
+  // non-archived match, and README §7.6 names the plural variant as the upgrade
+  // point. Store order, visited once each, so the union is de-duplicated.
+  const taskWorktrees = useMemo(() => {
+    if (!resolution) {
+      return []
+    }
+    const matched = new Set(resolution.matchedWorktreeIds)
+    return (worktrees ?? []).filter((worktree) => {
+      if (matched.has(worktree.id)) {
+        return true
+      }
+      const linked = itemType === 'pr' ? worktree.linkedPR : worktree.linkedIssue
+      return worktree.repoId === repoId && linked === number
+    })
+  }, [resolution, worktrees, repoId, number, itemType])
+
+  // The archived worktrees of THIS task: the dashboard board never includes
+  // them, but a closed task's history needs their rows (issue #31).
+  const archivedTaskWorktreeIds = taskWorktrees
+    .filter((worktree) => worktree.isArchived)
+    .map((worktree) => worktree.id)
+
+  // The in-window dashboard projection: one card per agent, one workspace per
+  // active worktree (plus this task's archived ones). Reusing this hook is the
+  // point (development-plan §2): a second row pipeline would give the workbench
+  // its own bucket and label rules.
+  const snapshot = useLiveDashboardSnapshot({
+    includeArchivedWorktreeIds: archivedTaskWorktreeIds
+  })
+  const runHistory = useTaskRunHistory(
+    repoId === null ? null : { repoId, itemType, number }
+  )
+
   return useMemo<TaskWorkbenchView | null>(() => {
     // No identity means there is nothing to name the tab after: that is the one
     // case the identity selector returns null for, and `identity` is a required
@@ -130,24 +154,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     if (!resolution) {
       return null
     }
-    // Matched worktrees are a 0..N question that includes archived rows, so the
-    // single-row `findGithubPrWorkspaceAttachment` /
-    // `findGithubIssueWorkspaceAttachment` helpers cannot answer it: each
-    // returns at most one *non-archived* match
-    // (`github-work-item-workspace-attachment.ts:12-33`). README §7.6 names the
-    // plural variant as the upgrade point. Store order, visited once each, so
-    // the union is de-duplicated by construction.
-    const matched = new Set(resolution.matchedWorktreeIds)
-    const taskWorktrees = (worktrees ?? []).filter((worktree) => {
-      if (matched.has(worktree.id)) {
-        return true
-      }
-      const linked = itemType === 'pr' ? worktree.linkedPR : worktree.linkedIssue
-      return worktree.repoId === repoId && linked === number
-    })
     // Active workspaces reuse the value the snapshot already projected. Archived
-    // ones are dropped by `collectActiveDashboardWorkspaces` by construction and
-    // are rebuilt by the same two helpers below.
+    // ones are now projected too (the snapshot was asked for this task's
+    // archived ids), so both read from one pipeline.
     const projected = new Map<string, DashboardWorkspace>(
       (snapshot.workspaces ?? []).map((workspace) => [workspace.worktreeId, workspace])
     )
@@ -167,6 +176,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     })
     const activeWorktrees = joinedWorktrees.filter((workspace) => !workspace.isArchived)
     const activeIds = activeWorktrees.map((workspace) => workspace.worktreeId)
+    const archivedIds = joinedWorktrees
+      .filter((workspace) => workspace.isArchived)
+      .map((workspace) => workspace.worktreeId)
     const cards = new Map<string, DashboardCard[]>()
     for (const card of snapshot.cards) {
       const existing = cards.get(card.worktreeId)
@@ -227,9 +239,12 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     })
     // Per-row facts a projected card cannot carry. `outcome` goes through
     // `isAgentJournalTurnOutcome` instead of a cast, so an absent or unexpected
-    // verdict stays unknown and a plain Stop is never read as success.
+    // verdict stays unknown and a plain Stop is never read as success. Archived
+    // rows are included so the History fold can state them; their token figure
+    // stays absent (the usage selector only attributes active worktrees), which
+    // the join turns into `unattributed` rather than a fabricated share.
     const agentsByWorktree: Record<string, JoinAgentInput[]> = {}
-    for (const worktreeId of activeIds) {
+    for (const worktreeId of [...activeIds, ...archivedIds]) {
       agentsByWorktree[worktreeId] = (cards.get(worktreeId) ?? []).map((card) => {
         const entry = agentStatusByPaneKey[card.paneKey]
         const verdict = entry?.mainAgent?.outcome
@@ -252,6 +267,17 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       // reports `recent-activity` / `none` and never claims a user choice.
       primaryWorktreeId: undefined
     })
+    // A deleted worktree left the store but not the ledger (issue #31 S2). With
+    // no live or archived row left, that record is the only proof the task ran:
+    // state it as `deleted` instead of falling back to the never-started state.
+    // With an archived row the strip already says "still on this machine", so
+    // only the deleted count is added; an active task gets no strip at all.
+    const history = mergeTaskRunHistory({
+      history: join.history,
+      worktreeCount: joinedWorktrees.length,
+      records: runHistory.records
+    })
+
     return {
       identity: resolution.identity,
       title,
@@ -260,14 +286,13 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       agents: join.agents,
       workspaces: join.workspaces,
       spend: usage.spend,
-      delivery: join.delivery
+      delivery: join.delivery,
+      history,
+      historyPending: runHistory.pending
     }
   }, [
     resolution,
-    worktrees,
-    itemType,
-    repoId,
-    number,
+    taskWorktrees,
     repo,
     snapshot,
     agentStatusByPaneKey,
@@ -281,66 +306,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     openCodeSessions,
     museSessions,
     title,
-    tracker
+    tracker,
+    runHistory
   ])
-}
-
-/** The workspace value for a row the snapshot does not carry — an archived
- *  worktree, or defensively an active one past `DASHBOARD_MAX_MAP_WORKSPACES`.
- *  The host fields come from the same two helpers the snapshot uses, so an
- *  archived remote workspace resolves to its real host instead of coming out
- *  local.
- *
- *  Deliberately not filled in for these rows: `workspaceStatus*`, `hasReview`,
- *  `review` (their source is the card-side context, which the snapshot only
- *  projects for active rows) and `hostLabel` (a module-private saved-host label
- *  lookup). The archived fold therefore shows repo · worktree, the archived and
- *  host-kind badges and nothing else — an addition for archived rows, not a
- *  regression against the snapshot the active rows get. `parentWorktreeId` is
- *  out for the same reason the dashboard needs a widened row type to read it:
- *  the `Worktree` type does not declare it. */
-function projectMissingWorkspace(repo: Repo | undefined, worktree: Worktree): JoinWorktree {
-  const executionHostId = getWorktreeExecutionHostId(worktree, repo)
-  const isRemote = executionHostId !== LOCAL_EXECUTION_HOST_ID
-  const metadata = dashboardCardMapWorkspaceMetadata(
-    {
-      projectId: worktree.repoId,
-      projectName: repo?.displayName ?? worktree.repoId,
-      repo: repo ?? null,
-      repoIcon: repo?.repoIcon ?? null,
-      worktree,
-      workspaceKind: repo && isFolderRepo(repo) ? 'folder' : 'worktree',
-      // The one line restated from `dashboard-snapshot-workspaces.ts:62-68`
-      // (private there). It decides `hostKind`, and an archived SSH workspace
-      // must not render as local.
-      remoteHostKind: !isRemote
-        ? null
-        : repo?.connectionId || executionHostId.startsWith('ssh:')
-          ? 'ssh'
-          : 'remote'
-    },
-    // No live pty and no terminal input on these rows, so the platform branch
-    // that reads `clientPlatform` (wsl) cannot fire and this read stays inert.
-    null,
-    undefined,
-    readDashboardClientHost().platform
-  )
-  const branchName = workspaceBranchName(metadata.workspaceKind, worktree)
-  return {
-    repoId: worktree.repoId,
-    worktreeId: worktree.id,
-    // A repo missing from `state.repos` (removed, or filtered to another host)
-    // has no display name; its id is shown rather than an empty label.
-    repoName: boundedLabel(repo?.displayName ?? worktree.repoId),
-    worktreeName: boundedLabel(worktree.displayName),
-    // `metadata.workspaceKind` is the same projection the active rows get, so a
-    // folder workspace hides a directory path here for the same reason it does
-    // there (README §7.4.2: a workspace identity names a branch, or nothing).
-    ...(branchName ? { branchName } : {}),
-    ...metadata,
-    isArchived: worktree.isArchived,
-    lastActivityAt: worktree.lastActivityAt
-  }
 }
 
 /** One provider's rows normalized to `UsageBreakdownRow`, keeping only keys that

@@ -76,6 +76,48 @@ export type AgentTokenView =
 /** A finished turn's verdict. `failure` and `cancellation` are never delivered. */
 export type AgentOutcome = 'success' | 'failure' | 'cancellation'
 
+/** One run the history strip can list without an Agents section (the deleted
+ *  form, where there are no live or retained rows to read it from). */
+export type TaskWorkbenchHistoryRun = {
+  key: string
+  title: string
+  agentType?: DashboardCard['agentType']
+  startedAt?: number
+  endedAt?: number
+  outcome?: AgentOutcome
+}
+
+/** How much of the recorded wall clock is actually measured. `partial` carries
+ *  the edges that are known; an absent edge stays absent instead of becoming the
+ *  epoch or "now", for the same reason `defaultWorkspace.source` is explicit. */
+export type TaskWorkbenchWallClock =
+  | { kind: 'measured'; startedAt: number; endedAt: number }
+  | { kind: 'partial'; startedAt?: number; endedAt?: number }
+  | { kind: 'unknown' }
+
+/** Where the recorded trace is. `archived` keeps it on this machine; `deleted`
+ *  means the workspace that held it is gone, so the facts survive and the
+ *  transcript does not. */
+export type TaskWorkbenchHistoryTrace = 'archived' | 'deleted' | 'none'
+
+/** The facts a closed task can still state about work it already ran (issue
+ *  #31). Absent is never zero: `agents: null` and an unavailable token figure
+ *  say "not known", which is what a pruned record actually means. */
+export type TaskWorkbenchHistory = {
+  /** `null` = unknown, never "never ran": a record can survive without rows. */
+  agents: number | null
+  wall: TaskWorkbenchWallClock
+  /** Same "unknown is not zero" rule as a row, but a task-level total rather
+   *  than one agent's: only `available` carries a number. */
+  tokens: { kind: 'available'; tokens: number } | { kind: 'unavailable'; reason: SpendReason }
+  lastActivityAt?: number
+  archivedWorkspaces: number
+  deletedWorkspaces: number
+  trace: TaskWorkbenchHistoryTrace
+  /** Only the deleted form renders this list; the archived form has agent rows. */
+  runs: TaskWorkbenchHistoryRun[]
+}
+
 /** Renderer overlay on the untouched snapshot card (R18): the row component
  *  adds the workspace pill, the token chip and the outcome mark. */
 export type AgentRowView = {
@@ -88,6 +130,9 @@ export type AgentRowView = {
   sessionBoundary?: boolean
   /** Set when the task spans more than one workspace; the row must then say which. */
   workspaceLabel?: string
+  /** The row belongs to an archived workspace, so it is history whatever its
+   *  live bucket says: it never contributes Working or Needs you. */
+  archivedWorkspace?: boolean
 }
 
 /** Read-only delivery evidence. Absent values stay absent: an empty `commits`
@@ -119,6 +164,12 @@ export type TaskWorkbenchView = {
   spend: SpendView
   /** Whole Delivery section degrades to a read-only notice when this is absent. */
   delivery?: DeliveryEvidence
+  /** Present only when work was actually recorded: absent is the never-started
+   *  state whose primary action is `Create workspace`. */
+  history?: TaskWorkbenchHistory
+  /** True until the persisted run ledger answered; the panel must not render the
+   *  never-started empty state while a deleted history may still arrive. */
+  historyPending?: boolean
 }
 
 // Why: components import every view type from one module, so they never reach

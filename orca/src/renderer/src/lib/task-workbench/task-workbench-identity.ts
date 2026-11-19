@@ -34,19 +34,29 @@ export function resolveTaskIdentity(input: IdentityInput): IdentityResolution | 
     return resolveTrackerIdentity(taskSourceProvider, 'task-source-context', input.worktrees)
   }
 
-  // 2. Provenance recorded on a live worktree. Archived worktrees are skipped
-  //    here so a stale linked context cannot name a task the user has removed.
-  const linkedWorktree = input.worktrees.find(
-    (worktree) => !worktree.isArchived && getLinkedProviderIdentity(worktree) !== null
-  )
+  // 2. Provenance recorded on a worktree. A live worktree wins; an archived one
+  //    is the next best proof, because a worktree the user put away still says
+  //    which task it was created from and issue #31 needs that identity to keep
+  //    stating the task's history. A deleted worktree has no row left to ask.
+  const linkedWorktree =
+    input.worktrees.find((worktree) => !worktree.isArchived && getLinkedProviderIdentity(worktree)) ??
+    input.worktrees.find((worktree) => getLinkedProviderIdentity(worktree))
   const linkedProvider = linkedWorktree ? getLinkedProviderIdentity(linkedWorktree) : null
   if (linkedProvider) {
-    return resolveTrackerIdentity(linkedProvider, 'worktree', input.worktrees)
+    return resolveTrackerIdentity(
+      linkedProvider,
+      linkedWorktree?.isArchived === true ? 'archived-worktree' : 'worktree',
+      input.worktrees
+    )
   }
 
   // 3. No tracker anywhere: the first live worktree *is* the task (README §3.4
-  //    plan B). Input order is the caller's display order, never re-sorted here.
-  const primaryWorktree = input.worktrees.find((worktree) => !worktree.isArchived)
+  //    plan B); with none live, the first archived one answers instead so a
+  //    closed local task still gets a workspace identity. Input order is the
+  //    caller's display order, never re-sorted here.
+  const primaryWorktree =
+    input.worktrees.find((worktree) => !worktree.isArchived) ??
+    input.worktrees.find((worktree) => worktree.isArchived)
   if (!primaryWorktree) {
     return null
   }
@@ -57,12 +67,15 @@ export function resolveTaskIdentity(input: IdentityInput): IdentityResolution | 
   return {
     identity: workspaceIdentity,
     taskKey: taskWorkbenchTaskKey(workspaceIdentity),
-    source: 'workspace-fallback',
+    source: primaryWorktree.isArchived ? 'archived-worktree' : 'workspace-fallback',
     matchedWorktreeIds: [primaryWorktree.worktreeId]
   }
 }
 
-type TrackerSource = Extract<IdentityResolution['source'], 'task-source-context' | 'worktree'>
+type TrackerSource = Extract<
+  IdentityResolution['source'],
+  'task-source-context' | 'worktree' | 'archived-worktree'
+>
 
 function resolveTrackerIdentity(
   provider: TaskProviderIdentity,
@@ -79,11 +92,11 @@ function resolveTrackerIdentity(
     // Equality goes through `areTaskProviderIdentitiesEqual` (GitHub host
     // normalization included), never a stringified comparison: two identities
     // that differ only in an absent-vs-null optional field are still equal.
+    // Archived matches are included: the caller decides which of them may
+    // contribute a row, and dropping them here would lose the task's history.
     matchedWorktreeIds: worktrees
-      .filter(
-        (worktree) =>
-          !worktree.isArchived &&
-          areTaskProviderIdentitiesEqual(getLinkedProviderIdentity(worktree), provider)
+      .filter((worktree) =>
+        areTaskProviderIdentitiesEqual(getLinkedProviderIdentity(worktree), provider)
       )
       .map((worktree) => worktree.worktreeId)
   }

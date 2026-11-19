@@ -162,6 +162,7 @@ export function getDefaultPersistedState(homedir: string): PersistedState {
     sparsePresetsByRepo: {},
     retiredWorktreeNamesByRepo: {},
     retiredWorktreeNamesByNamespace: {},
+    taskRunHistory: { version: 1, records: [] },
     worktreeMeta: {},
     worktreeLineageById: {},
     workspaceLineageByChildKey: {},

@@ -15,6 +15,7 @@ import type { WriteSchedulingOperations } from './write-scheduling'
 import type { SessionHostPartitionOperations } from './session-host-partitions'
 import { invalidateLocalWorktreeMetadataPruneInputs } from '../../local-worktree-metadata-prune-gate'
 import { scheduleSave } from './write-scheduling'
+import { persistTaskRunHistory, recordTaskRunLinks, recordTaskRunWorktreeDeleted } from './task-run-history-persistence'
 import {
   hasPersistedWorkspaceSession,
   partitionOwnsWorktreeTabs,
@@ -79,13 +80,20 @@ export class MetadataLineageOperations {
     executionHostId: ExecutionHostId,
     meta: Partial<WorktreeMeta>
   ): WorktreeMeta {
-    return setWorktreeMetaForHostOperation(
+    const updated = setWorktreeMetaForHostOperation(
       this[metadataLineageOperationsContext].runtime,
       this[metadataLineageOperationsContext].scheduling,
       worktreeId,
       executionHostId,
       meta
     )
+    this.recordTaskRunFor(worktreeId, updated)
+    return updated
+  }
+
+  private recordTaskRunFor(worktreeId: string, meta: WorktreeMeta): void {
+    const { runtime, scheduling } = this[metadataLineageOperationsContext]
+    persistTaskRunHistory(scheduling, recordTaskRunLinks(runtime, worktreeId, meta))
   }
 
   getAllWorktreeMeta(): Record<string, WorktreeMeta> {
@@ -113,21 +121,21 @@ export class MetadataLineageOperations {
     const stored = state.worktreeMeta[worktreeId]
     const executionHostId = meta.hostId ?? stored?.hostId
     if (executionHostId) {
-      return setWorktreeMetaForHostOperation(
-        this[metadataLineageOperationsContext].runtime,
-        this[metadataLineageOperationsContext].scheduling,
-        worktreeId,
-        executionHostId,
-        meta
-      )
+      return this.setWorktreeMetaForHost(worktreeId, executionHostId, meta)
     }
     const updated = mergeWorktreeMetaForWrite(stored, meta)
     state.worktreeMeta[worktreeId] = updated
     scheduleSave(this[metadataLineageOperationsContext].scheduling, ['worktreeMeta'])
+    this.recordTaskRunFor(worktreeId, updated)
     return updated
   }
 
   removeWorktreeMeta(worktreeId: string, hostId?: ExecutionHostId | null): void {
+    // Keep the ledger before the metadata row is deleted (issue #31 S2): the
+    // record is the only thing that still knows which task this checkout ran.
+    const { runtime, scheduling } = this[metadataLineageOperationsContext]
+    const storedMeta = runtime.state.worktreeMeta[worktreeId]
+    persistTaskRunHistory(scheduling, recordTaskRunWorktreeDeleted(runtime, worktreeId, storedMeta))
     // A host-qualified removal names the owner; the persisted host is the fallback.
     const persistedOwner =
       this[metadataLineageOperationsContext].runtime.state.worktreeMeta[worktreeId]?.hostId

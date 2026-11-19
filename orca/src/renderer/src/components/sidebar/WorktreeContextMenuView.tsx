@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import {
+  Archive,
   Copy,
   Bell,
   BellOff,
@@ -47,6 +48,7 @@ import {
 
 export default function WorktreeContextMenuView({ model }: { model: WorktreeContextMenuModel }) {
   const {
+    archivableWorktrees,
     batchDeleteWorktrees,
     children,
     contentClassName,
@@ -60,6 +62,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     eligibleParentCount,
     effectiveSelectedWorktrees,
     folderWorkspaceId,
+    handleArchive,
     handleArchiveDraft,
     handleAssignWorkspaceStatus,
     handleCloseAutoFocus,
@@ -304,6 +307,21 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
               <WorktreeDeveloperMenu worktreeId={worktree.id} disabled={isDeleting} />
               <DropdownMenuSeparator />
             </>
+          ) : null}
+          {!isTaskDraft && archivableWorktrees.length > 0 ? (
+            <DropdownMenuItem onSelect={handleArchive} disabled={deletingContext}>
+              <Archive className="size-3.5" />
+              {isMultiContext
+                ? translate(
+                    'auto.components.sidebar.WorktreeContextMenu.archiveMany',
+                    'Archive {{value0}} workspaces',
+                    { value0: String(archivableWorktrees.length) }
+                  )
+                : translate(
+                    'auto.components.sidebar.WorktreeContextMenu.archive',
+                    'Archive workspace'
+                  )}
+            </DropdownMenuItem>
           ) : null}
           <WorkspaceSleepMenuItems
             isMultiContext={isMultiContext}

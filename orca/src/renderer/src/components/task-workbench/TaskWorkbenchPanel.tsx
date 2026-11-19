@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { translate } from '@/i18n/i18n'
 import { TaskWorkbenchAgents } from './TaskWorkbenchAgents'
 import { TaskWorkbenchFacts } from './TaskWorkbenchFacts'
+import { TaskWorkbenchHistory } from './TaskWorkbenchHistory'
 import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import { TaskWorkbenchWorkspaces } from './TaskWorkbenchWorkspaces'
 import type { TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
@@ -18,9 +19,9 @@ import type { TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-vi
  * the task is. The second h1, the second identity line and the second
  * `Open workspace` button were pure repetition — and the button had no handler,
  * while the page header's same-shaped one does. What is left is four faces: the
- * (optional) empty state, Workspaces, Agents and the facts strip, 20px apart, each
- * one surface. The screen's only filled primary button is therefore the page
- * header's.
+ * (optional) empty state, the (optional) run-history strip, Workspaces, Agents
+ * and the facts strip, 20px apart, each one surface. The screen's only filled
+ * primary button is therefore the page header's.
  */
 
 export type TaskWorkbenchPanelProps = {
@@ -73,7 +74,16 @@ export function TaskWorkbenchPanel({
   layout
 }: TaskWorkbenchPanelProps): React.JSX.Element {
   useTranslation()
-  const isEmpty = view.workspaces.length === 0
+  const history = view.history
+  // The strip is the "ran before, but is not here now" face (issue #31): an
+  // archived or deleted workspace. A task whose workspace is still live already
+  // shows its runs in Agents, and a repeated strip there would be noise.
+  const hasHistory = history !== undefined && history.trace !== 'none'
+  // The deleted form has no workspace and no row left: the strip is the whole
+  // record, so an Agents section would claim "no agents" about work that ran.
+  const deletedTrace = history?.trace === 'deleted'
+  const showEmptyState =
+    view.workspaces.length === 0 && !hasHistory && view.historyPending !== true
 
   return (
     <section data-testid="task-workbench-panel" className="flex flex-col gap-5">
@@ -83,13 +93,19 @@ export function TaskWorkbenchPanel({
         data-wb-layout-json={JSON.stringify(layout)}
         className="flex flex-col gap-5"
       >
-        {isEmpty ? <EmptyState /> : null}
+        {showEmptyState ? <EmptyState /> : null}
 
-        {layout.columns === 'double' ? (
+        {hasHistory ? <TaskWorkbenchHistory view={view} layout={layout} /> : null}
+
+        {deletedTrace ? (
+          <TaskWorkbenchFacts view={view} layout={layout} />
+        ) : layout.columns === 'double' ? (
           <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start gap-5">
             <TaskWorkbenchAgents view={view} layout={layout} />
             <div className="flex flex-col gap-5">
-              {isEmpty ? null : <TaskWorkbenchWorkspaces view={view} layout={layout} />}
+              {view.workspaces.length === 0 ? null : (
+                <TaskWorkbenchWorkspaces view={view} layout={layout} />
+              )}
               <TaskWorkbenchFacts view={view} layout={layout} />
             </div>
           </div>
@@ -97,7 +113,9 @@ export function TaskWorkbenchPanel({
           // Narrow windows stack in the sacrifice order of README §7.3.1:
           // Workspaces (never sacrificed) → Agents → the facts strip.
           <div className="flex flex-col gap-5">
-            {isEmpty ? null : <TaskWorkbenchWorkspaces view={view} layout={layout} />}
+            {view.workspaces.length === 0 ? null : (
+              <TaskWorkbenchWorkspaces view={view} layout={layout} />
+            )}
             <TaskWorkbenchAgents view={view} layout={layout} />
             <TaskWorkbenchFacts view={view} layout={layout} />
           </div>

@@ -17,6 +17,7 @@ import {
 
 export function useWorktreeContextMenuCommands(args: {
   activeContextWorktrees: readonly Worktree[]
+  archivableWorktrees: readonly Worktree[]
   batchDeleteWorktrees: readonly Worktree[]
   createGroupDialogActiveRef: React.MutableRefObject<boolean>
   createProjectGroup: ReturnType<typeof useAppStore.getState>['createProjectGroup']
@@ -123,6 +124,23 @@ export function useWorktreeContextMenuCommands(args: {
     },
     [args]
   )
+  const handleArchive = useCallback(() => {
+    if (args.archivableWorktrees.length === 0) {
+      return
+    }
+    args.setMenuOpenState(false)
+    // Archive is one metadata write per workspace: the git worktree, branch and
+    // files stay, and the sidebar row hides until `unarchive` restores it.
+    void Promise.all(
+      args.archivableWorktrees.map((worktree) =>
+        args.updateWorktreeMeta(
+          worktree.id,
+          { isArchived: true },
+          { executionHostId: worktree.hostId ?? 'local' }
+        )
+      )
+    )
+  }, [args])
   const handleRename = useCallback(() => {
     args.openModal('edit-meta', {
       worktreeId: args.worktree.id,
@@ -168,6 +186,7 @@ export function useWorktreeContextMenuCommands(args: {
     }
   }, [args.validParentWorktreeId])
   return {
+    handleArchive,
     handleAssignWorkspaceStatus,
     handleCloseTerminals,
     handleCopyName,

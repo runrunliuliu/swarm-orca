@@ -173,6 +173,8 @@ describe('formatWorktreeList', () => {
     expect(output).toContain('childWorktreeIds: repo::/tmp/repo/child')
     expect(output).toContain('parentWorktreeId: repo::/tmp/repo/parent')
     expect(output).toContain('childWorktreeIds: []')
+    // Active rows stay unmarked; only an archived row says so.
+    expect(output).not.toContain('archived: true')
   })
 })
 

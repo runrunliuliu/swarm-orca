@@ -102,8 +102,19 @@ ORCA worktree create --name independent-task --no-parent --json
 ORCA worktree set --worktree id:<repoId>::<worktreePath> --display-name "My Task" --json
 ORCA worktree set --worktree active --comment "reproduced bug; testing fix" --json
 ORCA worktree set --worktree active --workspace-status in-review --json
+ORCA worktree archive --worktree <selector> --json
+ORCA worktree unarchive --worktree <selector> --json
 ORCA worktree rm --worktree id:<repoId>::<worktreePath> --force --json
 ```
+
+Archive versus delete:
+
+- `worktree archive` is the non-destructive way to take a finished workspace out of the active list. The
+  checkout, Git worktree registration, metadata, terminals and trace stay on disk; `worktree unarchive`
+  restores the row. It does not stop terminals or delete the branch — use workspace Sleep when the
+  sessions should hibernate and resume later.
+- `worktree rm` is the only physical delete. Treat it as a separate, explicitly requested outcome:
+  never infer it from "done" or "clean up".
 
 Selectors:
 

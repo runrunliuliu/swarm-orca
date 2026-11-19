@@ -72,7 +72,11 @@ function remoteHostKind(
 
 export function collectActiveDashboardWorkspaces(
   state: DashboardWorkspaceState,
-  includeMapMetadata = true
+  includeMapMetadata = true,
+  /** Worktree ids to include even when archived (issue #31). The dashboard
+   *  board stays active-only; the task workbench asks for the archived rows of
+   *  one task so its closed history can still render. */
+  includeArchivedWorktreeIds?: ReadonlySet<string>
 ): ActiveDashboardWorkspace[] {
   const workspaces: ActiveDashboardWorkspace[] = []
   const seenWorkspaceIds = new Set<string>()
@@ -93,7 +97,7 @@ export function collectActiveDashboardWorkspaces(
 
   for (const repo of state.repos ?? []) {
     for (const worktree of state.worktreesByRepo?.[repo.id] ?? []) {
-      if (worktree.isArchived) {
+      if (worktree.isArchived && !includeArchivedWorktreeIds?.has(worktree.id)) {
         continue
       }
       seenWorkspaceIds.add(worktree.id)
@@ -120,7 +124,10 @@ export function collectActiveDashboardWorkspaces(
   )
   for (const folderWorkspace of excludeDraftsFromCounts(state.folderWorkspaces ?? [])) {
     const worktree = folderWorkspaceToWorktree(folderWorkspace)
-    if (folderWorkspace.isArchived || seenWorkspaceIds.has(worktree.id)) {
+    if (
+      (folderWorkspace.isArchived && !includeArchivedWorktreeIds?.has(worktree.id)) ||
+      seenWorkspaceIds.has(worktree.id)
+    ) {
       continue
     }
     const projectGroup = projectGroupsById.get(folderWorkspace.projectGroupId)
