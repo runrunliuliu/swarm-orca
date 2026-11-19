@@ -21,8 +21,7 @@ import type {
 const IDENTITY: IdentityResolution = {
   identity: { kind: 'workspace', primaryWorktreeId: 'wt-feature' },
   taskKey: 'workspace:wt-feature',
-  source: 'workspace-fallback',
-  matchedWorktreeIds: ['wt-feature']
+  source: 'workspace-fallback'
 }
 
 type Bucket = DashboardCard['bucket']

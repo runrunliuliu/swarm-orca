@@ -2,6 +2,7 @@ import { taskProviderIdentityCachePart } from '../../../../shared/task-provider-
 import type { TaskProviderIdentity } from '../../../../shared/task-provider-identity'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { DashboardCard } from '../../../../shared/dashboard-snapshot'
+import type { WorkspaceLinkedItem } from '../../../../shared/worktree/types'
 import type {
   AgentOutcome,
   AgentRowView,
@@ -31,11 +32,21 @@ import type {
  * re-derives agent rows, bucket counts or usage attribution.
  */
 
+/** The task's item inside its repository: an owner/repo identity names a repo,
+ *  not a task (issue #38). The type travels with the number because the link
+ *  evidence is typed — `linkedIssue` / `linkedPR` are separate columns and
+ *  `linkedWorkItem.type` names `issue` / `pr` / `mr` — so a bare number cannot
+ *  say which column or link record it should be read against. */
+export type TaskWorkbenchItem = {
+  type: 'issue' | 'pr'
+  number: number
+}
+
 /** The identity union the view already declares (R17). Kept structurally equal
  *  on purpose: the hook assigns `IdentityResolution.identity` straight into
  *  `TaskWorkbenchView['identity']`, so a drift fails type-checking there. */
 export type TaskWorkbenchIdentity =
-  | { kind: 'tracker'; provider: TaskProviderIdentity }
+  | { kind: 'tracker'; provider: TaskProviderIdentity; item?: TaskWorkbenchItem | null }
   | { kind: 'workspace'; primaryWorktreeId: string }
 
 /** The subset of a `Worktree` the identity selector reads. Declared instead of
@@ -43,12 +54,29 @@ export type TaskWorkbenchIdentity =
 export type IdentityWorktree = {
   worktreeId: string
   isArchived: boolean
+  /** The number columns GitHub rows carry (`linkedIssue` / `linkedPR` with the
+   *  caller's repo is how the list already reserves a workspace for one item). */
+  linkedIssue?: number | null
+  linkedPR?: number | null
+  /** The provider-neutral link record, which is the only evidence for providers
+   *  whose rows have no number column (GitLab MRs, Linear, Jira). */
+  linkedWorkItem?: WorkspaceLinkedItem | null
   linkedTaskSourceContext?: TaskSourceContext | null
 }
 
 export type IdentityInput = {
   /** Present when the caller has the task itself (detail page, tracker row). */
   taskSourceContext?: TaskSourceContext | null
+  /** The item the caller is looking at. Present means the identity — and its
+   *  key — are item-scoped, and the "first worktree is the task" fallback is
+   *  off: another branch's workspace is never this item's answer (issue #38). */
+  item?: TaskWorkbenchItem | null
+  /** Worktree ids from the caller's *own* task-scoped run ledger (issue #31 S2),
+   *  already filtered to this repo + item. Only consulted when the item exists
+   *  and no live or archived workspace of it does: a deleted workspace cannot
+   *  be shown, but it still proves the task ran. Priority order is the caller's
+   *  (the ledger returns newest activity first). */
+  historyWorktreeIds?: readonly string[]
   /** Every worktree the caller already filtered to this task's repo/host. */
   worktrees: readonly IdentityWorktree[]
 }
@@ -59,10 +87,15 @@ export type IdentityResolution = {
   taskKey: string
   /** How the task key was resolved. `archived-worktree` means the only
    *  provenance left is a workspace the user put away (issue #31): still the
-   *  same task, and still worth naming when nothing live is around. */
-  source: 'task-source-context' | 'worktree' | 'archived-worktree' | 'workspace-fallback'
-  /** Non-archived worktrees matching the identity, in input order. */
-  matchedWorktreeIds: string[]
+   *  same task, and still worth naming when nothing live is around.
+   *  `deleted-worktree` means the workspace itself is gone and only the run
+   *  ledger names it — a closed task's history, never a row to render. */
+  source:
+    | 'task-source-context'
+    | 'worktree'
+    | 'archived-worktree'
+    | 'workspace-fallback'
+    | 'deleted-worktree'
 }
 
 /**
@@ -70,17 +103,26 @@ export type IdentityResolution = {
  * for provider identity (`shared/task-provider-identity.ts`), so a worktree row
  * and a detail page produce the same string for the same task.
  *
+ * The repo part stays repo-scoped on purpose: it is the identity selector's own
+ * cache/normalization seam, and widening it would fork that implementation.
+ * The *item* scope is appended here instead — `tracker:github:acme/web-app:issue:412`
+ * — because the repo-scoped string alone made every issue of a repo share one
+ * key (issue #38). An identity without an item keeps the repo key and is a
+ * repo's name, never a task's workspace set.
+ *
  * Known limit, recorded rather than hidden: the view's identity union carries
- * no `hostId`, so the key does not encode one. Callers already scope worktrees
- * to one host (the store does); M2b must widen the union before a key can span
- * hosts.
+ * no `hostId`, so the key does not encode one beyond what the provider identity
+ * already has (a GitHub `host`). Callers already scope worktrees to one host
+ * (the store does); M2b must widen the union before a key can span hosts.
  */
 export function taskWorkbenchTaskKey(identity: TaskWorkbenchIdentity): string {
   if (identity.kind === 'workspace') {
     return `workspace:${identity.primaryWorktreeId}`
   }
   const cachePart = taskProviderIdentityCachePart(identity.provider)
-  return `tracker:${identity.provider.provider}:${cachePart}`
+  const repoKey = `tracker:${identity.provider.provider}:${cachePart}`
+  const item = identity.item ?? null
+  return item ? `${repoKey}:${item.type}:${item.number}` : repoKey
 }
 
 /** `*UsageProjectBreakdown` keys are `worktree:<worktreeId>` (the worktree id
