@@ -33,8 +33,10 @@ import type {
  */
 
 /** The task's item inside its repository: an owner/repo identity names a repo,
- *  not a task (issue #38). `issue` / `pr` is what a detail page knows; GitHub
- *  numbers issues and PRs separately, so the type has to travel with the number. */
+ *  not a task (issue #38). The type travels with the number because the link
+ *  evidence is typed — `linkedIssue` / `linkedPR` are separate columns and
+ *  `linkedWorkItem.type` names `issue` / `pr` / `mr` — so a bare number cannot
+ *  say which column or link record it should be read against. */
 export type TaskWorkbenchItem = {
   type: 'issue' | 'pr'
   number: number
@@ -69,6 +71,12 @@ export type IdentityInput = {
    *  key — are item-scoped, and the "first worktree is the task" fallback is
    *  off: another branch's workspace is never this item's answer (issue #38). */
   item?: TaskWorkbenchItem | null
+  /** Worktree ids from the caller's *own* task-scoped run ledger (issue #31 S2),
+   *  already filtered to this repo + item. Only consulted when the item exists
+   *  and no live or archived workspace of it does: a deleted workspace cannot
+   *  be shown, but it still proves the task ran. Priority order is the caller's
+   *  (the ledger returns newest activity first). */
+  historyWorktreeIds?: readonly string[]
   /** Every worktree the caller already filtered to this task's repo/host. */
   worktrees: readonly IdentityWorktree[]
 }
@@ -79,8 +87,15 @@ export type IdentityResolution = {
   taskKey: string
   /** How the task key was resolved. `archived-worktree` means the only
    *  provenance left is a workspace the user put away (issue #31): still the
-   *  same task, and still worth naming when nothing live is around. */
-  source: 'task-source-context' | 'worktree' | 'archived-worktree' | 'workspace-fallback'
+   *  same task, and still worth naming when nothing live is around.
+   *  `deleted-worktree` means the workspace itself is gone and only the run
+   *  ledger names it — a closed task's history, never a row to render. */
+  source:
+    | 'task-source-context'
+    | 'worktree'
+    | 'archived-worktree'
+    | 'workspace-fallback'
+    | 'deleted-worktree'
 }
 
 /**
