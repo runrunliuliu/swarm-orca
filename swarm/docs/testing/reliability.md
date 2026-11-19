@@ -17,7 +17,7 @@
   历史 Run 仍按其原归档的固定版本/hash 判定，不改 pin、不把旧结果换名为 v2 PASS；见[版本边界](#legacy-live11)。
 - v2 把确定性边界放到适合的测试层，真实 Agent 验收聚焦完整交付、协作、消息唤醒和故障处理。
   新 suite 可以包含预先声明的多个 Run；单个证据闭环仍必须保持其要求的原 Run/会话/身份连续性。
-- 默认 profile 的通过不证明其他 provider、driver、固定 DAG Supervisor、跨 runtime 接管、Mac 离线长驻或性能收益。
+- 默认 profile 的通过不证明其他 provider、driver、原固定 DAG Supervisor（2026-11-19 退役）、跨 runtime 接管、Mac 离线长驻或性能收益。
   这些能力按[专项清单](../../acceptance.md)及对应运行契约另验。RSI 研究/训练收益还需目标仓库业务验收。
 - 当前进展与历史报告由部署方私有维护，只记录各次尝试；文档合并不修改其结果、授权、部署或完成状态。
 
@@ -124,7 +124,7 @@ monitor 健康、允许发送、允许自主等待、验收通过是四个不同
 - 保存任务依赖、派发/完成顺序、并发时间线、产物版本、审查意见、返工和集成测试回执；
   Reviewer Worker 同样占用并发额度并需结算释放。累计启动数另统计，不把 `max_workers` 当累计上限。
 
-本项可并入 L-flow 的同一 Run，但各判据分别核验；固定 DAG Supervisor 测试不能替代 strict 原生协作证据。
+本项可并入 L-flow 的同一 Run，但各判据分别核验；原固定 DAG Supervisor 的测试已于 2026-11-19 随控制器删除（见 [Supervisor 退役记录](../supervisor.md)），现在根本没有可借用的证据；这条规则的其余部分不变。
 
 ### L-events.busy：忙时消息不丢
 

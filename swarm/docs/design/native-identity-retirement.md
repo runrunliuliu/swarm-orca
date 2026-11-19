@@ -7,7 +7,7 @@
 
 ## 为什么删
 
-旧握手（S0–S5）在 2026-11-13 删除后（见 [strategy](testing/strategy.md:263)），这个类没有任何调用方。
+旧握手（S0–S5）在 2026-11-13 删除后（见 [strategy](../testing/strategy.md)），这个类没有任何调用方。
 它占 `bootstrap_identity.py` 的 216/322 行，而该文件位于身份核验路径上：阅读者打开文件会以为
 「原生身份核验正在生效」。这类残留比普通死代码危险——它不是「没用的代码」，是「看起来是控制的代码」。
 同批删除的还有它独占的证据助手（`host_process`、`process`、`unchanged`、`descendant`、`peer`、

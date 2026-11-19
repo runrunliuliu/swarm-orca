@@ -138,7 +138,7 @@ def source_files() -> dict[str, Path]:
         if path.exists():
             files[path.stem] = path
     for package in sorted(ROOT.glob("*/")):
-        if package.name in {"tests", "docs", "examples", "field-guide", "skills", "runit"}:
+        if package.name in {"tests", "docs", "examples", "field-guide", "skills"}:
             continue
         if (package / "__init__.py").exists():
             files[package.name] = package

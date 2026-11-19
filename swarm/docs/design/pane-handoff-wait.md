@@ -110,7 +110,8 @@
 - `operator_monitor.py` 的 `native()` 内 `idle_wait_target(args)`（当前 116 行）：**反向识别** CLI 的命令行，命中才走
   `decode_idle_wait()`；不命中退到通用 `decode_response()`（**不是静默**：两个要求
   `IdleWaitResult` 的调用方会以 `tui_idle_state_unavailable` fail-closed，见 R5）；
-- `supervisor/watchdog.py` 的 `tick()` 内写死 1 s argv 的 `terminal wait`（当前 47 行）：它不是 `idle_wait_args()`
+- 先例（**2026-11-19 已退役**：`supervisor/watchdog.py` 随固定 DAG MVP 删除，见
+  [退役记录](../supervisor.md)；下列旧实现只作历史）：`supervisor/watchdog.py` 的 `tick()` 内写死 1 s argv 的 `terminal wait`（当时 47 行）：它不是 `idle_wait_args()`
   的调用方，用的是**自己的** native reader（`supervisor/orca.py` 的 `read()`，当前 57 行，带独立 runtime pin），
   **不受 P2 影响**；而且它已经在执行本文要求的 I2：当前 66–70 行的 `sent = self.op("wake:…", ["terminal", "send", …, "--wait-submit", "10"])`
   与紧随的判定要求 `turn_started` 出现在 `stages` 里，否则 `prompt_submission_unproven` 并停。
