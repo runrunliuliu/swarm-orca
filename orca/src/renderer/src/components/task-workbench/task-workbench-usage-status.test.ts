@@ -60,8 +60,8 @@ describe('spendStatus', () => {
 
 describe('USAGE_STATUS_ORDER', () => {
   it('lists every status exactly once, available first', () => {
-    expect(USAGE_STATUS_ORDER.length).toBe(7)
-    expect(new Set(USAGE_STATUS_ORDER).size).toBe(7)
+    expect(USAGE_STATUS_ORDER.length).toBe(8)
+    expect(new Set(USAGE_STATUS_ORDER).size).toBe(8)
     expect(USAGE_STATUS_ORDER[0]).toBe('available')
   })
 
@@ -103,6 +103,9 @@ describe('usageStatusLabelKey', () => {
     expect(usageStatusLabelKey('remote_host')).toBe(
       'auto.components.TaskWorkbenchSpend.status.remote_host'
     )
+    expect(usageStatusLabelKey('scan_failed')).toBe(
+      'auto.components.TaskWorkbenchSpend.status.scan_failed'
+    )
     expect(usageStatusLabelKey('unattributed')).toBe(
       'auto.components.TaskWorkbenchSpend.status.unattributed'
     )
@@ -120,6 +123,7 @@ describe('USAGE_STATUS_WORD', () => {
       ambiguous_session: 'Multiple matches',
       no_matching_session: 'No matching session',
       remote_host: 'Remote host',
+      scan_failed: 'Scan failed',
       unattributed: 'Unattributed'
     })
     for (const word of Object.values(USAGE_STATUS_WORD)) {

@@ -48,6 +48,7 @@ export type SpendReason =
   | 'ambiguous_session'
   | 'no_matching_session'
   | 'remote_host'
+  | 'scan_failed'
   | 'unattributed'
 
 /** One provider's slice of task spend. `costUsd: null` means unpriced, which the
@@ -100,6 +101,30 @@ export type TaskWorkbenchWallClock =
  *  transcript does not. */
 export type TaskWorkbenchHistoryTrace = 'archived' | 'deleted' | 'none'
 
+/** One workspace the history can still name. `removed` means the store has no
+ *  row for it any more; it is projected from the persisted binding, never from a
+ *  guess, and it must not be offered as an action target. */
+export type TaskWorkbenchHistoryWorkspace = {
+  worktreeId: string
+  path: string
+  state: 'archived' | 'removed'
+  /** Null = the locator was never confirmed; the row then reads as unresolved. */
+  lastVerifiedAt: number | null
+  hasSessions: boolean
+}
+
+/** One session the removed workspace reported before it went away. `resumable`
+ *  is false once the checkout is gone: the id is still useful for finding the
+ *  transcript, but a resume into a deleted directory would fail. */
+export type TaskWorkbenchHistorySession = {
+  /** `<provider key>:<session id>`, never a display string. */
+  key: string
+  provider?: string
+  hasTranscriptPath: boolean
+  resumable: boolean
+  worktreeId: string
+}
+
 /** The facts a closed task can still state about work it already ran (issue
  *  #31). Absent is never zero: `agents: null` and an unavailable token figure
  *  say "not known", which is what a pruned record actually means. */
@@ -113,6 +138,13 @@ export type TaskWorkbenchHistory = {
   lastActivityAt?: number
   archivedWorkspaces: number
   deletedWorkspaces: number
+  /** `settled` means at least one contributing figure is a settlement snapshot
+   *  written before a workspace became unreadable, not a live rollup. */
+  tokensSource: 'live' | 'settled'
+  /** Archived and removed workspaces this record can still name. */
+  workspaces: TaskWorkbenchHistoryWorkspace[]
+  /** Sessions of removed workspaces only: live sessions are the Agents section. */
+  sessions: TaskWorkbenchHistorySession[]
   trace: TaskWorkbenchHistoryTrace
   /** Only the deleted form renders this list; the archived form has agent rows. */
   runs: TaskWorkbenchHistoryRun[]

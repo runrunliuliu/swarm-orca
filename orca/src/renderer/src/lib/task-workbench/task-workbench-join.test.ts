@@ -139,6 +139,9 @@ describe('joinTaskWorkbench — no workspace', () => {
         tokens: { kind: 'unavailable', reason: 'no_matching_session' },
         archivedWorkspaces: 0,
         deletedWorkspaces: 0,
+        tokensSource: 'live',
+        workspaces: [],
+        sessions: [],
         trace: 'none',
         runs: []
       }

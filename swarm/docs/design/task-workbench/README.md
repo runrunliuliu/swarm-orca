@@ -1,7 +1,8 @@
 # 以任务为中心的 Tasks tab 改造：调研与 UI 设计
 
 状态：**P1（M1，任务详情 `Orca` tab）已实现并合入 main**，实现范围是 GitHub issue/PR；
-**P3（列表主轴）与 P4（`taskRecords` 持久化）未开始**。
+**P3（列表主轴）未开始**；**P4 的 `taskRecords` 数据面已落地**（issue #36，见 §8.10），
+动作层与 M2a 存储兼容验证未做。
 调研基线：本仓库的 `orca/` 层（upstream `v1.4.219` 快照，见 `orca/upstream.json`、`orca/UPSTREAM.md`）。
 文中 `orca/...` 路径均相对本仓库根目录。
 核对日：2026-11-18（重核：P1a/P1b/真实 `Orca` tab 已在 main；新增项目块"Open agent in `<project>`" 入口，
@@ -905,7 +906,7 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 | 保留记录不再被剪 | `useRetainedAgents.ts` | prune allowlist 收录归档工作区 id；归档不再等于删除历史。被**删除**的工作区仍不在 allowlist（无记录可保） |
 | 归档身份 | `task-workbench-identity.ts` | 无 live 工作区时，归档 provenance 作为 `archived-worktree` 回退，关闭任务不再掉到「无标识」 |
 | 归档行投影 | `use-task-workbench-view.ts`、`build-dashboard-snapshot.ts`、`dashboard-snapshot-workspaces.ts` | 新增 `includeArchivedWorktreeIds`：看板仍只看活跃工作区，工作台只为**本任务**的归档工作区取卡片 |
-| 删除后仍保留的映射（S2） | `shared/task-run-history.ts`、`persistence/loading-store/task-run-history-persistence.ts`、`ipc/task-run-history.ts`、`hooks/use-task-run-history.ts` | `taskRunHistory` 落在 profile-state 的顶层 JSON；`setWorktreeMeta` 写 active/archived，`removeWorktreeMeta` 只改成 deleted、不删行；deleted 上限 1500 条 |
+| 删除后仍保留的映射（S2，已被 P4 取代） | `shared/task-run-history.ts` | `taskRunHistory` 曾落在 profile-state 顶层 JSON；P4 之后**只读**：加载时一次性播种 `taskRecords`，不再写入（见 §8.10）；行保留 1500 条上限只为让旧 build 仍能读 |
 | 归档/恢复入口 | `worktree archive` / `unarchive`、sidebar 右键、`WorktreeVisibilityDialog` 的 `ArchivedWorktreeList` | 只改 `isArchived`，不动物理工作区；恢复是同一个元数据写 |
 
 口径（沿用 §7.5）：墙钟 = 首个 `startedAt` → 末个 `finishedAt`；缺任一端的行让整体降为 `partial`，不拿「现在」补。
@@ -937,7 +938,8 @@ Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`
 | 工作区 → 任务（来源） | `WorktreeMeta` 上的 `linkedIssue` / `linkedLinearIssue` / `linkedGitLabMR` / `linkedGitLabIssue` / `linkedWorkItem` / `linkedTaskSourceContext` | main（创建时与用户编辑） | 随 `worktreeMeta` 行；`gcStaleWorktreeMeta` 只在本地宿主、路径不存在且 30 天不活跃时删除 | 权威 |
 | 工作区 → 固定基线 | `WorktreeMeta.sparseTaskBinding`（含自摘要，严格读取） | 创建回执（M5） | 同上 | 权威 |
 | 工作区 → 宿主/实例身份 | `worktreeMeta` + `worktreeMetaByIdentity` + `worktreeIdentityAliases`；路径改名留 `priorWorktreeIds` | main | 同上；别名随身份行清理 | 权威 |
-| 工作区 → 任务（删除后） | `taskRunHistory`：profile-state 顶层 JSON（`records[]`，含 repo/item/number/worktreeId/path/state） | main（`setWorktreeMeta` / `removeWorktreeMeta`） | 无独立 GC；deleted 上限 1500 条，按最后活动淘汰；active/archived 随实际工作区数 | 权威（身份，不含运行态） |
+| 工作区 → 任务（删除后） | `taskRecords`：profile-state 顶层 JSON（`recordsVersion` / `byId` / `externalIndex`），每条记录含 origin、bindings（含已结算用量与 session 引用） | main（`setWorktreeMeta` / `setWorktreeMetaForHost` 写入绑定，`removeWorktreeMeta` 前结算） | 只增不删：工作区消失只影响读取时的 presence 投影，不删记录；单任务 ≤64 绑定、单记录 ≤8 KiB、domain ≤8 MiB | 权威（身份 + 用户意图 + 结算快照，不含运行态） |
+| 工作区 → 任务（旧账本） | `taskRunHistory`（legacy） | 无（已停止写入） | 只在无 `taskRecords` 时被一次性迁移；原键保留供降级读取 | 历史输入 |
 | Agent 状态 | 内存 `agentStatusByPaneKey` + 侧车 `last-status.json`（hook server 的 endpoint 目录，带 version，条目 malformed 即丢弃） | hook server | 进程内 + 重启水合；不保留历史 | 权威（单一 store） |
 | 会话 → 工作区 | **不存**：AI Vault 读时按 `cwd` 解析（`current/active/archived/unavailable`）；用量扫描按 `cwd` 归因 | — | 派生 | 派生 |
 | 会话 → 用量 | 每 provider 一个 JSON：`orca-claude-usage.json` / `orca-codex-usage.json` / `orca-opencode-usage.json` / `orca-muse-usage.json`（userData 下），内部 `schemaVersion`（Claude=6）、`worktreeFingerprint`、`processedFiles`、`sessions`、`dailyAggregates` | 主进程扫描 worker | 指纹变化即重扫；旧 schema 直接丢弃重建 | 权威（估算） |
@@ -1081,6 +1083,71 @@ TaskWorkspaceBinding {
 5. GC 解耦：30 天不活跃的 `worktreeMeta` 行被 GC 后，任务记录仍可读且标 unresolved。
 6. 结算快照三态：known / unavailable（未启用、远端）/ 部分 provider 未定价。
 7. domain 体量：1000 任务 × 3 绑定的序列化与读入耗时基线。
+
+### 8.10 P4 已落地切片（issue #36，2026-11-19）
+
+实现分支：`feat-task-workbench-p4-taskrecords`。范围是**数据侧**：domain、写入时机、结算、读取投影与降级。
+不是完整的 M2b（动作层与对账见下表"未做"）。
+
+已落地：
+
+| 项 | 落点 | 规则 |
+| --- | --- | --- |
+| domain | `shared/task-records-types.ts`、`shared/task-records.ts`、`shared/task-records-normalize.ts` | 顶层 `{ recordsVersion: 1, byId, externalIndex }`；**不加 DDL、不 bump `PROFILE_STATE_DATABASE_SCHEMA_VERSION`**；`schemaVersion` 逐条比较，更新的记录不加载 |
+| 失败关闭 | `isReadableTaskRecords` + `persistence/loading-store/task-records-persistence.ts` | 未知 `recordsVersion`：加载时**保留原 payload 原样**（条件展开，不覆盖），所有写入直接返回；损坏的单条记录丢弃并计数，其余照常加载 |
+| 身份 | `taskRecordTaskId` | `task:<provider>:<repoId>:<itemType>:<number>`；`repoId` 已是"某一主机上的一次仓库登记"，故键不含 `hostId`；含 `itemType`（issue #31 与 PR #31 是两个任务）与 `provider`（同仓库的 GitHub #31 与 Linear #31 也是两个任务）。不带 provider 的查询只在"恰有一个 provider 命中"时回答，命中多个返回 `null` |
+| 绑定集合 | `shared/task-records-worktree-links.ts` + `task-records-metadata-hooks.ts` | 写点只有 `setWorktreeMeta` / `setWorktreeMetaForHost`（与元数据同一次写）；来源 `linkedWorkItem`（四 provider）+ GitHub `linkedIssue`/`linkedPR`；无任何链接的工作区成为 workspace-origin 任务 |
+| 结算 | `main/task-records/task-records-worktree-usage.ts` + `task-records-persistence.ts` | 只在**工作区移除前**结算该 binding；读四个 `*UsageProjectBreakdown` 的 `worktree:<id>` 行；未启用 / 远端 / 无匹配行 → `unavailable`；任一 provider 未定价 → `estimatedCostUsd: null`；不强制重扫；结算抛错只记日志，不阻塞删除 |
+| session | 同上 + `AgentHookProviderSessionIdentity.key` | 结算时从 hook 的 provider-session 快照取本工作区条目，`provider` 取 tab 的 `launchAgent`（只映射四个有 usage store 的 provider，其余保持"未知"）；没有 `key` 的条目不记录（不猜字段名） |
+| 读取/降级 | `ipc/task-records.ts`、`hooks/use-task-records.ts`、`lib/task-workbench/task-workbench-history-merge.ts`、`TaskWorkbenchHistory.tsx` | `taskRecords:get` 只读、畸形查询返回 `null`；历史区补 `workspaces`（`Removed` / `Archived` 徽标、`未核验`）与 `sessions`（"无法继续：其工作区已被删除"），`settled` 标记结算值，未知仍是未知 |
+| 旧账本迁移 | `persistence/loading-store/task-records-legacy-migration.ts` | 只有在**没有** `taskRecords` 时把 `taskRunHistory` 播种一次；deleted 行迁成 `lastVerifiedAt: null`（迁移不是核验证据）；旧键保留不删 |
+
+与 §8.3 草案的偏离（有意，写在这里而不是悄悄改）：
+
+1. `usageSettlement` 落在 **binding** 上而不是 record 上。计划 §M2b C 要求"只结算被移除 binding 对应的工作区
+   聚合"，两条 binding 先后被移除会产生两份快照；record 级单字段只能保住最后一份。
+2. `totalTokens` 不是字段，而是 `kind: 'known'` 的 `providers[]` 求和（`taskUsageSettlementTokens`）。草案里
+   `totalTokens: number` 会在 unavailable 时逼出一个 `0`，与"未知不记 0"冲突。
+3. 单记录上限取 **32 KiB** 而不是表里的 8 KiB：同表又要求单任务 ≤64 个绑定，而一个绑定
+   （worktreeId / repoId / host / path / 时间戳）就有 150–250 B，8 KiB 装不下自己的 64 条，两条规则不可能同时成立。
+   32 KiB 让两条规则都可达，domain 的 8 MiB 仍是最外层闸门。写入与加载共用同一组界限
+   （`grown()` 校验 record + domain；session 合并与结算写同一路径），所以"写成功、重载丢弃"不会发生。
+4. 结算按**provider 的 worktree 汇总行**累加，不做会话级去重：会话级归因本身尚未成立（§8.4 与开发计划
+   §1 的非目标），能证明的只有"该 provider 在该 worktree 下的汇总"。同一 `sessionId` 被两个 provider
+   声明时的歧义规则只作用在逐 Agent 的归因路径（`task-workbench-session-totals.ts`），不会被当成任务级
+   去重证据；这一点在 §8.4 的"不存会话明细"下仍然成立。
+
+降级与非对称升级（评审补充）：
+
+- `taskRecords` 的 preload 接口**不是 additive**：`window.api.taskRecords` 替换了 `window.api.taskRunHistory`。
+  桌面端 renderer/preload/main 同进程同版本发布，因此不保留旧调用方；跨版本只保证**存储**兼容
+  （旧 build 读到 `taskRecords` 会原样保留，见 §8.6）。
+- hook 只在查询身份或**该仓库的工作区列表**变化时重读记录；纯 domain 写（例如未来"显式重新结算"）不会推送，
+  需要重挂载才可见。这是当前唯一的刷新缺口，写在这里而不是让面板假装实时。
+
+未做（明确不在本切片，也没有第二个写者）：
+
+- 动作层：`归入任务 / 从任务移除 / 改 primary / 归档任务 / 显式重新结算` 的 IPC 意图与 renderer 入口；
+  因此 `intent` 目前只有读侧语义，revision CAS 重试也没有调用方（写点走既有 `scheduleSave`）。
+- 启动对账（§8.7 / §M2b D）：本切片只在**读取时**把 binding 与当前工作区列表比对（存在性投影），
+  不写 `lastVerifiedAt`。理由：一次未加载完的工作区扫描不能作为"未解析"的证据，写下去会把临时缺页固化成事实。
+- 别名/改名解析（`priorWorktreeIds` / `worktreeIdentityAliases`）与 GC 解耦的显式用例。
+- M2a 的旧 build round-trip 实测（§8.9-1）与 domain 体量基线（§8.9-7）。
+
+评审回执：codex-ark 对修复前版本（分支第一个提交 `c7d77fbd`，修复后已 amend）的只读评审原文见
+[review-codex-ark-issue-36.md](review-codex-ark-issue-36.md)（结论"需要返工"）。已修的处理：
+
+| 评审结论 | 处理 |
+| --- | --- |
+| 写入端允许超过单记录上限，加载端会丢弃整条 → 重启丢历史 | `grown()` 同时校验单记录与 domain；session 合并与结算写共用该路径；超过 per-binding session 上限改为可报告的 `dropped`，不静默截断 |
+| 旧账本迁移先读原始 payload，畸形输入会让 profile 加载抛错 | 先在 `normalize-loaded-profile-state.ts` 归一化旧账本再迁移；迁移本身也做数组守卫；补 `{records:[null]}` 用例 |
+| `origin.providerIdentity` 与 domain 级未知字段重载后丢失 | 归一化保留 `providerIdentity`（经 `normalizeTaskProviderIdentity`）与 domain 顶层扩展字段；补往返用例 |
+| `taskId` 不含 provider，GitHub #31 与 Linear #31 合并成一条 | 身份键加入 provider；不带 provider 的查询只在单一命中时回答 |
+| 存活 + 已删除混合时把"仅已删除部分"当成 `Total: every run` | 两侧都已知才相加，否则整任务保持未知原因；补混合/未知用例 |
+| 记录只在查询身份变化时读取，页面常驻看不到删除后的结算 | hook 增加 `revision`（该仓库工作区列表），删除/归档会触发重读；纯 domain 写仍是已知缺口（见上） |
+| 用"本任务匹配集合"当作"工作区是否存在"，改绑后被误标 `Removed` | 存在性改用整仓库工作区列表；列表未加载（`undefined`）时不投影，保留 join 的答案 |
+| session 列表 key 不含 provider，可重复 | key 改为 `provider|key:id` |
+| 结算未做会话级去重（歧义） | 按第 4 条偏离写入边界；不伪造去重 |
 
 ---
 

@@ -12,7 +12,7 @@ import { setRepoRemoteClientNotifier } from '../ipc/repos/repos-changed-notifica
 import { setWorktreeCatalogRemoteClientNotifier } from '../ipc/watched-worktree-catalog-notification'
 import { registerWorktreeHandlers } from '../ipc/worktrees'
 import { registerWorkspaceCleanupHandlers } from '../ipc/workspace-cleanup'
-import { registerTaskRunHistoryHandlers } from '../ipc/task-run-history'
+import { registerTaskRecordHandlers } from '../ipc/task-records'
 import {
   registerPtyHandlers,
   type CodexHomePtySpawnedLifecycleArgs,
@@ -85,7 +85,7 @@ export function attachMainWindowServices(
   // marker poll to upgrade them without a restart (#11477).
   startFolderRepoGitUpgradeWatch(store, mainWindow)
   registerWorkspaceCleanupHandlers(store)
-  registerTaskRunHistoryHandlers(store)
+  registerTaskRecordHandlers(store)
   registerPtyHandlers(
     mainWindow,
     runtime,

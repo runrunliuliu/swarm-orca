@@ -17,7 +17,7 @@ import { projectGroupsApi } from './api/project-groups-bridge'
 import { folderWorkspacesApi } from './api/folder-workspaces-bridge'
 import { sparsePresetsApi } from './api/sparse-presets-bridge'
 import { worktreesApi } from './api/worktrees-bridge'
-import { taskRunHistoryApi } from './api/task-run-history-bridge'
+import { taskRecordsApi } from './api/task-records-bridge'
 import { workspaceCleanupApi } from './api/workspace-cleanup-bridge'
 import { workspaceSpaceApi } from './api/workspace-space-bridge'
 import { workspacePortsApi } from './api/workspace-ports-bridge'
@@ -114,7 +114,7 @@ const api = {
   folderWorkspaces: folderWorkspacesApi,
   sparsePresets: sparsePresetsApi,
   worktrees: worktreesApi,
-  taskRunHistory: taskRunHistoryApi,
+  taskRecords: taskRecordsApi,
   workspaceCleanup: workspaceCleanupApi,
   workspaceSpace: workspaceSpaceApi,
   workspacePorts: workspacePortsApi,

@@ -310,7 +310,7 @@ describe('selective SQLite settings persistence', () => {
     }
   )
 
-  it('keeps a worktree → task record after removal and a store reopen (issue #31 S2)', () => {
+  it('keeps a worktree → task record after removal and a store reopen (issue #36)', () => {
     const state = fixture()
     state.store.setWorktreeMeta('repo-1::/repo/feature', {
       displayName: 'Feature',
@@ -327,26 +327,24 @@ describe('selective SQLite settings persistence', () => {
     state.store.flushOrThrow()
 
     expect(
-      state.reopen().getTaskRunHistoryForTask({
-        repoId: 'repo-1',
-        itemType: 'issue',
-        number: 31
-      }).records
+      state
+        .reopen()
+        .getTaskRecordForTask({ repoId: 'repo-1', itemType: 'issue', number: 31 })?.bindings
     ).toEqual([
-      expect.objectContaining({ state: 'active', path: '/repo/feature', worktreeId: 'repo-1::/repo/feature' })
+      expect.objectContaining({ path: '/repo/feature', worktreeId: 'repo-1::/repo/feature' })
     ])
 
     const writer = state.reopen()
     writer.removeWorktreeMeta('repo-1::/repo/feature')
     writer.flushOrThrow()
 
-    const afterRemoval = state.reopen().getTaskRunHistoryForTask({
-      repoId: 'repo-1',
-      itemType: 'issue',
-      number: 31
-    })
-    expect(afterRemoval.records).toHaveLength(1)
-    expect(afterRemoval.records[0]).toMatchObject({ state: 'deleted', path: '/repo/feature' })
+    // The binding outlives the metadata row: that is the whole point of the
+    // record, and removal must not delete it.
+    const afterRemoval = state
+      .reopen()
+      .getTaskRecordForTask({ repoId: 'repo-1', itemType: 'issue', number: 31 })
+    expect(afterRemoval?.bindings).toHaveLength(1)
+    expect(afterRemoval?.bindings[0]).toMatchObject({ path: '/repo/feature' })
   })
 })
 

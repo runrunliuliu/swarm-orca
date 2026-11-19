@@ -6,7 +6,9 @@ import type {
   ProviderSpend,
   TaskWorkbenchHistory,
   TaskWorkbenchHistoryRun,
+  TaskWorkbenchHistorySession,
   TaskWorkbenchHistoryTrace,
+  TaskWorkbenchHistoryWorkspace,
   TaskWorkbenchView,
   TaskWorkbenchWallClock,
   TaskWorkbenchWorkspace
@@ -159,6 +161,9 @@ export function runHistory(args: {
   lastActivityAt?: number
   archivedWorkspaces?: number
   deletedWorkspaces?: number
+  tokensSource?: TaskWorkbenchHistory['tokensSource']
+  workspaces?: TaskWorkbenchHistoryWorkspace[]
+  sessions?: TaskWorkbenchHistorySession[]
   trace: TaskWorkbenchHistoryTrace
   runs?: TaskWorkbenchHistoryRun[]
 }): TaskWorkbenchHistory {
@@ -169,6 +174,9 @@ export function runHistory(args: {
     ...(args.lastActivityAt === undefined ? {} : { lastActivityAt: args.lastActivityAt }),
     archivedWorkspaces: args.archivedWorkspaces ?? 0,
     deletedWorkspaces: args.deletedWorkspaces ?? 0,
+    tokensSource: args.tokensSource ?? 'live',
+    workspaces: args.workspaces ?? [],
+    sessions: args.sessions ?? [],
     trace: args.trace,
     runs: args.runs ?? []
   }

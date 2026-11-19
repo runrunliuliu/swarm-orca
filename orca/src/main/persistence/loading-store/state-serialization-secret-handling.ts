@@ -15,6 +15,7 @@ import { stripRetiredGlobalSettings } from '../applying-settings/terminal-settin
 import { omitDefaultWorktreeMetaFieldsInMap } from '../../../shared/worktree/meta-persisted-defaults'
 import { projectWorktreeMetaByIdentityOntoLocators } from './worktree-meta-alias-projection'
 import { withoutRedundantPartitionGlobals } from '../../../shared/workspace-session-host-field-ownership'
+import { EMPTY_TASK_RECORDS } from '../../../shared/task-records-types'
 
 import {
   applySecretSentinelSubstitutions,
@@ -83,11 +84,10 @@ export class StateSerializationSecretHandlingOperations {
         case 'worktreeMeta':
           stateToSave[domain] = omitDefaultWorktreeMetaFieldsInMap(this.runtime.state.worktreeMeta)
           break
-        case 'taskRunHistory':
-          stateToSave[domain] = this.runtime.state.taskRunHistory ?? {
-            version: 1,
-            records: []
-          }
+        case 'taskRecords':
+          // Serialized as-is on purpose: an unreadable payload (unknown
+          // `recordsVersion`) is kept verbatim rather than rebuilt as empty.
+          stateToSave[domain] = this.runtime.state.taskRecords ?? EMPTY_TASK_RECORDS
           break
         case 'worktreeMetaByIdentity':
           if (this.runtime.state.worktreeMetaByIdentity !== undefined) {

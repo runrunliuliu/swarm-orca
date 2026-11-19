@@ -17476,6 +17476,17 @@
           "success": "已交付",
           "failure": "失败",
           "cancellation": "已取消"
+        },
+        "settled": "结算值",
+        "state": {
+          "removed": "已删除",
+          "archived": "已归档"
+        },
+        "unverified": "未核验",
+        "session": {
+          "transcript": "已记录会话记录路径",
+          "noTranscript": "未记录会话记录路径",
+          "noResume": "无法继续：其工作区已被删除。"
         }
       },
       "TaskWorkbenchPanel": {
@@ -17507,7 +17518,8 @@
           "ambiguous_session": "不可用 · ambiguous_session",
           "no_matching_session": "不可用 · no_matching_session",
           "remote_host": "不可用 · remote_host",
-          "unattributed": "不可用 · unattributed"
+          "unattributed": "不可用 · unattributed",
+          "scan_failed": "不可用 · scan_failed"
         },
         "notWired": "此版本暂不支持",
         "providerCost": "${{value0}}",
@@ -17518,7 +17530,8 @@
           "ambiguous_session": "匹配不唯一",
           "no_matching_session": "未找到匹配会话",
           "remote_host": "远程主机",
-          "unattributed": "未归属"
+          "unattributed": "未归属",
+          "scan_failed": "扫描失败"
         }
       },
       "TaskWorkbenchWorkspaces": {
