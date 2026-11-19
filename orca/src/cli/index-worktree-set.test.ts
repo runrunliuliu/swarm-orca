@@ -391,4 +391,77 @@ describe('orca cli worktree awareness', () => {
       noParent: false
     })
   })
+
+  it('archives a workspace without removing it from Git or disk', async () => {
+    queueFixtures(
+      callMock,
+      okFixture('req_show', {
+        worktree: { ...buildWorktree('/tmp/repo/feature', 'feature/foo'), isMainWorktree: false }
+      }),
+      okFixture('req_archive', {
+        worktree: {
+          ...buildWorktree('/tmp/repo/feature', 'feature/foo'),
+          isArchived: true
+        }
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(
+      ['worktree', 'archive', '--worktree', 'id:repo::/tmp/repo/feature', '--json'],
+      '/tmp/repo'
+    )
+
+    // The archive path is one metadata write: no `worktree.rm`, no branch delete.
+    expect(callMock).toHaveBeenNthCalledWith(2, 'worktree.set', {
+      worktree: 'id:repo::/tmp/repo/feature',
+      isArchived: true
+    })
+    expect(callMock.mock.calls.map((call) => call[0])).not.toContain('worktree.rm')
+  })
+
+  it('refuses to archive the repository main checkout', async () => {
+    queueFixtures(
+      callMock,
+      okFixture('req_show_main', {
+        worktree: { ...buildWorktree('/tmp/repo', 'main', 'aaa'), isMainWorktree: true }
+      })
+    )
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const priorExitCode = process.exitCode
+
+    await main(['worktree', 'archive', '--worktree', 'id:repo::/tmp/repo', '--json'], '/tmp/repo')
+
+    expect(callMock.mock.calls.map((call) => call[0])).not.toContain('worktree.set')
+    // --json reports the refusal as an ok:false envelope on stdout.
+    expect(`${logSpy.mock.calls.join(' ')} ${errSpy.mock.calls.join(' ')}`).toContain(
+      'cannot be archived'
+    )
+    expect(process.exitCode).toBe(1)
+    process.exitCode = priorExitCode
+  })
+
+  it('unarchives by clearing the archived flag', async () => {
+    queueFixtures(
+      callMock,
+      okFixture('req_unarchive', {
+        worktree: {
+          ...buildWorktree('/tmp/repo/feature', 'feature/foo'),
+          isArchived: false
+        }
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(
+      ['worktree', 'unarchive', '--worktree', 'id:repo::/tmp/repo/feature', '--json'],
+      '/tmp/repo'
+    )
+
+    expect(callMock).toHaveBeenCalledWith('worktree.set', {
+      worktree: 'id:repo::/tmp/repo/feature',
+      isArchived: false
+    })
+  })
 })

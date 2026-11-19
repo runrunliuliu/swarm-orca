@@ -910,6 +910,10 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`（原因沿用 `SpendReason`）。`trace` 只给位置与
 「复制恢复命令」的占位动作，不内联 transcript。
 
+归档入口已补：`orca worktree archive` 只把工作区从列表隐藏（保留 checkout / Git 注册 / meta / trace），
+`orca worktree unarchive` 恢复，`worktree rm` 仍是唯一物理删除。这给上表的「归档」形态一个真实来源，
+也是 `swarm/skills/worktree-delivery` 把清理默认动作从删除改成归档的依据。
+
 **证据缺口（明说）**：`trace: 'deleted'` 目前只有渲染 fixture 能产生。真实「已删除」任务需要 S2 的那一行
 持久映射（issue #31 的结论）；没有它，删除工作区后 `cwd / branch` 这个 join key 一起消失，渲染层无法把
 session 反推回 issue。因此真实删除任务仍走「从未开始」空态，这是当前的诚实上限，不是已修复项。

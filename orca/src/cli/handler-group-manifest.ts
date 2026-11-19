@@ -79,6 +79,11 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     load: async () => (await import('./handlers/worktree.js')).WORKTREE_HANDLERS
   },
   {
+    name: 'worktree-archive',
+    keys: ['worktree archive', 'worktree unarchive'],
+    load: async () => (await import('./handlers/worktree-archive.js')).WORKTREE_ARCHIVE_HANDLERS
+  },
+  {
     name: 'file',
     keys: ['file open', 'file diff', 'file open-changed'],
     load: async () => (await import('./handlers/file.js')).FILE_HANDLERS

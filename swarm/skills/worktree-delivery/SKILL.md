@@ -113,21 +113,19 @@ changes in the private source, never in public examples.
 
 ## 5. Cleanup is non-destructive by default
 
-“Clean up” in a delivery request means: leave the workspace in place, settle only the workers that
-are proven finished, mark the card with `worktree set --workspace-status completed`, and report the
-workspace as retained. It does **not** mean physical removal.
+“Clean up” in a delivery request means non-destructive cleanup: settle only the workers that are
+proven finished, then archive the workspace with `worktree archive`, and report it as retained;
+leave it in place when no cleanup was asked for. Archiving keeps the checkout, Git worktree
+registration, metadata, terminals and recorded trace on disk, and `worktree unarchive` restores the
+row. It does not stop terminals or delete the branch; use workspace Sleep when sessions should
+hibernate and resume. Do not simulate an archive by editing metadata or running raw Git.
 
 Physical removal (`worktree rm`) is a separate, destructive outcome that needs an explicit
 instruction naming the workspace, or an explicit “delete it / reclaim the disk”. Do not infer it
 from “done”, “clean up”, “ship it” or a merged PR. Removal deletes the checkout, its retained agent
-rows and the terminal scrollback a recorded trace points at (issue #31); keeping that record is the
-point of “retained”, and the delete path is exactly what reclaims it.
-
-There is no supported Orca command that removes a git worktree from the workspace list while
-keeping it on disk. Do not simulate one by editing metadata, resetting the profile or running raw
-Git. When the user only wants it out of the active list, name what the UI offers and let them
-choose: Sleep keeps terminals and sessions resumable, Delete is physical, and Archive applies to
-folder-workspace drafts rather than git worktrees.
+rows and the terminal scrollback a recorded trace points at (issue #31); archiving is what keeps
+that record while taking the row out of the active list. Never substitute `worktree rm` for an
+archive.
 
 Before **physical** removal, verify:
 

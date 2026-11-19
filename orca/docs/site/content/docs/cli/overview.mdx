@@ -40,8 +40,12 @@ orca worktree ps --json
 orca worktree create --repo id:<repoId> --name my-task --issue 123 --json
 orca worktree current --json
 orca worktree set --worktree active --comment "reproduced bug" --json
+orca worktree archive --worktree active --json
+orca worktree unarchive --worktree id:<id> --json
 orca worktree rm --worktree id:<id> --force --json
 ```
+
+`worktree archive` takes a finished workspace out of the active list without deleting its checkout or trace; `worktree unarchive` restores it. Use `worktree rm` only when deletion was explicitly requested.
 
 For selectors, setup flags, parent/child worktrees, and the broader command map, see [Orca CLI reference](/docs/cli/reference).
 
