@@ -7,7 +7,7 @@ import { act } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardAgentRow } from '@/components/dashboard/useDashboardData'
-import type { AgentRowState } from '@/lib/agent-row-decay-state'
+import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
 import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-worktree'
 import type { Worktree } from '../../../../shared/worktree/types'
@@ -168,17 +168,31 @@ beforeEach(() => {
 afterEach(cleanup)
 
 function worktreeFixture(overrides: Partial<Worktree> = {}): Worktree {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the menu reads only the fields set here.
-  return {
+  // Why the whole record: `Worktree` has required link/ordering fields the menu
+  // never reads, so filling them with their neutral values keeps the fixture
+  // typed as the real thing instead of asserted into it.
+  const base: Worktree = {
     id: WORKTREE_ID,
     repoId: REPO_ID,
     displayName: 'Fix authentication race',
     branch: 'refs/heads/feature/auth-race',
     path: '/path/to/wt-1',
+    head: 'abc123',
+    isBare: false,
     isMainWorktree: false,
     isArchived: false,
-    ...overrides
-  } as Worktree
+    comment: '',
+    linkedIssue: null,
+    linkedPR: null,
+    linkedLinearIssue: null,
+    isUnread: false,
+    isPinned: false,
+    sortOrder: 0,
+    lastActivityAt: 0
+  }
+  // Why `Object.assign` and not a spread: spreading a `Partial` widens every
+  // required field to `| undefined`, which no longer satisfies `Worktree`.
+  return Object.assign(base, overrides)
 }
 
 function mainWorktreeFixture(): Worktree {
@@ -211,11 +225,19 @@ function folderWorkspaceFixture(overrides: Partial<FolderWorkspace> = {}): Folde
 }
 
 /** One sidebar agent row, in the shape the mocked row pipeline returns. */
-function agentRow(rowState: AgentRowState, quickCommandLabel?: string): DashboardAgentRow {
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: only the fields the projection reads are set.
+function agentRow(rowState: AgentStatusState, quickCommandLabel?: string): DashboardAgentRow {
   return {
     paneKey: 'tab-1:leaf-1',
-    entry: { paneKey: 'tab-1:leaf-1', state: rowState, stateStartedAt: 1, updatedAt: 1 },
+    // Why the whole entry: a hook-shaped row carries these fields, so filling
+    // them keeps the fixture typed as the real thing instead of asserted into it.
+    entry: {
+      paneKey: 'tab-1:leaf-1',
+      state: rowState,
+      prompt: '',
+      stateStartedAt: 1,
+      updatedAt: 1,
+      stateHistory: []
+    },
     tab: {
       id: 'tab-1',
       ptyId: null,
@@ -230,7 +252,7 @@ function agentRow(rowState: AgentRowState, quickCommandLabel?: string): Dashboar
     agentType: 'claude',
     state: rowState,
     startedAt: 1
-  } as unknown as DashboardAgentRow
+  }
 }
 
 function openMenu(
