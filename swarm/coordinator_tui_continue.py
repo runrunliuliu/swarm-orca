@@ -18,14 +18,14 @@ import tui_adapter
 
 from coordinator_io import (try_bound_lock, correction_fence, canonical, digest, now, parse, path, pinned,
                             publish_new, read_json, replace_json, timestamp, validate_ref)
-from coordinator_tui_errors import TuiError, failure, require
+from coordinator_tui_errors import failure, require
 from coordinator_tui_checkpoint import validate_checkpoint, validate_domain
 from coordinator_authority_bundle import validate_binding
 from coordinator_loop import transition
 from coordinator_startup import KIND, identity, validate
 from coordinator_strict import caller_result
 from operator_sender import preflight as sender_preflight
-from trae_coordinator import ContextFreshnessError, TUI_ADAPTER, native, NATIVE_RPC_TIMEOUT_SECONDS
+from trae_coordinator import ContextFreshnessError, native, NATIVE_RPC_TIMEOUT_SECONDS
 
 
 STRICT_CALLER_CAPABILITY = "orchestration.strict-caller-check.v1"

@@ -1,7 +1,8 @@
 # Orca Swarm：使用入口与能力边界
 
-本目录包含原生 Swarm 的启动、续跑、监控和证据辅助工具，以及独立的固定 DAG Supervisor MVP。
-它们不是同一套执行器；先按 Run 类型选择入口，再读取对应操作文档。
+本目录包含原生 Swarm 的启动、续跑、监控和证据辅助工具。它们不是同一套执行器；先按 Run 类型选择入口，
+再读取对应操作文档。固定 DAG Supervisor MVP 已于 2026-11-19 退役（见 [退役记录](docs/supervisor.md)），
+仓库里不再有该控制器、守护进程或其服务模板。
 
 独立巡检工具：[Release radar](release_radar/README.md) 抓取同类产品更新，准备证据化分析包和
 GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自动发布。
@@ -20,7 +21,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | 启动凭据（start grant） | [`start-grant-mint / -hand / -state`](docs/design/start-grant.md) 让"启动一个 Run 的授权"由**不执行它的一方**签发：一次 mint 写一条不可改的批准记录，create 与每次 spawn 在服务端事务内校验。 | 实现状态、剩余收口与开关口径只见 [start grant §4](docs/design/start-grant.md#4-开发计划)：`START_GRANT_REQUIRED` 仍为 `false`，所以既有 strict Run 不受它约束；它不改变执行路径的选择（下表两行照旧），也不是"授权内容对不对"的证明。 |
 | Strict Coordinator TUI + Operator monitor / scheduler | [启动准备](operator-prepare.md) → [TUI 续跑](coordinator-tui.md) / [monitor](operator-monitor.md)。**S0–S5 握手工具（bootstrap_* / strict-start-* / strict-config-*）已随 [start grant](docs/design/start-grant.md) 删除**；这条路径现在指 Run 建好之后的 TUI 续跑与监控，[strict 握手文档](coordinator-strict-start.md) 只保留作历史。 | monitor 只有显式配置 continuation 才调用 scheduler；观察、消息入队或 Operator 结算都不等于业务完成。 |
 | 独立 goal-loop driver | [回合续跑器](coordinator-driver.md)，由 `coordinator_launch.py goal-loop` 校验，显式执行后在原 Trae exec PTY/会话串行续跑；可配[指定 Operator 执行器](coordinator-operator.md)。 | 代码拒绝 strict 计划及 `strict-v1` Run；不能作为 strict TUI 的恢复或平台提交回退。 |
-| 固定 DAG Supervisor MVP | [操作手册](docs/supervisor.md)与 [runit 模板](runit/README.md)：预先固定任务 DAG，Coordinator 派发，Sidecar 在等待检查点唤醒原 PTY。 | 专用 `config.example.json`、`coordinator-step/checkpoint` 协议和预算限制；不自动重规划、任务重试、升级模型或接管新 Coordinator。 |
+| 固定 DAG Supervisor（**已退役**） | 2026-11-19 删除控制器（`engine`）、守护进程（`watchdog`）、服务收尾（`service_finish`）、CLI（`__main__`）、`runit/` 模板以及 `policies.md`/`coordinator-prompt.md`。依据：零生产调用方、模板从未安装、[验收清单](acceptance.md) 的实机项全未勾选。原手册改为[退役记录](docs/supervisor.md)，其中写明 `supervisor/` 只剩被 `swarm_ledger/*` 等 import 的库半边，以及 `startup-safety.md` 那四条离线命令的实现。 | 不可再用 `python3 -m supervisor …`、`supervise`、`coordinator-step/checkpoint`、`cost-import` 或任何 runit 模板；需要固定 DAG 时必须重新实现并重新验收，不能把 `supervisor/config.py` 仍可用当成控制器仍在。 |
 
 部署方须交付角色和阶段控制循环契约，以及自己的自适应并发和模型选择政策，见[部署接入](configuration.md)。
 不套用固定 DAG 的“最多两个实施 Worker”等限制；具体 Run 仍受已确认的 `max_workers`、授权和预算约束。
@@ -81,18 +82,17 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | Coordinator 模型、权限与启动适配 | [部署配置](configuration.md)、[公开 JSON 示例](coordinator-model.json)、[Trae exec](trae-coordinator.md) |
 | Strict bootstrap 事件协议（**已归档、工具与读取器均已删除**） | [旧协议入口](strict-bootstrap-protocol.md) 只是归档说明：正文已移到部署方的私有归档，仓库内不再保留；`strict-bootstrap-state` 与 `bootstrap_events` 已删除，旧 attempt 不支持读取 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
-| 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)；不同证明口径不自动互相回退 |
+| 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)、[Worker 预释放用量快照](worker-usage-preserve.md)；不同证明口径不自动互相回退 |
 | 观察、安全与归档 | [只读 progress watch](progress-watch.md)、[启动与收尾保护](startup-safety.md)、[私有归档接入](configuration.md#部署政策与历史材料) |
-| 固定 DAG 角色与操作 | [Supervisor 手册](docs/supervisor.md)、[角色策略](policies.md)、[Coordinator 提示词](coordinator-prompt.md)、[知识入口](field-guide/index.md) |
+| 项目知识入口（模板） | [知识入口](field-guide/index.md)：部署后替换为远端可读路径，并在每个 Task 的 references 中明确提供。原“固定 DAG 角色与操作”一行随该 MVP 退役，`policies.md` 与 `coordinator-prompt.md` 已删除 |
 
-<a id="trae启动前自动登记精确工作目录"></a>
-
-原 README 的固定 DAG Trae 信任说明已移至 [Supervisor 手册](docs/supervisor.md#trae启动前自动登记精确工作目录)。
-strict Operator 的精确工作区信任使用[自己的准备入口](operator-prepare.md#6-已授权的精确-trae-工作区自动信任)，不要混用 Worker 启动钩子。
+固定 DAG 的 Trae 逐工作区信任登记随该 MVP 于 2026-11-19 退役（见 [退役记录](docs/supervisor.md)），
+不再有对应的 Worker 启动钩子。strict Operator 的精确工作区信任使用
+[自己的准备入口](operator-prepare.md#6-已授权的精确-trae-工作区自动信任)，与它无关。
 
 ## 离线开发与目录约定
 
-Python helper 使用标准库；Supervisor / 台账基线为 Python 3.10+，Trae TOML 信任处理需要 Python 3.11+，
+Python helper 使用标准库；台账与离线 guard 工具基线为 Python 3.10+，Trae TOML 信任处理需要 Python 3.11+，
 宿主签名绑定另需 OpenSSL 3。目标平台及 provider/runtime 支持范围按各入口适配器核验，不从首页推断兼容性。
 从公开仓库的 `swarm/` 目录运行离线回归（不连接 Orca 或启动模型）：
 
@@ -111,7 +111,7 @@ tests/run_offline.sh --fast         # 迭代反馈：跳过文件头 SLOW 列表
 退出码，`--list` 与参数错误由脚本自己返回（0 与 2）；不要继承调用方环境里的私有策略路径
 （原因见[字段指南](field-guide/index.md)）。
 
-这不替代目标环境测试。固定 DAG 配置检查与示例拒绝原因见 [Supervisor 手册](docs/supervisor.md#离线配置检查)。
+这不替代目标环境测试。`launch_contract` 的离线自检（`supervisor.safety preflight`）见[启动与收尾保护](startup-safety.md)；原先的“固定 DAG 配置检查”命令随该 MVP 退役，见[退役记录](docs/supervisor.md)。
 
 本目录保留脚本、相邻协议及公开示例；`docs/` 存放通用手册和测试标准。
 真实配置显式选择；历史、状态、产物与凭据不进入公开版本控制，详见[部署边界](configuration.md)。

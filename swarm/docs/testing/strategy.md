@@ -15,7 +15,7 @@ B 能力或工具未实现／C 已接受的设计边界）在 [gap-matrix.md](ga
 ## 1. 范围与不越权
 
 - 覆盖对象：`swarm-orca/swarm/` 下 strict bootstrap → Coordinator TUI → Operator
-  lifecycle / monitor / scheduler 控制链，固定 DAG Supervisor MVP（`supervisor/`），
+  lifecycle / monitor / scheduler 控制链，固定 DAG Supervisor MVP（已于 2026-11-19 退役，`supervisor/` 只剩被 import 的库半边与离线 guard/receipt 工具），
   以及 `swarm_ledger/` 的用量采集。私有 `swarm/` 只作为历史与冻结口径引用。
 - 本文件**不授权**启动 Agent、创建 Run/Worker、远端修改、故障注入、重启或训练；
   与 reliability.md 第 6 行、第 6 节同一措辞。
@@ -83,7 +83,7 @@ Operator 生命周期阶段、bootstrap 单侧准入。
   `tests/core/test_progress_watch.py`、`tests/core/test_startup_cli.py`。
 
 **怎么造用例.** 临时目录 + FakeNative/fake CLI（记录 argv 并回放固定回执）+
-临时把时钟注入（例如 `Store(root, clock=lambda: ...)` 见 `tests/core/test_supervisor.py:1249`）+
+临时把时钟注入（例如 `Store(root, clock=lambda: ...)` 见 `tests/core/test_supervisor.py` 的 `Base` 与 `StoreTests`）+
 显式状态文件断言（`read_json(state/"scheduler.json")`）。
 关键约束来自 reliability.md:32：可以 mock 与受控时钟，**只能证明被测逻辑**。
 
@@ -135,8 +135,8 @@ ACK 顺序与批次、STOP/失败向后续动作的传播、无进展时的有�
 L4 有两个不可互换的子集：
 
 - **L4-offline（属 D）**：用夹具驱动的多动作编排。
-  Supervisor MVP 的 FakeNative 双 Worker wave → 独立 Review → 串行 Integration
-  （`tests/core/test_supervisor.py:531`、`:556`）；scheduler 的两个完整自动续跑
+  原 Supervisor MVP 的 FakeNative 双 Worker wave → 独立 Review → 串行 Integration 用例已随控制器
+  于 2026-11-19 退役删除（`test_supervisor.py` 只剩 config/store/adapter），L4-offline 暂无多动作编排证据；scheduler 的两个完整自动续跑
   （`tests/coordinator/test_coordinator_tui_scheduler.py:153`、`:173`）；driver 的多回合
   （`tests/coordinator/test_coordinator_driver.py:332`）。
 - **L4-native（属 I）**：真实 runtime/CLI 的受控时序，即 reliability.md:191–203 的
@@ -179,8 +179,8 @@ RSI 场景还要目标仓库的业务验收（reliability.md:20）。
 
 **现状（据本次阅读）：** 仓库内只有台账与报告口径，没有评估基线或对照实验框架：
 `swarm_ledger/`（`ledger.py`、`report.py`、`raw_usage.py`）负责计量；
-`supervisor/` 的 `cost-import` 与预留见 `docs/supervisor.md`；
-`docs/supervisor.md:139` 明确“当前没有 provider 每请求 token 上限、硬账单截断或自动
+`supervisor/store.py` 的准入预留仍在，`cost-import` 命令随控制器退役（见 `docs/supervisor.md`）；
+`docs/supervisor.md:44` 明确“没有 provider 每请求 token 上限、硬账单截断或自动
 中止运行中模型”，且“没有对照实验不承诺提速倍数”（reliability.md 第 7 节 accounting）。
 
 **怎么造用例.** 先固定一个可客观验收的小交付物、一个基线与一个对照口径，
@@ -190,7 +190,7 @@ RSI 场景还要目标仓库的业务验收（reliability.md:20）。
 **跑法.** 不进核心 suite，单独计划、单独授权、单独预算。
 
 **门禁 G7.** L6 结论不得用于替代 L5 的行为判据；反之 L5 全绿也不构成 L6 的收益结论。
-这一条与 reliability.md:20 和 `docs/supervisor.md:139` 一致。
+这一条与 reliability.md:20 和 `docs/supervisor.md:44` 一致。
 
 ### L7 · 不变量
 
@@ -199,17 +199,17 @@ RSI 场景还要目标仓库的业务验收（reliability.md:20）。
 
 | ID | 不变量 | D 层现有证据（示例） |
 | --- | --- | --- |
-| I-1 | 同一动作的副作用至多一次（含崩溃与丢回执） | `tests/coordinator/test_coordinator_tui_continue.py:180`、`:245`、`:254`；`tests/core/test_supervisor.py:280`、`:374` |
+| I-1 | 同一动作的副作用至多一次（含崩溃与丢回执） | `tests/coordinator/test_coordinator_tui_continue.py:180`、`:245`、`:254`（原 `test_supervisor.py:280`/`:374` 的 Supervisor 侧用例随控制器退役删除） |
 | I-2 | 未知结果只对账、不重放 | `tests/coordinator/test_coordinator_first_dispatch.py:304`、`:316`（旧握手的 `test_bootstrap_failures` 已随代码删除） |
-| I-3 | 身份/owner/generation/incarnation 变化即停止 | `tests/coordinator/test_coordinator_tui_continue.py:274`、`:932`；`tests/core/test_supervisor.py:865`、`:1076` |
+| I-3 | 身份/owner/generation/incarnation 变化即停止 | `tests/coordinator/test_coordinator_tui_continue.py:274`、`:932`（原 `test_supervisor.py:865`/`:1076` 随控制器退役删除） |
 | I-4 | pin 不可被改写、覆盖或降级 | `tests/core/test_authority_bundle.py:319`、`:368`；start grant 的不可变记录（`start-grant-mint.test.ts`：同 id 同字节幂等、异字节冲突） |
 | I-5 | STOP 不可被自动清除或清除后恢复 | `tests/core/test_monitor_stop_signals.py`（旧 `test_bootstrap_control` 的 STOP 用例已随 owner 删除） |
-| I-6 | 预算预留幂等，未知费用不记 0 | `tests/core/test_supervisor.py:240`、`:270`、`:336` |
-| I-7 | 证据不可变、摘要核验、越界文件拒绝 | `tests/core/test_supervisor.py:836`、`:849`；`tests/core/test_safety.py:158`（ReceiptTests） |
-| I-8 | 失败/替换尝试同样计入台账与收尾 | `tests/core/test_ledger.py`、`tests/core/test_ledger_binding_coverage.py`；`tests/core/test_supervisor.py:317` |
+| I-6 | 预算预留幂等，未知费用不记 0 | `tests/core/test_supervisor.py:131`、`:161`、`:227` |
+| I-7 | 证据不可变、摘要核验、越界文件拒绝 | `tests/core/test_safety.py:158`（ReceiptTests、`supervisor/receipts.py`）；原 `test_supervisor.py:836`/`:849` 的引擎侧证据随控制器退役删除 |
+| I-8 | 失败/替换尝试同样计入台账与收尾 | `tests/core/test_ledger.py`、`tests/core/test_ledger_binding_coverage.py`；`tests/core/test_supervisor.py:208`（预算失败持久） |
 | I-9 | 无进展时有界停止，不靠空转凑次数 | `tests/coordinator/test_coordinator_tui_scheduler.py:597`、`:952`；`coordinator_driver.py:678`（`no_progress_recovery_exhausted`） |
-| I-10 | 并发写入隔离或明确所有权 | `supervisor/config.py:157–161`（共享 worktree 必须有序、并行任务路径不重叠）+ `tests/core/test_supervisor.py:209`（`allowed_paths` 重叠拒绝）；`tests/coordinator/test_coordinator_worker_plan.py:160`、`:178` |
-| I-11 | 跨 runtime/身份不借用、不回退 | `tests/core/test_supervisor.py:1149`、`:1173`；`tests/operators/test_operator_monitor_cross_runtime.py` |
+| I-10 | 并发写入隔离或明确所有权 | `supervisor/config.py:157–161`（共享 worktree 必须有序、并行任务路径不重叠）+ `tests/core/test_supervisor.py:100`（`allowed_paths` 重叠拒绝）；`tests/coordinator/test_coordinator_worker_plan.py:160`、`:178` |
+| I-11 | 跨 runtime/身份不借用、不回退 | `tests/core/test_supervisor.py:276`（`test_foreign_runtime_refused`）；`tests/operators/test_operator_monitor_cross_runtime.py` |
 | I-12 | 外部输入的正文不作为指令或授权 | 部分：见 [gap-matrix.md](gap-matrix.md) 场景 S6 |
 
 **怎么造用例.** 每新增一条不变量，先写一个必然违反它的最小夹具（例如“发出后kill，
@@ -224,12 +224,12 @@ I-12 尚无 D 层正例，见缺口矩阵。
 
 | 能力 | 位置 | 用途 | 边界 |
 | --- | --- | --- | --- |
-| FakeNative / fake CLI | `tests/offline_env.py`、`tests/publication_wait_fixture.py`、`tests/core/test_supervisor.py` 的 `Base`（旧 bootstrap 夹具已随握手删除） | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
-| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:179`、`:245`）；start grant 的 deadline/撤销走服务端时钟（`start-grant-spawn.test.ts`） | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
+| FakeNative / fake CLI | `tests/offline_env.py`、`tests/publication_wait_fixture.py`、`tests/core/test_supervisor.py` 的 `Base`（只剩 config/store/adapter；Engine 夹具随控制器删除） | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
+| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:87`（`Base.setUp`）、`:136`（`StoreTests` 重建））；start grant 的 deadline/撤销走服务端时钟（`start-grant-spawn.test.ts`） | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
 | 真实文件锁竞争 | `tests/coordinator/test_coordinator_io.py:43`、`:72`；`tests/coordinator/test_coordinator_tui_scheduler.py:263` | 单写入者、busy 跳过 | 本地文件系统，不等于跨主机锁 |
 | 密钥/签名夹具 | `tests/core/test_binding.py:212`（旧 transport 夹具已删除） | 篡改、重放、错 key | 不证明真实 host 认证 |
 | Unix socket 端到端 | `tests/core/test_binding.py:455`、`:472` | 本地进程间签名回执 | 非网络、非远端 |
-| 大文件/大输入 | `tests/core/test_capacity_io.py:33`（17 MiB）、`tests/core/test_supervisor.py:849`（>10 MB） | 容量与完整性 | 见 S3 缺口：无总上下文上限 |
+| 大文件/大输入 | `tests/core/test_capacity_io.py:33`（17 MiB）（原 `test_supervisor.py:849` 的 >10 MB 用例随控制器退役删除） | 容量与完整性 | 见 S3 缺口：无总上下文上限 |
 | 有界观测预算 | `observation_budget.py:21` + `tests/core/test_observation_budget.py:30`、`:155` | 观测超时即停 | 只覆盖配合式本地 I/O |
 | 跳过式真实集成 | `tests/core/test_tui_rsi_integration.py:21`（`RSI_CHECKER_TEST_ROOT`） | 真实 RSI checker 投影 | 未设变量即 skip，不算通过 |
 

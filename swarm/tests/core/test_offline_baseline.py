@@ -275,8 +275,13 @@ class BlastRadiusTests(unittest.TestCase):
         self.radius = blast_radius.Radius()
 
     def test_every_test_module_is_explained_by_a_source(self):
+        # Why an exemption instead of a weaker assertion: the invariant is right for every test
+        # module, and a document-shaped test was the one case it could not express. Widening it
+        # ("a test may have no subject") would also excuse the module this invariant exists to catch.
         unexplained = []
         for module in sorted(self.radius.available):
+            if module in self.blast.DOC_ONLY_TESTS:
+                continue
             if self.blast.Path(self.radius.tests[module]).stem[len("test_"):] in self.radius.sources:
                 continue
             imported_sources = self.radius.test_imports.get(module, set()) & set(self.radius.sources)
@@ -284,6 +289,15 @@ class BlastRadiusTests(unittest.TestCase):
                 continue
             unexplained.append(module)
         self.assertEqual(unexplained, [], "test modules reach no source and import none")
+
+    def test_a_doc_only_test_module_is_still_explained_by_a_path_policy(self):
+        # Why both directions: an entry that no `PATH_MAP` row names is an excuse rather than an
+        # explanation, and a stale name would exempt a module that is not in --list at all.
+        mapped = {module for modules in self.blast.PATH_MAP.values() for module in modules}
+        for module, reason in self.blast.DOC_ONLY_TESTS.items():
+            self.assertIn(module, self.radius.available, f"{module} is not a listed test module")
+            self.assertTrue(reason.strip(), f"{module} needs a recorded reason")
+            self.assertIn(module, mapped, f"{module} is doc-only but no PATH_MAP row names it")
 
     def test_every_source_module_has_a_radius_or_is_recorded_untested(self):
         empty = [name for name in sorted(self.radius.sources)

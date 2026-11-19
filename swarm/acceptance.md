@@ -16,6 +16,10 @@ Operator lifecycle、monitor、scheduler 的核心标准统一见 [Swarm 测试�
 
 更新时间：2026-10-13（Asia/Shanghai）。本地 MVP 已实现；真实 Swarm 未部署、未启动。离线测试不证明原生接口、远端认证、长驻或 Mac 离线自治已通过。
 
+> **2026-11-19：固定 DAG Supervisor 已退役。** 控制器、守护进程、`runit/` 模板及其离线测试已删除
+> （零生产调用方、从未安装，见 [退役记录](docs/supervisor.md)）。下文 L 节与 A1/A2 中的 MVP 条目保留为历史记录，
+> 不再可执行，也不代表当前版本有对应能力。
+
 ## L：本地工程检查
 
 - [x] Python 标准库控制器、默认禁用配置、角色契约、Coordinator 提示词与未注册 runit 模板。

@@ -174,12 +174,6 @@ def validate(config, *, live=False):
     return config
 
 
-def load(path, *, live=False):
-    with open(path, encoding="utf-8") as source:
-        config = json.load(source)
-    return validate(config, live=live)
-
-
 def execution_sandbox_permissions(config, role):
     """Version the execution contract so old escalation evidence is not reinterpreted."""
     contract = config.get("launch_contract")

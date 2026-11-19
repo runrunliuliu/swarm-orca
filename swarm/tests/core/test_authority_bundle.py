@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from coordinator_authority_bundle import ADAPTER, GENERATE, PROGRESS, PROTOCOL, verify_bundle
-from coordinator_io import canonical, digest, file_ref, now, parse, pinned, publish_new, read_json, replace_json
+from coordinator_io import canonical, digest, file_ref, parse, pinned, publish_new, read_json, replace_json
 from coordinator_tui_checkpoint import validate_record
 from coordinator_tui_continue import load
 from operator_authority import check, reconcile

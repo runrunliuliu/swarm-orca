@@ -12,7 +12,7 @@ import subprocess
 import sys
 import unittest
 
-from coordinator_io import canonical, digest, now, parse, pinned
+from coordinator_io import canonical, digest, now
 from coordinator_tui_checkpoint import FIELDS, validate_record
 from coordinator_tui_scheduler import dependencies
 import coordinator.test_coordinator_tui_scheduler as scheduling
