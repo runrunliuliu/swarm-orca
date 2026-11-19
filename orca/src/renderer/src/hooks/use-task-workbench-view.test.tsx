@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardCard, DashboardSnapshot } from '../../../shared/dashboard-snapshot'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
@@ -22,9 +22,18 @@ vi.mock('@/store', async () => {
   return { useAppStore: createTestStore() }
 })
 
-let snapshot: DashboardSnapshot = { generatedAt: 0, cards: [] }
+/** The snapshot the hook asks for, plus the calls it made. Pinned so an
+ *  archived task's request (`includeArchivedWorktreeIds`) is observable: the
+ *  rows alone cannot prove the hook asked for them (issue #38 review S3). */
+const snapshotState = vi.hoisted(() => ({
+  current: { generatedAt: 0, cards: [] } as DashboardSnapshot
+}))
+const snapshotCalls = vi.hoisted(() => [] as unknown[])
 vi.mock('@/components/dashboard/useLiveDashboardSnapshot', () => ({
-  useLiveDashboardSnapshot: () => snapshot
+  useLiveDashboardSnapshot: (args?: unknown) => {
+    snapshotCalls.push(args)
+    return snapshotState.current
+  }
 }))
 
 import { useAppStore } from '@/store'
@@ -109,7 +118,8 @@ function view(args: { number: number; itemType?: 'issue' | 'pr' }) {
 }
 
 beforeEach(() => {
-  snapshot = { generatedAt: 0, cards: [] }
+  snapshotState.current = { generatedAt: 0, cards: [] }
+  snapshotCalls.length = 0
   window.api = undefined as never
 })
 
@@ -153,7 +163,7 @@ describe('useTaskWorkbenchView — item scope', () => {
 
   it('keeps an archived workspace of the item visible as history (issue #31)', () => {
     seed([issueWorktree('wt-9', 9, { isArchived: true })])
-    snapshot = { generatedAt: 0, cards: [card('wt-9', 'pane-9')] }
+    snapshotState.current = { generatedAt: 0, cards: [card('wt-9', 'pane-9')] }
 
     const current = view({ number: 9 })
     expect(current?.workspaces.map((workspace) => workspace.worktreeId)).toEqual(['wt-9'])
@@ -161,13 +171,16 @@ describe('useTaskWorkbenchView — item scope', () => {
     // The archived row is history, never Working, however its card reads.
     expect(current?.agents.map((row) => row.archivedWorkspace)).toEqual([true])
     expect(current?.defaultWorkspace).toEqual({ workspaceId: '', source: 'none' })
+    // The hook must ask the snapshot for this task's archived rows; the rows
+    // alone cannot prove it did.
+    expect(snapshotCalls.at(-1)).toEqual({ includeArchivedWorktreeIds: ['wt-9'] })
   })
 
   it('does not carry another item’s agent rows into this item', () => {
     // The card belongs to #1's workspace; #9 has none, so the view must not show
     // a row for it even though the repo does have a running agent.
     seed([issueWorktree('wt-1', 1)])
-    snapshot = { generatedAt: 0, cards: [card('wt-1', 'pane-1')] }
+    snapshotState.current = { generatedAt: 0, cards: [card('wt-1', 'pane-1')] }
 
     expect(view({ number: 9 })?.agents).toEqual([])
     expect(view({ number: 9 })?.workspaces).toEqual([])
@@ -195,8 +208,9 @@ describe('useTaskWorkbenchView — item scope', () => {
     // The page knows the item and the repo but carries no provider identity, so
     // no worktree of #9 is left to name it: the run ledger is the only proof it
     // ran. The tab must state that, not the never-started notice — and it must
-    // not borrow #1's workspace to get there.
+    // not borrow #1's workspace (or its agent) to get there.
     seed([issueWorktree('wt-1', 1)])
+    snapshotState.current = { generatedAt: 0, cards: [card('wt-1', 'pane-1')] }
     window.api = {
       taskRunHistory: { get: async () => ({ records: [deletedRecord('repo-1::/gone')] }) }
     } as never
@@ -214,19 +228,85 @@ describe('useTaskWorkbenchView — item scope', () => {
     await waitFor(() => expect(current.result.current).not.toBeNull())
     expect(current.result.current?.workspaces).toEqual([])
     expect(current.result.current?.agents).toEqual([])
+    expect(current.result.current?.defaultWorkspace).toEqual({ workspaceId: '', source: 'none' })
     expect(current.result.current?.history).toMatchObject({
       trace: 'deleted',
       deletedWorkspaces: 1,
       // S2 stores the mapping, not the runs: unknown, never 0.
       agents: null,
-      wall: { kind: 'unknown' }
+      wall: { kind: 'unknown' },
+      tokens: { kind: 'unavailable', reason: 'unattributed' }
     })
     expect(current.result.current?.spend).toMatchObject({ kind: 'unavailable' })
   })
 
+  it('never reuses the previous item’s ledger while a new query is in flight', async () => {
+    // Switching #9 -> #10: the old ledger answer is still in state until the
+    // effect runs, and using it would name #10 with #9's deleted workspace
+    // (issue #38 review R1). #10 has no provider identity and no workspace, so
+    // the only correct answer before the new answer arrives is "no identity".
+    seed([issueWorktree('wt-1', 1)])
+    let releaseNext: ((value: { records: TaskRunHistoryRecord[] }) => void) | null = null
+    window.api = {
+      taskRunHistory: {
+        get: (query: { number: number }) =>
+          query.number === 9
+            ? Promise.resolve({ records: [deletedRecord('repo-1::/gone')] })
+            : new Promise((resolve) => {
+                releaseNext = resolve
+              })
+      }
+    } as never
+
+    const renders: { number: number; view: ReturnType<typeof useTaskWorkbenchView> }[] = []
+    const { rerender } = renderHook(
+      (props: { number: number }) => {
+        const view = useTaskWorkbenchView({
+          repoId: REPO_ID,
+          number: props.number,
+          itemType: 'issue',
+          title: `#${props.number}`,
+          taskSourceContext: null
+        })
+        renders.push({ number: props.number, view })
+        return view
+      },
+      { initialProps: { number: 9 } }
+    )
+    await waitFor(() =>
+      expect(
+        renders.some((entry) => entry.number === 9 && entry.view?.history?.trace === 'deleted')
+      ).toBe(true)
+    )
+
+    rerender({ number: 10 })
+    // Every render of #10 must be identity-less: the old ledger answer is still
+    // in state until the effect runs, and the effect's own renders are flushed
+    // inside `act`, so a per-render assertion is the only way to see the first
+    // one (#9's deleted record must not name #10).
+    const numberTenViews = renders.filter((entry) => entry.number === 10).map((entry) => entry.view)
+    expect(numberTenViews.length).toBeGreaterThan(0)
+    expect(numberTenViews.every((view) => view === null)).toBe(true)
+
+    await act(async () => {
+      releaseNext?.({ records: [] })
+    })
+    expect(
+      renders.filter((entry) => entry.number === 10).every((entry) => entry.view === null)
+    ).toBe(true)
+  })
+
   it('keeps the never-started notice when the ledger has nothing for the item', async () => {
     seed([issueWorktree('wt-1', 1)])
-    window.api = { taskRunHistory: { get: async () => ({ records: [] }) } } as never
+    let release: ((value: { records: TaskRunHistoryRecord[] }) => void) | null = null
+    window.api = {
+      taskRunHistory: {
+        get: () =>
+          new Promise((resolve) => {
+            release = resolve
+          })
+      }
+    } as never
 
     const current = renderHook(() =>
       useTaskWorkbenchView({
@@ -238,6 +318,11 @@ describe('useTaskWorkbenchView — item scope', () => {
       })
     )
 
-    await waitFor(() => expect(current.result.current).toBeNull())
+    // Pending is not an identity, and neither is an empty answer.
+    expect(current.result.current).toBeNull()
+    await act(async () => {
+      release?.({ records: [] })
+    })
+    expect(current.result.current).toBeNull()
   })
 })

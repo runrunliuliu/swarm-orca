@@ -1,5 +1,6 @@
-import { taskProviderIdentityCachePart } from '../../../../shared/task-provider-identity'
+import { areTaskProviderIdentitiesEqual } from '../../../../shared/task-provider-identity'
 import type { TaskProviderIdentity } from '../../../../shared/task-provider-identity'
+import { githubRepoIdentityKey } from '../../../../shared/github/repository-identity-key'
 import { taskWorkbenchTaskKey } from './task-workbench-selector-types'
 import type {
   IdentityInput,
@@ -241,13 +242,20 @@ function matchesNumberColumn(
 /** A worktree with no recorded provenance cannot contradict the task, so it is
  *  accepted; one that recorded a repo/host must agree with it.
  *
- *  Agreement is the same normalization the task key uses
- *  (`taskProviderIdentityCachePart`), not field-by-field equality: the key
- *  lowercases GitHub owner/repo and treats an absent host as github.com, while a
- *  stored identity may carry `ACME` or an explicit `github.com` written by a
- *  remote-URL probe or an upstream backfill. Comparing fields would drop a valid
- *  binding that the key says is the same repo; comparing the key keeps the GHES
- *  host boundary because that host is part of the key. */
+ *  GitHub agreement is the canonical repo key — the same normalization its task
+ *  key uses — not field-by-field equality: that key lowercases owner/repo and
+ *  treats an absent host as github.com, while a stored identity may carry `ACME`
+ *  or an explicit `github.com` written by a remote-URL probe or an upstream
+ *  backfill. Comparing fields would drop a valid binding the key says is the
+ *  same repo; comparing the key keeps the GHES boundary because that host is
+ *  part of the key.
+ *
+ *  Only GitHub gets that treatment. Its cache part is complete for a repo; the
+ *  other providers' parts drop fields (GitLab's ignores `webUrl`) and can be
+ *  empty, so key equality there would merge two hosts that happen to share a
+ *  `projectId` — a lossy merge this matcher must not introduce. They stay
+ *  field-by-field until a host-aware identity exists for them.
+ */
 function providerIdentityAgreesWithTask(
   worktree: IdentityWorktree,
   provider: TaskProviderIdentity | null
@@ -256,11 +264,16 @@ function providerIdentityAgreesWithTask(
   if (!provider || !linked) {
     return true
   }
-  return taskProviderIdentityKey(linked) === taskProviderIdentityKey(provider)
-}
-
-function taskProviderIdentityKey(identity: TaskProviderIdentity): string {
-  return `${identity.provider}:${taskProviderIdentityCachePart(identity)}`
+  if (provider.provider !== linked.provider) {
+    return false
+  }
+  if (provider.provider !== 'github') {
+    return areTaskProviderIdentitiesEqual(linked, provider)
+  }
+  return (
+    linked.provider === 'github' &&
+    githubRepoIdentityKey(linked) === githubRepoIdentityKey(provider)
+  )
 }
 
 /** The one validator for both callers: `resolveTaskIdentity` names with it and
@@ -278,7 +291,7 @@ export function normalizeTaskWorkbenchItem(
   // Why: 0 is not a tracker number but "not known" (Jira/Linear rows carry it
   // alongside their own identifier), and matching it would make every such
   // workspace the same item.
-  if (!Number.isFinite(item.number) || item.number <= 0) {
+  if (!Number.isInteger(item.number) || item.number <= 0) {
     return null
   }
   return { type: item.type, number: item.number }

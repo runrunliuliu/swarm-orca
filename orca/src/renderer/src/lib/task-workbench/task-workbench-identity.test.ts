@@ -286,6 +286,36 @@ describe('worktree selection — the item decides the collection (issue #38)', (
     expect(ids(selectTaskItemWorktrees([legacy], ISSUE_9, null))).toEqual(['wt-legacy'])
   })
 
+  it('keeps non-GitHub identities field-by-field instead of merging by cache key', () => {
+    // GitLab's cache part is `projectId` (or namespace/project) and ignores
+    // `webUrl`, so key equality would merge two hosts that happen to share a
+    // project id. GitHub is the only provider whose key is a complete repo
+    // identity (issue #38 review R2).
+    const gitlabA: TaskProviderIdentity = {
+      provider: 'gitlab',
+      projectId: '42',
+      namespace: 'g',
+      project: 'r',
+      webUrl: 'https://a.example/g/r'
+    }
+    const gitlabB: TaskProviderIdentity = { ...gitlabA, webUrl: 'https://b.example/g/r' } as never
+    const row = worktree('wt-gl', gitlabA, {
+      linkedItem: { provider: 'gitlab', type: 'issue', number: 9, title: '#9', url: 'https://a/9' }
+    })
+    expect(selectTaskItemWorktrees([row], ISSUE_9, gitlabB)).toEqual([])
+    expect(ids(selectTaskItemWorktrees([row], ISSUE_9, gitlabA))).toEqual(['wt-gl'])
+    // Field comparison keeps the asymmetry honest: a known project does not
+    // match an identity that carries nothing, and two identities that both
+    // carry nothing are equal — the pre-existing behaviour, not a claim that
+    // two unknown hosts are one repo.
+    const unknown: TaskProviderIdentity = { provider: 'gitlab' }
+    expect(selectTaskItemWorktrees([row], ISSUE_9, unknown)).toEqual([])
+    const emptyLinked = worktree('wt-gl-empty', unknown, {
+      linkedItem: { provider: 'gitlab', type: 'issue', number: 9, title: '#9', url: 'https://a/9' }
+    })
+    expect(ids(selectTaskItemWorktrees([emptyLinked], ISSUE_9, unknown))).toEqual(['wt-gl-empty'])
+  })
+
   it('matches nothing for an item whose number is not a tracker number', () => {
     // Naming drops `number: 0` (Jira/Linear carry it beside their own id); the
     // collection must use the same validator or every zero-numbered row would
@@ -461,6 +491,15 @@ describe('resolveTaskIdentity — deleted workspace in the run ledger', () => {
         worktrees: [worktree('wt-9', GITHUB_ACME_WEB_APP, { linkedIssue: 9 })]
       })
     ).toMatchObject({ identity: { kind: 'tracker' }, source: 'worktree' })
+    // An archived workspace is still on this machine, so it names the task (and
+    // its rows are history) before a deleted record does.
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        historyWorktreeIds: ['repo-1::/gone'],
+        worktrees: [worktree('wt-9', GITHUB_ACME_WEB_APP, { linkedIssue: 9, archived: true })]
+      })
+    ).toMatchObject({ identity: { kind: 'tracker' }, source: 'archived-worktree' })
   })
 
   it('ignores the ledger when the caller does not name an item', () => {

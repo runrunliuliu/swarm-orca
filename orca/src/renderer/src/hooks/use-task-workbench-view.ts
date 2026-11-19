@@ -140,19 +140,18 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   )
 
   // The task's workspaces are chosen per item, not from the identity's name: the
-  // identity is repo-scoped evidence (`taskKey`) and reading its matches as a set
-  // is what listed every branch of the repo in every issue's tab (issue #38).
-  // Archived rows are included on purpose (issue #31 history) and zero matches
-  // stays zero, which renders the empty state. The provider is the page's own
-  // when it has one, exactly as the list row's badge passes it, so both entry
-  // points filter by the same thing; the identity's provider is only the fallback.
+  // identity is evidence for naming (its provider segment is repo-scoped and its
+  // tracker key carries the item) and reading its matches as a set is what
+  // listed every branch of the repo in every issue's tab (issue #38). Archived
+  // rows are included on purpose (issue #31 history) and zero matches stays zero.
+  // The provider is the page's own, exactly what the list row's badge passes;
+  // when the page has none there is no authority to scope by host, so both entry
+  // points scope by the item links alone instead of guessing from a worktree.
   const taskWorktrees = useMemo(() => {
     if (!resolution) {
       return []
     }
-    const fallbackProvider =
-      resolution.identity.kind === 'tracker' ? resolution.identity.provider : null
-    const provider = taskSourceContext?.providerIdentity ?? fallbackProvider
+    const provider = taskSourceContext?.providerIdentity ?? null
     const selected = new Set(
       selectTaskItemWorktrees(identityWorktrees, item, provider).map(
         (worktree) => worktree.worktreeId
