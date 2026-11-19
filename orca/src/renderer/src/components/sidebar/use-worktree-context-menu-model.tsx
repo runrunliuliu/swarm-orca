@@ -186,6 +186,15 @@ export function useWorktreeContextMenuModel({
       }),
     [activeContextWorktrees, repoMap]
   )
+  // The repository's own checkout is never archivable: hiding it would remove
+  // the only row that opens the repo.
+  const archivableWorktrees = useMemo(
+    () =>
+      activeContextWorktrees.filter(
+        (item) => !item.isMainWorktree && !parseWorkspaceKey(item.id)
+      ),
+    [activeContextWorktrees]
+  )
   const removesProject = shouldRemoveProjectFromContextMenu(repo, worktree)
   const sleepLabel =
     isMultiContext && sleepableWorktrees.length > 0
@@ -299,6 +308,7 @@ export function useWorktreeContextMenuModel({
 
   const commands = useWorktreeContextMenuCommands({
     activeContextWorktrees,
+    archivableWorktrees,
     batchDeleteWorktrees,
     createGroupDialogActiveRef,
     createProjectGroup,
@@ -360,6 +370,7 @@ export function useWorktreeContextMenuModel({
     ...commands,
     activeContextWorktrees,
     allWorktrees,
+    archivableWorktrees,
     batchDeleteWorktrees,
     browserTabsByWorktree,
     children,

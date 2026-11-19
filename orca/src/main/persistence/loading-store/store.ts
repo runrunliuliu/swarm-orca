@@ -16,6 +16,13 @@ import {
   type StoreDomainOperations
 } from './store-domain-composition'
 import type { PersistedState } from '../../../shared/persisted-state-types'
+import {
+  EMPTY_TASK_RUN_HISTORY,
+  taskRunHistoryForTask,
+  type TaskRunHistoryItemType,
+  type TaskRunHistoryRecord,
+  type TaskRunHistoryState
+} from '../../../shared/task-run-history'
 import { scheduleSave } from './write-scheduling'
 import { enqueuePrimaryStateOperation, writeToDiskAsync } from './primary-state-writes'
 import type { ProfileStateDatabaseQuarantine } from '../profile-state/profile-state-database-quarantine'
@@ -149,6 +156,16 @@ export class Store {
         scheduleSave(this.domains.scheduling)
       }
     }
+  }
+
+  /** The worktree → task ledger for a task page (issue #31 S2). Read-only. */
+  getTaskRunHistoryForTask(args: {
+    repoId: string
+    itemType: TaskRunHistoryItemType
+    number: number
+  }): { state: TaskRunHistoryState; records: TaskRunHistoryRecord[] } {
+    const state = this.state.taskRunHistory ?? EMPTY_TASK_RUN_HISTORY
+    return { state, records: taskRunHistoryForTask(state, args) }
   }
 
   getProfileStorageDirectory(): string {

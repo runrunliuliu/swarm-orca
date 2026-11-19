@@ -5725,6 +5725,12 @@
           "d1113f4660": "Failed to open browser",
           "fed49903c9": "{{value0}} live {{value1}}"
         },
+        "ArchivedWorktreeList": {
+          "heading": "Archived workspaces ({{value0}})",
+          "description": "Hidden from the sidebar; the checkout and its recorded trace are still on disk.",
+          "restore": "Restore",
+          "restoreAria": "Restore {{value0}}"
+        },
         "WorktreeContextMenu": {
           "c39c37676a": "Create a group and move this project into it.",
           "6664418e98": "New Project Group",
@@ -5758,6 +5764,8 @@
           "sleepWithDescendantsDescription": "Close active panels in this workspace and every nested descendant to free up memory and CPU.",
           "deleteWithDescendants": "Delete with Descendants…",
           "archiveDraft": "Archive draft",
+          "archive": "Archive workspace",
+          "archiveMany": "Archive {{value0}} workspaces",
           "deleteDraft": "Delete draft"
         },
         "WorktreeList": {

@@ -5499,6 +5499,12 @@
           "d1113f4660": "无法打开浏览器",
           "fed49903c9": "{{value0}} 直播 {{value1}}"
         },
+        "ArchivedWorktreeList": {
+          "heading": "已归档工作区（{{value0}}）",
+          "description": "已从侧栏隐藏；工作区目录与其记录的 trace 仍在本机。",
+          "restore": "恢复",
+          "restoreAria": "恢复 {{value0}}"
+        },
         "WorktreeContextMenu": {
           "c39c37676a": "创建一个组并将该项目移入其中。",
           "6664418e98": "新项目组",
@@ -5532,6 +5538,8 @@
           "sleepWithDescendantsDescription": "关闭此工作区中的活动面板以及每个嵌套的后代面板以释放内存和 CPU。",
           "deleteWithDescendants": "与后代一起删除...",
           "archiveDraft": "归档草稿",
+          "archive": "归档工作区",
+          "archiveMany": "归档 {{value0}} 个工作区",
           "deleteDraft": "删除草稿"
         },
         "WorktreeList": {

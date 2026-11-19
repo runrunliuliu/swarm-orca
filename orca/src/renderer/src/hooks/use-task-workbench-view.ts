@@ -8,9 +8,11 @@ import type { TaskSourceContext } from '../../../shared/task-source-context'
 import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
 import { projectMissingWorkspace } from '@/components/dashboard/project-missing-workspace'
 import type { TaskWorkbenchView } from '@/components/task-workbench/task-workbench-view'
+import { useTaskRunHistory } from './use-task-run-history'
 import { resolveTaskIdentity } from '@/lib/task-workbench/task-workbench-identity'
 import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspace-branch'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
+import { mergeTaskRunHistory } from '@/lib/task-workbench/task-workbench-history-merge'
 import {
   worktreeUsageKey,
   type JoinAgentInput,
@@ -138,6 +140,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   const snapshot = useLiveDashboardSnapshot({
     includeArchivedWorktreeIds: archivedTaskWorktreeIds
   })
+  const runHistory = useTaskRunHistory(
+    repoId === null ? null : { repoId, itemType, number }
+  )
 
   return useMemo<TaskWorkbenchView | null>(() => {
     // No identity means there is nothing to name the tab after: that is the one
@@ -262,6 +267,17 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       // reports `recent-activity` / `none` and never claims a user choice.
       primaryWorktreeId: undefined
     })
+    // A deleted worktree left the store but not the ledger (issue #31 S2). With
+    // no live or archived row left, that record is the only proof the task ran:
+    // state it as `deleted` instead of falling back to the never-started state.
+    // With an archived row the strip already says "still on this machine", so
+    // only the deleted count is added; an active task gets no strip at all.
+    const history = mergeTaskRunHistory({
+      history: join.history,
+      worktreeCount: joinedWorktrees.length,
+      records: runHistory.records
+    })
+
     return {
       identity: resolution.identity,
       title,
@@ -271,7 +287,8 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       workspaces: join.workspaces,
       spend: usage.spend,
       delivery: join.delivery,
-      history: join.history
+      history,
+      historyPending: runHistory.pending
     }
   }, [
     resolution,
@@ -289,7 +306,8 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     openCodeSessions,
     museSessions,
     title,
-    tracker
+    tracker,
+    runHistory
   ])
 }
 

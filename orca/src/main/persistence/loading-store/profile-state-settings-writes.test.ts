@@ -309,6 +309,45 @@ describe('selective SQLite settings persistence', () => {
       expect(state.reopen().getUI().browserKagiSessionLink).toBeNull()
     }
   )
+
+  it('keeps a worktree → task record after removal and a store reopen (issue #31 S2)', () => {
+    const state = fixture()
+    state.store.setWorktreeMeta('repo-1::/repo/feature', {
+      displayName: 'Feature',
+      comment: '',
+      linkedIssue: 31,
+      linkedPR: null,
+      linkedLinearIssue: null,
+      isArchived: false,
+      isUnread: false,
+      isPinned: false,
+      sortOrder: 0,
+      lastActivityAt: 10
+    })
+    state.store.flushOrThrow()
+
+    expect(
+      state.reopen().getTaskRunHistoryForTask({
+        repoId: 'repo-1',
+        itemType: 'issue',
+        number: 31
+      }).records
+    ).toEqual([
+      expect.objectContaining({ state: 'active', path: '/repo/feature', worktreeId: 'repo-1::/repo/feature' })
+    ])
+
+    const writer = state.reopen()
+    writer.removeWorktreeMeta('repo-1::/repo/feature')
+    writer.flushOrThrow()
+
+    const afterRemoval = state.reopen().getTaskRunHistoryForTask({
+      repoId: 'repo-1',
+      itemType: 'issue',
+      number: 31
+    })
+    expect(afterRemoval.records).toHaveLength(1)
+    expect(afterRemoval.records[0]).toMatchObject({ state: 'deleted', path: '/repo/feature' })
+  })
 })
 
 function getSettingsRecord(state: Record<string, unknown>): Record<string, unknown> {

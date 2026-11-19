@@ -167,6 +167,9 @@ export type TaskWorkbenchView = {
   /** Present only when work was actually recorded: absent is the never-started
    *  state whose primary action is `Create workspace`. */
   history?: TaskWorkbenchHistory
+  /** True until the persisted run ledger answered; the panel must not render the
+   *  never-started empty state while a deleted history may still arrive. */
+  historyPending?: boolean
 }
 
 // Why: components import every view type from one module, so they never reach

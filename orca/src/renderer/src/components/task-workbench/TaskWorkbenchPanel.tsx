@@ -82,7 +82,8 @@ export function TaskWorkbenchPanel({
   // The deleted form has no workspace and no row left: the strip is the whole
   // record, so an Agents section would claim "no agents" about work that ran.
   const deletedTrace = history?.trace === 'deleted'
-  const showEmptyState = view.workspaces.length === 0 && !hasHistory
+  const showEmptyState =
+    view.workspaces.length === 0 && !hasHistory && view.historyPending !== true
 
   return (
     <section data-testid="task-workbench-panel" className="flex flex-col gap-5">

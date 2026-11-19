@@ -118,7 +118,8 @@ proven finished, then archive the workspace with `worktree archive`, and report 
 leave it in place when no cleanup was asked for. Archiving keeps the checkout, Git worktree
 registration, metadata, terminals and recorded trace on disk, and `worktree unarchive` restores the
 row. It does not stop terminals or delete the branch; use workspace Sleep when sessions should
-hibernate and resume. Do not simulate an archive by editing metadata or running raw Git.
+hibernate and resume. The same action is in the workspace context menu, and Restore is in the
+worktree visibility dialog. Do not simulate an archive by editing metadata or running raw Git.
 
 Physical removal (`worktree rm`) is a separate, destructive outcome that needs an explicit
 instruction naming the workspace, or an explicit “delete it / reclaim the disk”. Do not infer it

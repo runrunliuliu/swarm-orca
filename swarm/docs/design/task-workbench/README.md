@@ -884,7 +884,7 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 
 ### 7.10 已完成任务的历史：三态与 S1 落地（issue #31）
 
-状态：**S1（渲染层）+「第 0 步止血」已实现**；S2（`issue → worktreeId` 持久映射）与 S3（session-search
+状态：**S1（渲染层）+「第 0 步止血」+ S2（`issue → worktreeId` 持久映射）已实现**；S3（session-search
 事实条、`orca history task` 出口）**未开始**。S4（真快照）不在范围。
 
 「没有工作区」不再是唯一空态，三种状态分开：
@@ -893,7 +893,7 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 | --- | --- | --- |
 | 从未开始 | 无工作区，且无历史记录 | 保留 `Create workspace` 空态（f2a/f2b） |
 | 跑过 + 工作区已归档 | `history.trace === 'archived'` | `Run history` 事实条 + 归档注 + Workspaces 折叠区；归档 agent 行进 History 折叠区（f2c） |
-| 跑过 + 工作区已删除 | `history.trace === 'deleted'` | 事实条自给自足（自带 run 列表），无 Agents / Workspaces 段，明确写 trace 不可达（f2d） |
+| 跑过 + 工作区已删除 | `history.trace === 'deleted'` | 事实条自给自足（自带 run 列表），无 Agents / Workspaces 段，明确写 trace 不可达（f2d）；真实删除任务的 agent / wall / token 为未知，run 列表等 S3 |
 
 落地位置：
 
@@ -905,6 +905,8 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 | 保留记录不再被剪 | `useRetainedAgents.ts` | prune allowlist 收录归档工作区 id；归档不再等于删除历史。被**删除**的工作区仍不在 allowlist（无记录可保） |
 | 归档身份 | `task-workbench-identity.ts` | 无 live 工作区时，归档 provenance 作为 `archived-worktree` 回退，关闭任务不再掉到「无标识」 |
 | 归档行投影 | `use-task-workbench-view.ts`、`build-dashboard-snapshot.ts`、`dashboard-snapshot-workspaces.ts` | 新增 `includeArchivedWorktreeIds`：看板仍只看活跃工作区，工作台只为**本任务**的归档工作区取卡片 |
+| 删除后仍保留的映射（S2） | `shared/task-run-history.ts`、`persistence/loading-store/task-run-history-persistence.ts`、`ipc/task-run-history.ts`、`hooks/use-task-run-history.ts` | `taskRunHistory` 落在 profile-state 的顶层 JSON；`setWorktreeMeta` 写 active/archived，`removeWorktreeMeta` 只改成 deleted、不删行；deleted 上限 1500 条 |
+| 归档/恢复入口 | `worktree archive` / `unarchive`、sidebar 右键、`WorktreeVisibilityDialog` 的 `ArchivedWorktreeList` | 只改 `isArchived`，不动物理工作区；恢复是同一个元数据写 |
 
 口径（沿用 §7.5）：墙钟 = 首个 `startedAt` → 末个 `finishedAt`；缺任一端的行让整体降为 `partial`，不拿「现在」补。
 Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`（原因沿用 `SpendReason`）。`trace` 只给位置与
@@ -914,9 +916,9 @@ Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`
 `orca worktree unarchive` 恢复，`worktree rm` 仍是唯一物理删除。这给上表的「归档」形态一个真实来源，
 也是 `swarm/skills/worktree-delivery` 把清理默认动作从删除改成归档的依据。
 
-**证据缺口（明说）**：`trace: 'deleted'` 目前只有渲染 fixture 能产生。真实「已删除」任务需要 S2 的那一行
-持久映射（issue #31 的结论）；没有它，删除工作区后 `cwd / branch` 这个 join key 一起消失，渲染层无法把
-session 反推回 issue。因此真实删除任务仍走「从未开始」空态，这是当前的诚实上限，不是已修复项。
+**剩余证据缺口（明说）**：S2 存的是身份映射，不是 agent 运行记录。真实删除任务现在能进入 `deleted`
+形态（不再谎称「从未开始」），但 `agents / wall / tokens` 是未知、run 列表为空——这些要等 S3 用记录里的
+`path` 去 session-search / usage 里反查。f2d 的完整 run 列表仍只证明渲染形态，不证明真实数据。
 
 验收证据：`tests/tools/task-workbench-rendered/run.mjs --all`（F2c / F2c-narrow / F2d 三个新用例，
 20/20 通过）与 `task-workbench-join` / `task-workbench-identity` / `useRetainedAgentsSync` /
@@ -935,6 +937,7 @@ session 反推回 issue。因此真实删除任务仍走「从未开始」空态
 | 工作区 → 任务（来源） | `WorktreeMeta` 上的 `linkedIssue` / `linkedLinearIssue` / `linkedGitLabMR` / `linkedGitLabIssue` / `linkedWorkItem` / `linkedTaskSourceContext` | main（创建时与用户编辑） | 随 `worktreeMeta` 行；`gcStaleWorktreeMeta` 只在本地宿主、路径不存在且 30 天不活跃时删除 | 权威 |
 | 工作区 → 固定基线 | `WorktreeMeta.sparseTaskBinding`（含自摘要，严格读取） | 创建回执（M5） | 同上 | 权威 |
 | 工作区 → 宿主/实例身份 | `worktreeMeta` + `worktreeMetaByIdentity` + `worktreeIdentityAliases`；路径改名留 `priorWorktreeIds` | main | 同上；别名随身份行清理 | 权威 |
+| 工作区 → 任务（删除后） | `taskRunHistory`：profile-state 顶层 JSON（`records[]`，含 repo/item/number/worktreeId/path/state） | main（`setWorktreeMeta` / `removeWorktreeMeta`） | 无独立 GC；deleted 上限 1500 条，按最后活动淘汰；active/archived 随实际工作区数 | 权威（身份，不含运行态） |
 | Agent 状态 | 内存 `agentStatusByPaneKey` + 侧车 `last-status.json`（hook server 的 endpoint 目录，带 version，条目 malformed 即丢弃） | hook server | 进程内 + 重启水合；不保留历史 | 权威（单一 store） |
 | 会话 → 工作区 | **不存**：AI Vault 读时按 `cwd` 解析（`current/active/archived/unavailable`）；用量扫描按 `cwd` 归因 | — | 派生 | 派生 |
 | 会话 → 用量 | 每 provider 一个 JSON：`orca-claude-usage.json` / `orca-codex-usage.json` / `orca-opencode-usage.json` / `orca-muse-usage.json`（userData 下），内部 `schemaVersion`（Claude=6）、`worktreeFingerprint`、`processedFiles`、`sessions`、`dailyAggregates` | 主进程扫描 worker | 指纹变化即重扫；旧 schema 直接丢弃重建 | 权威（估算） |
