@@ -1,0 +1,97 @@
+<!doctype html>
+<!--
+  交付入口 · 设计稿 D3「启动之后：幂等与菜单次序」
+  数据为脱敏占位。版面依据 swarm/docs/design/task-workbench/README.md §7.11。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-deliver.css" />
+    <title>交付入口 D3</title>
+  </head>
+  <body>
+    <div class="body" style="display: flex; gap: 24px; padding: 16px">
+      <!-- 左：启动后的两个面 -->
+      <div style="width: 520px">
+        <div class="section-head">
+          <span class="name">智能体</span>
+          <span class="count">2</span>
+          <span class="spacer"></span>
+          <span class="muted" style="font-size: 11.5px">交付 agent 运行中</span>
+        </div>
+        <div class="face">
+          <div class="row">
+            <span class="tag">Cl</span>
+            <span class="grow">DELIVER</span>
+            <span class="dot is-working"></span>
+            <span class="muted">Working · 4 分 12 秒</span>
+            <span class="muted">38k token</span>
+            <button class="btn">打开终端</button>
+            <button class="btn is-quiet">停止</button>
+          </div>
+          <div class="row">
+            <span class="tag">Cx</span>
+            <span class="grow">fix-431</span>
+            <span class="dot is-idle"></span>
+            <span class="muted">Done · Delivered</span>
+            <span class="muted">1 时 02 分</span>
+            <span class="muted">201k token</span>
+            <button class="btn">打开</button>
+          </div>
+        </div>
+
+        <div class="face" style="margin-top: 18px">
+          <div class="fact-row">
+            <span class="fact-label">交付</span>
+            <span class="fact-body">
+              <span>3 个提交</span>
+              <span class="divider">·</span>
+              <span>PR #431 open</span>
+              <span class="divider">·</span>
+              <span>检查 5/6</span>
+            </span>
+            <button class="btn is-quiet">读取</button>
+            <!-- 同一个位置，动作换成打开，不再开第二个 agent -->
+            <button class="btn is-outline">打开终端</button>
+          </div>
+        </div>
+        <div class="caption" style="margin: 10px 0 0; padding: 8px 0 0">
+          同一位置换动作，不是换一处画布：已有 DELIVER 会话时这里只负责打开它。
+        </div>
+      </div>
+
+      <!-- 右：sidebar 右键次序 -->
+      <div style="width: 300px">
+        <div class="section-head">
+          <span class="name">工作区列表</span>
+          <span class="count">右键</span>
+        </div>
+        <div class="face" style="padding: 6px 0">
+          <div class="row" style="background: #262626">
+            <span class="quiet">▦</span>
+            <span class="mono grow">feat/task-431</span>
+            <span class="dot is-idle"></span>
+          </div>
+          <div class="row">
+            <span class="quiet">▦</span>
+            <span class="mono grow">main</span>
+            <span class="dot is-idle"></span>
+          </div>
+        </div>
+
+        <div class="menu" style="margin-top: 10px">
+          <div class="menu-item">打开终端</div>
+          <div class="menu-item">在终端中打开路径</div>
+          <div class="menu-sep"></div>
+          <div class="menu-item is-hover">交付…</div>
+          <div class="menu-item">归档</div>
+          <div class="menu-sep"></div>
+          <div class="menu-item">移除工作区…</div>
+        </div>
+        <div class="caption" style="margin: 10px 0 0; padding: 8px 0 0">
+          菜单次序＝生命周期次序：先交付，再归档，删除永远最后一行。
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

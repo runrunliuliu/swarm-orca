@@ -1,0 +1,158 @@
+<!doctype html>
+<!--
+  交付入口 · 设计稿 D1「宽屏：工作台上的交付 fact 行」
+  数据为脱敏占位（acme/web-app、feat/task-431），不含真实主机、会话或用量。
+  版面依据 swarm/docs/design/task-workbench/README.md §7.11。
+  重新渲染：见同目录 render-design-mockup.mjs 的文件头。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-deliver.css" />
+    <title>交付入口 D1</title>
+  </head>
+  <body>
+    <div class="topbar">
+      <span class="crumb">‹ GitHub list</span>
+      <span class="sep">|</span>
+      <span><strong>acme</strong> <span class="sep">/</span> <strong>web-app</strong></span>
+      <span class="sep">·</span>
+      <span>#431</span>
+    </div>
+
+    <div class="tabs">
+      <div class="tab">对话</div>
+      <div class="tab is-active">◆ Orca</div>
+    </div>
+
+    <div class="body" style="display: flex; gap: 20px">
+      <!-- 左列：智能体 -->
+      <div style="width: 620px">
+        <div class="section">
+          <div class="section-head">
+            <span class="name">智能体</span>
+            <span class="count">2</span>
+            <span class="spacer"></span>
+            <button class="btn is-quiet">历史 1 · 收起 ⌃</button>
+          </div>
+          <div class="face">
+            <div class="row">
+              <span class="tag">Cx</span>
+              <span class="grow">fix-431</span>
+              <span class="dot is-idle"></span>
+              <span class="muted">Done · Delivered</span>
+              <span class="muted">1 时 02 分</span>
+              <span class="muted">201k token</span>
+              <button class="btn">打开</button>
+            </div>
+            <div class="row">
+              <span class="tag">Cl</span>
+              <span class="grow">ui-review-431</span>
+              <span class="dot is-idle"></span>
+              <span class="muted">Idle</span>
+              <span class="muted">12 分</span>
+              <span class="muted">38k token</span>
+              <button class="btn">打开</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <span class="name">历史</span>
+            <span class="count">1</span>
+            <span class="spacer"></span>
+            <button class="btn is-quiet">展开 ⌄</button>
+          </div>
+          <div class="face">
+            <div class="row">
+              <span class="quiet">fix-431-draft</span>
+              <span class="grow"></span>
+              <span class="quiet">已完成 · 删除了这个工作区</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右列：工作区 / 用量 / 交付 -->
+      <div style="width: 508px">
+        <div class="section">
+          <div class="section-head">
+            <span class="name">工作区</span>
+            <span class="count">2</span>
+            <span class="spacer"></span>
+            <button class="btn is-quiet">+ 新建工作区</button>
+          </div>
+          <div class="face">
+            <div class="row">
+              <span class="quiet">▦</span>
+              <span class="mono">feat/task-431</span>
+              <span class="grow"></span>
+              <span class="dot is-idle"></span>
+              <span class="muted">Idle</span>
+              <span class="tag is-accent">默认</span>
+            </div>
+            <div class="row">
+              <span class="quiet">▦</span>
+              <span class="mono">main</span>
+              <span class="grow"></span>
+              <span class="dot is-idle"></span>
+              <span class="muted">Idle</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <span class="name">用量</span>
+            <span class="count">2 个会话</span>
+            <span class="spacer"></span>
+            <button class="btn is-quiet">未定价 1</button>
+          </div>
+          <div class="face">
+            <div class="row">
+              <span>1.4M token</span>
+              <span class="muted">约 $1.82</span>
+              <span class="grow"></span>
+              <span class="muted">Codex 890k · Claude 412k · Pi 96k</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 本次新增的唯一入口：交付 fact 行 -->
+        <div class="section">
+          <div class="face">
+            <div class="fact-row">
+              <span class="fact-label">交付</span>
+              <span class="fact-body">
+                <span>3 个提交</span>
+                <span class="divider">·</span>
+                <span>PR #431 merged</span>
+                <span class="divider">·</span>
+                <span>检查 5/6</span>
+              </span>
+              <button class="btn is-quiet">读取</button>
+              <button class="btn is-outline">交付…</button>
+            </div>
+            <div class="fact-detail">
+              <span class="k">提交</span>
+              <span class="v mono">9f3ac21 fix(task-workbench): 交付行动作</span>
+              <span class="k"></span>
+              <span class="v mono">4dbacbe chore: 清理未用分支</span>
+              <span class="k">目标</span>
+              <span class="v">main · PR 方式 · 远端 origin</span>
+              <span class="k">评审</span>
+              <span class="v">已批准 · 1 条待处理意见</span>
+              <span class="k">注意</span>
+              <span class="v">未提交 2 个文件 · 未推送 1 个提交</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption">
+      设计稿 D1 · 非生产组件渲染 · 占位数据 · 版面据 §7.11（入口挂在交付事实行右端，不另起一行；`注意` 只陈述不拦截）
+    </div>
+  </body>
+</html>

@@ -894,6 +894,9 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 
 明确不做：在详情页内嵌对话。
 
+> 唯一的受控例外是 **§7.11 交付入口**：一次带必填输入的交接，不是通用"起 agent"按钮；
+> 它不选 agent、不建分支与工作区，只在既有工作区上开一个 tab。那条边界与退化形态写在 §7.11.4。
+
 ---
 
 ### 7.10 已完成任务的历史：三态与 S1 落地（issue #31）
@@ -937,6 +940,83 @@ Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`
 验收证据：`tests/tools/task-workbench-rendered/run.mjs --all`（F2c / F2c-narrow / F2d 三个新用例，
 20/20 通过）与 `task-workbench-join` / `task-workbench-identity` / `useRetainedAgentsSync` /
 `build-dashboard-snapshot` 单测。
+
+### 7.11 交付入口：把「先交付、再归档」做成一个显式动作（2026-11-19，设计稿）
+
+状态：**设计稿，未实现**。三张图是与 §7.4.2 同层的 HTML/CSS 渲染稿（源文件在 `ui/src/`，可重渲染），
+不是生产组件渲染、也不是真机截图；图内数据为脱敏占位（`acme/web-app`、`feat/task-431`），不含真实主机、
+会话与用量。
+
+#### 7.11.1 要解决的问题
+
+现在工作台上没有"交付"的入口：`swarm/skills/worktree-delivery` 是给 agent 的流程文档，只能由操作者在会话里
+自己发起；工作台能做的只有 `[ 打开终端 ]`。而**归档不是那个信号**：`worktree archive` 是交付之后的保留动作
+（`worktree-delivery` §5），也可能只是把一个任务暂时 park 住。
+
+被否掉的做法：**在归档时自动开一个 agent 走 worktree 流程**。三条理由，留在这里以免有人重新提议：
+
+| 理由 | 依据 |
+| --- | --- |
+| 方向反了 | 归档是交付完成后的保留动作；auto-deliver 会让交付发生在交付之后，且每次 park 都会开一个会 merge 的 agent |
+| 授权反了 | 归档点击不携带目标分支、模型、预算、`max_workers`、runtime；`AGENTS.md` 要求启动 agent 是单独授权动作 |
+| 挂不上 | `orca.yaml` 的 `scripts.archive` 是 120s 死线的 shell hook（`orca/src/main/hooks.ts` 的 `HOOK_TIMEOUT`），超时会被判失败并拦住 `worktree rm`（`worktree-archive-hook-gate.ts`）；SSH 路径根本跑不了 hook（`gateRemovalWhereArchiveHookCannotRun`）；多选批量归档会一次起 N 个 |
+
+结论：改成**显式 `[ 交付… ]` 动作**，其最后一步才是归档。
+
+#### 7.11.2 三张设计稿
+
+**D1 入口** · 1180×556（`ui/design-deliver-20261119-entry-wide.png`）
+![交付入口：宽屏工作台上的交付事实行](ui/design-deliver-20261119-entry-wide.png)
+
+**D2 确认面** · 660×545（`ui/design-deliver-20261119-confirm.png`）
+![交付确认面：目标分支 / 集成方式 / 交付后归档](ui/design-deliver-20261119-confirm.png)
+
+**D3 启动之后** · 900×365（`ui/design-deliver-20261119-after-launch.png`）
+![交付启动之后：动作换成打开终端，菜单按生命周期排序](ui/design-deliver-20261119-after-launch.png)
+
+#### 7.11.3 落地规则（逐条可验收）
+
+| # | 规则 | 为什么 |
+| --- | --- | --- |
+| 1 | 一个动作两个入口：交付事实行右端 + sidebar 右键（`交付…` 在 `归档` 上方），同一命令 | 读者在想"交付"的地方和"归档"本来所在的地方都要能到；菜单次序＝生命周期次序 |
+| 2 | 确认面是 inline popover，不是模态框；主按钮是 outline | §7.4.2：全屏只有一个白底主按钮（页头）。模态框会造出第二个 |
+| 3 | 必填三项：目标分支 / 集成方式 / 交付后归档；默认分支标 `默认值 · 需确认` | `worktree-delivery` §1「main branch 不一定叫 main」、§3「一个写者」；归档勾选把"自动归档"变成人看见的勾 |
+| 4 | 幂等：已有 `DELIVER` 会话时该位置换成 `[ 打开终端 ]`，不再开第二个；目标工作区有 Working agent 时 `[ 交付… ]` 禁用，理由挂在 `title` + `sr-only` | §3 一个写者；禁用态沿用 `task-workbench-pending-action.tsx` 的可达性写法 |
+| 5 | 不造状态词：运行态复用 `dashboardPopout.bucket.*`（Working/Done）与 `outcome`（Delivered）；未知字段整行不渲染 | §7.4.3「交付不自造状态词」、§7.5 三态规则 |
+| 6 | `注意` 行（未提交 / 未推送）只陈述，不染色、不拦截 | 它是事实不是告警；`worktree-delivery` 也禁止自动 stash/reset/clean |
+| 7 | agent 宿主＝被交付的工作区本身；集成走 PR（远端），不写主检出 | §1/§2 就地核验与跑测试、复用已准备的 `node_modules`；主检出对修改型工作只读 |
+| 8 | 交付 agent 不归档自己：归档最后仍由人点 | archive 只把行移进 `Show archived`，**不杀 PTY**（§7.10）；agent 自我归档会让运行中的会话消失 |
+
+#### 7.11.4 与 §7.9 的关系（必须一起读）
+
+§7.9 立过规矩：**工作台不建 agent**，任务详情 `Orca` tab 是只读的。§7.11 是它的一个**受控例外**，边界写死：
+
+- 不是通用"起 agent"入口，是一次带必填输入的交接；它不选 agent（沿用 `resolveDefaultAgentForNewTab`），
+  不建分支、不建 worktree，只在**既有**工作区上开一个 tab；
+- `launchAgentInNewTab` 已支持初始 prompt（`renderer/src/components/tab-bar/QuickLaunchButton.tsx` 把初始
+  prompt 转发给它），所以"发固定交付指令"不需要新 RPC；
+- 如果评审认为这条例外不该开，退化形态是 §7.9 的只读形态：只加 `[ 复制交付命令 ]`，由操作者粘进终端。
+  这保留"归档是终点"的正确顺序，代价是回到手工。
+
+#### 7.11.5 实现清单（草案，未落地）
+
+| 改动 | 位置 | 关键点 |
+| --- | --- | --- |
+| 事实行动作 | `orca/src/renderer/src/components/task-workbench/TaskWorkbenchDelivery.tsx` | 动作挂在事实行右端，不另起一行；`Not wired` 注释与禁用态要么接线要么保留 |
+| 状态投影 | `task-workbench-row-projection.ts`、`use-task-workbench-view.ts` | 六个状态（§7.11.3 表格 4 + 归档/无工作区）从既有字段推出，不新增存储 |
+| 确认面 | 新增 `task-workbench-deliver-confirm.tsx` | popover，不是 dialog；目标分支默认值来自仓库政策，标注为需确认 |
+| sidebar 菜单 | sidebar 工作区行右键菜单 | 插入 `交付…` 于 `归档` 之上 |
+| testId | `task-workbench-deliver-action`、`-confirm`、`-target-branch`、`-archive-after` | 供 harness 断言 |
+| 文案 | `auto.components.TaskWorkbenchDeliver.*` | 词级文案 zh/en，纯模板同步六语（§7.4.3 口径） |
+
+#### 7.11.6 证据缺口
+
+- 三张图是设计稿：没有生产组件渲染、没有真机核对、不经过 store / selector / RPC、不切 locale。
+- §7.11.3 的六个状态没有实现，也没有 fixture；"已有 `DELIVER` 会话"的判据（会话标题 vs 终端标题 vs 启动来源）
+  尚未选型。
+- `launchAgentInNewTab` 带初始 prompt 在**远端 checkout / SSH 工作区**上的行为未验证；`terminal create --title`
+  的标题去重也未验证。
+- 未核对 `v1.4.219` 之后上游是否已有同类交付入口（本仓库为快照）。
 
 ---
 
@@ -1208,6 +1288,9 @@ setup 钩子"或"需要新装/重建依赖"。
   真渲染与执行结果在 §7.4.5（8 张 `impl-20261118-*.png`、vitest 8/8 文件 149 用例、四个 tsc 项目、
   harness 17/17）。仍缺 **真机核对**（图是 fixture 渲染，不经过 store / selector / RPC，也不切 locale），
   以及 `verify:localization-coverage` 的两处既有红灯（`IncidentDetailDrawer` / `IncidentGrayTables`，与本次无关）。
+- §7.11 的交付入口只有设计稿：三张图是 HTML/CSS 渲染（源文件 `ui/src/`），不是生产组件渲染；
+  §7.11.3 的六个状态未实现也没有 fixture；"已有 `DELIVER` 会话"的判据未选型；
+  `launchAgentInNewTab` 带初始 prompt 在远端 checkout 上的行为未验证。
 - `orca github create-issue` 只在单测里被验证过转发；`gh` 备通道的存在性、登录态与 `--repo` 实际行为未验证
   （只影响 agent 侧建单能力）。
 
@@ -1224,3 +1307,5 @@ setup 钩子"或"需要新装/重建依赖"。
 4. 路标是 P1（已实现）→ P3（列表主轴）→ P4（持久化）。
 5. agent 侧建单动词（`orca github create-issue`、`orca linear create`）与列表页无关，作为任何 agent 会话
    都可用的能力保留（§10）。
+6. 若要做 §7.11 交付入口，先定两件事：是否接受 §7.9 的例外（不接受就退化为 `[ 复制交付命令 ]`），
+   以及 `DELIVER` 会话的判据（会话标题 / 终端标题 / 启动来源三选一）。改 `orca/` 上游层需要单独授权。
