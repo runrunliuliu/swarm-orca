@@ -89,7 +89,7 @@ describe('resolveTaskWorkbenchRowActivity', () => {
         dotState: 'working',
         workspaceCount: 1,
         agentCount: 1,
-        taskKey: 'tracker:github:acme/web-app'
+        taskKey: 'tracker:github:acme/web-app:issue:12'
       }
     },
     {
@@ -250,11 +250,11 @@ describe('row scoping', () => {
     })
     expect(activity.get(issueRow().rowKey)).toMatchObject({
       kind: 'working',
-      taskKey: 'tracker:github:acme/web-app'
+      taskKey: 'tracker:github:acme/web-app:issue:12'
     })
     expect(activity.get(ghes.rowKey)).toMatchObject({
       kind: 'delivered',
-      taskKey: 'tracker:github:ghes.acme.test/acme/web-app'
+      taskKey: 'tracker:github:ghes.acme.test/acme/web-app:issue:12'
     })
   })
 })
