@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { TaskProviderIdentity } from '../../../../shared/task-provider-identity'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
-import { resolveTaskIdentity } from './task-workbench-identity'
-import type { IdentityWorktree } from './task-workbench-selector-types'
+import type { WorkspaceLinkedItem } from '../../../../shared/worktree/types'
+import {
+  resolveTaskIdentity,
+  selectTaskItemWorktrees,
+  worktreeLinksTaskItem
+} from './task-workbench-identity'
+import type { IdentityWorktree, TaskWorkbenchItem } from './task-workbench-selector-types'
 
 const GITHUB_ACME_WEB_APP: TaskProviderIdentity = {
   provider: 'github',
@@ -23,6 +28,11 @@ const LINEAR_FINANCE: TaskProviderIdentity = {
   teamId: 'team-fin'
 }
 
+const ISSUE_9: TaskWorkbenchItem = { type: 'issue', number: 9 }
+const ISSUE_1: TaskWorkbenchItem = { type: 'issue', number: 1 }
+const ISSUE_7: TaskWorkbenchItem = { type: 'issue', number: 7 }
+const PR_7: TaskWorkbenchItem = { type: 'pr', number: 7 }
+
 /** A stored task source context: `provider` follows the identity so the fixture
  *  stays a shape the normalizers could actually have produced. */
 function trackerContext(providerIdentity: TaskProviderIdentity | null): TaskSourceContext {
@@ -38,58 +48,58 @@ function trackerContext(providerIdentity: TaskProviderIdentity | null): TaskSour
 function worktree(
   worktreeId: string,
   linkedProviderIdentity: TaskProviderIdentity | null,
-  isArchived = false
+  options: {
+    archived?: boolean
+    linkedIssue?: number
+    linkedPR?: number
+    linkedItem?: WorkspaceLinkedItem
+  } = {}
 ): IdentityWorktree {
   return {
     worktreeId,
-    isArchived,
+    isArchived: options.archived ?? false,
+    ...(options.linkedIssue === undefined ? {} : { linkedIssue: options.linkedIssue }),
+    ...(options.linkedPR === undefined ? {} : { linkedPR: options.linkedPR }),
+    ...(options.linkedItem === undefined ? {} : { linkedWorkItem: options.linkedItem }),
     linkedTaskSourceContext: linkedProviderIdentity ? trackerContext(linkedProviderIdentity) : null
   }
 }
 
+/** A GitHub link record, the shape creation writes next to the number column. */
+function githubItem(type: 'issue' | 'pr', number: number): WorkspaceLinkedItem {
+  return {
+    provider: 'github',
+    type,
+    number,
+    title: `#${number}`,
+    url: `https://github.com/acme/web-app/${type === 'issue' ? 'issues' : 'pull'}/${number}`
+  }
+}
+
+function ids(worktrees: readonly IdentityWorktree[]): string[] {
+  return worktrees.map((worktree) => worktree.worktreeId)
+}
+
 describe('resolveTaskIdentity — task source context', () => {
-  it('uses the tracker identity the task itself carries and keeps worktree order', () => {
+  it('names the item, not the repo, when the page knows which item it is', () => {
     expect(
       resolveTaskIdentity({
         taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP),
-        worktrees: [
-          worktree('wt-b', GITHUB_ACME_WEB_APP),
-          worktree('wt-archived', GITHUB_ACME_WEB_APP, true),
-          worktree('wt-a', GITHUB_ACME_WEB_APP)
-        ]
+        item: { type: 'issue', number: 412 },
+        worktrees: []
       })
     ).toEqual({
       identity: {
         kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
+        provider: { provider: 'github', owner: 'acme', repo: 'web-app' },
+        item: { type: 'issue', number: 412 }
       },
-      taskKey: 'tracker:github:acme/web-app',
-      source: 'task-source-context',
-      matchedWorktreeIds: ['wt-b', 'wt-archived', 'wt-a']
+      taskKey: 'tracker:github:acme/web-app:issue:412',
+      source: 'task-source-context'
     })
   })
 
-  it('keeps a GHES host in the task key and does not match the github.com identity', () => {
-    expect(
-      resolveTaskIdentity({
-        taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP_GHES),
-        worktrees: [
-          worktree('wt-dotcom', GITHUB_ACME_WEB_APP),
-          worktree('wt-ghes', GITHUB_ACME_WEB_APP_GHES)
-        ]
-      })
-    ).toEqual({
-      identity: {
-        kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app', host: 'ghes.acme.test' }
-      },
-      taskKey: 'tracker:github:ghes.acme.test/acme/web-app',
-      source: 'task-source-context',
-      matchedWorktreeIds: ['wt-ghes']
-    })
-  })
-
-  it('resolves a tracker even when no worktree is linked yet', () => {
+  it('keeps the item out of the key when the caller did not name one', () => {
     expect(
       resolveTaskIdentity({
         taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP),
@@ -98,12 +108,234 @@ describe('resolveTaskIdentity — task source context', () => {
     ).toEqual({
       identity: {
         kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
+        provider: { provider: 'github', owner: 'acme', repo: 'web-app' },
+        item: null
       },
       taskKey: 'tracker:github:acme/web-app',
-      source: 'task-source-context',
-      matchedWorktreeIds: []
+      source: 'task-source-context'
     })
+  })
+
+  it('keeps a GHES host in the item-scoped task key', () => {
+    expect(
+      resolveTaskIdentity({
+        taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP_GHES),
+        item: ISSUE_9,
+        worktrees: []
+      })
+    ).toMatchObject({
+      identity: { provider: { host: 'ghes.acme.test' }, item: ISSUE_9 },
+      taskKey: 'tracker:github:ghes.acme.test/acme/web-app:issue:9',
+      source: 'task-source-context'
+    })
+  })
+
+  it('ignores an item number that is not a tracker number', () => {
+    // Jira / Linear rows carry 0 next to their own identifier; matching it would
+    // make every such workspace the same item.
+    expect(
+      resolveTaskIdentity({
+        taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP),
+        item: { type: 'issue', number: 0 },
+        worktrees: []
+      })
+    ).toMatchObject({ identity: { kind: 'tracker', item: null } })
+  })
+})
+
+describe('worktree selection — the item decides the collection (issue #38)', () => {
+  const threeIssues = [
+    worktree('wt-1', GITHUB_ACME_WEB_APP, { linkedIssue: 1, linkedItem: githubItem('issue', 1) }),
+    worktree('wt-2', GITHUB_ACME_WEB_APP, { linkedIssue: 2, linkedItem: githubItem('issue', 2) }),
+    worktree('wt-3', GITHUB_ACME_WEB_APP, { linkedIssue: 3, linkedItem: githubItem('issue', 3) })
+  ]
+
+  it('selects nothing for an item that never had a workspace', () => {
+    // The bug: one repo-level identity matched all three, so opening #9 showed
+    // three workspaces full of other issues' agents.
+    expect(selectTaskItemWorktrees(threeIssues, ISSUE_9, GITHUB_ACME_WEB_APP)).toEqual([])
+    expect(
+      resolveTaskIdentity({
+        taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP),
+        item: ISSUE_9,
+        worktrees: threeIssues
+      })
+    ).toMatchObject({ taskKey: 'tracker:github:acme/web-app:issue:9' })
+  })
+
+  it('selects only the item that owns the workspace', () => {
+    expect(ids(selectTaskItemWorktrees(threeIssues, ISSUE_1, GITHUB_ACME_WEB_APP))).toEqual([
+      'wt-1'
+    ])
+  })
+
+  it('selects every workspace of the item, archived included (issue #31)', () => {
+    expect(
+      ids(
+        selectTaskItemWorktrees(
+          [
+            worktree('wt-live', GITHUB_ACME_WEB_APP, { linkedIssue: 9 }),
+            worktree('wt-archived', GITHUB_ACME_WEB_APP, { linkedIssue: 9, archived: true }),
+            worktree('wt-other', GITHUB_ACME_WEB_APP, { linkedIssue: 8 })
+          ],
+          ISSUE_9,
+          GITHUB_ACME_WEB_APP
+        )
+      )
+    ).toEqual(['wt-live', 'wt-archived'])
+  })
+
+  it('keeps an issue and a PR with the same number apart', () => {
+    const issueSeven = worktree('wt-issue-7', GITHUB_ACME_WEB_APP, {
+      linkedIssue: 7,
+      linkedItem: githubItem('issue', 7)
+    })
+    const prSeven = worktree('wt-pr-7', GITHUB_ACME_WEB_APP, {
+      linkedPR: 7,
+      linkedItem: githubItem('pr', 7)
+    })
+    expect(ids(selectTaskItemWorktrees([issueSeven, prSeven], ISSUE_7, null))).toEqual([
+      'wt-issue-7'
+    ])
+    expect(ids(selectTaskItemWorktrees([issueSeven, prSeven], PR_7, null))).toEqual(['wt-pr-7'])
+  })
+
+  it('matches the provider-neutral link record when there is no number column', () => {
+    // A GitLab MR has no `linkedPR`, so `linkedWorkItem` is the only evidence;
+    // `mr` answers a PR page and never an issue page. Matching is ready for a
+    // GitLab page, but this snapshot has no Orca tab in the GitLab dialog, so
+    // that acceptance item of issue #38 is waived here rather than claimed.
+    const gitlabMr = worktree('wt-mr', null, {
+      linkedItem: { provider: 'gitlab', type: 'mr', number: 7, title: '!7', url: 'https://gl/7' }
+    })
+    expect(ids(selectTaskItemWorktrees([gitlabMr], PR_7, null))).toEqual(['wt-mr'])
+    expect(selectTaskItemWorktrees([gitlabMr], ISSUE_7, null)).toEqual([])
+  })
+
+  it('does not let a GHES branch answer a github.com item', () => {
+    const dotcom = worktree('wt-dotcom', GITHUB_ACME_WEB_APP, { linkedIssue: 9 })
+    const ghes = worktree('wt-ghes', GITHUB_ACME_WEB_APP_GHES, { linkedIssue: 9 })
+    expect(ids(selectTaskItemWorktrees([dotcom, ghes], ISSUE_9, GITHUB_ACME_WEB_APP))).toEqual([
+      'wt-dotcom'
+    ])
+    expect(ids(selectTaskItemWorktrees([dotcom, ghes], ISSUE_9, GITHUB_ACME_WEB_APP_GHES))).toEqual(
+      ['wt-ghes']
+    )
+  })
+
+  it('accepts a legacy workspace that only carries the number column', () => {
+    // Workspaces created before `linkedWorkItem` existed (or discovered on disk)
+    // have the number and no provenance; the link is the evidence.
+    expect(
+      ids(
+        selectTaskItemWorktrees(
+          [worktree('wt-legacy', null, { linkedIssue: 9 })],
+          ISSUE_9,
+          GITHUB_ACME_WEB_APP
+        )
+      )
+    ).toEqual(['wt-legacy'])
+    expect(
+      worktreeLinksTaskItem(
+        worktree('wt-legacy', null, { linkedIssue: 8 }),
+        ISSUE_9,
+        GITHUB_ACME_WEB_APP
+      )
+    ).toBe(false)
+  })
+
+  it('does not let one provider link answer another provider item', () => {
+    const linearWorktree = worktree('wt-linear', LINEAR_FINANCE, { linkedIssue: 9 })
+    expect(selectTaskItemWorktrees([linearWorktree], ISSUE_9, GITHUB_ACME_WEB_APP)).toEqual([])
+  })
+
+  it('compares GitHub identities by the same canonical key the task key uses', () => {
+    // The key lowercases owner/repo and treats an absent host as github.com, so
+    // a stored identity written by a remote-URL probe (`host: 'github.com'`) or
+    // with different casing is the same repo. Field-by-field equality would
+    // drop the binding while `taskKey` still said they are the same task.
+    const dotted = worktree(
+      'wt-dotcom',
+      { provider: 'github', owner: 'acme', repo: 'web-app', host: 'github.com' },
+      { linkedIssue: 9 }
+    )
+    const upper = worktree(
+      'wt-upper',
+      { provider: 'github', owner: 'ACME', repo: 'Web-App' },
+      { linkedIssue: 9 }
+    )
+    expect(ids(selectTaskItemWorktrees([dotted, upper], ISSUE_9, GITHUB_ACME_WEB_APP))).toEqual([
+      'wt-dotcom',
+      'wt-upper'
+    ])
+  })
+
+  it('still keeps a GHES host apart after canonicalization', () => {
+    const ghes = worktree('wt-ghes', GITHUB_ACME_WEB_APP_GHES, { linkedIssue: 9 })
+    expect(selectTaskItemWorktrees([ghes], ISSUE_9, GITHUB_ACME_WEB_APP)).toEqual([])
+  })
+
+  it('does not let GitHub number columns answer a non-GitHub item', () => {
+    // One repo can carry remotes from several providers, and `repoId` is not a
+    // provider filter. A legacy row with only `linkedIssue` must not become a
+    // GitLab/Linear item's workspace.
+    const gitlab: TaskProviderIdentity = { provider: 'gitlab', projectId: 'acme/web-app' }
+    const legacy = worktree('wt-legacy', null, { linkedIssue: 9 })
+    expect(selectTaskItemWorktrees([legacy], ISSUE_9, gitlab)).toEqual([])
+    // With no provider to contradict, the GitHub column is still the evidence.
+    expect(ids(selectTaskItemWorktrees([legacy], ISSUE_9, null))).toEqual(['wt-legacy'])
+  })
+
+  it('keeps non-GitHub identities field-by-field instead of merging by cache key', () => {
+    // GitLab's cache part is `projectId` (or namespace/project) and ignores
+    // `webUrl`, so key equality would merge two hosts that happen to share a
+    // project id. GitHub is the only provider whose key is a complete repo
+    // identity (issue #38 review R2).
+    const gitlabA: TaskProviderIdentity = {
+      provider: 'gitlab',
+      projectId: '42',
+      namespace: 'g',
+      project: 'r',
+      webUrl: 'https://a.example/g/r'
+    }
+    const gitlabB: TaskProviderIdentity = { ...gitlabA, webUrl: 'https://b.example/g/r' } as never
+    const row = worktree('wt-gl', gitlabA, {
+      linkedItem: { provider: 'gitlab', type: 'issue', number: 9, title: '#9', url: 'https://a/9' }
+    })
+    expect(selectTaskItemWorktrees([row], ISSUE_9, gitlabB)).toEqual([])
+    expect(ids(selectTaskItemWorktrees([row], ISSUE_9, gitlabA))).toEqual(['wt-gl'])
+    // Field comparison keeps the asymmetry honest: a known project does not
+    // match an identity that carries nothing, and two identities that both
+    // carry nothing are equal — the pre-existing behaviour, not a claim that
+    // two unknown hosts are one repo.
+    const unknown: TaskProviderIdentity = { provider: 'gitlab' }
+    expect(selectTaskItemWorktrees([row], ISSUE_9, unknown)).toEqual([])
+    const emptyLinked = worktree('wt-gl-empty', unknown, {
+      linkedItem: { provider: 'gitlab', type: 'issue', number: 9, title: '#9', url: 'https://a/9' }
+    })
+    expect(ids(selectTaskItemWorktrees([emptyLinked], ISSUE_9, unknown))).toEqual(['wt-gl-empty'])
+  })
+
+  it('matches nothing for an item whose number is not a tracker number', () => {
+    // Naming drops `number: 0` (Jira/Linear carry it beside their own id); the
+    // collection must use the same validator or every zero-numbered row would
+    // belong to every such item.
+    const linearZero = worktree('wt-zero', null, {
+      linkedItem: {
+        provider: 'linear',
+        type: 'issue',
+        number: 0,
+        title: 'FIN-1',
+        url: 'https://linear.app/fin/issue/FIN-1',
+        linearIdentifier: 'FIN-1'
+      }
+    })
+    expect(
+      selectTaskItemWorktrees([linearZero], { type: 'issue', number: 0 }, LINEAR_FINANCE)
+    ).toEqual([])
+    expect(worktreeLinksTaskItem(linearZero, { type: 'issue', number: 0 }, LINEAR_FINANCE)).toBe(
+      false
+    )
   })
 })
 
@@ -116,28 +348,29 @@ describe('resolveTaskIdentity — worktree provenance', () => {
     ).toEqual({
       identity: {
         kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
+        provider: { provider: 'github', owner: 'acme', repo: 'web-app' },
+        item: null
       },
       taskKey: 'tracker:github:acme/web-app',
-      source: 'worktree',
-      matchedWorktreeIds: ['wt-github']
+      source: 'worktree'
     })
   })
 
-  it('falls back to a live worktree linked context when the task source identity is null', () => {
+  it('reads provenance only from the worktree that links the item', () => {
+    // Two issues of one repo: the caller asked for #9, so #1's branch may not
+    // name it, and an item-less worktree may not either.
     expect(
       resolveTaskIdentity({
-        taskSourceContext: trackerContext(null),
-        worktrees: [worktree('wt-local', null), worktree('wt-github', GITHUB_ACME_WEB_APP)]
+        item: ISSUE_9,
+        worktrees: [
+          worktree('wt-1', GITHUB_ACME_WEB_APP, { linkedIssue: 1 }),
+          worktree('wt-9', GITHUB_ACME_WEB_APP, { linkedIssue: 9 })
+        ]
       })
-    ).toEqual({
-      identity: {
-        kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
-      },
-      taskKey: 'tracker:github:acme/web-app',
-      source: 'worktree',
-      matchedWorktreeIds: ['wt-github']
+    ).toMatchObject({
+      identity: { kind: 'tracker', item: ISSUE_9 },
+      taskKey: 'tracker:github:acme/web-app:issue:9',
+      source: 'worktree'
     })
   })
 
@@ -147,20 +380,12 @@ describe('resolveTaskIdentity — worktree provenance', () => {
         taskSourceContext: trackerContext(GITHUB_ACME_WEB_APP),
         worktrees: [worktree('wt-linear', LINEAR_FINANCE)]
       })
-    ).toEqual({
-      identity: {
-        kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
-      },
-      taskKey: 'tracker:github:acme/web-app',
-      source: 'task-source-context',
-      matchedWorktreeIds: []
-    })
+    ).toMatchObject({ identity: { kind: 'tracker', provider: GITHUB_ACME_WEB_APP } })
   })
 })
 
 describe('resolveTaskIdentity — workspace fallback', () => {
-  it('uses the first live worktree as the task when nothing is linked', () => {
+  it('uses the first live worktree as the task when nothing is linked and no item is named', () => {
     expect(
       resolveTaskIdentity({
         taskSourceContext: null,
@@ -169,8 +394,39 @@ describe('resolveTaskIdentity — workspace fallback', () => {
     ).toEqual({
       identity: { kind: 'workspace', primaryWorktreeId: 'wt-first' },
       taskKey: 'workspace:wt-first',
-      source: 'workspace-fallback',
-      matchedWorktreeIds: ['wt-first']
+      source: 'workspace-fallback'
+    })
+  })
+
+  it('never falls back to another branch of the repo when an item is named', () => {
+    // Acceptance criterion of issue #38: the repo's live worktree is not this
+    // item's workspace, so #9 stays empty instead of borrowing #1's branch.
+    expect(
+      resolveTaskIdentity({
+        taskSourceContext: null,
+        item: ISSUE_9,
+        worktrees: [
+          worktree('wt-1', null, { linkedIssue: 1 }),
+          worktree('wt-2', null, { linkedIssue: 2 })
+        ]
+      })
+    ).toBeNull()
+  })
+
+  it('falls back to the item’s own legacy worktree, not the first live one', () => {
+    expect(
+      resolveTaskIdentity({
+        taskSourceContext: null,
+        item: ISSUE_9,
+        worktrees: [
+          worktree('wt-other', null, { linkedIssue: 1 }),
+          worktree('wt-nine', null, { linkedIssue: 9 })
+        ]
+      })
+    ).toEqual({
+      identity: { kind: 'workspace', primaryWorktreeId: 'wt-nine' },
+      taskKey: 'workspace:wt-nine',
+      source: 'workspace-fallback'
     })
   })
 
@@ -178,29 +434,76 @@ describe('resolveTaskIdentity — workspace fallback', () => {
     expect(
       resolveTaskIdentity({
         worktrees: [
-          worktree('wt-old', GITHUB_ACME_WEB_APP, true),
+          worktree('wt-old', GITHUB_ACME_WEB_APP, { archived: true }),
           worktree('wt-linear', LINEAR_FINANCE)
         ]
       })
-    ).toEqual({
-      identity: {
-        kind: 'tracker',
-        provider: { provider: 'linear', workspaceId: 'ws-orca', teamId: 'team-fin' }
-      },
+    ).toMatchObject({
+      identity: { kind: 'tracker', provider: LINEAR_FINANCE },
       taskKey: 'tracker:linear:ws-orca/team-fin',
-      source: 'worktree',
-      matchedWorktreeIds: ['wt-linear']
+      source: 'worktree'
     })
     expect(
       resolveTaskIdentity({
-        worktrees: [worktree('wt-old', null, true), worktree('wt-new', null)]
+        worktrees: [worktree('wt-old', null, { archived: true }), worktree('wt-new', null)]
       })
     ).toEqual({
       identity: { kind: 'workspace', primaryWorktreeId: 'wt-new' },
       taskKey: 'workspace:wt-new',
-      source: 'workspace-fallback',
-      matchedWorktreeIds: ['wt-new']
+      source: 'workspace-fallback'
     })
+  })
+})
+
+describe('resolveTaskIdentity — deleted workspace in the run ledger', () => {
+  it('names a closed task from its own deleted record', () => {
+    // The tab keeps saying the task ran after its workspace is gone (issue #31
+    // S2). The record is task-scoped: #1's workspace is still there and must
+    // not be borrowed to reach this name (issue #38 review).
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        historyWorktreeIds: ['repo-1::/gone'],
+        worktrees: [worktree('wt-1', GITHUB_ACME_WEB_APP, { linkedIssue: 1 })]
+      })
+    ).toEqual({
+      identity: { kind: 'workspace', primaryWorktreeId: 'repo-1::/gone' },
+      taskKey: 'workspace:repo-1::/gone',
+      source: 'deleted-worktree'
+    })
+  })
+
+  it('prefers a live or archived workspace of the item over a deleted record', () => {
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        historyWorktreeIds: ['repo-1::/gone'],
+        worktrees: [worktree('wt-9', null, { linkedIssue: 9 })]
+      })
+    ).toMatchObject({
+      identity: { kind: 'workspace', primaryWorktreeId: 'wt-9' },
+      source: 'workspace-fallback'
+    })
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        historyWorktreeIds: ['repo-1::/gone'],
+        worktrees: [worktree('wt-9', GITHUB_ACME_WEB_APP, { linkedIssue: 9 })]
+      })
+    ).toMatchObject({ identity: { kind: 'tracker' }, source: 'worktree' })
+    // An archived workspace is still on this machine, so it names the task (and
+    // its rows are history) before a deleted record does.
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        historyWorktreeIds: ['repo-1::/gone'],
+        worktrees: [worktree('wt-9', GITHUB_ACME_WEB_APP, { linkedIssue: 9, archived: true })]
+      })
+    ).toMatchObject({ identity: { kind: 'tracker' }, source: 'archived-worktree' })
+  })
+
+  it('ignores the ledger when the caller does not name an item', () => {
+    expect(resolveTaskIdentity({ historyWorktreeIds: ['repo-1::/gone'], worktrees: [] })).toBeNull()
   })
 })
 
@@ -208,29 +511,50 @@ describe('resolveTaskIdentity — no identity', () => {
   it('returns null without a task source context or a worktree', () => {
     expect(resolveTaskIdentity({ worktrees: [] })).toBeNull()
     expect(resolveTaskIdentity({ taskSourceContext: null, worktrees: [] })).toBeNull()
+    expect(
+      resolveTaskIdentity({ taskSourceContext: null, item: ISSUE_9, worktrees: [] })
+    ).toBeNull()
   })
 
   it('names a task whose only worktree was archived (issue #31)', () => {
     // A closed task keeps its history: the archived worktree is the last proof
     // of which task this is, so the tab must not fall back to "no identity".
     expect(
-      resolveTaskIdentity({ worktrees: [worktree('wt-old', GITHUB_ACME_WEB_APP, true)] })
-    ).toEqual({
-      identity: {
-        kind: 'tracker',
-        provider: { provider: 'github', owner: 'acme', repo: 'web-app' }
-      },
-      taskKey: 'tracker:github:acme/web-app',
-      source: 'archived-worktree',
-      matchedWorktreeIds: ['wt-old']
+      resolveTaskIdentity({
+        worktrees: [worktree('wt-old', GITHUB_ACME_WEB_APP, { archived: true })]
+      })
+    ).toMatchObject({
+      identity: { kind: 'tracker', provider: GITHUB_ACME_WEB_APP },
+      source: 'archived-worktree'
     })
     expect(
-      resolveTaskIdentity({ worktrees: [worktree('wt-old', null, true)] })
+      resolveTaskIdentity({ worktrees: [worktree('wt-old', null, { archived: true })] })
     ).toEqual({
       identity: { kind: 'workspace', primaryWorktreeId: 'wt-old' },
       taskKey: 'workspace:wt-old',
-      source: 'archived-worktree',
-      matchedWorktreeIds: ['wt-old']
+      source: 'archived-worktree'
+    })
+  })
+
+  it('still names a closed item from its archived worktree', () => {
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        worktrees: [worktree('wt-old', GITHUB_ACME_WEB_APP, { archived: true, linkedIssue: 9 })]
+      })
+    ).toMatchObject({
+      identity: { kind: 'tracker', item: ISSUE_9 },
+      source: 'archived-worktree'
+    })
+    expect(
+      resolveTaskIdentity({
+        item: ISSUE_9,
+        worktrees: [worktree('wt-old', null, { archived: true, linkedIssue: 9 })]
+      })
+    ).toEqual({
+      identity: { kind: 'workspace', primaryWorktreeId: 'wt-old' },
+      taskKey: 'workspace:wt-old',
+      source: 'archived-worktree'
     })
   })
 })

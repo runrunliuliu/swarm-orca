@@ -3,8 +3,8 @@ import { taskWorkbenchOverlayDotState } from '@/components/task-workbench/task-w
 import type { AgentOutcome } from '@/components/task-workbench/task-workbench-view'
 import type { DashboardCardDotState } from '../../../../shared/dashboard-snapshot'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
-import { resolveTaskIdentity } from './task-workbench-identity'
-import type { IdentityWorktree } from './task-workbench-selector-types'
+import { resolveTaskIdentity, worktreeLinksTaskItem } from './task-workbench-identity'
+import type { IdentityWorktree, TaskWorkbenchItem } from './task-workbench-selector-types'
 
 /**
  * The P3 thin-slice row activity selector (issue #27): one tracker list row ->
@@ -19,15 +19,13 @@ import type { IdentityWorktree } from './task-workbench-selector-types'
  * cached and never persisted, so resuming an agent leaves `Delivered` without
  * an invalidation step.
  *
- * Why the row, not the task, decides which worktrees count: `resolveTaskIdentity`
- * names a GitHub task by owner/repo (`taskProviderIdentityCachePart` carries the
- * repository, not the issue number, `task-workbench-selector-types.ts:118-126`),
- * so one repo's issues would share a key and one row's agents would mark every
- * row. This selector therefore keeps the row-scoped lookup the list already
- * uses — `repoId` plus `linkedIssue` / `linkedPR`, the same pair
- * `findGithubWorkItemWorkspaceAttachment` reads — and reuses the identity
- * selector only for the task key it records. The map it returns is keyed by the
- * caller's row key, which is why the identity key can stay repo-scoped here.
+ * Why the row, not the task, decides which worktrees count: membership is a
+ * per-worktree question — `repoId` plus `linkedIssue` / `linkedPR` /
+ * `linkedWorkItem`, the same links `findGithubWorkItemWorkspaceAttachment` reads
+ * — and it now lives in `worktreeLinksTaskItem` so the row badge and the detail
+ * page tab cannot answer it differently (issue #38). The identity selector is
+ * asked separately, for the item-scoped task key this row records. The map it
+ * returns is keyed by the caller's row key.
  *
  * Why `Workspace` exists (README §7.2, decision recorded there with this
  * module): §7.2 defined "0 workspaces" and "has an agent", leaving "workspace
@@ -105,8 +103,8 @@ type RowActivityBase = {
   workspaceCount: number
   /** Agents in those workspaces, any state. */
   agentCount: number
-  /** The identity selector's task key for this row. Repo-scoped for GitHub
-   *  today, which is why the map is keyed by the caller's row key instead. */
+  /** The identity selector's task key for this row: item-scoped now that the
+   *  row's number reaches it (`tracker:github:acme/web-app:issue:12`). */
   taskKey: string
 }
 
@@ -146,8 +144,10 @@ export function resolveTaskWorkbenchRowActivity(
     // filtered to this task's repo/host" (`IdentityInput.worktrees`), so the
     // repo filter happens here and never inside it.
     const repoWorktrees = input.worktrees.filter((worktree) => worktree.repoId === row.repoId)
+    const item: TaskWorkbenchItem = { type: row.itemType, number: row.itemNumber }
+    const rowProvider = row.taskSourceContext?.providerIdentity ?? null
     const boundWorktrees = repoWorktrees.filter(
-      (worktree) => !worktree.isArchived && linksRow(worktree, row)
+      (worktree) => !worktree.isArchived && worktreeLinksTaskItem(worktree, item, rowProvider)
     )
     if (boundWorktrees.length === 0) {
       continue
@@ -159,6 +159,7 @@ export function resolveTaskWorkbenchRowActivity(
     // here would be a second identity.
     const identity = resolveTaskIdentity({
       taskSourceContext: row.taskSourceContext ?? null,
+      item,
       worktrees: repoWorktrees
     })
     if (!identity) {
@@ -174,14 +175,6 @@ export function resolveTaskWorkbenchRowActivity(
   }
 
   return activity
-}
-
-/** Issue rows count issue links, PR rows count PR links: a worktree created
- *  from PR #7 must not speak for issue #7. */
-function linksRow(worktree: TaskWorkbenchRowWorktree, row: TaskWorkbenchRowInput): boolean {
-  return row.itemType === 'pr'
-    ? worktree.linkedPR === row.itemNumber
-    : worktree.linkedIssue === row.itemNumber
 }
 
 /**

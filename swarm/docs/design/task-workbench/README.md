@@ -127,6 +127,19 @@ taskKey = "provider:github:repo-17:#412"   // 有 tracker
 taskKey = "workspace:web-app::feature/add-login"  // 无 tracker（本地任务，标题取 worktree displayName）
 ```
 
+实现口径（issue #38 起，`orca/src/renderer/src/lib/task-workbench/task-workbench-identity.ts`）：
+条目身份是 `TaskWorkbenchItem {type: 'issue' | 'pr', number}`，追加在 repo 级 key 之后，即
+`tracker:github:acme/web-app:issue:412`；repo 段仍由 `taskProviderIdentityCachePart` 单一实现产出。
+条目级 key 只用于**命名**：某任务的 workspace 集合由 `worktreeLinksTaskItem` 逐个 worktree 判定
+（`linkedIssue` / `linkedPR` / `linkedWorkItem`，叠加 provider/host 校验：GitHub 用与 key 同口径的
+canonical repo key，其他 provider 保持逐字段比较，不拿有损 cache key 合并），
+零匹配就是零。`resolveTaskIdentity` 不再返回 matched ids——把 repo 级 key 当成集合来源正是该 bug。
+没有任何现存工作区但本条目在 run ledger 里有 deleted 记录时，用该记录（而非 repo 里别人的分支）
+命名这个已关闭的任务，历史条照旧（issue #31 S2）；未被条目命名时 ledger 不参与。ledger 的
+读取本身按 (repoId, itemType, number) 表记作答，切换条目时旧作答在 effect 前不被采用。
+已删除工作区没有条目身份（`workspace:<worktreeId>`），同一双关联工作区被删时两个任务会得到相同
+workspace key；P3 分组前必须解决这一点。
+
 投影意味着"分组/排序/合计"都从既有 store 现算，**不新增持久化契约**；代价是跨窗口/跨端不共享，
 跨入口续做仍需读 worktree 绑定（与现状一致）。
 
@@ -317,12 +330,13 @@ skills / CLI 动词建单。
 - glyph 复用 `AgentStateDot`（spinner=working / amber=needs you / red=blocked / emerald=done / gray=idle），
   失败 / 中断 / 未定论沿用 F8 映射，不新造状态词汇；文案（含 tooltip）全部走 locale catalog，
   `Delivered` 的文案只能是 `Delivered · agent done`。
-- 行级归属按 `repoId` + `linkedIssue` / `linkedPR` 反查，**不按** identity 的 `taskKey`：identity selector
-  的 GitHub key 是 owner/repo 级（`taskProviderIdentityCachePart` 不含 issue 号），拿它当行键会让同一
-   repo 的所有条目共享一行的活动。`taskKey` 仍记录在 selector 输出里，但它是 **repo 级、含 host** 的
-   身份、不是条目身份：P3 分组前必须先把 key 扩到条目粒度，不能直接当分组键。每行 O(1) 查表由
-   一个列表页级批量 hook 提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量
-   selector 与 dashboard snapshot）。
+- 行级归属按 `repoId` + `linkedIssue` / `linkedPR` / `linkedWorkItem` 反查，**不把** identity 的
+  `taskKey` 当集合：identity 是**命名**（issue #38 起 key 已扩到条目粒度，
+  `tracker:github:acme/web-app:issue:412`，但分组 UI 仍未实现），成员资格由 `worktreeLinksTaskItem`
+  逐 worktree 判定，页面与列表共用同一份判定实现；页面带 `providerIdentity` 时两处输入一致，页面没有
+  时两处都只用条目链接，不从某个 worktree 的身份反推 host。每行 O(1) 查表由一个列表页级批量 hook
+  提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量 selector 与 dashboard
+  snapshot）。
 - 本切片不做：列表分组 / 重排 / 主轴切换、`◇` 徽标、一任务多工作区合并、
   Linear / Jira / GitLab 列表、写回 tracker 状态、`taskRecords` 持久化。
 
