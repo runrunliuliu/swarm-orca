@@ -4,7 +4,6 @@ import copy
 from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
 import shlex
 import sys
 import unittest
@@ -15,7 +14,7 @@ from coordinator_io import canonical, digest, file_ref, now
 from coordinator_launch import build_plan
 from coordinator_startup import identity, validate
 from coordinator_strict import native_plan
-from trae_coordinator import ContextFreshnessError, TUI_ADAPTER, TUI_EXECUTION, observe as stream_observe, verify_log
+from trae_coordinator import ContextFreshnessError, TUI_ADAPTER, TUI_EXECUTION, observe as stream_observe
 from trae_tui import observe
 import trae.test_trae_coordinator as legacy
 import coordinator.test_coordinator_startup as startup

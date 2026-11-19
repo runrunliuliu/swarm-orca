@@ -5,21 +5,6 @@ strict startup request builders. Recovery prose is separate context; it never
 rewrites the objective or authority.
 """
 
-STRICT_REQUEST_INPUT_SCHEMA_VERSION = 4
-STRICT_REQUEST_SCHEMA_VERSION = 5
-
-
-def strict_request_version_text(*, independently_reviewed=False, null_note=False):
-    qualifier = "independently reviewed " if independently_reviewed else "reviewed "
-    note = " and separate recovery_note"
-    if null_note:
-        note += " (null if absent)"
-    return (
-        f"Use input schema v{STRICT_REQUEST_INPUT_SCHEMA_VERSION} with {qualifier}"
-        f"contract_fields pin and task_source pin{note}; it generates request schema "
-        f"v{STRICT_REQUEST_SCHEMA_VERSION}."
-    )
-
 
 def require(condition, code):
     # Lazy import keeps phase-contract text free to import this module while

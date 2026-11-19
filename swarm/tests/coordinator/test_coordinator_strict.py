@@ -252,7 +252,6 @@ class StrictCoordinatorTests(unittest.TestCase):
 
     def test_partial_or_drifted_preparation_is_rejected(self):
         from coordinator_strict import strict_plan
-        from coordinator_io import publish_new
         base = build_plan(**self.trae.args)
         for manifest in ({"kind": "operator_static_preparation_intent",
                           "code": "operator_prepare_manifest_invalid"},
@@ -265,7 +264,6 @@ class StrictCoordinatorTests(unittest.TestCase):
                     strict_plan(base, registered_bootstrap=True, reviewed_inputs=prepared)
         # A snapshot rewritten after the audit is drift, not a refreshed pin.
         prepared = self.prepared_manifest()
-        import json
         from pathlib import Path
         value = parse(pinned(prepared))
         snapshot = Path(value["snapshots"][0]["snapshot"]["path"])

@@ -12,7 +12,6 @@ from pathlib import Path
 import re
 import stat
 import tempfile
-import sys
 import threading
 import time
 
@@ -21,6 +20,10 @@ import blocking_io
 
 
 def require(value, code):
+    # Three `require`s exist in this tree, and the split is deliberate: this one raises ValueError
+    # for library callers, `coordinator_tui_errors.require` raises TuiError with a recovery hint
+    # for TUI callers, and `supervisor/config.require` raises SafetyError because that package never
+    # imports a top-level module. Pick by the layer you are writing in; do not merge them here.
     if not value:
         raise ValueError(code)
 
@@ -274,35 +277,6 @@ def publish_new(target, value):
         fsync_dir(target.parent)
     finally:
         os.unlink(temporary)
-
-
-def publish_directory_new(staging, target):
-    """Same-filesystem atomic directory commit, never replacing even an empty target.
-
-    No rename/replace fallback: unsupported kernels/filesystems fail closed.
-    The caller retains staging on failure for diagnosis; no recursive cleanup.
-    """
-    import ctypes
-    staging, target = Path(staging), Path(target)
-    require(staging.parent == target.parent, "directory_commit_same_parent_required")
-    fsync_dir(staging)
-    libc = ctypes.CDLL(None, use_errno=True)
-    if sys.platform == "linux" and hasattr(libc, "renameat2"):
-        rename = libc.renameat2
-        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-        rename.restype = ctypes.c_int
-        result = rename(-100, os.fsencode(staging), -100, os.fsencode(target), 1)  # RENAME_NOREPLACE
-    elif sys.platform == "darwin" and hasattr(libc, "renamex_np"):
-        rename = libc.renamex_np
-        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-        rename.restype = ctypes.c_int
-        result = rename(os.fsencode(staging), os.fsencode(target), 4)  # RENAME_EXCL
-    else:
-        raise OSError(errno.ENOTSUP, "exclusive_directory_commit_unsupported")
-    if result != 0:
-        code = ctypes.get_errno()
-        raise OSError(code, "exclusive_directory_commit_failed")
-    fsync_dir(target.parent)
 
 
 def replace_json(target, value):

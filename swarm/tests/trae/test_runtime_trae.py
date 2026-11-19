@@ -9,7 +9,6 @@ from unittest.mock import patch
 from supervisor.config import SafetyError
 from swarm_ledger.__main__ import main
 from swarm_ledger.ledger import Ledger
-from swarm_ledger import runtime_binding as binding
 from swarm_ledger.report import export
 from core.test_runtime_binding import RuntimeBindingFixture, NOW
 from trae.test_trae_jsonl import meta, event, mirror, counts, complete

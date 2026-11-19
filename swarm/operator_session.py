@@ -300,6 +300,18 @@ def observe(ref):
             "execution_authorized": False}
 
 
+def _refused(error):
+    """A builder that reports a refusal decided before any observation.
+
+    Why error is an argument: the previous form raised a `lambda` closure over
+    `except ... as exc`, which only worked because the call stayed inside that suite. That
+    implicit fact is invisible to a static check, so the name looked undefined (F821) forever.
+    """
+    def builder(_ref):
+        raise error
+    return builder
+
+
 def _run(builder, ref, fallback):
     try:
         result = builder(ref)
@@ -327,8 +339,7 @@ def main(argv=None):
     try:
         require(args.execute, "operator_session_explicit_execute_required")
     except ValueError as exc:
-        return _run(lambda _ref: (_ for _ in ()).throw(exc),
-                    {"path": args.input, "sha256": args.input_sha256},
+        return _run(_refused(exc), {"path": args.input, "sha256": args.input_sha256},
                     "operator_session_observation_failed")
     ref = {"path": args.input, "sha256": args.input_sha256}
     return _run(observe_operator if mode == "observe-operator" else observe, ref,

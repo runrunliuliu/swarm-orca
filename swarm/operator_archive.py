@@ -8,8 +8,6 @@ import argparse
 import errno
 import json
 import os
-from pathlib import Path
-import sys
 
 from coordinator_io import file_ref, now, parse, path, pinned, publish_new, require, scoped_refs
 from coordinator_strict import strict_plan

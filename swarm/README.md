@@ -20,7 +20,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | 启动凭据（start grant） | [`start-grant-mint / -hand / -state`](docs/design/start-grant.md) 让"启动一个 Run 的授权"由**不执行它的一方**签发：一次 mint 写一条不可改的批准记录，create 与每次 spawn 在服务端事务内校验。 | 实现状态、剩余收口与开关口径只见 [start grant §4](docs/design/start-grant.md#4-开发计划)：`START_GRANT_REQUIRED` 仍为 `false`，所以既有 strict Run 不受它约束；它不改变执行路径的选择（下表两行照旧），也不是"授权内容对不对"的证明。 |
 | Strict Coordinator TUI + Operator monitor / scheduler | [启动准备](operator-prepare.md) → [TUI 续跑](coordinator-tui.md) / [monitor](operator-monitor.md)。**S0–S5 握手工具（bootstrap_* / strict-start-* / strict-config-*）已随 [start grant](docs/design/start-grant.md) 删除**；这条路径现在指 Run 建好之后的 TUI 续跑与监控，[strict 握手文档](coordinator-strict-start.md) 只保留作历史。 | monitor 只有显式配置 continuation 才调用 scheduler；观察、消息入队或 Operator 结算都不等于业务完成。 |
 | 独立 goal-loop driver | [回合续跑器](coordinator-driver.md)，由 `coordinator_launch.py goal-loop` 校验，显式执行后在原 Trae exec PTY/会话串行续跑；可配[指定 Operator 执行器](coordinator-operator.md)。 | 代码拒绝 strict 计划及 `strict-v1` Run；不能作为 strict TUI 的恢复或平台提交回退。 |
-| 固定 DAG Supervisor MVP | [操作手册](docs/supervisor.md)与 [runit 模板](runit/README.md)：预先固定任务 DAG，Coordinator 派发，Sidecar 在等待检查点唤醒原 PTY。 | 专用 `config.example.json`、`coordinator-step/checkpoint` 协议和预算限制；不自动重规划、任务重试、升级模型或接管新 Coordinator。 |
+| 固定 DAG Supervisor MVP | [操作手册](docs/supervisor.md)与 [runit 模板](runit/README.md)：预先固定任务 DAG，Coordinator 派发，Sidecar 在等待检查点唤醒原 PTY。**未注册、未验收、零生产调用方**：Sidecar 六件（`engine`/`watchdog`/`launch_guard`/`safety`/`service_finish`/`__main__`）只有离线测试，`runit/` 模板从未安装或注册，[验收清单](acceptance.md) 的下列实机项全部未勾选；同为常驻形态的 `progress_watch.py` 与 `operator_monitor.py` 也不由该模板托管（普通服务环境没有原生发送者）。 | 专用 `config.example.json`、`coordinator-step/checkpoint` 协议和预算限制；不自动重规划、任务重试、升级模型或接管新 Coordinator。 |
 
 部署方须交付角色和阶段控制循环契约，以及自己的自适应并发和模型选择政策，见[部署接入](configuration.md)。
 不套用固定 DAG 的“最多两个实施 Worker”等限制；具体 Run 仍受已确认的 `max_workers`、授权和预算约束。
@@ -81,7 +81,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | Coordinator 模型、权限与启动适配 | [部署配置](configuration.md)、[公开 JSON 示例](coordinator-model.json)、[Trae exec](trae-coordinator.md) |
 | Strict bootstrap 事件协议（**已归档、工具与读取器均已删除**） | [旧协议入口](strict-bootstrap-protocol.md) 只是归档说明：正文已移到部署方的私有归档，仓库内不再保留；`strict-bootstrap-state` 与 `bootstrap_events` 已删除，旧 attempt 不支持读取 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
-| 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)；不同证明口径不自动互相回退 |
+| 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)、[Worker 预释放用量快照](worker-usage-preserve.md)；不同证明口径不自动互相回退 |
 | 观察、安全与归档 | [只读 progress watch](progress-watch.md)、[启动与收尾保护](startup-safety.md)、[私有归档接入](configuration.md#部署政策与历史材料) |
 | 固定 DAG 角色与操作 | [Supervisor 手册](docs/supervisor.md)、[角色策略](policies.md)、[Coordinator 提示词](coordinator-prompt.md)、[知识入口](field-guide/index.md) |
 

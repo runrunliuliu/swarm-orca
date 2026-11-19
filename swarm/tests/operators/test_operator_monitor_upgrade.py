@@ -9,7 +9,7 @@ from unittest.mock import patch
 import copy
 from datetime import timedelta
 
-from coordinator_io import (bound_lock, canonical, digest, file_ref, now, parse, pinned, publish_new, read_json,
+from coordinator_io import (bound_lock, canonical, digest, file_ref, now, parse, publish_new, read_json,
                             replace_json, timestamp)
 from coordinator_tui_continue import apply_review_clear
 import operator_monitor as monitor

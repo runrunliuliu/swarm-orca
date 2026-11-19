@@ -8,7 +8,6 @@ No Agent launch, remote-shell send, business executor or identity synthesis.
 from pathlib import Path
 import os
 import sys
-from types import SimpleNamespace
 
 from coordinator_io import (canonical, digest, file_ref, now, parse, path, pinned,
                             read_json, require, timestamp)
@@ -211,15 +210,6 @@ def created(ref, *, call=None):
                     ("id", "coordinator_handle", "consumer_generation")), "startup_run_binding_changed")
     pinned(created_ref)
     return dict(receipt=created_ref, run={"id": run["id"], "generation": run["consumer_generation"]})
-
-
-
-
-def own_sender(plan, contract, call):
-    # Reuse exactly the monitor's inherited-context fence, not a target preflight.
-    shell = SimpleNamespace(startup_contract=contract, data=dict(schema_version=2, sender=plan["sender"],
-                                     binding={"runtime": contract["runtime"]}))
-    monitor.sender_fence(shell, lambda args, runtime: call(args, runtime, 20))
 
 
 def read_state(plan, ref):

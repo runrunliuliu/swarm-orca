@@ -3,7 +3,6 @@ from contextlib import redirect_stdout
 import hashlib
 import io
 import json
-import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -12,7 +11,7 @@ from unittest.mock import patch
 
 from supervisor.config import SafetyError, task_spec, validate
 from supervisor.__main__ import main
-from supervisor.engine import Engine, observation
+from supervisor.engine import Engine
 from supervisor.launch_guard import target
 from supervisor.orca import Orca, result
 from supervisor.store import AdmissionError, Store, lock

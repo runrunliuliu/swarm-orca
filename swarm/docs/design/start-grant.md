@@ -782,7 +782,8 @@ python3 -B swarm/generate_orientation.py --check
 
 保留并明确承担职责的：`bootstrap_events.py`（历史槽位读取器，四个契约校验函数**内联**进它，因为被删的
 builder 不再生产这些字节）、`bootstrap_protocol.py`（layout/常量，读取器仍用）、`bootstrap_identity.py`
-（gate-role 身份核验，`operator_monitor` 仍在用）、`coordinator_strict.py`（`strict-caller-check` /
+（gate-role 身份核验，`operator_monitor` 仍在用；2026-11-19 该核验类已删除，只剩两个 typed denial，存档见
+[native identity 退休记录](native-identity-retirement.md)）、`coordinator_strict.py`（`strict-caller-check` /
 `strict-native-plan`）、`coordinator_io` 的 `publish_new`/`fsync_dir`/`directory_lock`。
 
 **验证**：`tests/run_offline.sh --jobs 4` → **84/84 模块、2363 tests、41.8 s，全绿**；
