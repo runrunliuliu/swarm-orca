@@ -225,7 +225,7 @@ I-12 尚无 D 层正例，见缺口矩阵。
 | 能力 | 位置 | 用途 | 边界 |
 | --- | --- | --- | --- |
 | FakeNative / fake CLI | `tests/offline_env.py`、`tests/publication_wait_fixture.py`、`tests/core/test_supervisor.py` 的 `Base`（只剩 config/store/adapter；Engine 夹具随控制器删除） | 记录 argv、回放固定回执 | 只能证明被测逻辑 |
-| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:89`、`:152`）；start grant 的 deadline/撤销走服务端时钟（`start-grant-spawn.test.ts`） | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
+| 受控时钟 | `Store(root, clock=...)`（`tests/core/test_supervisor.py:87`（`Base.setUp`）、`:136`（`StoreTests` 重建））；start grant 的 deadline/撤销走服务端时钟（`start-grant-spawn.test.ts`） | 租期、TTL、截止期 | 不得用于伪造原生时间戳（reliability.md 第 5 节） |
 | 真实文件锁竞争 | `tests/coordinator/test_coordinator_io.py:43`、`:72`；`tests/coordinator/test_coordinator_tui_scheduler.py:263` | 单写入者、busy 跳过 | 本地文件系统，不等于跨主机锁 |
 | 密钥/签名夹具 | `tests/core/test_binding.py:212`（旧 transport 夹具已删除） | 篡改、重放、错 key | 不证明真实 host 认证 |
 | Unix socket 端到端 | `tests/core/test_binding.py:455`、`:472` | 本地进程间签名回执 | 非网络、非远端 |

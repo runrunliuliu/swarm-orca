@@ -86,14 +86,13 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | 观察、安全与归档 | [只读 progress watch](progress-watch.md)、[启动与收尾保护](startup-safety.md)、[私有归档接入](configuration.md#部署政策与历史材料) |
 | 项目知识入口（模板） | [知识入口](field-guide/index.md)：部署后替换为远端可读路径，并在每个 Task 的 references 中明确提供。原“固定 DAG 角色与操作”一行随该 MVP 退役，`policies.md` 与 `coordinator-prompt.md` 已删除 |
 
-<a id="trae启动前自动登记精确工作目录"></a>
-
-原 README 的固定 DAG Trae 信任说明已移至 [Supervisor 手册](docs/supervisor.md#trae启动前自动登记精确工作目录)。
-strict Operator 的精确工作区信任使用[自己的准备入口](operator-prepare.md#6-已授权的精确-trae-工作区自动信任)，不要混用 Worker 启动钩子。
+固定 DAG 的 Trae 逐工作区信任登记随该 MVP 于 2026-11-19 退役（见 [退役记录](docs/supervisor.md)），
+不再有对应的 Worker 启动钩子。strict Operator 的精确工作区信任使用
+[自己的准备入口](operator-prepare.md#6-已授权的精确-trae-工作区自动信任)，与它无关。
 
 ## 离线开发与目录约定
 
-Python helper 使用标准库；Supervisor / 台账基线为 Python 3.10+，Trae TOML 信任处理需要 Python 3.11+，
+Python helper 使用标准库；台账与离线 guard 工具基线为 Python 3.10+，Trae TOML 信任处理需要 Python 3.11+，
 宿主签名绑定另需 OpenSSL 3。目标平台及 provider/runtime 支持范围按各入口适配器核验，不从首页推断兼容性。
 从公开仓库的 `swarm/` 目录运行离线回归（不连接 Orca 或启动模型）：
 
@@ -112,7 +111,7 @@ tests/run_offline.sh --fast         # 迭代反馈：跳过文件头 SLOW 列表
 退出码，`--list` 与参数错误由脚本自己返回（0 与 2）；不要继承调用方环境里的私有策略路径
 （原因见[字段指南](field-guide/index.md)）。
 
-这不替代目标环境测试。固定 DAG 配置检查与示例拒绝原因见 [Supervisor 手册](docs/supervisor.md#离线配置检查)。
+这不替代目标环境测试。`launch_contract` 的离线自检（`supervisor.safety preflight`）见[启动与收尾保护](startup-safety.md)；原先的“固定 DAG 配置检查”命令随该 MVP 退役，见[退役记录](docs/supervisor.md)。
 
 本目录保留脚本、相邻协议及公开示例；`docs/` 存放通用手册和测试标准。
 真实配置显式选择；历史、状态、产物与凭据不进入公开版本控制，详见[部署边界](configuration.md)。

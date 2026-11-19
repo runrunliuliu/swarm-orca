@@ -243,8 +243,10 @@ def observe(ref):
     identical for both providers, so there is nothing here to refuse *on*: guessing
     from a path shape would be the same defect in a new place. It is therefore an
     explicitly Trae-only legacy surface (protocol §5.1 "still not supported"); the
-    Pi path is `bootstrap_identity` / `observe_identity`, which resolve the declared
-    provider through `provider_capability` before any native query.
+    Pi path is `observe_identity`, which resolves the declared provider through
+    `provider_capability` before any native query. (`bootstrap_identity` used to do the
+    same for the retired strict-handshake gate roles; it now holds only their two typed
+    denials — see `docs/design/native-identity-retirement.md`.)
     """
     source = parse(pinned(ref))
     require(isinstance(source, dict) and set(source) == {

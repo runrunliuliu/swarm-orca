@@ -300,7 +300,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
 
 - **阈值与现有纪律的关系**（评审要求写清）：仓内文档的禁用线是 `N>=60`，本包取 30 是**更严**的运行侧选择，
   理由是把“又快又没用的唤醒”也算进去；因此它**必须**：只作用在 agent 交接场景（交互式 pane 会话），
-  不影响脚本内 backoff、`service_finish.py` 等进程内轮询，并提供显式 allowlist。
+  不影响脚本内 backoff、`service_finish.py`（**2026-11-19 已随固定 DAG MVP 退役删除**，此句只作历史）等进程内轮询，并提供显式 allowlist。
 - 实现位置属 agent 运行侧（`~/.pi/agent/extensions/`），**不进本仓**；本仓只记录“该门禁存在时，禁用清单与
   文档一致”的对应关系。
 
@@ -383,7 +383,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
   `--wait` 不 `ack`）；
 - 不改 scheduler 的 1 s 默认值与调用方给的 20 s RPC 预算；
 - 不把 `sleep` 从既有 helper 里删除（`coordinator_driver.py:689/698` 的 `wait_poll_seconds ≤ 60`、
-  `service_finish.py` 属于**进程内**轮询，不是 agent 回合等待，另立任务）；
+  `service_finish.py`（已随该 MVP 退役）属于**进程内**轮询，不是 agent 回合等待，另立任务）；
 - 不部署、不重启、不更新远端副本。
 
 ## 10. 顺序、体量与依赖
