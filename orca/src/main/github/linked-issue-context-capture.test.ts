@@ -107,6 +107,21 @@ describe('captureLinkedIssueContextForWorktree', () => {
     expect(onCaptured).toHaveBeenCalledTimes(1)
   })
 
+  it('does nothing when the worktree metadata is missing', async () => {
+    const { store, setWorktreeMeta, getWorktreeMeta } = makeStore({})
+    getWorktreeMeta.mockReturnValue(undefined)
+    const fetchIssue = vi.fn()
+    const resolveReadTarget = vi.fn(async () => TARGET)
+    const onCaptured = vi.fn()
+
+    await expect(capture(store, { fetchIssue, resolveReadTarget, onCaptured })).resolves.toBeNull()
+
+    expect(resolveReadTarget).not.toHaveBeenCalled()
+    expect(fetchIssue).not.toHaveBeenCalled()
+    expect(setWorktreeMeta).not.toHaveBeenCalled()
+    expect(onCaptured).not.toHaveBeenCalled()
+  })
+
   it('does nothing for a worktree with no linked issue', async () => {
     const { store, setWorktreeMeta } = makeStore({ meta: { linkedIssue: null } })
     const fetchIssue = vi.fn()

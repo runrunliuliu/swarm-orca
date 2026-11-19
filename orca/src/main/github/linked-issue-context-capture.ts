@@ -66,7 +66,7 @@ export async function captureLinkedIssueContextForWorktree(
   try {
     const meta = args.store.getWorktreeMeta(args.worktreeId)
     const issueNumber = meta?.linkedIssue
-    if (typeof issueNumber !== 'number' || !Number.isInteger(issueNumber) || issueNumber <= 0) {
+    if (!meta || typeof issueNumber !== 'number' || !Number.isInteger(issueNumber) || issueNumber <= 0) {
       return null
     }
     // Why re-capture is skipped rather than refreshed: the snapshot is written once by design.
