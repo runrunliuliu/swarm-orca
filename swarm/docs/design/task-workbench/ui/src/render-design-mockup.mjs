@@ -11,6 +11,12 @@
  *
  *   xvfb-run -a electron render-design-mockup.mjs ...
  *
+ * With no `xauth` on the host (xvfb-run then refuses), start the server
+ * yourself and point DISPLAY at it. The virtual screen must be larger than the
+ * draft, or the window is clamped to the screen and the capture is wrong size:
+ *
+ *   Xvfb :98 -screen 0 3200x2600x24 & DISPLAY=:98 electron --no-sandbox ...
+ *
  * Uses the Electron that already exists in this workspace's prepared tree
  * (`orca/node_modules/electron`); it downloads nothing, installs nothing and
  * rebuilds nothing. The switch must be set before `app.whenReady()`, which is
