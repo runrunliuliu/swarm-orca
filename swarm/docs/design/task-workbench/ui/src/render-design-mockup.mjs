@@ -21,6 +21,11 @@
  * (`orca/node_modules/electron`); it downloads nothing, installs nothing and
  * rebuilds nothing. The switch must be set before `app.whenReady()`, which is
  * why it is a top-level call and not inside the handler.
+ *
+ * Preconditions this script cannot check for you: a host with the prepared
+ * Electron tree, and CJK fonts installed. Without the fonts Chromium draws
+ * tofu boxes and still exits 0, so a suspicious `CJK` look in the PNG is a
+ * missing font, not a broken layout.
  */
 import { app, BrowserWindow } from 'electron'
 import { writeFileSync } from 'node:fs'
