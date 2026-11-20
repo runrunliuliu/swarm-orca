@@ -1,0 +1,128 @@
+<!doctype html>
+<!--
+  交付完成 · 设计稿 D6「交付事实行的五个可验收状态」
+  数据为脱敏占位。版面依据 delivery-completion-plan.md §4.2 与 §8 验收矩阵。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-deliver.css" />
+    <title>交付完成 D6</title>
+  </head>
+  <body style="width: 1180px; height: 470px">
+    <div class="state-head">
+      <span class="crumb">交付事实行 · 五态（同一条投影，两个宿主共用）</span>
+    </div>
+
+    <div class="state-wrap">
+      <!-- 1 · 未读取 -->
+      <div class="state">
+        <div class="state-name">S0 未读取 <span class="quiet">证据未接线时唯一允许的降级</span></div>
+        <div class="face">
+          <div class="fact-row">
+            <span class="fact-label">交付</span>
+            <span class="tag">未读取</span>
+            <span class="fact-body">此视图不运行 git 或 PR 查询，所以这里没有任何交付结论</span>
+            <button class="btn is-quiet">读取</button>
+            <button class="btn is-primary-outline">交付…</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2 · 可交付 -->
+      <div class="state">
+        <div class="state-name">S1 可交付 <span class="quiet">有证据、尚未交付；入口可点</span></div>
+        <div class="face">
+          <div class="fact-row">
+            <span class="fact-label">交付</span>
+            <span class="fact-body">
+              <span>3 个提交</span>
+              <span class="divider">·</span>
+              <span>PR #431 open</span>
+              <span class="divider">·</span>
+              <span>检查 5/6</span>
+              <span class="divider">·</span>
+              <span>评审待处理</span>
+            </span>
+            <button class="btn is-quiet">展开 ⌄</button>
+            <button class="btn is-primary-outline">交付…</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 · 交付中 -->
+      <div class="state">
+        <div class="state-name">
+          S2 交付中 <span class="quiet">DELIVER 会话存在；入口换成打开终端，不再开第二个</span>
+        </div>
+        <div class="face">
+          <div class="fact-row">
+            <span class="fact-label">交付</span>
+            <span class="tag"><span class="dot is-working" style="margin-right: 4px"></span>交付中</span>
+            <span class="fact-body">
+              <span>目标 main</span>
+              <span class="divider">·</span>
+              <span>4 分钟前启动</span>
+              <span class="divider">·</span>
+              <span class="mono">DELIVER</span>
+            </span>
+            <button class="btn is-quiet">展开 ⌄</button>
+            <button class="btn">打开终端</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4 · 已交付 -->
+      <div class="state">
+        <div class="state-name">
+          S3 已交付 <span class="quiet">workspaceStatus=completed ∧ review.state=merged</span>
+        </div>
+        <div class="face">
+          <div class="fact-row">
+            <span class="fact-label">交付</span>
+            <span class="tag is-accent">已交付</span>
+            <span class="fact-body">
+              <span>PR #431 已合并</span>
+              <span class="divider">·</span>
+              <span>#431 已关闭</span>
+              <span class="divider">·</span>
+              <span>完成于 2 小时前</span>
+            </span>
+            <button class="btn is-quiet">展开 ⌄</button>
+            <button class="btn">打开会话</button>
+          </div>
+        </div>
+        <div class="state-note">
+          工作区行同时出现 <span class="tag" style="color: var(--text-2)"><span class="dot is-working" style="margin-right: 4px"></span>已完成</span>
+          与 <button class="btn" style="height: 20px">归档</button>
+        </div>
+      </div>
+
+      <!-- 5 · 已归档 -->
+      <div class="state">
+        <div class="state-name">
+          S4 已归档 <span class="quiet">事实不因归档丢失；入口消失，记录仍在历史区</span>
+        </div>
+        <div class="face">
+          <div class="fact-row">
+            <span class="fact-label">交付</span>
+            <span class="tag is-accent">已交付</span>
+            <span class="fact-body">
+              <span>PR #431 已合并</span>
+              <span class="divider">·</span>
+              <span>#431 已关闭</span>
+              <span class="divider">·</span>
+              <span>已归档</span>
+            </span>
+            <button class="btn is-quiet">展开 ⌄</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption" style="margin-top: 10px">
+      设计稿 D6 · 投影是纯函数（无 React / store / RPC 依赖）：五个状态由既有字段推出，证据缺失时只允许 S0，
+      不允许「未交付」这种没人能证明的断言；已归档不参与 Needs you / Working 计数，但事实照常渲染
+    </div>
+  </body>
+</html>

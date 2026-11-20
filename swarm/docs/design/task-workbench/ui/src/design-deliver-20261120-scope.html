@@ -1,0 +1,113 @@
+<!doctype html>
+<!--
+  交付完成 · 设计稿 D5「确认面：交付范围变成三个可勾的写动作」
+  数据为脱敏占位。版面依据 delivery-completion-plan.md §5/§6。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-deliver.css" />
+    <title>交付完成 D5</title>
+  </head>
+  <body style="width: 660px; height: 590px">
+    <div class="topbar">
+      <span class="crumb">‹ GitHub list</span>
+      <span class="sep">|</span>
+      <span><strong>acme</strong> <span class="sep">/</span> <strong>web-app</strong></span>
+      <span class="sep">·</span>
+      <span>#431</span>
+    </div>
+
+    <div class="tabs">
+      <div class="tab">对话</div>
+      <div class="tab is-active">◆ Orca</div>
+    </div>
+
+    <div class="body" style="padding: 14px 16px">
+      <!-- 锚点：交付事实行右端的动作（未交付态） -->
+      <div class="face" style="width: 508px">
+        <div class="fact-row">
+          <span class="fact-label">交付</span>
+          <span class="fact-body">
+            <span>3 个提交</span>
+            <span class="divider">·</span>
+            <span>PR #431 open</span>
+            <span class="divider">·</span>
+            <span>检查 5/6</span>
+          </span>
+          <button class="btn is-primary-outline" style="position: relative">
+            交付…
+            <span
+              style="position: absolute; top: -3px; right: 10px; width: 6px; height: 6px; background: #1c1c1c; transform: rotate(45deg); box-shadow: -1px -1px 0 #333"
+            ></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 确认面 -->
+      <div class="popover" style="margin: 12px 0 0 56px; width: 500px">
+        <div class="popover-head">
+          <span class="identity">交付 <span class="mono">acme/web-app · feat/task-431</span></span>
+          <span style="flex: 1"></span>
+          <span class="quiet" style="font-size: 13px">×</span>
+        </div>
+        <div class="popover-body">
+          <div class="field">
+            <span class="k">目标分支</span>
+            <div style="display: flex; align-items: center; gap: 6px">
+              <div class="control" style="flex: 1">
+                <span class="mono">main</span>
+                <span style="flex: 1"></span>
+                <span class="quiet">▾</span>
+              </div>
+              <span class="guess">默认值 · 需确认</span>
+            </div>
+          </div>
+          <div class="field">
+            <span class="k">集成方式</span>
+            <div class="segmented">
+              <span class="seg">仅推分支</span>
+              <span class="seg is-on">本地合并</span>
+              <span class="seg">压缩提交</span>
+            </div>
+          </div>
+
+          <div class="field" style="align-items: flex-start">
+            <span class="k" style="padding-top: 3px">交付范围</span>
+            <div style="display: grid; gap: 7px">
+              <span class="checkbox-row">
+                <span class="checkbox is-on">✓</span>
+                <span>创建 PR（不可关：所有集成方式都经 PR）</span>
+              </span>
+              <span class="checkbox-row">
+                <span class="checkbox is-on">✓</span>
+                <span>合并 PR 到 <span class="mono">main</span>（远端不可逆写）</span>
+              </span>
+              <span class="checkbox-row">
+                <span class="checkbox is-on">✓</span>
+                <span>关闭 issue #431 并附交付提交</span>
+              </span>
+              <span class="checkbox-row">
+                <span class="checkbox"></span>
+                <span>完成后归档工作区（由 Orca 执行，agent 不碰归档）</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="popover-note">
+          未提交 2 个文件、未推送 1 个提交会一并交给交付 agent 处理；它不会替你 stash 或删除。
+          未勾选的动作，agent 必须停在报告里，不得自行扩大范围。
+        </div>
+        <div class="popover-foot">
+          <button class="btn is-quiet">取消</button>
+          <button class="btn is-primary-outline">开始交付</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption">
+      设计稿 D5 · 三个写动作各自可勾：合并 / 关闭 issue / 归档。默认「归档」关闭，因为它是交付之后的保留动作；
+      勾了也由 Orca 在观察到完成事实后执行，agent 的固定指令仍然禁止自归档（§7.11.3 规则 8 保留）
+    </div>
+  </body>
+</html>

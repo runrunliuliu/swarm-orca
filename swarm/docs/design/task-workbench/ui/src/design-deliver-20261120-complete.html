@@ -1,0 +1,136 @@
+<!doctype html>
+<!--
+  交付完成 · 设计稿 D4「已交付的 issue 详情 Orca tab（宽屏）」
+  数据为脱敏占位（acme/web-app、feat/task-431、PR #431、issue #431），不含真实主机、会话或用量。
+  版面依据 delivery-completion-plan.md §6；基础样式见 design-deliver.css。
+  重新渲染：见同目录 render-design-mockup.mjs 的文件头。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-deliver.css" />
+    <title>交付完成 D4</title>
+  </head>
+  <body style="width: 1180px; height: 452px">
+    <div class="topbar">
+      <span class="crumb">‹ GitHub list</span>
+      <span class="sep">|</span>
+      <span><strong>acme</strong> <span class="sep">/</span> <strong>web-app</strong></span>
+      <span class="sep">·</span>
+      <span>#431</span>
+      <span class="sep">·</span>
+      <span>已关闭</span>
+    </div>
+
+    <div class="tabs">
+      <div class="tab">对话</div>
+      <div class="tab is-active">◆ Orca</div>
+    </div>
+
+    <div class="body" style="display: flex; gap: 20px; align-items: flex-start">
+      <!-- 左列：智能体 -->
+      <div style="width: 600px">
+        <div class="section">
+          <div class="section-head">
+            <span class="name">智能体</span>
+            <span class="count">2</span>
+            <span class="spacer"></span>
+            <button class="btn is-quiet">历史 1 · 展开 ⌄</button>
+          </div>
+          <div class="face">
+            <div class="row">
+              <span class="tag">Dl</span>
+              <span class="grow">DELIVER</span>
+              <span class="dot is-working"></span>
+              <span class="muted">已交付</span>
+              <span class="muted">3 分 12 秒</span>
+              <span class="muted">12.4k token</span>
+              <button class="btn">打开</button>
+            </div>
+            <div class="row">
+              <span class="tag">Pi</span>
+              <span class="grow">fix-default-agent</span>
+              <span class="dot is-idle"></span>
+              <span class="muted">已完成</span>
+              <span class="muted">26 分</span>
+              <span class="muted">81k token</span>
+              <button class="btn">打开</button>
+            </div>
+          </div>
+          <div class="annotation" style="padding-left: 0">
+            DELIVER 会话仍可打开：交付报告在它的 transcript 里，归档不会杀掉 PTY（README §7.10）
+          </div>
+        </div>
+      </div>
+
+      <!-- 右列：工作区 + facts 带 -->
+      <div style="width: 540px">
+        <div class="section">
+          <div class="section-head">
+            <span class="name">工作区</span>
+            <span class="count">1</span>
+            <span class="spacer"></span>
+            <button class="btn is-quiet">新建工作区</button>
+          </div>
+          <div class="face">
+            <div class="row">
+              <span class="muted" aria-hidden="true">▦</span>
+              <span class="grow truncate">
+                <span class="muted">acme/web-app</span>
+                <span class="divider"> · </span>
+                <span class="mono">feat/task-431</span>
+              </span>
+              <span class="muted" style="font-size: 12px">PR #431</span>
+              <span class="tag" style="color: var(--text-2)">
+                <span class="dot is-working" style="margin-right: 4px"></span>已完成
+              </span>
+              <button class="btn">归档</button>
+            </div>
+          </div>
+          <div class="annotation" style="padding-left: 0">
+            工作区状态复用既有 workspaceStatus=completed（默认标签 Done），由交付 agent 经 orca worktree set 写入；不新造状态词
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="face">
+            <div class="fact-row">
+              <span class="fact-label">用量</span>
+              <span class="fact-body">
+                <span>128.4k</span>
+                <span class="divider">·</span>
+                <span>$1.82</span>
+                <span class="divider">·</span>
+                <span>2 个会话</span>
+              </span>
+              <button class="btn is-quiet">详情</button>
+            </div>
+            <div class="fact-row">
+              <span class="fact-label">交付</span>
+              <span class="tag is-accent">已交付</span>
+              <span class="fact-body">
+                <span>PR #431 已合并</span>
+                <span class="divider">·</span>
+                <span>#431 已关闭</span>
+                <span class="divider">·</span>
+                <span>完成于 2 小时前</span>
+              </span>
+              <span style="display: flex; gap: 6px; flex: 0 0 auto">
+                <button class="btn is-quiet">展开 ⌄</button>
+                <button class="btn">打开会话</button>
+              </span>
+            </div>
+          </div>
+          <div class="annotation" style="padding-left: 0">
+            交付行只在读到事实时印「已交付」：workspaceStatus=completed ∧ review.state=merged；提交数 / checks / 评审结论无来源时整项不渲染，不写 0
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption">
+      设计稿 D4 · 非生产组件渲染 · 脱敏占位 · 1440×900 视口下的宽屏双列（本图 1180×452 CSS 像素）：
+      左 1.4fr 智能体、右 1fr 工作区 + facts 带；页面唯一填色主按钮仍是页头的动作
+    </div>
+  </body>
+</html>

@@ -1098,6 +1098,30 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 
 ---
 
+### 7.12 交付完成：合并 / 关 issue / 状态化（2026-11-20，设计稿，未实现）
+
+§7.11 的交付入口只有起点没有终点：它开一个 agent 就结束，不合并、不关 issue、不写状态，
+界面也读不出交付证据（`deliveryByWorktree` 恒为 `undefined`）。§7.12 补的是终点，方案与验收口径
+在 [delivery-completion-plan.md](delivery-completion-plan.md)，本节只记结论与它改写了什么。
+
+![已交付：issue 详情 Orca tab](ui/design-deliver-20261120-complete.png)
+
+三条结论：
+
+1. **完成事实不新增存储**：交付 agent 最后一步用既有 `orca worktree set --workspace-status completed`
+   标记工作区（`cli/specs/core.ts:158-181`），工作区行已能渲染该标签（`TaskWorkbenchWorkspaces.tsx:155`）。
+2. **「已交付」是投影而不是新词**：`workspaceStatusId === 'completed'` ∧ `review.state === 'merged'`；
+   issue 关闭只作事实项（本地任务没有 tracker，PR 页的 tracker 指的是 PR 自己），无证据仍是 `未读取`。
+3. **归档仍不由 agent 执行**：勾选「完成后归档」时由 Orca 在观察到完成事实后执行，
+   §7.11.3 规则 8 的语义不变（归档会隐藏 agent 自己的报告）。
+
+本方案同时关闭 §7.11.6 的 bound 1/2（结构化与 host-published 路由补 `quickCommandLabel`），
+保留 bound 3/4/5。设计稿三张（已交付 / 确认面 / 交付行五态）见
+[delivery-completion-plan.md](delivery-completion-plan.md)；
+它们与 §7.11.2 同层，是 HTML/CSS 渲染稿，不是生产组件渲染，也不是真机截图。
+
+---
+
 ## 8. 关系怎么存：持久化设计
 
 上一版只说了"渲染层投影"，没有回答关系存哪。这一节补齐，并明确**哪些关系不该存**。
