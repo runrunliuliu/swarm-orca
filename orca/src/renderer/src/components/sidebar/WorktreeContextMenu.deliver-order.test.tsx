@@ -530,6 +530,26 @@ describe('sidebar deliver entry — opening and submitting', () => {
     expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
   })
 
+  // Issue #49 A5: the sidebar entry records the same intent as the task page,
+  // and only the launch input carries it now — a tick that never reaches the
+  // launcher would silently do nothing, which is the bug being fixed.
+  it('passes the archive tick through to the one launcher', async () => {
+    launchModule.launchTaskWorkbenchDeliver.mockReturnValue({ ok: true, tabId: 'tab-deliver' })
+    allWorktreesModule.rows = [mainWorktreeFixture(), worktreeFixture()]
+    openMenu()
+
+    clickMenuItem(DELIVER_LABEL)
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-archive-after'))
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+    })
+
+    expect(launchModule.launchTaskWorkbenchDeliver).toHaveBeenCalledTimes(1)
+    const input = launchModule.launchTaskWorkbenchDeliver.mock.calls[0][0]
+    expect(input.archiveAfter).toBe(true)
+    expect(input).toMatchObject({ worktreeId: WORKTREE_ID, source: 'sidebar' })
+  })
+
   it('blocks submit when no main worktree branch is known, and launches nothing', () => {
     openMenu()
 

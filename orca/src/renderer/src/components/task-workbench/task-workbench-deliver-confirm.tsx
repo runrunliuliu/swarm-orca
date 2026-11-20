@@ -369,7 +369,7 @@ export function TaskWorkbenchDeliverConfirm({
             <span id={ARCHIVE_HINT_ID} className="pl-[calc(1rem+0.375rem)] text-[11px] text-muted-foreground">
               {translate(
                 confirmKeys('archiveAfterHint'),
-                'Archiving keeps the checkout and its records; it only hides the row.'
+                'The delivery agent archives this workspace after it reports; find it again under Show archived.'
               )}
             </span>
             {issueNumber === undefined ? (

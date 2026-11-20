@@ -98,7 +98,7 @@ beforeEach(() => {
 })
 
 describe('buildTaskWorkbenchDeliverInstruction', () => {
-  it('carries the three inputs and the archive-by-human rule', () => {
+  it('carries the three inputs and the archive-by-human rule when the tick is off', () => {
     const text = buildTaskWorkbenchDeliverInstruction(
       deliverInput({ integrationMode: 'local-merge', archiveAfter: false })
     )
@@ -111,9 +111,15 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     expect(text).toContain('stop and report that instead')
     expect(text).toContain('Do not archive, remove, stop terminals or delete anything')
     expect(text).toContain('A human clicks Archive as the last step')
-    // The checkbox only adds a reminder; without it the instruction must not
-    // claim the operator asked for an archive.
-    expect(text).not.toContain('asked to archive this workspace')
+    // `<self>` is this instruction's placeholder, not a CLI alias: the agent is
+    // told to write out the full workspace id instead of the angle brackets.
+    expect(text).toContain('use the workspace id printed above, prefixed with `id:`')
+    expect(text).toContain('`id:<repoId>::<path>`')
+    expect(text).toContain('never the angle brackets')
+    // The tick is what adds the archive step (issue #49); without it the
+    // instruction contains no archive command at all.
+    expect(text).not.toContain('orca worktree archive')
+    expect(text).not.toContain('asked for the archive')
   })
 
   // K3: the PR requirement is not the default mode's privilege. Every mode must
@@ -144,15 +150,30 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     })
   })
 
-  it('adds the remind-only clause when archiveAfter is set, plus the workspace label', () => {
+  it('adds the archive step after the report when archiveAfter is set, plus the workspace label', () => {
     const text = buildTaskWorkbenchDeliverInstruction({
       ...deliverInput({ archiveAfter: true, source: 'sidebar', integrationMode: 'squash' }),
       workspaceLabel: 'web-app · feature/add-login'
     })
     expect(text).toContain(`web-app · feature/add-login (${WORKTREE_ID})`)
     expect(text).toContain('squash')
-    expect(text).toContain('The operator asked to archive this workspace after delivery')
-    expect(text).toContain('Do not archive it yourself')
+    // Issue #49 A1: the tick becomes the agent's own last step, and it is
+    // ordered after the report so the report is written (and readable) first.
+    expect(text).toContain('orca worktree archive --worktree <self> --json')
+    expect(text).toContain('orca worktree unarchive')
+    const reportIndex = text.indexOf('Report finished / unfinished / not authorized')
+    expect(reportIndex).toBeGreaterThan(-1)
+    expect(text.indexOf('orca worktree archive')).toBeGreaterThan(reportIndex)
+    // The archive replaces only the archive prohibition: the completed write and
+    // the no-cleanup rule stay, and no human-archive sentence contradicts it.
+    expect(text).toContain('mark this workspace completed')
+    expect(text).toContain('Do not remove, stop terminals or delete anything')
+    expect(text).not.toContain('Do not archive, remove, stop terminals')
+    // Issue #49 A3: a failed archive is reported, never retried, and never turns
+    // the delivery into a failure.
+    expect(text).toContain('If the archive fails, say so in the report')
+    expect(text).toContain('do not retry it')
+    expect(text).toContain('do not treat the delivery as unfinished')
   })
 
   // §7.12 §5: four authorized stages and their stop conditions. A2/A3/A4 in the
@@ -217,16 +238,28 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     expect(notAuthorized).toContain('not authorized')
   })
 
-  it('A4: never tells the agent to archive, in any combination of ticks', () => {
+  it('A4: includes the archive step only when the tick is set, in any combination of ticks', () => {
     for (const mergePullRequest of [true, false]) {
       for (const closeIssue of [true, false]) {
         for (const archiveAfter of [true, false]) {
           const text = buildTaskWorkbenchDeliverInstruction(
             deliverInput({ mergePullRequest, closeIssue, archiveAfter })
           )
-          expect(text).not.toContain('orca worktree archive')
-          expect(text).not.toContain('archive this workspace now')
-          expect(text).toContain('Do not archive, remove, stop terminals or delete anything')
+          // The completed write is unconditional.
+          expect(text).toContain('mark this workspace completed')
+          if (archiveAfter) {
+            const reportIndex = text.indexOf('Report finished / unfinished / not authorized')
+            expect(reportIndex).toBeGreaterThan(-1)
+            expect(text).toContain('orca worktree archive --worktree <self> --json')
+            // Report first, archive second — never the other way round.
+            expect(text.indexOf('orca worktree archive')).toBeGreaterThan(reportIndex)
+            // Never a stop condition, never a delivery verdict.
+            expect(text).toContain('do not treat the delivery as unfinished')
+          } else {
+            expect(text).not.toContain('orca worktree archive')
+            expect(text).toContain('Do not archive, remove, stop terminals or delete anything')
+            expect(text).toContain('A human clicks Archive as the last step')
+          }
         }
       }
     }
@@ -235,7 +268,8 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
   it('A9: always ends on the existing worktree-set write, never a new mechanism', () => {
     const text = buildTaskWorkbenchDeliverInstruction(deliverInput())
     expect(text).toContain('orca worktree set --worktree <self> --workspace-status completed')
-    expect(text).toContain('This is the only place delivery writes state')
+    // Archive writes `isArchived`, so the claim is scoped to the completion state.
+    expect(text).toContain('This is the only place delivery writes the completion state')
     expect(text).toContain('Never use --force')
     expect(text).toContain('never change branch protection')
   })
@@ -270,6 +304,22 @@ describe('launchTaskWorkbenchDeliver', () => {
     for (const [call] of mocks.launchAgentInNewTab.mock.calls) {
       expect(call.worktreeId).toBe(WORKTREE_ID)
     }
+  })
+
+  it('hands the archive step to the agent exactly when the operator ticked it', () => {
+    mocks.store.detectedAgentIds = ['claude']
+
+    launchTaskWorkbenchDeliver(deliverInput({ archiveAfter: true }))
+    const ticked = mocks.launchAgentInNewTab.mock.calls[0][0].prompt
+    const reportIndex = ticked.indexOf('Report finished / unfinished / not authorized')
+    expect(reportIndex).toBeGreaterThan(-1)
+    expect(ticked.indexOf('orca worktree archive --worktree <self>')).toBeGreaterThan(reportIndex)
+
+    // The un-ticked launch on the same worktree must carry no archive command.
+    launchTaskWorkbenchDeliver(deliverInput({ archiveAfter: false }))
+    const unticked = mocks.launchAgentInNewTab.mock.calls[1][0].prompt
+    expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(2)
+    expect(unticked).not.toContain('orca worktree archive')
   })
 
   it('returns no-agent without launching when the resolver finds nothing', () => {
