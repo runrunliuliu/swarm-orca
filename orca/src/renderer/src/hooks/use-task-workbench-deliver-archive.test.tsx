@@ -97,6 +97,43 @@ describe('useTaskWorkbenchDeliverArchive', () => {
     expect(mocks.updateWorktreeMeta).not.toHaveBeenCalled()
   })
 
+  // §7.12 D2: the intent belongs to the workspace the operator delivered from,
+  // which is not necessarily the view's default. A hook that projected only the
+  // default would leave this intent pending forever.
+  it('archives a non-default workspace whose intent was recorded', async () => {
+    const idle: TaskWorkbenchWorkspace = {
+      ...WORKSPACE,
+      worktreeId: 'wt-feat-430',
+      worktreeName: 'feat/task-430',
+      workspaceStatusId: undefined,
+      review: undefined
+    }
+    const delivered: TaskWorkbenchWorkspace = {
+      ...WORKSPACE,
+      worktreeId: 'wt-feat-999',
+      worktreeName: 'feat/task-999'
+    }
+    recordTaskWorkbenchArchiveIntent(delivered.worktreeId)
+
+    renderHook(() =>
+      useTaskWorkbenchDeliverArchive(
+        view({
+          defaultWorkspace: { workspaceId: idle.worktreeId, source: 'explicit' },
+          workspaces: [idle, delivered]
+        })
+      )
+    )
+
+    await waitFor(() => expect(mocks.updateWorktreeMeta).toHaveBeenCalledTimes(1))
+    expect(mocks.updateWorktreeMeta).toHaveBeenCalledWith(
+      delivered.worktreeId,
+      { isArchived: true },
+      { executionHostId: LOCAL_EXECUTION_HOST_ID }
+    )
+    // The idle default's lack of intent is not turned into an archive either.
+    expect(consumeTaskWorkbenchArchiveIntent(idle.worktreeId)).toBe(false)
+  })
+
   it('does nothing before the workspace reads completed', async () => {
     recordTaskWorkbenchArchiveIntent(WORKSPACE.worktreeId)
     renderHook(() =>

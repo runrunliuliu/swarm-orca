@@ -168,9 +168,32 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     const notMerged = buildTaskWorkbenchDeliverInstruction(
       deliverInput({ mergePullRequest: false })
     )
-    expect(notMerged).not.toContain('gh pr merge')
+    // The prohibition names the command it forbids; what must be absent is the
+    // executable merge step, not the sentence saying not to run it.
+    expect(notMerged).not.toContain('gh pr merge <number>')
     expect(notMerged).toContain('Do not merge the pull request: merging was not authorized')
     expect(notMerged).toContain('not authorized')
+    // The authorized steps still follow: an unticked merge is not a stop for
+    // the issue close or the completed write.
+    expect(notMerged).toContain('then continue with the authorized steps below')
+    expect(notMerged).toContain('gh issue close #42')
+    expect(notMerged).toContain('mark this workspace completed')
+    // The completion comment states only what was authorized: it must not claim
+    // the merge that the operator explicitly did not authorize.
+    expect(notMerged).not.toContain('merged as')
+    expect(notMerged).toContain('delivered: PR #<number> (merge not authorized)')
+  })
+
+  it('A2: an unticked merge plus an unticked close still marks completed, without either claim', () => {
+    const text = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ mergePullRequest: false, closeIssue: false })
+    )
+    expect(text).toContain('Do not merge the pull request')
+    expect(text).toContain('Do not close the issue #42')
+    expect(text).toContain('mark this workspace completed')
+    expect(text).toContain('delivered: PR #<number> (merge not authorized)')
+    expect(text).not.toContain('merged as')
+    expect(text).not.toContain('issue #42 closed')
   })
 
   it('A3: names gh issue close with the page number, and never guesses one', () => {

@@ -510,6 +510,32 @@ describe('projectTaskWorkbenchDeliver — delivered (§7.12 A6/A8)', () => {
       })
     )
     expect(projection.state).toBe('has-evidence')
-    expect(projection.facts.pullRequest).toEqual({ number: 431, state: 'open' })
+    // The PR fact is the workspace's own review, never the view-level evidence
+    // object: that one is task-level and can name another workspace's PR.
+    expect(projection.facts.pullRequest).toBeUndefined()
+  })
+
+  it('does not print the view’s aggregated PR as this row’s fact', () => {
+    const view = makeView({
+      workspaces: [LIVE, MERGED],
+      delivery: {
+        pullRequest: {
+          number: 999,
+          state: 'open'
+        }
+      }
+    })
+
+    // The default workspace has no review of its own, so it states no PR even
+    // though the evidence strip's task-level evidence carries one.
+    const live = projectTaskWorkbenchDeliver(view)
+    expect(live.workspaceId).toBe(LIVE.worktreeId)
+    expect(live.facts.pullRequest).toBeUndefined()
+
+    // The delivered workspace still prints its own review.
+    expect(projectTaskWorkbenchDeliver(view, MERGED.worktreeId).facts.pullRequest).toEqual({
+      number: 431,
+      state: 'merged'
+    })
   })
 })

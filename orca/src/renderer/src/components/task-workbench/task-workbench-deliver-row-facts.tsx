@@ -94,7 +94,16 @@ export function DeliverFacts({
   projection: TaskWorkbenchDeliverProjection
   delivery: DeliveryEvidence | undefined
 }): React.JSX.Element | null {
-  const pullRequest = delivery?.pullRequest === undefined ? projection.facts.pullRequest : undefined
+  // Suppress the row's PR only when the evidence strip already prints that same
+  // PR. The strip's evidence is task-level and may name another workspace, so
+  // existence alone is not identity (§7.12 S3: each workspace's own review is
+  // the only PR source for its row).
+  const projectedPullRequest = projection.facts.pullRequest
+  const pullRequest =
+    projectedPullRequest !== undefined &&
+    delivery?.pullRequest?.number === projectedPullRequest.number
+      ? undefined
+      : projectedPullRequest
   const issue = projection.facts.issue
   if (pullRequest === undefined && issue === undefined) {
     return null

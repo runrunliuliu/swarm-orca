@@ -30,37 +30,41 @@ const ARCHIVE_FAILED_NOTICE = {
 } as const
 
 export function useTaskWorkbenchDeliverArchive(view: TaskWorkbenchView | null): void {
-  // Why keyed on the projection inputs rather than on `view`: the hook is called
-  // from a panel that re-renders on every store tick, and the effect must only
-  // fire when the state it reads can have changed.
-  const state = view === null ? undefined : projectTaskWorkbenchDeliver(view)
-  const workspaceId = state?.workspaceId
-  const completed = state?.state === 'completed'
-  const executionHostId = view?.workspaces.find(
-    (workspace) => workspace.worktreeId === workspaceId
-  )?.executionHostId
-
   useEffect(() => {
-    if (!completed || workspaceId === undefined) {
+    if (view === null) {
       return
     }
-    if (!consumeTaskWorkbenchArchiveIntent(workspaceId)) {
-      return
+    // Why every workspace and not only the default: a task can bind several
+    // workspaces, and the intent was recorded for the one the operator delivered
+    // from — not necessarily the view's default. Projecting the default alone
+    // would leave the other workspace's intent unobserved forever.
+    for (const workspace of view.workspaces) {
+      const workspaceId = workspace.worktreeId
+      // The completed fact is the projection's own rule (status ∧ merged review),
+      // never a second one here. Checking it before consuming is what lets a
+      // pending intent survive a render that cannot act on it yet.
+      if (projectTaskWorkbenchDeliver(view, workspaceId).state !== 'completed') {
+        continue
+      }
+      if (!consumeTaskWorkbenchArchiveIntent(workspaceId)) {
+        continue
+      }
+      const executionHostId = workspace.executionHostId
+      // Why never awaited for a re-render: the row disappearing from the sidebar
+      // is the feedback; a failure is a toast, and the PTY is untouched (§7.10).
+      void useAppStore
+        .getState()
+        .updateWorktreeMeta(
+          workspaceId,
+          { isArchived: true },
+          executionHostId === undefined ? undefined : { executionHostId }
+        )
+        .then((result) => {
+          if (result.ok) {
+            return
+          }
+          toast.error(translate(ARCHIVE_FAILED_NOTICE.key, ARCHIVE_FAILED_NOTICE.fallback))
+        })
     }
-    // Why never awaited for a re-render: the row disappearing from the sidebar is
-    // the feedback; a failure is a toast, and the PTY is untouched (§7.10).
-    void useAppStore
-      .getState()
-      .updateWorktreeMeta(
-        workspaceId,
-        { isArchived: true },
-        executionHostId === undefined ? undefined : { executionHostId }
-      )
-      .then((result) => {
-        if (result.ok) {
-          return
-        }
-        toast.error(translate(ARCHIVE_FAILED_NOTICE.key, ARCHIVE_FAILED_NOTICE.fallback))
-      })
-  }, [completed, executionHostId, workspaceId])
+  }, [view])
 }

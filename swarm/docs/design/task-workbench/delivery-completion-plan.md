@@ -309,5 +309,6 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
   locale 切换后的排版、以及三条启动路由在真机上的 marker 持久化。
 - A1/A9 的"真机手工"条目仍未做：实现后跑的是单测（清单见 README §7.12.2），没有一次真实交付演练。
 - 实现新增的缺口（如实记录）：host-published 的标记只写本地镜像行，host wire 不携带，对端设备读不到；
-  S4 的归档意图不跨应用重启；关闭 issue 后没有主动失效 item 详情缓存；本轮没有新增 fixture 渲染图；
-  es/fr/ja/ko 的新文案是英文回退。
+  S4 的归档意图不跨应用重启；关闭 issue 后没有主动失效 item 详情缓存；es/fr/ja/ko 的新文案是英文回退。
+- 实现补了四张 harness 渲染图（`ui/impl-20261120-delivered*.png`、`impl-20261120-deliver-confirm.png`，
+  见 README §7.12.2）：它们是生产组件的 CDP 截图，不是设计稿，也仍不是真机截图。

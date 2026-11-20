@@ -113,6 +113,11 @@ export function buildTaskWorkbenchDeliverInstruction(
   // The completion comment states only what this delivery was authorized to do;
   // an unticked close must not be reported as closed.
   const issuePart = closeIssue && issueNumber !== undefined ? `; issue ${issue} closed` : ''
+  // Same rule for the merge: the template must not claim a merge the operator
+  // did not authorize, even though the agent is told to adjust it to the facts.
+  const deliveredComment = mergePullRequest
+    ? `delivered: PR #<number> merged as <sha>${issuePart}`
+    : `delivered: PR #<number> (merge not authorized)${issuePart}`
   const lines = [
     "Run the worktree-delivery flow for this workspace. Treat this as the operator's delivery request.",
     '',
@@ -128,13 +133,13 @@ export function buildTaskWorkbenchDeliverInstruction(
     'Authorized follow-up steps, in this order:',
     mergePullRequest
       ? `5. Merge the pull request: \`gh pr merge <number> ${mergeFlag(integrationMode)}\`. Afterwards verify that the pull request reports \`merged\` and that the target branch moved. If checks fail, the pull request conflicts, or an approval is required, stop here and report it; do not retry the merge.`
-      : '5. Do not merge the pull request: merging was not authorized. Stop once the pull request exists and report the merge as not authorized.',
+      : '5. Do not merge the pull request: merging was not authorized. Do not run `gh pr merge`; report the merge as not authorized, then continue with the authorized steps below.',
     closeIssue
       ? issueNumber === undefined
         ? '6. Do not close the issue: this page carries no issue number, so closing it was not authorized. Report it as not authorized.'
         : `6. Close the issue: \`gh issue close ${issue} --comment "delivered in <sha> via PR #<number>"\`. If the pull request already closed it (a \`Closes ${issue}\` body), only verify that it is closed and do not write a second comment.`
       : `6. Do not close the issue${issueNumber === undefined ? '' : ` ${issue}`}: closing it was not authorized. Report it as not authorized.`,
-    `7. Once every authorized step above has finished, mark this workspace completed: \`orca worktree set --worktree <self> --workspace-status completed --comment "delivered: PR #<number> merged as <sha>${issuePart}"\` (adjust the comment to what actually happened). This is the only place delivery writes state.`,
+    `7. Once every authorized step above has finished, mark this workspace completed: \`orca worktree set --worktree <self> --workspace-status completed --comment "${deliveredComment}"\` (adjust the comment to what actually happened). This is the only place delivery writes state.`,
     '',
     'Stop conditions: if any authorized step fails, stop at that step. Do not continue to a later write. Never use --force, never change branch protection, and never stash, reset, clean or delete the operator\'s work.',
     'Report finished / unfinished / not authorized as three separate sections, naming what already happened.',

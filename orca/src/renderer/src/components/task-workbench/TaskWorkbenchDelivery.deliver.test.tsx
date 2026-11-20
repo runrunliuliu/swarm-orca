@@ -70,6 +70,14 @@ const WORKSPACE: TaskWorkbenchWorkspace = {
   workspaceKind: 'worktree'
 }
 
+/** §7.12 D4: delivered is the completed status and the merged review together. */
+const DELIVERED: TaskWorkbenchWorkspace = {
+  ...WORKSPACE,
+  workspaceStatusId: 'completed',
+  workspaceStatusLabel: 'Done',
+  review: { number: 431, state: 'merged' }
+}
+
 function agentRow(bucket: DashboardCard['bucket'], conversationName?: string): AgentRowView {
   return {
     base: {
@@ -370,6 +378,37 @@ describe('task-workbench deliver entry — eligibility is re-checked at submit t
     expect(toastModule.error).toHaveBeenCalledWith(WORKING_REASON)
   })
 
+  it('reveals the report instead of launching when the workspace becomes delivered', () => {
+    // K1 keeps the panel mounted across a view change. If the completion fact
+    // arrives while it is open, submit must become the row's own action — reveal
+    // the existing report — and never start a second delivery.
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(true)
+    launchModule.launchTaskWorkbenchDeliver.mockReturnValue({ ok: true, tabId: 'tab-deliver' })
+    const { rerender } = render(
+      <TaskWorkbenchDelivery view={makeView({ targetBranchDefault: 'main' })} layout={LAYOUT} />
+    )
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-action'))
+    expect(screen.getByTestId('task-workbench-deliver-confirm')).toBeInTheDocument()
+
+    rerender(
+      <TaskWorkbenchDelivery
+        view={makeView({
+          targetBranchDefault: 'main',
+          workspaces: [DELIVERED],
+          agents: [agentRow('done', 'DELIVER')]
+        })}
+        layout={LAYOUT}
+      />
+    )
+    expect(screen.getByTestId('task-workbench-deliver-confirm')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKSPACE.worktreeId)
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
+  })
+
   it('closes without launching when the view turns archived while the panel is open', () => {
     const { rerender } = render(
       <TaskWorkbenchDelivery view={makeView({ targetBranchDefault: 'main' })} layout={LAYOUT} />
@@ -485,6 +524,26 @@ describe('task-workbench deliver entry — the delivered row (§7.12 A6/A7/A8)',
       'Issue #412 closed'
     )
     expect(screen.getByTestId('task-workbench-deliver-action')).toHaveTextContent('Open session')
+  })
+
+  it('does not fall back to a delivery confirmation when a delivered row’s session is gone', () => {
+    // K4's fallback exists so a stale `open-terminal` row is not a dead click.
+    // `open-session` belongs to a delivered workspace: there is no delivery left
+    // to confirm, and opening the panel would offer a second one.
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(false)
+    renderRow(
+      makeView({
+        workspaces: [DELIVERED],
+        agents: [agentRow('done', 'DELIVER')],
+        targetBranchDefault: 'main'
+      })
+    )
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-action'))
+
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKSPACE.worktreeId)
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
   })
 
   it('A6: a completed status without a merged review is not Delivered', () => {

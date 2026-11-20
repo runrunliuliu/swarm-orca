@@ -361,11 +361,14 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-delivery-review': delivery && delivery.review ? 1 : 0,
     // §7.12: the state signature and the fact items are rendered from the same
     // projection the tests read. The no-workspace state states nothing, so
-    // neither element exists; a PR fact already printed by the evidence strip is
-    // not repeated in the facts line.
+    // neither element exists; the facts line suppresses a PR only when the
+    // evidence strip prints that same PR (same number). The strip's evidence is
+    // task-level and may name another workspace, so existence alone is not
+    // identity.
     'task-workbench-delivery-state': deliverProjection.state === 'no-workspace' ? 0 : 1,
     'task-workbench-delivery-facts':
-      (delivery?.pullRequest === undefined && deliverProjection.facts.pullRequest !== undefined) ||
+      (deliverProjection.facts.pullRequest !== undefined &&
+        delivery?.pullRequest?.number !== deliverProjection.facts.pullRequest.number) ||
       deliverProjection.facts.issue !== undefined
         ? 1
         : 0,

@@ -255,14 +255,15 @@ function isDelivered(workspace: TaskWorkbenchWorkspace): boolean {
 }
 
 /** The evidence the row may state, each item only when its source exists.
- *  Precedence for the PR: the target workspace's own `review` first (it is the
- *  row being described), then the view's aggregated evidence (the same object
- *  the Delivery facts strip prints). */
+ *  The PR is the described workspace's own `review`, never the view's aggregated
+ *  evidence: that object can belong to a different workspace (the join picks the
+ *  default, then the first active one with evidence), and printing it here would
+ *  name a PR this row does not own. */
 function projectFacts(
   view: TaskWorkbenchView,
   workspace: TaskWorkbenchWorkspace
 ): TaskWorkbenchDeliverFacts {
-  const review = workspace.review ?? view.delivery?.pullRequest
+  const review = workspace.review
   const facts: TaskWorkbenchDeliverFacts = {}
   if (review) {
     facts.pullRequest = { number: review.number, state: review.state }

@@ -239,10 +239,16 @@ export function TaskWorkbenchDelivery({
     // K4: a `conversationName` of DELIVER does not prove a marker tab exists
     // (a plain `customTitle` can produce the name). Reveal first; when there is
     // nothing to reveal, fall back to the confirmation, as the sidebar does.
-    if (!revealTaskWorkbenchDeliverTab(workspaceId)) {
+    // `open-session` is the delivered row's action (§7.12): its report is the
+    // only thing there is to open, so a stale row must not turn into a second
+    // delivery.
+    if (
+      !revealTaskWorkbenchDeliverTab(workspaceId) &&
+      projection.action.kind === 'open-terminal'
+    ) {
       openConfirm()
     }
-  }, [projection.workspaceId, openConfirm])
+  }, [projection.action.kind, projection.workspaceId, openConfirm])
 
   // The only launch site for this entry. The three values go to
   // `launchTaskWorkbenchDeliver` untouched: the form decides them, the launcher
@@ -267,6 +273,15 @@ export function TaskWorkbenchDelivery({
       toast.error(
         translate(current.action.disabledReason.key, current.action.disabledReason.fallback)
       )
+      return
+    }
+    if (current.action.kind === 'open-session') {
+      // §7.12: a delivered workspace is not deliverable again. The panel can
+      // outlive the state it was opened under (K1), so a completion fact that
+      // arrived while it was open turns submit into the row's own action —
+      // reveal the existing report — instead of a second delivery.
+      revealTaskWorkbenchDeliverTab(workspaceId)
+      closeConfirm()
       return
     }
     // `open-terminal` deliberately falls through: the launcher re-checks the
