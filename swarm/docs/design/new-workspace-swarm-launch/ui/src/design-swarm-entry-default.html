@@ -1,0 +1,66 @@
+<!doctype html>
+<!--
+  新建工作区 · 起步方式 A：单个 Agent（默认，现状行为）
+  数据为脱敏占位。版面依据 docs/design/new-workspace-swarm-launch/README.md §4。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-swarm.css" />
+    <title>起步方式 A · 单个 Agent</title>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="modal">
+        <div class="modal-head">
+          <div class="modal-title">New workspace</div>
+          <div class="modal-sub">从任务起步，或只建一个空工作区</div>
+        </div>
+        <div class="modal-body">
+          <div>
+            <div class="field-label"><span>Project</span></div>
+            <div class="control">
+              <span class="grow">acme/web-app</span>
+              <span class="chip">main</span>
+              <span class="chev">▾</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="field-label"><span>Name</span></div>
+            <div class="control"><span class="placeholder">fix-431-cache-key</span></div>
+          </div>
+
+          <div>
+            <div class="field-label">
+              <span>Agent</span>
+              <span class="icon">⚙</span>
+            </div>
+            <div class="control">
+              <span class="grow">pi</span>
+              <span class="chev">▾</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="field-label"><span>起步方式</span></div>
+            <div class="segmented">
+              <div class="segment is-on"><span class="glyph">◇</span>单个 Agent</div>
+              <div class="segment"><span class="glyph">◈</span>Swarm Coordinator</div>
+            </div>
+          </div>
+
+          <div class="advanced">Advanced <span style="font-size: 9px">▾</span></div>
+        </div>
+        <div class="footer">
+          <div class="toggle"><span class="switch"></span>Create more</div>
+          <div class="btn-primary">
+            Create workspace
+            <span class="kbd">⌘ <span style="font-size: 9px">⏎</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">A · 默认态：行为与今天一致（issue 链接作为未提交 draft 进入输入框）。</div>
+  </body>
+</html>

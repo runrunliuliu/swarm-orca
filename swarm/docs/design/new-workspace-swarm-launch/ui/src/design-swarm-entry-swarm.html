@@ -1,0 +1,78 @@
+<!doctype html>
+<!--
+  新建工作区 · 起步方式 B：Swarm Coordinator（新增控件 + 参数行 + 提交语义）
+  数据为脱敏占位。版面依据 docs/design/new-workspace-swarm-launch/README.md §3、§4。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-swarm.css" />
+    <title>起步方式 B · Swarm Coordinator</title>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="modal">
+        <div class="modal-head">
+          <div class="modal-title">New workspace</div>
+          <div class="modal-sub">从任务起步，或只建一个空工作区</div>
+        </div>
+        <div class="modal-body">
+          <div>
+            <div class="field-label"><span>Project</span></div>
+            <div class="control">
+              <span class="grow">acme/web-app</span>
+              <span class="chip">main</span>
+              <span class="chev">▾</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="field-label"><span>Name</span></div>
+            <div class="control"><span class="placeholder">fix-431-cache-key</span></div>
+          </div>
+
+          <div>
+            <div class="field-label">
+              <span>Agent</span>
+              <span class="icon">⚙</span>
+            </div>
+            <div class="control">
+              <span class="grow">pi</span>
+              <span class="chev">▾</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="field-label"><span>起步方式</span></div>
+            <div class="segmented">
+              <div class="segment"><span class="glyph">◇</span>单个 Agent</div>
+              <div class="segment is-on"><span class="glyph">◈</span>Swarm Coordinator</div>
+            </div>
+
+            <div class="params">
+              <span class="label">max_workers</span>
+              <span class="stepper">
+                <span class="num">4</span>
+                <span class="btns"><span>▲</span><span>▼</span></span>
+              </span>
+              <span class="summary">Coordinator = pi · Workers ≤ 4 · 任务源 = #123</span>
+            </div>
+            <div class="hint">
+              Coordinator 会在开工前确认预算、可写范围与是否允许合并；未提供链接时先问你目标。
+            </div>
+          </div>
+
+          <div class="advanced">Advanced <span style="font-size: 9px">▾</span></div>
+        </div>
+        <div class="footer">
+          <div class="toggle"><span class="switch"></span>Create more</div>
+          <div class="btn-primary">
+            Create workspace &amp; start coordinator
+            <span class="kbd">⌘ <span style="font-size: 9px">⏎</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption">B · 选中态：模板 + issue 链接 + max_workers 进入输入框，就绪后自动提交。</div>
+  </body>
+</html>

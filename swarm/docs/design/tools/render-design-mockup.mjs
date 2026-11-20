@@ -3,7 +3,11 @@
  * next to it has a source that can be re-rendered instead of a screenshot
  * nobody can reproduce.
  *
- *   node render-design-mockup.mjs <in.html> <width> <height> <out.png>
+ * Shared by every design draft: this file lives in `docs/design/tools/`, the
+ * drafts and their PNGs stay next to their own doc (`<doc>/ui/src/*.html`,
+ * `<doc>/ui/*.png`). Paths are resolved from argv, so the cwd does not matter.
+ *
+ *   electron render-design-mockup.mjs <in.html> <width> <height> <out.png>
  *
  * `width`/`height` are CSS pixels (the same numbers the design doc quotes); the
  * PNG comes out at 2x, matching the committed 2026-11-18 drafts (1180x700 ->

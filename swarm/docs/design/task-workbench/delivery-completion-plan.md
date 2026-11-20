@@ -317,7 +317,7 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 ## 12. 证据缺口（本方案自己证明不了的事）
 
 - 三张图是 HTML/CSS 渲染稿（源文件在 `ui/src/design-deliver-20261120-*.html`，渲染命令见
-  `render-design-mockup.mjs` 文件头），**不是生产组件渲染、不是真机截图**；图内数据是脱敏占位
+  `docs/design/tools/render-design-mockup.mjs` 文件头），**不是生产组件渲染、不是真机截图**；图内数据是脱敏占位
   （`acme/web-app`、`#431`），不含真实主机、会话或用量。
 - 图证明不了：真实 `gh pr merge` / `gh issue close` 的权限与分支保护行为、真实归档 hook 的耗时、
   locale 切换后的排版、以及三条启动路由在真机上的 marker 持久化。
