@@ -70,6 +70,14 @@ const WORKSPACE: TaskWorkbenchWorkspace = {
   workspaceKind: 'worktree'
 }
 
+/** §7.12 D4: delivered is the completed status and the merged review together. */
+const DELIVERED: TaskWorkbenchWorkspace = {
+  ...WORKSPACE,
+  workspaceStatusId: 'completed',
+  workspaceStatusLabel: 'Done',
+  review: { number: 431, state: 'merged' }
+}
+
 function agentRow(bucket: DashboardCard['bucket'], conversationName?: string): AgentRowView {
   return {
     base: {
@@ -250,6 +258,9 @@ describe('task-workbench deliver entry — the confirmation', () => {
       worktreeId: WORKSPACE.worktreeId,
       targetBranch: 'release/2026-11',
       integrationMode: 'squash',
+      mergePullRequest: true,
+      // No tracker on this view, so the issue close is not authorized (A3).
+      closeIssue: false,
       archiveAfter: true,
       source: 'task_page'
     })
@@ -311,6 +322,8 @@ describe('task-workbench deliver entry — the confirmation', () => {
       worktreeId: WORKSPACE.worktreeId,
       targetBranch: 'main',
       integrationMode: 'pr',
+      mergePullRequest: true,
+      closeIssue: false,
       archiveAfter: false,
       source: 'task_page'
     })
@@ -363,6 +376,37 @@ describe('task-workbench deliver entry — eligibility is re-checked at submit t
     expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
     // The frozen one-writer sentence is the visible reason (no new key).
     expect(toastModule.error).toHaveBeenCalledWith(WORKING_REASON)
+  })
+
+  it('reveals the report instead of launching when the workspace becomes delivered', () => {
+    // K1 keeps the panel mounted across a view change. If the completion fact
+    // arrives while it is open, submit must become the row's own action — reveal
+    // the existing report — and never start a second delivery.
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(true)
+    launchModule.launchTaskWorkbenchDeliver.mockReturnValue({ ok: true, tabId: 'tab-deliver' })
+    const { rerender } = render(
+      <TaskWorkbenchDelivery view={makeView({ targetBranchDefault: 'main' })} layout={LAYOUT} />
+    )
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-action'))
+    expect(screen.getByTestId('task-workbench-deliver-confirm')).toBeInTheDocument()
+
+    rerender(
+      <TaskWorkbenchDelivery
+        view={makeView({
+          targetBranchDefault: 'main',
+          workspaces: [DELIVERED],
+          agents: [agentRow('done', 'DELIVER')]
+        })}
+        layout={LAYOUT}
+      />
+    )
+    expect(screen.getByTestId('task-workbench-deliver-confirm')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKSPACE.worktreeId)
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
   })
 
   it('closes without launching when the view turns archived while the panel is open', () => {
@@ -422,5 +466,123 @@ describe('task-workbench deliver entry — the row keeps its own degradation rul
     expect(screen.getByTestId('task-workbench-delivery-checks')).toHaveTextContent('checks 5/6')
     expect(screen.getByTestId('task-workbench-delivery-toggle')).toBeInTheDocument()
     expect(screen.getByTestId('task-workbench-deliver-action')).toBeEnabled()
+  })
+
+  // §7.12 A3: the close tick and the issue fact take their number from the view,
+  // never from a URL or a guess.
+  it('carries the view’s tracker number into the scope and the launch', () => {
+    launchModule.launchTaskWorkbenchDeliver.mockReturnValue({ ok: true, tabId: 'tab-deliver' })
+    renderRow(
+      makeView({
+        targetBranchDefault: 'main',
+        tracker: { state: 'open', url: 'https://github.com/acme/web-app/issues/412', number: 412 }
+      })
+    )
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-action'))
+    expect(screen.getByText('Close issue #412')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+
+    expect(launchModule.launchTaskWorkbenchDeliver).toHaveBeenCalledWith({
+      worktreeId: WORKSPACE.worktreeId,
+      targetBranch: 'main',
+      integrationMode: 'pr',
+      mergePullRequest: true,
+      closeIssue: true,
+      issueNumber: 412,
+      archiveAfter: false,
+      source: 'task_page'
+    })
+  })
+})
+
+describe('task-workbench deliver entry — the delivered row (§7.12 A6/A7/A8)', () => {
+  const MERGED = {
+    ...WORKSPACE,
+    workspaceStatusId: 'completed',
+    workspaceStatusLabel: 'Done',
+    review: { number: 431, state: 'merged' as const }
+  }
+  const TRACKER_CLOSED = {
+    state: 'closed' as const,
+    url: 'https://github.com/acme/web-app/issues/412',
+    number: 412
+  }
+
+  it('A6: completed ∧ merged reads Delivered, with the issue fact and Open session', () => {
+    renderRow(
+      makeView({
+        workspaces: [MERGED],
+        agents: [agentRow('done', 'DELIVER')],
+        tracker: TRACKER_CLOSED
+      })
+    )
+
+    expect(screen.getByTestId('task-workbench-delivery-state')).toHaveTextContent('Delivered')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('PR #431')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent(
+      'Issue #412 closed'
+    )
+    expect(screen.getByTestId('task-workbench-deliver-action')).toHaveTextContent('Open session')
+  })
+
+  it('does not fall back to a delivery confirmation when a delivered row’s session is gone', () => {
+    // K4's fallback exists so a stale `open-terminal` row is not a dead click.
+    // `open-session` belongs to a delivered workspace: there is no delivery left
+    // to confirm, and opening the panel would offer a second one.
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(false)
+    renderRow(
+      makeView({
+        workspaces: [DELIVERED],
+        agents: [agentRow('done', 'DELIVER')],
+        targetBranchDefault: 'main'
+      })
+    )
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-action'))
+
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKSPACE.worktreeId)
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
+  })
+
+  it('A6: a completed status without a merged review is not Delivered', () => {
+    renderRow(
+      makeView({
+        workspaces: [{ ...MERGED, review: { number: 431, state: 'open' } }]
+      })
+    )
+    expect(screen.getByTestId('task-workbench-delivery-state')).not.toHaveTextContent('Delivered')
+  })
+
+  it('A6: a merged review without the completed status is not Delivered', () => {
+    renderRow(makeView({ workspaces: [{ ...MERGED, workspaceStatusId: undefined }] }))
+    expect(screen.getByTestId('task-workbench-delivery-state')).not.toHaveTextContent('Delivered')
+  })
+
+  it('A7: not-read is never rendered as not-delivered, and no 0/0 checks appear', () => {
+    renderRow(makeView())
+
+    expect(screen.getByTestId('task-workbench-delivery-state')).toHaveTextContent('Not loaded')
+    expect(screen.getByTestId('task-workbench-delivery-state')).not.toHaveTextContent('Delivered')
+    expect(screen.queryByTestId('task-workbench-delivery-checks')).toBeNull()
+    expect(screen.queryByTestId('task-workbench-delivery-commits')).toBeNull()
+  })
+
+  it('A7: a PR fact with no title or url still states its number and state', () => {
+    renderRow(makeView({ workspaces: [MERGED] }))
+
+    // No review row on the facts strip (that needs `view.delivery`), so the
+    // projection's own fact is what prints — no fabricated link, no `PR #0`.
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('PR #431')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('merged')
+  })
+
+  it('A8: an archived workspace still states Delivered, and loses the entry', () => {
+    renderRow(makeView({ workspaces: [{ ...MERGED, archived: true }], tracker: TRACKER_CLOSED }))
+
+    expect(screen.getByTestId('task-workbench-delivery-state')).toHaveTextContent('Archived')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('PR #431')
+    expect(screen.queryByTestId('task-workbench-deliver-action')).toBeNull()
   })
 })

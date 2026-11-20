@@ -12,6 +12,7 @@ import type { DashboardCard } from '../../../../shared/dashboard-snapshot'
 import type { Repo } from '../../../../shared/repo-types'
 import type { Worktree } from '../../../../shared/worktree/types'
 import { getAgentRowConversationName } from '../../../../shared/agent-row-conversation-name'
+import { resolveDashboardCardContext } from '@/components/dashboard/dashboard-card-context'
 import { dashboardRowBucketProjection } from '@/components/dashboard/dashboard-row-bucket'
 import type { DashboardAgentRow } from '@/components/dashboard/useDashboardData'
 import type { TaskWorkbenchDeliverConfirmValue } from '@/components/task-workbench/task-workbench-deliver-confirm'
@@ -28,6 +29,7 @@ import {
   resolveWorktreeBranchLabel,
   resolveWorktreeDisplayName
 } from '@/lib/worktree-default-display-name'
+import { useAppStore } from '@/store'
 import { useWorktreeAgentRows } from './useWorktreeAgentRows'
 
 /**
@@ -53,6 +55,11 @@ export type WorktreeContextMenuDeliverInput = {
   /** The workspace's live agent rows — the same per-worktree pipeline the
    *  sidebar cards render (`useWorktreeAgentRows`), never a second derivation. */
   agentRows: readonly DashboardAgentRow[]
+  /** The effective status and review the dashboard card context resolves for
+   *  this worktree. Both are optional because a folder row has neither; passing
+   *  them is what lets a delivered row stop offering a second delivery. */
+  workspaceStatusId?: string
+  review?: { number: number; state: 'draft' | 'open' | 'merged' | 'closed' }
 }
 
 /** The value the menu model holds while the menu is closed: nothing to render.
@@ -61,6 +68,7 @@ export type WorktreeContextMenuDeliverInput = {
 export const NO_SIDEBAR_DELIVER_PROJECTION: TaskWorkbenchDeliverProjection = {
   state: 'no-workspace',
   action: { kind: 'none' },
+  facts: {},
   attention: []
 }
 
@@ -118,12 +126,21 @@ function toAgentRowView(
  */
 export function projectWorktreeContextMenuDeliver({
   worktree,
-  agentRows
+  agentRows,
+  workspaceStatusId,
+  review
 }: WorktreeContextMenuDeliverInput): TaskWorkbenchDeliverProjection {
   const archived = worktree.isArchived === true
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: an explicit workspace id makes the projection read only `workspaces` (id lookup), `agents` and `delivery`; the remaining TaskWorkbenchView fields (identity, title, spend, defaultWorkspace) belong to the workbench page and are never touched on this path, so inventing values for them here would pretend the sidebar has a workbench view.
   const view = {
-    workspaces: [{ worktreeId: worktree.id, archived }],
+    workspaces: [
+      {
+        worktreeId: worktree.id,
+        archived,
+        ...(workspaceStatusId !== undefined ? { workspaceStatusId } : {}),
+        ...(review !== undefined ? { review } : {})
+      }
+    ],
     agents: agentRows.map((row) => toAgentRowView(worktree.id, archived, row))
   } as unknown as TaskWorkbenchView
   return projectTaskWorkbenchDeliver(view, worktree.id)
@@ -207,22 +224,61 @@ export function useWorktreeContextMenuDeliver(
   const [confirmStyle, setConfirmStyle] = useState<CSSProperties | undefined>(undefined)
   const active = menuOpen || confirmOpen
   const agentRows = useWorktreeAgentRows(worktree.id, active)
+  // The same dashboard context the cards read, gated on `active` so a closed row
+  // subscribes to nothing. Passing the effective status and review is what lets
+  // the projection answer `completed` here, not only on the task page.
+  const workspaceStatuses = useAppStore((state) => (active ? state.workspaceStatuses : undefined))
+  const hostedReviewCache = useAppStore((state) => (active ? state.hostedReviewCache : undefined))
+  const prCache = useAppStore((state) => (active ? state.prCache : undefined))
+  const settings = useAppStore((state) => (active ? state.settings : undefined))
+  const workspaceFacts = useMemo(() => {
+    if (!active) {
+      return undefined
+    }
+    const context = resolveDashboardCardContext(
+      {
+        ...(workspaceStatuses !== undefined ? { workspaceStatuses } : {}),
+        ...(hostedReviewCache !== undefined ? { hostedReviewCache } : {}),
+        ...(prCache !== undefined ? { prCache } : {}),
+        ...(settings !== undefined ? { settings } : {})
+      },
+      repo ?? null,
+      worktree
+    )
+    return { workspaceStatusId: context.workspaceStatus.id, review: context.review }
+  }, [active, hostedReviewCache, prCache, repo, settings, workspaceStatuses, worktree])
   const projection = useMemo(
     () =>
       active
-        ? projectWorktreeContextMenuDeliver({ worktree, agentRows })
+        ? projectWorktreeContextMenuDeliver({
+            worktree,
+            agentRows,
+            workspaceStatusId: workspaceFacts?.workspaceStatusId,
+            review: workspaceFacts?.review
+          })
         : NO_SIDEBAR_DELIVER_PROJECTION,
-    [active, agentRows, worktree]
+    [active, agentRows, workspaceFacts, worktree]
   )
   // Why a ref and not the memo above: submit re-projects from the latest inputs
   // after the launcher's dynamic import settles (K1). The memo is a render-time
-  // value; the ref lets the submit read whatever the row list says by then — a
-  // new Working owner, a marker session, or an archived workspace — instead of
-  // the state the confirmation was opened in.
-  const latestProjectionInput = useRef({ worktree, agentRows })
+  // value; the ref lets the submit read whatever the row list and the dashboard
+  // context say by then — a new Working owner, a marker session, an archived
+  // workspace, or a completed status/review — instead of the state the
+  // confirmation was opened in.
+  const latestProjectionInput = useRef<WorktreeContextMenuDeliverInput>({
+    worktree,
+    agentRows,
+    workspaceStatusId: workspaceFacts?.workspaceStatusId,
+    review: workspaceFacts?.review
+  })
   useEffect(() => {
-    latestProjectionInput.current = { worktree, agentRows }
-  }, [agentRows, worktree])
+    latestProjectionInput.current = {
+      worktree,
+      agentRows,
+      workspaceStatusId: workspaceFacts?.workspaceStatusId,
+      review: workspaceFacts?.review
+    }
+  }, [agentRows, worktree, workspaceFacts])
   const heading = useMemo(
     () =>
       [repo?.displayName ?? '', resolveWorktreeDisplayName(worktree)]
@@ -266,14 +322,19 @@ export function useWorktreeContextMenuDeliver(
       return
     }
     setMenuOpenState(false)
-    if (action.kind === 'open-terminal') {
+    if (action.kind === 'open-terminal' || action.kind === 'open-session') {
       // Rule 4: the entry opens the session that already exists. Nothing is
-      // launched from here, so a second click cannot start a second agent. If
-      // the tab went away between render and click, fall through to the
-      // confirmation: revealing nothing is a dead click.
+      // launched from here, so a second click cannot start a second agent.
       const targetId = projection.workspaceId ?? worktree.id
       void loadDeliverLaunch().then(({ revealTaskWorkbenchDeliverTab }) => {
-        if (!revealTaskWorkbenchDeliverTab(targetId)) {
+        if (revealTaskWorkbenchDeliverTab(targetId)) {
+          return
+        }
+        // A stale `open-terminal` row still has a delivery ahead of it, so K4
+        // falls back to the confirmation. `open-session` belongs to a delivered
+        // workspace: its report is the only thing there is to open, and opening
+        // a delivery confirmation would offer a second delivery instead.
+        if (action.kind === 'open-terminal') {
           openConfirm()
         }
       })
@@ -309,7 +370,10 @@ export function useWorktreeContextMenuDeliver(
           const current = projectWorktreeContextMenuDeliver(latestProjectionInput.current)
           const currentAction = current.action
           if (currentAction.kind !== 'deliver' || !currentAction.enabled) {
-            if (currentAction.kind === 'open-terminal') {
+            if (
+              currentAction.kind === 'open-terminal' ||
+              currentAction.kind === 'open-session'
+            ) {
               revealTaskWorkbenchDeliverTab(current.workspaceId ?? worktree.id)
             } else {
               const notice =
@@ -328,6 +392,12 @@ export function useWorktreeContextMenuDeliver(
             worktreeId: worktree.id,
             targetBranch: value.targetBranch,
             integrationMode: value.integrationMode,
+            mergePullRequest: value.mergePullRequest,
+            // The menu is not a page: it carries no item number, so the issue
+            // close stays unauthorized here rather than guessing one from the
+            // worktree's link (§7.12 A3). The task page is where an issue is
+            // named.
+            closeIssue: value.closeIssue,
             archiveAfter: value.archiveAfter,
             source: 'sidebar'
           })

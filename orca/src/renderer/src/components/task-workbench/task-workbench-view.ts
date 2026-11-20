@@ -172,15 +172,20 @@ export type AgentRowView = {
   archivedWorkspace?: boolean
 }
 
-/** Read-only delivery evidence. Absent values stay absent: an empty `commits`
- *  count is not "delivered", and `checks` missing is not "all checks passed". */
+/** Read-only delivery evidence. Absent values stay absent: a missing `commits`
+ *  entry is "no commit source", which is not a count of zero (README §7.5), a
+ *  missing `checks` entry is not "all checks passed", and a PR fact without a
+ *  title/url still states its number and state instead of inventing a link.
+ *  Since §7.12 the one wired source is the workspace's own `review` (number +
+ *  state), so `title` / `url` are genuinely optional: no git or PR query runs
+ *  here, and an absent field stays absent rather than becoming an empty string. */
 export type DeliveryEvidence = {
-  commits: { count: number; lastSubject?: string }
+  commits?: { count: number; lastSubject?: string }
   pullRequest?: {
     number: number
     state: 'draft' | 'open' | 'merged' | 'closed'
-    title: string
-    url: string
+    title?: string
+    url?: string
   }
   checks?: { passing: number; total: number }
   review?: 'pending' | 'approved' | 'changes-requested'
@@ -193,7 +198,11 @@ export type TaskWorkbenchView = {
     | { kind: 'tracker'; provider: TaskProviderIdentity }
     | { kind: 'workspace'; primaryWorktreeId: string }
   title: string
-  tracker?: { state: 'open' | 'closed'; url: string }
+  /** The page's tracker state. `number` is optional because a view built without
+   *  the page's item (the sidebar, a fixture) has no authority to name one; the
+   *  delivery projection prints the issue fact only when it is present, and it
+   *  is never guessed from a URL or a PR number (§7.12 A3). */
+  tracker?: { state: 'open' | 'closed'; url: string; number?: number }
   defaultWorkspace: { workspaceId: string; source: 'explicit' | 'recent-activity' | 'none' }
   /** Merged bucket order is the projection's job; the panel renders what it gets. */
   agents: AgentRowView[]

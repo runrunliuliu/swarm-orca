@@ -13,6 +13,7 @@ import {
   buildTaskWorkbenchDeliverInstruction,
   findTaskWorkbenchDeliverTabId,
   launchTaskWorkbenchDeliver,
+  resetTaskWorkbenchDeliverInFlight,
   revealTaskWorkbenchDeliverTab,
   type TaskWorkbenchDeliverInput
 } from './task-workbench-deliver-launch'
@@ -72,6 +73,9 @@ function deliverInput(
     worktreeId: WORKTREE_ID,
     targetBranch: 'main',
     integrationMode: 'pr',
+    mergePullRequest: true,
+    closeIssue: true,
+    issueNumber: 42,
     archiveAfter: false,
     source: 'task_page',
     ...overrides
@@ -80,6 +84,7 @@ function deliverInput(
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetTaskWorkbenchDeliverInFlight()
   mocks.store.settings = { defaultTuiAgent: null, disabledTuiAgents: [] }
   mocks.store.detectedAgentIds = []
   mocks.store.remoteDetectedAgentIds = {}
@@ -147,7 +152,92 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     expect(text).toContain(`web-app · feature/add-login (${WORKTREE_ID})`)
     expect(text).toContain('squash')
     expect(text).toContain('The operator asked to archive this workspace after delivery')
-    expect(text).toContain('Do not archive it yourself; only remind the operator')
+    expect(text).toContain('Do not archive it yourself')
+  })
+
+  // §7.12 §5: four authorized stages and their stop conditions. A2/A3/A4 in the
+  // plan's acceptance matrix are these three cases and the archive case above.
+  it('A2: names the merge when it is authorized, and forbids it when it is not', () => {
+    const merged = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ mergePullRequest: true, integrationMode: 'squash' })
+    )
+    expect(merged).toContain('gh pr merge <number> --squash')
+    expect(merged).toContain('verify that the pull request reports `merged`')
+    expect(merged).toContain('stop here and report it')
+
+    const notMerged = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ mergePullRequest: false })
+    )
+    // The prohibition names the command it forbids; what must be absent is the
+    // executable merge step, not the sentence saying not to run it.
+    expect(notMerged).not.toContain('gh pr merge <number>')
+    expect(notMerged).toContain('Do not merge the pull request: merging was not authorized')
+    expect(notMerged).toContain('not authorized')
+    // The authorized steps still follow: an unticked merge is not a stop for
+    // the issue close or the completed write.
+    expect(notMerged).toContain('then continue with the authorized steps below')
+    expect(notMerged).toContain('gh issue close #42')
+    expect(notMerged).toContain('mark this workspace completed')
+    // The completion comment states only what was authorized: it must not claim
+    // the merge that the operator explicitly did not authorize.
+    expect(notMerged).not.toContain('merged as')
+    expect(notMerged).toContain('delivered: PR #<number> (merge not authorized)')
+  })
+
+  it('A2: an unticked merge plus an unticked close still marks completed, without either claim', () => {
+    const text = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ mergePullRequest: false, closeIssue: false })
+    )
+    expect(text).toContain('Do not merge the pull request')
+    expect(text).toContain('Do not close the issue #42')
+    expect(text).toContain('mark this workspace completed')
+    expect(text).toContain('delivered: PR #<number> (merge not authorized)')
+    expect(text).not.toContain('merged as')
+    expect(text).not.toContain('issue #42 closed')
+  })
+
+  it('A3: names gh issue close with the page number, and never guesses one', () => {
+    const withNumber = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ closeIssue: true, issueNumber: 412 })
+    )
+    expect(withNumber).toContain('gh issue close #412 --comment')
+    expect(withNumber).toContain('Closes #412')
+
+    const withoutNumber = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ closeIssue: true, issueNumber: undefined })
+    )
+    expect(withoutNumber).not.toContain('gh issue close')
+    expect(withoutNumber).toContain('this page carries no issue number')
+
+    const notAuthorized = buildTaskWorkbenchDeliverInstruction(
+      deliverInput({ closeIssue: false, issueNumber: 412 })
+    )
+    expect(notAuthorized).not.toContain('gh issue close')
+    expect(notAuthorized).toContain('Do not close the issue #412')
+    expect(notAuthorized).toContain('not authorized')
+  })
+
+  it('A4: never tells the agent to archive, in any combination of ticks', () => {
+    for (const mergePullRequest of [true, false]) {
+      for (const closeIssue of [true, false]) {
+        for (const archiveAfter of [true, false]) {
+          const text = buildTaskWorkbenchDeliverInstruction(
+            deliverInput({ mergePullRequest, closeIssue, archiveAfter })
+          )
+          expect(text).not.toContain('orca worktree archive')
+          expect(text).not.toContain('archive this workspace now')
+          expect(text).toContain('Do not archive, remove, stop terminals or delete anything')
+        }
+      }
+    }
+  })
+
+  it('A9: always ends on the existing worktree-set write, never a new mechanism', () => {
+    const text = buildTaskWorkbenchDeliverInstruction(deliverInput())
+    expect(text).toContain('orca worktree set --worktree <self> --workspace-status completed')
+    expect(text).toContain('This is the only place delivery writes state')
+    expect(text).toContain('Never use --force')
+    expect(text).toContain('never change branch protection')
   })
 
   it('states attention facts without turning them into an instruction to act', () => {
@@ -225,6 +315,41 @@ describe('launchTaskWorkbenchDeliver', () => {
     expect(first).toEqual({ ok: true, tabId: 'tab-new' })
     expect(second).toEqual({ ok: false, reason: 'already-delivering' })
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
+  })
+
+  // §7.12 A5, host-published route: the marker lands asynchronously, so a second
+  // click in that window must not start a second agent. Local/structured routes
+  // publish synchronously and are covered by the marker test above.
+  it('launches once for a host-published surface, until its marker can arrive', () => {
+    mocks.store.detectedAgentIds = ['claude']
+    mocks.launchAgentInNewTab.mockReturnValue({ surface: { kind: 'host-published' } })
+
+    const first = launchTaskWorkbenchDeliver(deliverInput())
+    const second = launchTaskWorkbenchDeliver(deliverInput())
+
+    expect(first).toEqual({ ok: true, tabId: '' })
+    expect(second).toEqual({ ok: false, reason: 'already-delivering' })
+    expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not keep a local launch blocked once its marker tab exists', () => {
+    mocks.store.detectedAgentIds = ['claude']
+    mocks.launchAgentInNewTab.mockImplementation(() => {
+      mocks.store.unifiedTabsByWorktree[WORKTREE_ID] = [
+        { id: 'tab-new', quickCommandLabel: TASK_WORKBENCH_DELIVER_SESSION_LABEL }
+      ]
+      return { surface: { kind: 'local-terminal', tabId: 'tab-new' } }
+    })
+
+    expect(launchTaskWorkbenchDeliver(deliverInput())).toEqual({
+      ok: true,
+      tabId: 'tab-new'
+    })
+    // The marker is what refuses the second launch, not a time window.
+    expect(launchTaskWorkbenchDeliver(deliverInput())).toEqual({
+      ok: false,
+      reason: 'already-delivering'
+    })
   })
 
   it('also finds a marker on a legacy terminal row', () => {

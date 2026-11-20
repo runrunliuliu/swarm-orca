@@ -46,6 +46,11 @@ export type TaskWorkbenchDeliverConfirmNotice = { key: string; fallback: string 
 export type TaskWorkbenchDeliverConfirmValue = {
   targetBranch: string
   integrationMode: TaskWorkbenchDeliverIntegrationMode
+  /** §7.12 D1: merging is a remote, irreversible write, so it is an explicit
+   *  tick. Creating the PR is fixed on (rule 7) and has no field. */
+  mergePullRequest: boolean
+  /** Closing the issue, likewise. Only offered when the page names a number. */
+  closeIssue: boolean
   archiveAfter: boolean
 }
 
@@ -56,6 +61,10 @@ export type TaskWorkbenchDeliverConfirmProps = {
    *  and labels it `默认值 · 需确认`; absent leaves the field empty, which blocks
    *  submit with the frozen required reason. */
   defaultTargetBranch?: string
+  /** The page's own issue number, when it has one. Its presence is what offers
+   *  the `关闭 issue` tick; without it the tick is not rendered as chosen and the
+   *  instruction reports the close as not authorized (§7.12 A3). */
+  issueNumber?: number
   /** Rows of the `注意` line. Empty today (§7.11.6): the panel then renders
    *  nothing for it — not an empty box and not a "no warnings" claim. */
   attention?: readonly TaskWorkbenchDeliverConfirmNotice[]
@@ -106,10 +115,14 @@ const MODE_LABEL_ID = 'task-workbench-deliver-integration-label'
 const BRANCH_LABEL_ID = 'task-workbench-deliver-target-branch-label'
 const ARCHIVE_LABEL_ID = 'task-workbench-deliver-archive-after-label'
 const ARCHIVE_HINT_ID = 'task-workbench-deliver-archive-after-hint'
+const CREATE_PR_LABEL_ID = 'task-workbench-deliver-create-pr-label'
+const MERGE_PR_LABEL_ID = 'task-workbench-deliver-merge-pr-label'
+const CLOSE_ISSUE_LABEL_ID = 'task-workbench-deliver-close-issue-label'
 
 export function TaskWorkbenchDeliverConfirm({
   heading,
   defaultTargetBranch,
+  issueNumber,
   attention = NO_NOTICES,
   submitting = false,
   onCancel,
@@ -122,6 +135,11 @@ export function TaskWorkbenchDeliverConfirm({
   const [targetBranch, setTargetBranch] = React.useState(defaultTargetBranch ?? '')
   const [integrationMode, setIntegrationMode] =
     React.useState<TaskWorkbenchDeliverIntegrationMode>('pr')
+  // §7.12 D1 defaults: merging and closing are on (they are what "deliver"
+  // means), archiving is off (it hides the report). Closing is only on when the
+  // page actually names an issue; otherwise there is nothing to authorize.
+  const [mergePullRequest, setMergePullRequest] = React.useState(true)
+  const [closeIssue, setCloseIssue] = React.useState(issueNumber !== undefined)
   const [archiveAfter, setArchiveAfter] = React.useState(false)
   const branchInputRef = React.useRef<HTMLInputElement | null>(null)
 
@@ -158,7 +176,13 @@ export function TaskWorkbenchDeliverConfirm({
     if (submitBlocked) {
       return
     }
-    onSubmit({ targetBranch: targetBranch.trim(), integrationMode, archiveAfter })
+    onSubmit({
+      targetBranch: targetBranch.trim(),
+      integrationMode,
+      mergePullRequest,
+      closeIssue: closeIssue && issueNumber !== undefined,
+      archiveAfter
+    })
   }
 
   return (
@@ -257,11 +281,74 @@ export function TaskWorkbenchDeliverConfirm({
             </div>
           </div>
 
-          {/* Row 3: archive-after. Off by default, and the hint says what the
-              tick does not do (rule 8: it hides the row, it does not stop a PTY).
-              The `archiveAfter` copy is the checkbox's own label — the frozen
-              vocabulary has no separate row label for it. */}
-          <div className="flex flex-col gap-0.5 border-t border-border/50 pt-2">
+          {/* Row 3: 交付范围 (§7.12 D1) — the three writes this delivery may
+              perform, plus the archive Orca performs after observing completion.
+              Creating the PR is fixed on (`disabled`) because rule 7 makes it
+              unconditional; the other two are the operator's explicit consent to
+              an irreversible remote write. */}
+          <div className="flex flex-col gap-1 border-t border-border/50 pt-2">
+            <span className="text-muted-foreground">
+              {translate(confirmKeys('scope'), 'Deliver scope')}
+            </span>
+
+            <span className="flex items-center gap-1.5">
+              <Checkbox
+                id="task-workbench-deliver-create-pr"
+                data-testid="task-workbench-deliver-create-pr"
+                aria-labelledby={CREATE_PR_LABEL_ID}
+                checked
+                disabled
+              />
+              <label
+                id={CREATE_PR_LABEL_ID}
+                htmlFor="task-workbench-deliver-create-pr"
+                className="text-muted-foreground"
+              >
+                {translate(confirmKeys('createPullRequest'), 'Create pull request')}
+              </label>
+            </span>
+
+            <span className="flex items-center gap-1.5">
+              <Checkbox
+                id="task-workbench-deliver-merge-pr"
+                data-testid="task-workbench-deliver-merge-pr"
+                aria-labelledby={MERGE_PR_LABEL_ID}
+                checked={mergePullRequest}
+                onCheckedChange={(next) => setMergePullRequest(next === true)}
+              />
+              <label
+                id={MERGE_PR_LABEL_ID}
+                htmlFor="task-workbench-deliver-merge-pr"
+                className="cursor-pointer text-foreground"
+              >
+                {translate(confirmKeys('mergePullRequest'), 'Merge the pull request')}
+              </label>
+            </span>
+
+            <span className="flex items-center gap-1.5">
+              <Checkbox
+                id="task-workbench-deliver-close-issue"
+                data-testid="task-workbench-deliver-close-issue"
+                aria-labelledby={CLOSE_ISSUE_LABEL_ID}
+                checked={closeIssue && issueNumber !== undefined}
+                disabled={issueNumber === undefined}
+                onCheckedChange={(next) => setCloseIssue(next === true)}
+              />
+              <label
+                id={CLOSE_ISSUE_LABEL_ID}
+                htmlFor="task-workbench-deliver-close-issue"
+                className={
+                  issueNumber === undefined ? 'text-muted-foreground' : 'cursor-pointer text-foreground'
+                }
+              >
+                {issueNumber === undefined
+                  ? translate(confirmKeys('closeIssueUnavailable'), 'Close the issue')
+                  : translate(confirmKeys('closeIssue'), 'Close issue #{{value0}}', {
+                      value0: String(issueNumber)
+                    })}
+              </label>
+            </span>
+
             <span className="flex items-center gap-1.5">
               <Checkbox
                 id="task-workbench-deliver-archive-after"
@@ -285,6 +372,14 @@ export function TaskWorkbenchDeliverConfirm({
                 'Archiving keeps the checkout and its records; it only hides the row.'
               )}
             </span>
+            {issueNumber === undefined ? (
+              <span className="text-[11px] text-muted-foreground">
+                {translate(
+                  confirmKeys('closeIssueUnavailableHint'),
+                  'This page names no issue, so delivery will not close one.'
+                )}
+              </span>
+            ) : null}
           </div>
 
           {/* Rule 6: stated, never intercepted. Today the projection has no

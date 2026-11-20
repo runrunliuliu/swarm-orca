@@ -36,6 +36,11 @@ export type CreateWebRuntimeSessionTerminalArgs = {
   spawnedFromPaneKey?: string
   /** Explicit CLI override; omission leaves the remote host's defaults authoritative. */
   agentArgs?: string | null
+  /** Renderer-side tab marker for this launch (README §7.12 S5). The host wire
+   *  carries no such field, so the launch marks the mirrored local row: that is
+   *  the index the workbench reads, and the mirroring rebuild keeps an existing
+   *  row's marker instead of dropping it. */
+  quickCommandLabel?: string | null
   launchPreferences?: AgentLaunchPreferences
   providerSession?: AgentProviderSessionMetadata
   viewMode?: 'terminal' | 'chat'

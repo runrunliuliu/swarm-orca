@@ -41,7 +41,9 @@ export function WorktreeContextMenuDeliverItem({
   const label =
     action.kind === 'open-terminal'
       ? translate('auto.components.TaskWorkbenchDeliver.openTerminal', 'Open terminal')
-      : translate('auto.components.sidebar.WorktreeContextMenu.deliver', 'Deliver…')
+      : action.kind === 'open-session'
+        ? translate('auto.components.TaskWorkbenchDeliver.openSession', 'Open session')
+        : translate('auto.components.sidebar.WorktreeContextMenu.deliver', 'Deliver…')
   // Why the same eligibility as Archive: Deliver and Archive are one group with
   // one subject — a linked git worktree of the project. The repository's own
   // checkout is not archivable and is never a delivery target (the launch

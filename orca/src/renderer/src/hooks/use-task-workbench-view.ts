@@ -15,6 +15,7 @@ import {
 } from '@/lib/task-workbench/task-workbench-identity'
 import type { TaskWorkbenchItem } from '@/lib/task-workbench/task-workbench-selector-types'
 import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspace-branch'
+import { deliveryEvidenceByWorktree } from '@/lib/task-workbench/task-workbench-delivery-evidence'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
 import { mergeTaskRecordHistory } from '@/lib/task-workbench/task-workbench-history-merge'
 import {
@@ -43,15 +44,17 @@ import { selectTaskWorkbenchUsage } from '@/lib/task-workbench/task-workbench-us
  * (development-plan §2). This module only *feeds* them — store rows in, their
  * input shapes out, in store order.
  *
- * Two named gaps, deliberately not guessed (M1 / M3 scope, not P1b):
+ * One named gap, deliberately not guessed (M1 scope, not P1b):
  * - `attribution: null` — the `ambiguous_session` decision lives in
  *   `resolveAutomationRunUsage` (main process), which a renderer hook cannot
  *   call. The session-level ambiguity verdict is M1's; the hook never claims
  *   `none` on its own.
- * - `deliveryByWorktree: undefined` — per-workspace delivery evidence
- *   aggregation (commits / checks / review) is M3. The join returns no
- *   `delivery`, and the Delivery section degrades to its notice instead of
- *   reporting a zero.
+ *
+ * Since §7.12 the delivery evidence is no longer a gap: each workspace's own
+ * `review` (number + state) is the one source this renderer really has, so the
+ * hook hands over exactly that as a PR fact. Commits / checks / review verdicts
+ * still have no source here, and an absent field stays absent — the type marks
+ * them optional so nothing has to invent a `0` to fill the shape.
  */
 
 export type TaskWorkbenchViewArgs = {
@@ -62,8 +65,10 @@ export type TaskWorkbenchViewArgs = {
   itemType: 'issue' | 'pr'
   /** Page title; the view has no way to derive it. */
   title: string
-  /** Tracker state + url, when the page knows it. */
-  tracker?: { state: 'open' | 'closed'; url: string }
+  /** Tracker state + url, when the page knows it. The detail page also knows the
+   *  item's number and hands it over for an issue page (§7.12 A3); a PR page's
+   *  tracker names the PR, so it carries none. */
+  tracker?: { state: 'open' | 'closed'; url: string; number?: number }
   /** The detail page's own task source context, when it has one. */
   taskSourceContext?: TaskSourceContext | null
 }
@@ -339,8 +344,8 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       identity: resolution,
       worktrees: joinedWorktrees,
       agentsByWorktree,
-      // Named gap: M3 owns per-workspace delivery evidence.
-      deliveryByWorktree: undefined,
+      // §7.12: each workspace's own review, and only that.
+      deliveryByWorktree: deliveryEvidenceByWorktree(joinedWorktrees),
       // Named gap: an explicit primary needs persistence (M2b), so the join
       // reports `recent-activity` / `none` and never claims a user choice.
       primaryWorktreeId: undefined

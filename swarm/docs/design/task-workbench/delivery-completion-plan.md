@@ -1,7 +1,8 @@
 # 交付完成：合并、关闭 issue、状态化（技术方案）
 
-状态：**设计稿，未实现**。本文只描述方案与验收口径，不含生产代码、不含部署/重启/发布。
-基线：`origin/main` @ `6e3d4bd7`（含 §7.11 交付入口与 §8.10 `taskRecords`）。
+状态：**已实现（S1–S5），真机验收未做**。方案与验收口径不变；落地清单、已执行的测试与仍缺的证据
+见 [README §7.12.1–§7.12.2](README.md)。基线：`origin/main` @ `6e3d4bd7`（含 §7.11 交付入口与
+§8.10 `taskRecords`）。
 上位记录：[README.md](README.md) §7.11（交付入口）与 §7.4.2（面板版面）；本文是它的下一片，
 不改 §7.11.3 规则 1–7，只重写规则 8（归档归属，见 §3 D2）并关闭 §7.11.6 的两条路由缺口（D5）。
 
@@ -232,6 +233,9 @@ S4 已归档。同一行五种形态，证明"状态不靠新词、只靠既有�
 
 每片独立可回退；前三片完成后功能即成立，后两片是边界与体验。
 
+> 落地状态：S1–S5 全部实现（分支 `feat-task-workbench-pr-issue-7.12`），实现与测试清单见
+> [README §7.12.1](README.md)。下表保留为当初的切片定义。
+
 | 片 | 改动 | 文件 | 测试 |
 | --- | --- | --- | --- |
 | **S1 投影** | 新增两个状态（`completed` / `delivering` 用既有）与 `已交付` 事实项；判定读 `workspaceStatusId` + `review.state` | `task-workbench-deliver-state.ts`、`task-workbench-view.ts`（`tracker` 注释与可选事实字段） | `task-workbench-deliver-state.test.ts`（每个 fixture 只输出 `{key,fallback}`；证据缺失只出 S0） |
@@ -293,7 +297,7 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 | --- | --- | --- | --- |
 | §7.11.3 规则 8 | 归档最后仍由人点（agent 不归档） | agent 仍不归档；**Orca 在完成事实后执行**（勾选时） | 归档会隐藏 agent 自己的报告；hook/PTY 约束见 §7.11.1 |
 | §7.11.6 bound 1 | structured 路由不写 `quickCommandLabel`，第二次激活会再启动 | 本方案补齐（S5） | D5 |
-| §7.11.6 bound 2 | host-published 路由无 `quickCommandLabel` | 本方案补齐（S5），返回真实 tabId 时 reveal | D5 |
+| §7.11.6 bound 2 | host-published 路由无 `quickCommandLabel` | 已收窄（S5）：标记写到镜像的本地 tab 行，host wire 仍不携带 | D5 |
 | §7.11.1 结论 | 归档是交付之后的保留动作 | 不变；但"交付完成"现在有可读事实，归档可以被自动化 | D2/D3 |
 
 ## 12. 证据缺口（本方案自己证明不了的事）
@@ -303,4 +307,8 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
   （`acme/web-app`、`#431`），不含真实主机、会话或用量。
 - 图证明不了：真实 `gh pr merge` / `gh issue close` 的权限与分支保护行为、真实归档 hook 的耗时、
   locale 切换后的排版、以及三条启动路由在真机上的 marker 持久化。
-- 本文没有跑任何测试（未实现）；A1/A9 的"真机手工"条目需要一次真实交付演练，属单独授权动作。
+- A1/A9 的"真机手工"条目仍未做：实现后跑的是单测（清单见 README §7.12.2），没有一次真实交付演练。
+- 实现新增的缺口（如实记录）：host-published 的标记只写本地镜像行，host wire 不携带，对端设备读不到；
+  S4 的归档意图不跨应用重启；关闭 issue 后没有主动失效 item 详情缓存；es/fr/ja/ko 的新文案是英文回退。
+- 实现补了四张 harness 渲染图（`ui/impl-20261120-delivered*.png`、`impl-20261120-deliver-confirm.png`，
+  见 README §7.12.2）：它们是生产组件的 CDP 截图，不是设计稿，也仍不是真机截图。

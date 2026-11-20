@@ -9,6 +9,10 @@ export type StructuredNewTabLaunchArgs = {
   targetGroupId?: string
   /** Lets a workspace reveal itself after ID allocation but before tab ownership. */
   beforeOpen?: (sessionId: string) => boolean | void
+  /** The marker the caller wants on the provisional tab (README §7.11.6 bound 1,
+   *  §7.12 S5). Carried through untouched: this route used to drop it, which is
+   *  why a second `DELIVER` click could start a second agent. */
+  quickCommandLabel?: string | null
 }
 
 export type StructuredNewTabLaunch = {
@@ -29,7 +33,8 @@ export function launchAgentInStructuredNewTab(
     plan: args.plan,
     hooks: {},
     ...(args.beforeOpen ? { beforeOpen: args.beforeOpen } : {}),
-    ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {})
+    ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {}),
+    ...(args.quickCommandLabel ? { quickCommandLabel: args.quickCommandLabel } : {})
   })
   if (!launch) {
     return null

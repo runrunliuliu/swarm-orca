@@ -221,6 +221,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       // Why: omission means terminal locally, but would let a paired host apply
       // its own default; send the client's resolved terminal choice explicitly.
       viewMode: initialViewModeProps.viewMode ?? 'terminal',
+      ...(quickCommandLabel ? { quickCommandLabel } : {}),
       onPromptDelivered
     })
     return {
@@ -272,7 +273,8 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
               beforeSurfaceOpen({ kind: 'local-agent-session', sessionId })
           }
         : {}),
-      ...(groupId ? { targetGroupId: groupId } : {})
+      ...(groupId ? { targetGroupId: groupId } : {}),
+      ...(quickCommandLabel ? { quickCommandLabel } : {})
     })
     if (!structured) {
       return null

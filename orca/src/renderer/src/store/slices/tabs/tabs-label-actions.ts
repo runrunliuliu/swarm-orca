@@ -16,6 +16,7 @@ export function createTabsLabelActions(
   TabsSlice,
   | 'reorderUnifiedTabs'
   | 'setTabLabel'
+  | 'setTabQuickCommandLabel'
   | 'setTabViewMode'
   | 'toggleTabViewMode'
   | 'setTabCustomLabel'
@@ -59,6 +60,22 @@ export function createTabsLabelActions(
 
     setTabLabel: (tabId, label) => {
       set((state) => patchTab(state.unifiedTabsByWorktree, tabId, { label }) ?? state)
+    },
+
+    setTabQuickCommandLabel: (tabId, label) => {
+      set((state) => {
+        const tabPatch = patchTab(state.unifiedTabsByWorktree, tabId, { quickCommandLabel: label })
+        const rowPatch = patchTerminalTabRow(state.tabsByWorktree, tabId, {
+          quickCommandLabel: label
+        })
+        if (!tabPatch && !rowPatch.tabsByWorktree) {
+          return state
+        }
+        return {
+          ...tabPatch,
+          ...rowPatch
+        }
+      })
     },
 
     setTabViewMode: (tabId, mode) => {

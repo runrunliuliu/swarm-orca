@@ -11,6 +11,7 @@ import type { AgentStatusState } from '../../../../shared/agent-status-types'
 import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
 import { folderWorkspaceToWorktree } from '../../../../shared/folder-workspace-worktree'
 import type { Worktree } from '../../../../shared/worktree/types'
+import { getHostedReviewCacheKey } from '@/store/slices/hosted-review-cache-identity'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import WorktreeContextMenu from './WorktreeContextMenu'
 
@@ -62,6 +63,7 @@ vi.mock('./useWorktreeAgentRows', () => ({
 const WORKING_REASON = 'A working agent already owns this workspace; delivery waits for one writer.'
 const DELIVER_LABEL = 'Deliver…'
 const OPEN_TERMINAL_LABEL = 'Open terminal'
+const OPEN_SESSION_LABEL = 'Open session'
 const NO_AGENT_FALLBACK =
   'No agent CLI detected — install one or pick a default agent in Settings.'
 const ARCHIVE_LABEL = 'Archive workspace'
@@ -89,6 +91,8 @@ const state = {
   browserTabsByWorktree: {},
   keybindings: {},
   settings: { activeRuntimeEnvironmentId: null, openInApplications: [] },
+  hostedReviewCache: {} as Record<string, unknown>,
+  prCache: {} as Record<string, unknown>,
   openSettingsPage: vi.fn(),
   openSettingsTarget: vi.fn(),
   folderWorkspaces: noFolderWorkspaces,
@@ -157,6 +161,8 @@ vi.mock('./WorkspaceSleepMenuItems', () => ({ WorkspaceSleepMenuItems: () => nul
 beforeEach(() => {
   vi.clearAllMocks()
   state.folderWorkspaces = []
+  state.hostedReviewCache = {}
+  state.prCache = {}
   agentRowsModule.rows = []
   allWorktreesModule.rows = []
   Object.defineProperty(window, 'api', {
@@ -202,6 +208,46 @@ function mainWorktreeFixture(): Worktree {
     branch: 'refs/heads/main',
     path: '/path/to/main',
     isMainWorktree: true
+  })
+}
+
+/** A cached merged review for `worktreeFixture()` (branch `feature/auth-race`,
+ *  head `abc123`), in the shape `resolveDashboardCardContext` validates: the
+ *  merged state is only current while the cached head is the worktree's head. */
+function mergedReviewCache(): Record<string, unknown> {
+  const cacheKey = getHostedReviewCacheKey(
+    '/repo',
+    'feature/auth-race',
+    state.settings,
+    REPO_ID,
+    null,
+    null,
+    true
+  )
+  return {
+    [cacheKey]: {
+      data: {
+        provider: 'bitbucket',
+        number: 431,
+        title: 'Delivered',
+        state: 'merged',
+        url: 'https://example.test/review/431',
+        status: 'success',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        mergeable: 'MERGEABLE',
+        headSha: 'abc123'
+      },
+      fetchedAt: 1,
+      linkedReviewHintKey: 'bitbucket:431'
+    }
+  }
+}
+
+/** The delivered fixture (§7.12 D4): completed status + merged review. */
+function deliveredWorktree(): Worktree {
+  return worktreeFixture({
+    workspaceStatus: 'completed',
+    linkedBitbucketPR: 431
   })
 }
 
@@ -374,6 +420,15 @@ describe('sidebar deliver entry — when it is offered', () => {
     expect(screen.queryByTestId('worktree-context-menu-deliver')).toBeNull()
     expect(menuItemLabels()).toContain(ARCHIVE_LABEL)
   })
+
+  it('is absent for a delivered workspace with no session to open', () => {
+    state.hostedReviewCache = mergedReviewCache()
+    openMenu(deliveredWorktree())
+
+    // §7.12: a delivered row's only move is Open session. Without a marker row
+    // there is nothing to open, and the entry does not pretend otherwise.
+    expect(screen.queryByTestId('worktree-context-menu-deliver')).toBeNull()
+  })
 })
 
 describe('sidebar deliver entry — one writer', () => {
@@ -465,6 +520,10 @@ describe('sidebar deliver entry — opening and submitting', () => {
       worktreeId: WORKTREE_ID,
       targetBranch: 'release/2026-11',
       integrationMode: 'pr',
+      mergePullRequest: true,
+      // The menu carries no item number, so it authorizes no issue close (§7.12
+      // A3): the task page is where an issue is named.
+      closeIssue: false,
       archiveAfter: false,
       source: 'sidebar'
     })
@@ -498,6 +557,39 @@ describe('sidebar deliver entry — opening and submitting', () => {
     await clickMenuItemAsync(OPEN_TERMINAL_LABEL)
 
     expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledTimes(1)
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKTREE_ID)
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
+  })
+
+  it('shows Open session for a delivered workspace and reveals it without launching', async () => {
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(true)
+    state.hostedReviewCache = mergedReviewCache()
+    agentRowsModule.rows = [agentRow('done', 'DELIVER')]
+    openMenu(deliveredWorktree())
+
+    const item = screen.getByTestId('worktree-context-menu-deliver')
+    expect(item).toHaveTextContent(OPEN_SESSION_LABEL)
+    expect(item).not.toHaveTextContent(DELIVER_LABEL)
+
+    await clickMenuItemAsync(OPEN_SESSION_LABEL)
+
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledTimes(1)
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKTREE_ID)
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
+  })
+
+  it('does not open a delivery confirmation when a delivered row’s session is gone', async () => {
+    // K4's fallback is for a pre-delivery `open-terminal` row. A delivered
+    // workspace has no delivery left to confirm, so a stale row stays a no-op.
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(false)
+    state.hostedReviewCache = mergedReviewCache()
+    agentRowsModule.rows = [agentRow('done', 'DELIVER')]
+    openMenu(deliveredWorktree())
+
+    await clickMenuItemAsync(OPEN_SESSION_LABEL)
+
     expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKTREE_ID)
     expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
     expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
@@ -601,6 +693,24 @@ describe('sidebar deliver entry — submit re-projects before launching', () => 
 
   // Rule 4 order: an existing session outranks the one-writer guard, so a
   // marker that appears after opening is revealed, not launched past.
+  it('reveals instead of launching when the workspace becomes delivered while the confirmation is open', async () => {
+    launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(true)
+    launchModule.launchTaskWorkbenchDeliver.mockReturnValue({ ok: true, tabId: 'tab-deliver' })
+    const menu = openIdleConfirmation()
+
+    // Completion arrives while the panel is open: status + merged review + the
+    // marker row the operator should be pointed at.
+    state.hostedReviewCache = mergedReviewCache()
+    agentRowsModule.rows = [agentRow('done', 'DELIVER')]
+    menu.rerender(deliveredWorktree())
+
+    await submit()
+
+    expect(launchModule.launchTaskWorkbenchDeliver).not.toHaveBeenCalled()
+    expect(launchModule.revealTaskWorkbenchDeliverTab).toHaveBeenCalledWith(WORKTREE_ID)
+    expect(screen.queryByTestId('task-workbench-deliver-confirm')).toBeNull()
+  })
+
   it('reveals a session that appeared after the confirmation opened, and launches nothing', async () => {
     launchModule.revealTaskWorkbenchDeliverTab.mockReturnValue(true)
     const menu = openIdleConfirmation()

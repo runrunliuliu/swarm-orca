@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery-entry fixtures, the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the six delivery-entry states and their closed-popover semantics, history facts/compact/trace-lost claims, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction or locale switching.'
+  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery fixtures (§7.11 testids and §7.12 delivered/archived states), the production delivery confirmation (its deliver scope), the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the delivery state signature and fact items, the six §7.11 delivery-entry states and their closed-popover semantics, the confirmation scope defaults without a dialog role, history facts/compact/trace-lost claims, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction (the confirmation is rendered directly) or locale switching.'
 
 // Contract §4.2 plus the two §7.11 delivery-only fixture rows, copied by hand:
 // the fixture data is the other side of this pin, so a fixture edit that changes
@@ -51,7 +51,11 @@ const CONTRACT_COUNTS = {
   f11_no_matching_session: { workspaces: 1, agents: 2, activeAgents: 1, attentionAgents: 0, historyAgents: 1 },
   f12_new_workspace_no_agents: { workspaces: 1, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
   f13_existing_deliver_session: { workspaces: 1, agents: 1, activeAgents: 0, attentionAgents: 0, historyAgents: 1 },
-  f14_zero_delivery_evidence: { workspaces: 1, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 }
+  f14_zero_delivery_evidence: { workspaces: 1, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
+  // §7.12: one completed workspace with a merged PR and one finished DELIVER
+  // session, so the delivered row and its two facts are on screen.
+  f15_delivered: { workspaces: 1, agents: 1, activeAgents: 0, attentionAgents: 0, historyAgents: 1 },
+  f16_delivered_archived: { workspaces: 1, agents: 1, activeAgents: 0, attentionAgents: 0, historyAgents: 1 }
 }
 
 // The single-run path is the only implementation; --all is a sequential loop
@@ -82,6 +86,14 @@ const SHOT_MATRIX = [
   // Only these two states need new fixture data and therefore new matrix rows.
   { id: 'D-existing-session', fixture: 'f13_existing_deliver_session', width: 1440, height: 900 },
   { id: 'D-zero-evidence', fixture: 'f14_zero_delivery_evidence', width: 1440, height: 900 },
+  // §7.12: the delivered row, and the same row at a narrow width where the
+  // state signature and the fact items must wrap instead of being clipped.
+  { id: 'D-delivered', fixture: 'f15_delivered', width: 1440, height: 900 },
+  { id: 'D-delivered-narrow', fixture: 'f15_delivered', width: 900, height: 700 },
+  // §7.12 D1: the confirmation's deliver scope, rendered directly because the
+  // static pass never clicks the entry that opens it.
+  { id: 'D-confirm', fixture: 'deliver_confirm', width: 720, height: 660 },
+  { id: 'D-delivered-archived', fixture: 'f16_delivered_archived', width: 1440, height: 900 },
   // Issue #27: the wide list row, then the same rows at a narrow window, where
   // §7.2's row priority must keep the mark on screen.
   { id: 'G1', fixture: 'd6_github_task_rows', width: 1440, height: 900, mandatory: true },
@@ -117,6 +129,20 @@ const SPEND_STATUS_WORD = {
   unattributed: 'Unattributed'
 }
 
+// §7.12 D1. Every expectation is a literal duplicated from the component, so a
+// copy or default edit in the panel has to be a deliberate edit here too.
+const DELIVER_CONFIRM_FIXTURE = {
+  fixture: 'deliver_confirm',
+  scope: [
+    { id: 'task-workbench-deliver-create-pr', checked: true, disabled: true },
+    { id: 'task-workbench-deliver-merge-pr', checked: true, disabled: false },
+    { id: 'task-workbench-deliver-close-issue', checked: true, disabled: false },
+    { id: 'task-workbench-deliver-archive-after', checked: false, disabled: false }
+  ],
+  closeIssueLabel: 'Close issue #412',
+  scopeLabel: 'Deliver scope'
+}
+
 const SIDEBAR_FIXTURE = {
   fixture: 'd5_sidebar_draft_row',
   rows: [
@@ -148,6 +174,26 @@ export function derive(fixtureKey, width, height) {
       expectedTestIds: {
         'github-task-rows-fixture-root': 1,
         'github-task-rows-fixture-list': 1
+      }
+    }
+  }
+  if (fixtureKey === DELIVER_CONFIRM_FIXTURE.fixture) {
+    return {
+      found: true,
+      deliverConfirm: DELIVER_CONFIRM_FIXTURE,
+      expectedTestIds: {
+        'deliver-confirm-fixture-root': 1,
+        'task-workbench-deliver-confirm': 1,
+        'task-workbench-deliver-close': 1,
+        'task-workbench-deliver-target-branch': 1,
+        'task-workbench-deliver-target-branch-default': 1,
+        'task-workbench-deliver-integration': 1,
+        'task-workbench-deliver-create-pr': 1,
+        'task-workbench-deliver-merge-pr': 1,
+        'task-workbench-deliver-close-issue': 1,
+        'task-workbench-deliver-archive-after': 1,
+        'task-workbench-deliver-submit': 1,
+        'task-workbench-deliver-cancel': 1
       }
     }
   }
@@ -310,14 +356,41 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-delivery-body':
       delivery !== undefined && layout.delivery === 'expanded' ? 1 : 0,
     'task-workbench-delivery-commits':
-      delivery !== undefined && delivery.commits.count > 0 ? 1 : 0,
+      delivery !== undefined && (delivery.commits?.count ?? 0) > 0 ? 1 : 0,
     'task-workbench-delivery-checks': delivery && delivery.checks ? 1 : 0,
     'task-workbench-delivery-review': delivery && delivery.review ? 1 : 0,
+    // §7.12: the state signature and the fact items are rendered from the same
+    // projection the tests read. The no-workspace state states nothing, so
+    // neither element exists; the facts line suppresses a PR only when the
+    // evidence strip prints that same PR (same number). The strip's evidence is
+    // task-level and may name another workspace, so existence alone is not
+    // identity.
+    'task-workbench-delivery-state': deliverProjection.state === 'no-workspace' ? 0 : 1,
+    'task-workbench-delivery-facts':
+      (deliverProjection.facts.pullRequest !== undefined &&
+        delivery?.pullRequest?.number !== deliverProjection.facts.pullRequest.number) ||
+      deliverProjection.facts.issue !== undefined
+        ? 1
+        : 0,
     // The delivery entry is derived from the fixture through the production
     // projection, never copied from a list of fixture names. The rendered pass
     // does not click, so the shared confirmation must stay closed.
     'task-workbench-deliver-action': deliverProjection.action.kind === 'none' ? 0 : 1,
     'task-workbench-deliver-confirm': 0
+  }
+
+  // README §7.12 §6.2: the state word is the projection's own state, never a
+  // second vocabulary. Kept as literals so a copy edit in the component has to
+  // be a deliberate edit here too.
+  const DELIVER_STATE_WORD = {
+    'no-workspace': null,
+    archived: 'Archived',
+    completed: 'Delivered',
+    'deliver-session': 'Delivering',
+    'one-writer': 'Ready',
+    'zero-evidence': 'Ready',
+    'has-evidence': 'Ready',
+    'evidence-not-read': 'Not loaded'
   }
 
   const semantic = {
@@ -334,7 +407,10 @@ export function derive(fixtureKey, width, height) {
             cost: spend.costUsd === null ? '—' : 'est. $' + spend.costUsd.toFixed(2)
           }
         : null,
-    deliveredExpected: successOutcomes > 0,
+    // README §7.12 D4: since the delivered row exists, the word "Delivered" has
+    // two legitimate sources — a success outcome badge, or the projection's
+    // completed state. Anything else printing it is still a false claim.
+    deliveredExpected: successOutcomes > 0 || deliverProjection.state === 'completed',
     // Both branches render every archived row once the fold is open, so this is
     // the archived count, not "the full layout only".
     archivedVisibleCards: archivedOpen ? archived.length : 0,
@@ -352,7 +428,27 @@ export function derive(fixtureKey, width, height) {
       : null,
     deliver: {
       state: deliverProjection.state,
-      action: deliverProjection.action
+      stateWord: DELIVER_STATE_WORD[deliverProjection.state],
+      action: deliverProjection.action,
+      // The facts line prints the PR only when the evidence strip does not, and
+      // the issue only when the view names one. The expected text is built the
+      // same way, so a missing source cannot silently become a claim.
+      factsText: (() => {
+        const parts = []
+        if (delivery?.pullRequest === undefined && deliverProjection.facts.pullRequest) {
+          parts.push('PR #' + deliverProjection.facts.pullRequest.number)
+          parts.push(deliverProjection.facts.pullRequest.state)
+        }
+        if (deliverProjection.facts.issue) {
+          parts.push(
+            'Issue #' +
+              deliverProjection.facts.issue.number +
+              ' ' +
+              deliverProjection.facts.issue.state
+          )
+        }
+        return parts.length === 0 ? null : parts.join(' · ')
+      })()
     }
   }
 
@@ -520,6 +616,39 @@ async function collectGithubRows(page) {
   })
 }
 
+/** The confirmation panel's own controls (README §7.12 D1). Located by testid
+ *  and by the label ids the component owns, never by row order. */
+async function collectDeliverConfirm(page) {
+  return page.evaluate(() => {
+    const text = (element) => (element?.textContent ?? '').replace(/\s+/g, ' ').trim()
+    const panel = document.querySelector('[data-testid="task-workbench-deliver-confirm"]')
+    const scope = ['create-pr', 'merge-pr', 'close-issue', 'archive-after'].map((key) => {
+      const input = document.querySelector(`[data-testid="task-workbench-deliver-${key}"]`)
+      return {
+        id: `task-workbench-deliver-${key}`,
+        checked: input?.getAttribute('data-state') === 'checked',
+        disabled:
+          input !== null &&
+          (input.hasAttribute('disabled') || input.getAttribute('data-disabled') !== null)
+      }
+    })
+    const submit = document.querySelector('[data-testid="task-workbench-deliver-submit"]')
+    return {
+      exists: panel !== null,
+      dialogRoles: document.querySelectorAll('[role="dialog"]').length,
+      ariaModal: document.querySelectorAll('[aria-modal="true"]').length,
+      submitVariant: submit?.getAttribute('data-variant') ?? null,
+      submitText: text(submit),
+      submitDisabled: submit?.hasAttribute('disabled') ?? false,
+      scope,
+      closeIssueLabel: text(
+        document.getElementById('task-workbench-deliver-close-issue-label')
+      ),
+      scopeLabelPresent: (panel?.textContent ?? '').includes('Deliver scope')
+    }
+  })
+}
+
 async function collectDom(page) {
   return page.evaluate(() => {
     const text = (element) => (element?.textContent ?? '').replace(/\s+/g, ' ').trim()
@@ -555,6 +684,12 @@ async function collectDom(page) {
         const described = describedBy === null ? null : document.getElementById(describedBy)
         return {
           rowText: text(row),
+          state:
+            document
+              .querySelector('[data-testid="task-workbench-delivery-state"]')
+              ?.getAttribute('data-state') ?? null,
+          stateText: text(document.querySelector('[data-testid="task-workbench-delivery-state"]')),
+          factsText: text(document.querySelector('[data-testid="task-workbench-delivery-facts"]')) || null,
           claims: {
             commits: texts('[data-testid="task-workbench-delivery-commits"]'),
             pullRequests: [
@@ -627,10 +762,22 @@ async function runOne(entry, builds) {
           ? { label: expectation.label, summary: expectation.summary, counts: expectation.counts, layout: expectation.layout, semantic: expectation.semantic }
           : { found: false }
     const contractCounts = CONTRACT_COUNTS[entry.fixture]
-    if (expectation.found && !expectation.sidebar && !expectation.githubRows && !contractCounts) {
+    if (
+      expectation.found &&
+      !expectation.sidebar &&
+      !expectation.githubRows &&
+      !expectation.deliverConfirm &&
+      !contractCounts
+    ) {
       failures.push({ name: 'counts:missing-contract-row', expected: 'a §4.2 row', actual: entry.fixture })
     }
-    if (expectation.found && !expectation.sidebar && !expectation.githubRows && contractCounts) {
+    if (
+      expectation.found &&
+      !expectation.sidebar &&
+      !expectation.githubRows &&
+      !expectation.deliverConfirm &&
+      contractCounts
+    ) {
       compare(failures, 'counts:contract', expectation.counts, contractCounts)
       compare(
         failures,
@@ -661,7 +808,7 @@ async function runOne(entry, builds) {
     const url = `${pathToFileURL(path.join(builds.renderer, 'index.html')).href}?fixture=${encodeURIComponent(entry.fixture)}`
     await page.goto(url)
     await page.waitForSelector(
-      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="sidebar-fixture-root"], [data-testid="github-task-rows-fixture-root"]',
+      '[data-testid="task-workbench-panel"], [data-testid="task-workbench-fixture-error"], [data-testid="sidebar-fixture-root"], [data-testid="github-task-rows-fixture-root"], [data-testid="deliver-confirm-fixture-root"]',
       { timeout: 30000 }
     )
     await page.evaluate(() =>
@@ -772,6 +919,54 @@ async function runOne(entry, builds) {
           true
         )
       }
+    } else if (expectation.deliverConfirm) {
+      for (const [id, expectedCount] of Object.entries(expectation.expectedTestIds)) {
+        const actualCount = dom.testIds[id] ?? 0
+        if (actualCount !== expectedCount) {
+          failures.push({ name: `testid:${id}`, expected: expectedCount, actual: actualCount })
+        }
+      }
+      for (const [id, actualCount] of Object.entries(dom.testIds)) {
+        if (!(id in expectation.expectedTestIds)) {
+          failures.push({ name: `testid:${id}:unexpected`, expected: 0, actual: actualCount })
+        }
+      }
+      const confirm = await collectDeliverConfirm(page)
+      report.deliverConfirm = confirm
+      const expectedConfirm = expectation.deliverConfirm
+      compare(failures, 'confirm:exists', confirm.exists, true)
+      // §7.11.3 rule 2 survives §7.12: the panel is an inline popover with an
+      // outline submit, never a modal with a second filled primary.
+      compare(failures, 'confirm:no-dialog-role', confirm.dialogRoles, 0)
+      compare(failures, 'confirm:no-aria-modal', confirm.ariaModal, 0)
+      compare(failures, 'confirm:submit-variant', confirm.submitVariant, 'outline')
+      compare(failures, 'confirm:submit-disabled', confirm.submitDisabled, false)
+      compare(failures, 'confirm:submit-label', confirm.submitText, 'Start delivery')
+      compare(failures, 'confirm:scope-label', confirm.scopeLabelPresent, true)
+      compare(failures, 'confirm:close-issue-label', confirm.closeIssueLabel, expectedConfirm.closeIssueLabel)
+      for (const expectedScope of expectedConfirm.scope) {
+        const actualScope = confirm.scope.find((scope) => scope.id === expectedScope.id)
+        if (actualScope === undefined) {
+          failures.push({
+            name: `confirm:${expectedScope.id}:missing`,
+            expected: 'a rendered control',
+            actual: null
+          })
+          continue
+        }
+        compare(
+          failures,
+          `confirm:${expectedScope.id}:checked`,
+          actualScope.checked,
+          expectedScope.checked
+        )
+        compare(
+          failures,
+          `confirm:${expectedScope.id}:disabled`,
+          actualScope.disabled,
+          expectedScope.disabled
+        )
+      }
     } else if (expectation.found) {
       compare(failures, 'panel:layout-columns', dom.layout?.columns ?? null, expectation.layout.columns)
       compare(failures, 'panel:layout-json', dom.layout?.json ?? null, expectation.layout)
@@ -790,6 +985,24 @@ async function runOne(entry, builds) {
       const expectedDeliver = semantic.deliver
       const actualDeliver = dom.deliverEntry
       compare(failures, 'deliver:confirm-closed', actualDeliver.confirmCount, 0)
+      compare(
+        failures,
+        `deliver:${expectedDeliver.state}:state-attr`,
+        actualDeliver.state,
+        expectedDeliver.state === 'no-workspace' ? null : expectedDeliver.state
+      )
+      compare(
+        failures,
+        `deliver:${expectedDeliver.state}:state-word`,
+        actualDeliver.stateText,
+        expectedDeliver.stateWord ?? ''
+      )
+      compare(
+        failures,
+        `deliver:${expectedDeliver.state}:facts`,
+        actualDeliver.factsText,
+        expectedDeliver.factsText
+      )
       if (expectedDeliver.action.kind === 'none') {
         compare(failures, `deliver:${expectedDeliver.state}:action-absent`, actualDeliver.action, null)
       } else {

@@ -20,7 +20,7 @@ import {
   recordWebSessionTerminalPlacement,
   webTerminalPlacementParentTabId
 } from './web-session-terminal-placement'
-import { toHostSessionTabId } from './web-terminal-surface-id'
+import { toHostSessionTabId, toWebTerminalSurfaceTabId } from './web-terminal-surface-id'
 import {
   captureRuntimeEnvironmentCall,
   captureWebSessionIntentOwner,
@@ -278,6 +278,16 @@ export async function createWebRuntimeSessionTerminalResult(
       // Why: a placement record needs a post-create list; a deduped in-flight one can predate it.
       ...(placementTabId ? { afterCurrentInFlight: true } : {})
     })
+    // §7.12 S5: the host wire carries no tab marker, so it lands on the mirrored
+    // local row (the index the workbench reads); later snapshots keep it.
+    if (args.quickCommandLabel && createdTabId) {
+      useAppStore
+        .getState()
+        .setTabQuickCommandLabel(
+          toWebTerminalSurfaceTabId(createdTabId),
+          args.quickCommandLabel
+        )
+    }
     if (placementTabId) {
       await settleWebRuntimeTerminalPlacement(
         environmentId,

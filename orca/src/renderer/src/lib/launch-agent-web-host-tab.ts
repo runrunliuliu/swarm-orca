@@ -47,6 +47,9 @@ export function launchAgentInWebHostTab(args: {
   agentArgs?: string | null
   spawnedFromPaneKey?: string
   viewMode?: Tab['viewMode']
+  /** Marks the mirrored local tab so a second delivery click reveals it instead
+   *  of starting another agent (§7.11.6 bound 2, §7.12 S5). */
+  quickCommandLabel?: string | null
   onPromptDelivered?: () => void
 }): Promise<{ delivered: boolean; failureNotified: boolean }> {
   const {
@@ -63,6 +66,7 @@ export function launchAgentInWebHostTab(args: {
     agentArgs,
     spawnedFromPaneKey,
     viewMode,
+    quickCommandLabel,
     onPromptDelivered
   } = args
   const hasPrompt = prompt.length > 0
@@ -95,7 +99,8 @@ export function launchAgentInWebHostTab(args: {
       : {}),
     ...(agentArgs !== undefined ? { agentArgs } : {}),
     ...(spawnedFromPaneKey ? { spawnedFromPaneKey } : {}),
-    ...(launchPreferences ? { launchPreferences } : {})
+    ...(launchPreferences ? { launchPreferences } : {}),
+    ...(quickCommandLabel ? { quickCommandLabel } : {})
   } as const
 
   const handleCreation = ({

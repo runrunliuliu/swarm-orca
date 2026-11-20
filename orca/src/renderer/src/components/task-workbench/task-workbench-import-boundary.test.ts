@@ -58,6 +58,9 @@ const storeFreeSources: SourceFile[] = [
   // are read by both hosts, so both stay data-free for the same reason.
   { dir: sourceDir, file: 'task-workbench-deliver-state.ts' },
   { dir: sourceDir, file: 'task-workbench-deliver-session.ts' },
+  // §7.12's delivered row: the state signature and the fact items render from
+  // the projection, so they stay data-free like the row that hosts them.
+  { dir: sourceDir, file: 'task-workbench-deliver-row-facts.tsx' },
   // §7.11's confirmation panel: props in, callbacks out. Both entries render the
   // same component, so it must never reach for the store to decide anything.
   { dir: sourceDir, file: 'task-workbench-deliver-confirm.tsx' },
@@ -71,7 +74,11 @@ const storeFreeSources: SourceFile[] = [
   // P3 thin slice (issue #27): the list-row activity selector is pure too —
   // the list hook below is the only place that reads the store for it.
   { dir: libDir, file: 'task-workbench-row-activity.ts' },
-  { dir: libDir, file: 'task-workbench-workspace-branch.ts' }
+  { dir: libDir, file: 'task-workbench-workspace-branch.ts' },
+  // §7.12: the delivery evidence selector and the one-shot archive intent are
+  // pure; the hook that performs the archive is the only store reader.
+  { dir: libDir, file: 'task-workbench-delivery-evidence.ts' },
+  { dir: libDir, file: 'task-workbench-deliver-archive-intent.ts' }
 ]
 
 /** Value imports that would make the shell read live data. Type imports are

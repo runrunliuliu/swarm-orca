@@ -33,6 +33,20 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   rows, the trace-lost sentence, and neither `0 tokens` nor `$0` anywhere. F2c at 900×700 asserts
   `data-compact="true"` plus the Details control, and no note/action is mounted until it is used.
 - No `pageerror`, and every `BrowserWindow` is `!visible && !focused`.
+- **`f15_delivered` / `f16_delivered_archived` / `deliver_confirm` at the widths in the matrix**
+  (`1440×900`, `900×700`, `720×660`); PNGs and `*.report.json` land under `.bench-fixtures/`.
+- **The delivered row (§7.12).** `f15_delivered` renders the production Delivery row in its
+  delivered state: one `task-workbench-delivery-state` reading `Delivered`, one facts line reading
+  `Issue #412 closed` (the PR fact is already printed by the evidence strip, so it is not repeated),
+  and one enabled `Open session` entry; the workspace row carries the store's own `Done` status.
+  `f16_delivered_archived` renders the archived workspace: the state signature reads `Archived`,
+  the facts survive, and there is no entry action at all. Both are checked against the projection
+  the components read (`state`, `data-state`, state word, facts text), not against a copied string.
+- **The delivery confirmation's deliver scope (§7.12 D1).** `deliver_confirm` renders the production
+  `TaskWorkbenchDeliverConfirm` directly (the static pass never clicks the entry that opens it):
+  the panel is not a dialog and has no `aria-modal`, the submit keeps `outline`, and the scope
+  defaults are checked per control — create-PR checked and disabled, merge and close-issue checked,
+  archive-after unchecked, with the close label naming `#412` from the prop.
 - **The delivery entry (§7.11.3).** Six production projections are rendered: no workspace and an
   archived workspace have no entry; one writer has one disabled `Deliver…` entry with `title`,
   `aria-disabled` and an `sr-only` described reason; an existing `DELIVER` session has one enabled

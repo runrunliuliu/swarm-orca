@@ -9,6 +9,7 @@ import type {
   TaskWorkbenchView
 } from '@/components/task-workbench/task-workbench-view'
 import { useTaskWorkbenchView } from '@/hooks/use-task-workbench-view'
+import { useTaskWorkbenchDeliverArchive } from '@/hooks/use-task-workbench-deliver-archive'
 import { translate } from '@/i18n/i18n'
 import type { TaskSourceContext } from '../../../../../shared/task-source-context'
 
@@ -113,14 +114,23 @@ export function OrcaTabContent({
   tracker?: { state: 'open' | 'closed'; url: string }
   sourceContext?: TaskSourceContext | null
 }): React.JSX.Element {
+  // §7.12 A3: the issue fact and the `关闭 issue` tick need the page's own
+  // number. It is handed over only for an issue page — this dialog's tracker on
+  // a PR page describes the PR, not a deliverable issue.
+  const trackedItem =
+    tracker && itemType === 'issue' ? { ...tracker, number } : tracker
   const view = useTaskWorkbenchView({
     repoId,
     number,
     itemType,
     title,
-    tracker,
+    tracker: trackedItem,
     taskSourceContext: sourceContext
   })
+  // §7.12 D2/A10: the archive the operator ticked happens here, once, after the
+  // completion fact is observable. The agent never archives itself (§7.11.3
+  // rule 8), so this is the only writer for that intent.
+  useTaskWorkbenchDeliverArchive(view)
 
   if (!view) {
     return (
