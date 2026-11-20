@@ -5,7 +5,7 @@ const base = {
   agent: 'claude' as const,
   settings: null,
   repoConnectionId: null,
-  platform: 'darwin' as NodeJS.Platform,
+  platform: 'darwin' as const,
   shell: 'posix' as const,
   isRemote: false,
   telemetrySource: undefined

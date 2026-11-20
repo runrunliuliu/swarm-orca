@@ -98,7 +98,7 @@ describe('planQuickCreateLaunchPrompt', () => {
     selection: { mode: 'single' as const, maxWorkers: 4 },
     agentSelected: true,
     singleAgentPrompt: 'https://github.com/acme/web-app/issues/123',
-    singleAgentDraftPrompt: 'https://github.com/acme/web-app/issues/123' as string | null,
+    singleAgentDraftPrompt: 'https://github.com/acme/web-app/issues/123',
     linkedWorkItemUrl: 'https://github.com/acme/web-app/issues/123',
     repoPath: '/work/acme/web-app',
     baseRef: 'main',
