@@ -69,7 +69,7 @@ export async function deliverSubmittedLaunchPromptWhenReady(args: {
   }
   toast.message(
     translate(
-      'auto.lib.swarm.launch.prompt.delivery.3ad61f7c0e',
+      'auto.lib.swarm.launch.prompt.delivery.40c2ebd0e1',
       "The agent took too long to start. Your Coordinator prompt is in its input box, unsent — press Enter when it's ready."
     )
   )

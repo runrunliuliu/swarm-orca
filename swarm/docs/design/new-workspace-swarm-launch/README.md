@@ -60,7 +60,7 @@ agent 时才会被 `renderer/src/lib/linked-issue-context-draft.ts:44-101` 渲�
 
 | 元素 | 内容 | 说明 |
 | --- | --- | --- |
-| `max_workers` | 数字输入，默认 4，必须为正整数 | 用户值，不是仓库私有策略；留空则禁用主按钮 |
+| `max_workers` | 数字输入，默认 4，必须为 1–1000 的整数 | 用户值，不是仓库私有策略；留空则禁用主按钮 |
 | 摘要行（只读） | `Coordinator = <所选 agent> · Workers ≤ 4 · 任务源 = issue #123` | 只显示本次解析结果，不显示模型/profile |
 | 提示行（muted） | `Coordinator 会在开工前确认预算、可写范围与是否允许合并。` | 让"自动提交"的后果可预期：先问答，不直接开跑 |
 
@@ -137,7 +137,7 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 
 | 情况 | 行为 |
 | --- | --- |
-| `max_workers` 为空/非正整数 | 主按钮禁用，字段级提示；不发请求 |
+| `max_workers` 为空/非 1–1000 整数 | 主按钮禁用，字段级提示；不发请求 |
 | 所选 agent 未被检测到 | 沿用现有 agent 选择逻辑禁用提交（不新增分支） |
 | 就绪等待超时（长启动 agent） | 保留 draft + 现有 toast 提示，不静默失败 |
 | pi 作为 Coordinator（选 Swarm 且 agent=pi） | 见 §7 风险 1：`submit-after-ready` 会 `forcePaste` 绕过 `ORCA_PI_PREFILL`，必须同时处理 |
@@ -198,7 +198,7 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
    **这个 20s 是假设，不是 pi 的实测值**（opencode 的 20s 有测量记录，pi 还没有）；pi 上的
    真实成功率仍未验证。
 2. **`max_workers` 是表单值（默认 4），不是"开工前问我"。** 模板里同时写值与语义
-   （含审查、集成、嵌套与讨论用 agent），所以选完即开工，不需要多一轮问答；字段非正整数时
+   （含审查、集成、嵌套与讨论用 agent），所以选完即开工，不需要多一轮问答；字段非 1–1000 整数时
    主按钮禁用。
 
 ### 10.2 与设计的差异
@@ -245,6 +245,9 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 | 选中段填充 | 应用 `--primary` 实心 | 稿里是稿内的 `--accent`（蓝）；应用内 `--accent` 是中性 hover 色，28px 段上用它会读成 hover，故改用 `--primary` |
 | 标题 | 跟随 `primaryActionLabel`：swarm 下变成 `Create workspace & start coordinator` | 稿里标题固定 `New workspace`（沿用现状，不改标题逻辑） |
 | 摘要行 | 无 agent 标签时（`Blank Terminal`）会折成两行 | 单行；有真实 agent 名时单行 |
+
+A8 之后按审查意见把上限收到 1000：字段提示现为 `Enter a whole number from 1 to 1000.`，
+校验在 `lib/swarm-launch-prompt.ts`（`MAX_SWARM_MAX_WORKERS`）；本轮未重拍真实渲染。
 
 **没做**：pi（或其他 agent）在真实终端里 `submit-after-ready` 的成功率与就绪时序；任何 swarm
 Run 演练。因此上面的证据只证明"表单能给出正确的指令、并把它交给就绪后的 paste，UI 与设计稿
