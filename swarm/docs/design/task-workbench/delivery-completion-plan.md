@@ -113,7 +113,7 @@ archive 只隐藏行、不杀 PTY（`cli/specs/worktree-archive.ts`），Restore
 
 ### D3 完成事实 = 既有 `workspaceStatus`，写入者是交付 agent，写入路径是既有 CLI
 
-指令最后一步：
+指令的完成状态写入步骤（勾选归档时其后还有第 8 步归档）：
 
 ```bash
 orca worktree set --worktree <self> --workspace-status completed \

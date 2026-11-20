@@ -1109,8 +1109,9 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 
 三条结论：
 
-1. **完成事实不新增存储**：交付 agent 最后一步用既有 `orca worktree set --workspace-status completed`
-   标记工作区（`cli/specs/core.ts:158-181`），工作区行已能渲染该标签（`TaskWorkbenchWorkspaces.tsx:155`）。
+1. **完成事实不新增存储**：交付 agent 用既有 `orca worktree set --workspace-status completed`
+   写入完成状态（`cli/specs/core.ts:158-181`），工作区行已能渲染该标签（`TaskWorkbenchWorkspaces.tsx:155`）；
+   勾选归档时，归档是它之后的一步。
 2. **「已交付」是投影而不是新词**：`workspaceStatusId === 'completed'` ∧ `review.state === 'merged'`；
    issue 关闭只作事实项（本地任务没有 tracker，PR 页的 tracker 指的是 PR 自己），无证据仍是 `未读取`。
 3. **勾选「完成后归档」时归档由交付 agent 自己执行**（先报告、后归档，issue #49）：
@@ -1220,14 +1221,21 @@ ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all 
 ∧ merged review）。
 
 **验收映射**：A1/A2/A3 = 改写后的 `task-workbench-deliver-launch.test.ts`（归档命令行出现在报告段之后；
-未勾选不含任何归档命令；失败只提示、不重试、不判失败）；A5 = 同一启动函数供两个入口（无需新代码，
-sidebar 用例已钉住它调用该函数）；A4/A6 需真机：归档后工作区行消失、`worktree unarchive` 能恢复、PTY 不被杀。
+未勾选不含任何归档命令；失败只提示、不重试、不判失败）；A5 = sidebar 用例断言勾选后 `archiveAfter: true`
+真的交给共享启动函数，启动函数用例断言它就是交给 agent 的 prompt 里的那一行；A6 = 四个反向 pin 改写后
+单测全绿（已跑，见下）；A4 需真机：归档后工作区行消失、`worktree unarchive` 能恢复、PTY 不被杀。
+
+**只读评审**（codex-ark，`codex exec -s read-only`，2026-11-20，HEAD `a1dbb15b`）：结论“通过，无必修项”，
+4 条建议已全部处理——“`<self>` 不是 CLI 别名，指令必须明说替换成完整 `id:<repoId>::<path>`”（已写进指令）；
+`worktree-delivery` SKILL §5 的通用“先归档后报告”加了 Task Workbench 限定；
+sidebar 勾选透传缺回归用例（已补两条）；README 的 A4/A6 编号与两处“最后一步”措辞（已改）。
+原文归档在 [review-codex-ark-issue-49.md](review-codex-ark-issue-49.md)（路径已换为仓库相对形式，其余未改写）。
 
 **已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts … --maxWorkers=2`）：
 `src/renderer/src/lib/task-workbench`、`src/renderer/src/components/task-workbench`、
 `src/renderer/src/components/github-item-dialog`、`src/renderer/src/components/sidebar/WorktreeContextMenu.deliver-order.test.tsx`、
 `src/renderer/src/hooks/use-task-workbench-view.test.tsx`、`src/renderer/src/i18n/runtime-required-catalog.test.ts`
-（21 个文件 / 380 个用例，全绿）。`tsc --noEmit -p config/tsconfig.tc.web.json` 退出 0；
+（21 个文件 / 382 个用例，全绿）。`tsc --noEmit -p config/tsconfig.tc.web.json` 退出 0；
 `verify-localization-catalogs.mjs` 退出 0。渲染驱动与真机交付未重跑。
 
 **仍未证明**：没有一次“勾选归档 → agent 真的执行 → 行消失 → Restore 恢复”的真机演练；

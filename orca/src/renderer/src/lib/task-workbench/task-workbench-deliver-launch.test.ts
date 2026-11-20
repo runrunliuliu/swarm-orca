@@ -111,6 +111,11 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     expect(text).toContain('stop and report that instead')
     expect(text).toContain('Do not archive, remove, stop terminals or delete anything')
     expect(text).toContain('A human clicks Archive as the last step')
+    // `<self>` is this instruction's placeholder, not a CLI alias: the agent is
+    // told to write out the full workspace id instead of the angle brackets.
+    expect(text).toContain('substitute the workspace id printed above in full')
+    expect(text).toContain('`id:<repoId>::<path>`')
+    expect(text).toContain('never the angle brackets')
     // The tick is what adds the archive step (issue #49); without it the
     // instruction contains no archive command at all.
     expect(text).not.toContain('orca worktree archive')
@@ -263,7 +268,8 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
   it('A9: always ends on the existing worktree-set write, never a new mechanism', () => {
     const text = buildTaskWorkbenchDeliverInstruction(deliverInput())
     expect(text).toContain('orca worktree set --worktree <self> --workspace-status completed')
-    expect(text).toContain('This is the only place delivery writes state')
+    // Archive writes `isArchived`, so the claim is scoped to the completion state.
+    expect(text).toContain('This is the only place delivery writes the completion state')
     expect(text).toContain('Never use --force')
     expect(text).toContain('never change branch protection')
   })
@@ -298,6 +304,22 @@ describe('launchTaskWorkbenchDeliver', () => {
     for (const [call] of mocks.launchAgentInNewTab.mock.calls) {
       expect(call.worktreeId).toBe(WORKTREE_ID)
     }
+  })
+
+  it('hands the archive step to the agent exactly when the operator ticked it', () => {
+    mocks.store.detectedAgentIds = ['claude']
+
+    launchTaskWorkbenchDeliver(deliverInput({ archiveAfter: true }))
+    const ticked = mocks.launchAgentInNewTab.mock.calls[0][0].prompt
+    const reportIndex = ticked.indexOf('Report finished / unfinished / not authorized')
+    expect(reportIndex).toBeGreaterThan(-1)
+    expect(ticked.indexOf('orca worktree archive --worktree <self>')).toBeGreaterThan(reportIndex)
+
+    // The un-ticked launch on the same worktree must carry no archive command.
+    launchTaskWorkbenchDeliver(deliverInput({ archiveAfter: false }))
+    const unticked = mocks.launchAgentInNewTab.mock.calls[1][0].prompt
+    expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(2)
+    expect(unticked).not.toContain('orca worktree archive')
   })
 
   it('returns no-agent without launching when the resolver finds nothing', () => {

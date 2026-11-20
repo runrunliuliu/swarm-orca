@@ -132,6 +132,10 @@ export function buildTaskWorkbenchDeliverInstruction(
     `Workspace: ${workspace}`,
     `Target branch: ${targetBranch}`,
     `Integration mode: ${INTEGRATION_MODE_COPY[integrationMode]}`,
+    // Why an explicit substitution rule: `<self>` is this instruction's own
+    // placeholder, not a CLI alias (`selectors.ts` knows only active/current),
+    // so an agent that types the angle brackets literal gets a lookup failure.
+    'Wherever a step says `<self>`, substitute the workspace id printed above in full (`id:<repoId>::<path>`), never the angle brackets.',
     '',
     '1. Read swarm/skills/worktree-delivery/SKILL.md in full before acting.',
     '2. Verify the change in this workspace: run the relevant tests and inspect the actual diff. Get independent review of the change before integrating it.',
@@ -147,7 +151,7 @@ export function buildTaskWorkbenchDeliverInstruction(
         ? '6. Do not close the issue: this page carries no issue number, so closing it was not authorized. Report it as not authorized.'
         : `6. Close the issue: \`gh issue close ${issue} --comment "delivered in <sha> via PR #<number>"\`. If the pull request already closed it (a \`Closes ${issue}\` body), only verify that it is closed and do not write a second comment.`
       : `6. Do not close the issue${issueNumber === undefined ? '' : ` ${issue}`}: closing it was not authorized. Report it as not authorized.`,
-    `7. Once every authorized step above has finished, mark this workspace completed: \`orca worktree set --worktree <self> --workspace-status completed --comment "${deliveredComment}"\` (adjust the comment to what actually happened). This is the only place delivery writes state.`,
+    `7. Once every authorized step above has finished, mark this workspace completed: \`orca worktree set --worktree <self> --workspace-status completed --comment "${deliveredComment}"\` (adjust the comment to what actually happened). This is the only place delivery writes the completion state.`,
     '',
     'Stop conditions: if any authorized step fails, stop at that step. Do not continue to a later write. Never use --force, never change branch protection, and never stash, reset, clean or delete the operator\'s work.',
     'Report finished / unfinished / not authorized as three separate sections, naming what already happened.',
