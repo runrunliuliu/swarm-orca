@@ -19,11 +19,20 @@ import type { TaskRunHistoryState } from '../../../shared/task-run-history'
  * stay derived — a second durable copy is a drift bug waiting for its first
  * partial write.
  */
+/** `deferred` is not "nothing to migrate": it says the ledger still has rows
+ *  this build could not seed, so no domain may be created in its place. The
+ *  distinction matters to the lazy seed in `task-records-persistence.ts`, which
+ *  would otherwise start from an empty domain and persist it as "migrated". */
+export type TaskRecordsLegacyMigration =
+  | { kind: 'none' }
+  | { kind: 'migrated'; state: TaskRecordsState }
+  | { kind: 'deferred' }
+
 export function migrateTaskRecordsFromRunHistory(
   ledger: TaskRunHistoryState | undefined
-): TaskRecordsState | undefined {
+): TaskRecordsLegacyMigration {
   if (!ledger || !Array.isArray(ledger.records) || ledger.records.length === 0) {
-    return undefined
+    return { kind: 'none' }
   }
   let state = EMPTY_TASK_RECORDS
   for (const record of ledger.records) {
@@ -60,14 +69,14 @@ export function migrateTaskRecordsFromRunHistory(
       console.warn(
         `[task-records] legacy migration deferred: ${record.repoId} ${record.itemType} #${record.number} refused (${result.reason})`
       )
-      return undefined
+      return { kind: 'deferred' }
     }
     state = result.state
     if (record.state === 'deleted') {
       state = withLastActivityBaseline(state, record)
     }
   }
-  return Object.keys(state.byId).length === 0 ? undefined : state
+  return Object.keys(state.byId).length === 0 ? { kind: 'none' } : { kind: 'migrated', state }
 }
 
 /** Keep the ledger's own timestamps as the record's history baseline, so a

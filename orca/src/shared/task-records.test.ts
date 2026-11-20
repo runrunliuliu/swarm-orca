@@ -194,6 +194,24 @@ describe('task records normalization', () => {
     expect(isReadableTaskRecords(raw)).toBe(false)
   })
 
+  it('treats a non-finite schema version as a newer record, not a current one', () => {
+    // `1e999` in stored JSON parses to Infinity; normalizing it would rewrite
+    // the record as this build's schema and lose the newer build's field set.
+    const raw = {
+      recordsVersion: TASK_RECORDS_VERSION,
+      byId: {
+        'task:github:repo-1:issue:31': record({ schemaVersion: Infinity })
+      }
+    }
+
+    expect(normalizeTaskRecords(raw)).toMatchObject({
+      state: EMPTY_TASK_RECORDS,
+      dropped: 0,
+      readable: false
+    })
+    expect(isReadableTaskRecords(raw)).toBe(false)
+  })
+
   it('keeps the origin provider identity and the domain-level extras on a round-trip', () => {
     const raw = {
       recordsVersion: TASK_RECORDS_VERSION,

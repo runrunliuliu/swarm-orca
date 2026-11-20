@@ -26,7 +26,10 @@ import {
 } from './normalize-loaded-state-collections'
 import { normalizeTaskRunHistory } from '../../../shared/task-run-history'
 import { normalizeTaskRecords } from '../../../shared/task-records'
-import { migrateTaskRecordsFromRunHistory } from './task-records-legacy-migration'
+import {
+  migrateTaskRecordsFromRunHistory,
+  type TaskRecordsLegacyMigration
+} from './task-records-legacy-migration'
 import { normalizeRetiredNameRegistryMap } from './retired-name-registry-normalization'
 import { hydrateWorktreeMetaAliasProjection } from './worktree-meta-alias-projection'
 
@@ -47,11 +50,14 @@ export function normalizeLoadedProfileState(
   // profile load instead of dropping a bad row.
   const legacyTaskRunHistory = normalizeTaskRunHistory(parsed.taskRunHistory)
   // No `taskRecords` domain yet means a profile written by issue #31 S2's ledger;
-  // seed from it once. An existing domain always wins (no re-migration).
-  const migratedTaskRecords =
+  // seed from it once. An existing domain always wins (no re-migration). A
+  // deferred seed leaves the domain absent, and the write path refuses to create
+  // one until a later start can migrate the whole ledger (issue #36 review B4).
+  const legacyMigration: TaskRecordsLegacyMigration =
     parsed.taskRecords === undefined && taskRecords.readable
       ? migrateTaskRecordsFromRunHistory(legacyTaskRunHistory)
-      : undefined
+      : { kind: 'none' }
+  const migratedTaskRecords = legacyMigration.kind === 'migrated' ? legacyMigration.state : undefined
   if (migratedTaskRecords) {
     markNeedsSave()
   }

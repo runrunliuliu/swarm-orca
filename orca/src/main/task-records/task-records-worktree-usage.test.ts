@@ -167,6 +167,50 @@ describe('task records usage source', () => {
     ])
   })
 
+  it('consumes a capture exactly once, then reads the live hook server again', () => {
+    let identities: TaskRecordSessionIdentity[] = [
+      { paneKey: 'tab-1:leaf', sessionId: 'abc', key: 'session_id', worktreeId: ID }
+    ]
+    const source = createTaskRecordsUsageSource({
+      stores: stores({}),
+      sessionIdentities: () => identities,
+      providerForPaneKey: () => 'claude'
+    })
+
+    source.captureSessionsForRemoval(ID)
+    // The sweep clears the hook server's pane state after the capture.
+    identities = []
+
+    expect(
+      source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: 100 }).sessions
+    ).toEqual([expect.objectContaining({ id: 'abc' })])
+    expect(source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: 101 }).sessions).toEqual(
+      []
+    )
+  })
+
+  it('ignores a capture older than its TTL and reads the live hook server', () => {
+    let identities: TaskRecordSessionIdentity[] = [
+      { paneKey: 'tab-1:leaf', sessionId: 'abc', key: 'session_id', worktreeId: ID }
+    ]
+    const source = createTaskRecordsUsageSource({
+      stores: stores({}),
+      sessionIdentities: () => identities,
+      providerForPaneKey: () => 'claude'
+    })
+
+    source.captureSessionsForRemoval(ID)
+    // The occupant is gone by the time a later removal consumes the locator.
+    identities = []
+
+    // A removal that never dropped the row leaves a stale capture behind; a
+    // later removal must not inherit it as the removed workspace's sessions.
+    const staleNow = Date.now() + 11 * 60 * 1000
+    expect(
+      source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: staleNow }).sessions
+    ).toEqual([])
+  })
+
   it('does not record a session whose provider field name is unknown', () => {
     const source = createTaskRecordsUsageSource({
       stores: stores({}),

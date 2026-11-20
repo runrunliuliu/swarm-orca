@@ -23,6 +23,10 @@ export async function teardownFolderWorkspacePtys(
   if (!ptyProvider) {
     return
   }
+  // Freeze the agent sessions before the sweep clears the hook server's pane
+  // state; the task record is settled later, when the metadata row is dropped
+  // (issue #36 review B1 — folder workspaces take the same loss as git ones).
+  deps.runtime.captureTaskRecordsRemovalSessions(worktreeId)
   await killAllProcessesForWorktree(worktreeId, {
     runtime: deps.runtime,
     resolvedWorktreeId: worktreeId,

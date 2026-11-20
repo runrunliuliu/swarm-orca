@@ -337,6 +337,33 @@ describe('useTaskWorkbenchView — item scope', () => {
     })
     expect(current.result.current).toBeNull()
   })
+
+  it('asks the ledger with the page’s provider, so another tracker’s record cannot answer', async () => {
+    // Issue #36 review B3: the query key, effect and bridge must carry the
+    // provider; a provider-less query is answered by the shared suffix scan,
+    // which can hand this page a colliding number from another tracker.
+    seed([issueWorktree('wt-1', 9)])
+    const get = vi.fn(async () => ({ record: null }))
+    window.api = { taskRecords: { get } } as never
+
+    renderHook(() =>
+      useTaskWorkbenchView({
+        repoId: REPO_ID,
+        number: 9,
+        itemType: 'issue',
+        title: '#9',
+        taskSourceContext: GITHUB_WEB_APP
+      })
+    )
+
+    await waitFor(() => expect(get).toHaveBeenCalled())
+    expect(get).toHaveBeenCalledWith({
+      repoId: REPO_ID,
+      itemType: 'issue',
+      number: 9,
+      provider: 'github'
+    })
+  })
 })
 
 describe('useTaskWorkbenchView — delivery eligibility facts', () => {

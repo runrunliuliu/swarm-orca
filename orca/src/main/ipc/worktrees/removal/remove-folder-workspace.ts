@@ -27,6 +27,10 @@ export async function removeFolderWorkspace(
   const ownerHost = parseExecutionHostId(removalHostId)
   const sshPtyProvider =
     ownerHost?.kind === 'ssh' ? getSshPtyProvider(ownerHost.targetId) : undefined
+  // Freeze the agent sessions before the sweep clears the hook server's pane
+  // state; the task record is settled when the metadata row is dropped below
+  // (issue #36 review B1 — folder workspaces take the same loss as git ones).
+  runtime.captureTaskRecordsRemovalSessions(args.worktreeId)
   // Why: folder workspaces share one root, so there's no Git remove step to close shells; sweep PTYs before dropping metadata.
   await withWorktreeRemoveStageSpan('pty_sweep', 'folder', async () => {
     // Folder projects can be SSH-backed, so fence the sweep to the owning host exactly

@@ -1,4 +1,5 @@
 import type { FolderWorkspace } from '../../shared/folder-workspace-types'
+import type { ExecutionHostId } from '../../shared/execution-host'
 import type { ProjectGroup } from '../../shared/project-group-types'
 import type { Repo } from '../../shared/repo-types'
 import type {
@@ -21,7 +22,9 @@ type RuntimeProjectGroupDependencies = {
   notifyReposChanged: () => void
   resolveFolderConnectionId: (workspace: FolderWorkspace) => string | null
   teardownFolderWorkspacePtys: (worktreeId: string, connectionId: string | null) => Promise<void>
-  cleanupRemovedFolderWorkspaceState: (worktreeId: string) => void
+  /** The owner being removed, when the catalog row names one: a host-qualified
+   *  removal must settle only that owner's task-record binding (issue #36). */
+  cleanupRemovedFolderWorkspaceState: (worktreeId: string, hostId?: ExecutionHostId) => void
 }
 
 type FolderWorkspaceUpdates = Partial<
@@ -239,9 +242,10 @@ export class RuntimeProjectGroupController {
         console.warn(`[folder-workspace] skipping PTY teardown for ${worktreeId}:`, error)
       }
       if (connectionId !== undefined) {
+        // The teardown captures the agent sessions before it sweeps (issue #36 B1).
         await this.deps.teardownFolderWorkspacePtys(worktreeId, connectionId)
       }
-      this.deps.cleanupRemovedFolderWorkspaceState(worktreeId)
+      this.deps.cleanupRemovedFolderWorkspaceState(worktreeId, workspace.executionHostId ?? undefined)
     }
     const deleted = store.removeFolderWorkspace(folderWorkspaceId)
     if (deleted) {

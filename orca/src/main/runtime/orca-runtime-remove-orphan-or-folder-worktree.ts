@@ -105,6 +105,7 @@ export async function removeOrphanOrFolderWorktree({
   const folderSshPtyProvider = folderConnectionId
     ? runtime.getSshProviderFn?.(folderConnectionId)
     : undefined
+  // The helper freezes the agent sessions before it sweeps (issue #36 B1).
   await teardownFolderWorkspacePtys(
     {
       runtime,

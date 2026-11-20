@@ -1,5 +1,6 @@
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
+import type { TaskRunHistoryState } from '../../../shared/task-run-history'
 import {
   isReadableTaskRecords,
   taskRecordForTask as lookupRecord,
@@ -24,6 +25,7 @@ import {
   type TaskRecordLink
 } from '../../../shared/task-records-worktree-links'
 import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
+import { migrateTaskRecordsFromRunHistory } from './task-records-legacy-migration'
 import { scheduleSave } from './write-scheduling'
 import type { WriteSchedulingOperations } from './write-scheduling'
 
@@ -46,11 +48,18 @@ import type { WriteSchedulingOperations } from './write-scheduling'
 export type TaskRecordsRuntime = {
   state: {
     taskRecords?: TaskRecordsState
+    /** The read-only legacy ledger; the lazy seed below is the only consumer. */
+    taskRunHistory?: TaskRunHistoryState
     /** Only the metadata hook reads this; kept optional so a test can omit it. */
     worktreeMeta?: Record<string, WorktreeMeta>
   }
   taskRecordsUsageSource?: TaskRecordsUsageSource | null
 }
+
+/** A state whose legacy seed deferred once: the ledger is read-only in this
+ *  build, so retrying inside the same process cannot succeed and would only
+ *  repeat the warning on every metadata write. */
+const legacySeedDeferredStates = new WeakSet<object>()
 
 export function recordTaskRecordsForWorktreeMeta(
   runtime: TaskRecordsRuntime,
@@ -62,8 +71,28 @@ export function recordTaskRecordsForWorktreeMeta(
     return false
   }
   const links = taskRecordLinksForWorktree(worktreeId, meta)
-  let current = stored ?? EMPTY_TASK_RECORDS
+  let current = stored
   let changed = false
+  if (current === undefined) {
+    // The first metadata write must not create the domain before the legacy seed
+    // has run: a deferred migration leaves it absent on purpose, and an empty
+    // domain would be saved as "migrated" so the next start never retries
+    // (issue #36 review B4). Refuse the write until a start can seed the ledger.
+    if (legacySeedDeferredStates.has(runtime.state)) {
+      return false
+    }
+    const migration = migrateTaskRecordsFromRunHistory(runtime.state.taskRunHistory)
+    if (migration.kind === 'deferred') {
+      legacySeedDeferredStates.add(runtime.state)
+      return false
+    }
+    if (migration.kind === 'migrated') {
+      current = migration.state
+      changed = true
+    } else {
+      current = EMPTY_TASK_RECORDS
+    }
+  }
   for (const link of links) {
     const result = upsertTaskRecordBinding(current, {
       taskId: taskIdForLink(link),
@@ -110,12 +139,12 @@ export function settleTaskRecordsBeforeRemoval(
   }
   const matchesOwner = (binding: TaskWorkspaceBinding): boolean =>
     binding.worktreeId === worktreeId && (hostId === undefined || binding.hostId === hostId)
-  // Pair each record with the binding being removed: the same bare id can be two
-  // owners, and settling the wrong binding writes another host's usage figure.
+  // Pair each record with every binding being removed: the same bare id can be
+  // two owners, and a full removal (`hostId` absent) must settle all of them,
+  // not only the first same-locator binding the record happens to carry.
   const affected: { record: TaskRecord; binding: TaskWorkspaceBinding }[] = []
   for (const record of Object.values(stored.byId)) {
-    const binding = record.bindings.find(matchesOwner)
-    if (binding) {
+    for (const binding of record.bindings.filter(matchesOwner)) {
       affected.push({ record, binding })
     }
   }

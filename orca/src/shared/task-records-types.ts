@@ -236,10 +236,11 @@ export function isReadableTaskRecords(value: unknown): value is TaskRecordsState
       continue
     }
     const schemaVersion = (record as { schemaVersion?: unknown }).schemaVersion
+    // `1e999` parses to Infinity; a non-finite number is not a schema this build
+    // can interpret, and normalizing it would rewrite the record as current.
     if (
       typeof schemaVersion === 'number' &&
-      Number.isFinite(schemaVersion) &&
-      schemaVersion > TASK_RECORD_SCHEMA_VERSION
+      (!Number.isFinite(schemaVersion) || schemaVersion > TASK_RECORD_SCHEMA_VERSION)
     ) {
       return false
     }

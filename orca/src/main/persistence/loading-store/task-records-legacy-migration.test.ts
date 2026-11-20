@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { taskRecordTaskId } from '../../../shared/task-records'
 import { TASK_RECORDS_MAX_RECORD_BYTES } from '../../../shared/task-records-types'
+import type { TaskRecordsState } from '../../../shared/task-records-types'
 import { normalizeTaskRunHistory } from '../../../shared/task-run-history'
 import { migrateTaskRecordsFromRunHistory } from './task-records-legacy-migration'
 
@@ -16,9 +17,16 @@ const DELETED = {
   deletedAt: 200
 }
 
+function migratedState(
+  ledger: Parameters<typeof migrateTaskRecordsFromRunHistory>[0]
+): TaskRecordsState | undefined {
+  const result = migrateTaskRecordsFromRunHistory(ledger)
+  return result.kind === 'migrated' ? result.state : undefined
+}
+
 describe('task records ↔ legacy ledger migration', () => {
   it('seeds one record from a deleted ledger row', () => {
-    const state = migrateTaskRecordsFromRunHistory({ version: 1, records: [DELETED] })
+    const state = migratedState({ version: 1, records: [DELETED] })
 
     const taskId = taskRecordTaskId({
       provider: 'github',
@@ -35,7 +43,7 @@ describe('task records ↔ legacy ledger migration', () => {
   })
 
   it('migrates a deleted row as unverified, so the panel says unresolved', () => {
-    const state = migrateTaskRecordsFromRunHistory({ version: 1, records: [DELETED] })
+    const state = migratedState({ version: 1, records: [DELETED] })
     const binding = Object.values(state?.byId ?? {})[0]?.bindings[0]
 
     expect(binding?.lastVerifiedAt).toBeNull()
@@ -43,7 +51,7 @@ describe('task records ↔ legacy ledger migration', () => {
   })
 
   it('keeps an archived row archived and verified at its last update', () => {
-    const state = migrateTaskRecordsFromRunHistory({
+    const state = migratedState({
       version: 1,
       records: [{ ...DELETED, state: 'archived', archivedAt: 150 }]
     })
@@ -60,21 +68,21 @@ describe('task records ↔ legacy ledger migration', () => {
       records: [null, DELETED, 'nope']
     })
 
-    const state = migrateTaskRecordsFromRunHistory(ledger)
+    const state = migratedState(ledger)
     expect(Object.values(state?.byId ?? {})).toHaveLength(1)
   })
 
   it('returns nothing for a payload that is not a ledger at all', () => {
-    expect(migrateTaskRecordsFromRunHistory(normalizeTaskRunHistory({}))).toBeUndefined()
-    expect(migrateTaskRecordsFromRunHistory(normalizeTaskRunHistory(null))).toBeUndefined()
+    expect(migrateTaskRecordsFromRunHistory(normalizeTaskRunHistory({}))).toEqual({ kind: 'none' })
+    expect(migrateTaskRecordsFromRunHistory(normalizeTaskRunHistory(null))).toEqual({ kind: 'none' })
   })
 
   it('returns nothing for an absent or empty ledger', () => {
-    expect(migrateTaskRecordsFromRunHistory(undefined)).toBeUndefined()
-    expect(migrateTaskRecordsFromRunHistory({ version: 1, records: [] })).toBeUndefined()
+    expect(migrateTaskRecordsFromRunHistory(undefined)).toEqual({ kind: 'none' })
+    expect(migrateTaskRecordsFromRunHistory({ version: 1, records: [] })).toEqual({ kind: 'none' })
   })
 
-  it('refuses the whole migration when one row does not fit, so no partial state is kept', () => {
+  it('defers the whole migration when one row does not fit, so no partial state is kept', () => {
     // The seed runs once; committing the rows that fit would silently drop the
     // rest and leave the legacy ledger unread. Deferring keeps it as the source.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -86,7 +94,7 @@ describe('task records ↔ legacy ledger migration', () => {
       ]
     }
 
-    expect(migrateTaskRecordsFromRunHistory(ledger)).toBeUndefined()
+    expect(migrateTaskRecordsFromRunHistory(ledger)).toEqual({ kind: 'deferred' })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy migration deferred'))
     warn.mockRestore()
   })

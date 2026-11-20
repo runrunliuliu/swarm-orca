@@ -116,6 +116,11 @@ export function createTaskRecordsUsageSource(
     // Consumed once: a second removal of a re-created locator must read the live
     // hook server again, not inherit a dead occupant's sessions.
     capturedSessions.delete(worktreeId)
+    // A capture that outlived its TTL was not consumed by the removal it was
+    // taken for; it is not evidence for a later one, so read the live server.
+    if (now - captured.capturedAt > REMOVAL_SESSION_CAPTURE_TTL_MS) {
+      return collectWorktreeSessions(deps, worktreeId, now)
+    }
     return captured.sessions
   }
   return {

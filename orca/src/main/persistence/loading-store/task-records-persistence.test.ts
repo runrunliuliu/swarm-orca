@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
+import { TASK_RECORDS_MAX_RECORD_BYTES } from '../../../shared/task-records-types'
 import type { TaskRecordsRuntime } from './task-records-persistence'
 import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
 import {
@@ -147,6 +148,128 @@ describe('task records persistence', () => {
     expect(
       bindings.find((binding) => binding.hostId === 'local')?.usageSettlement
     ).toBeUndefined()
+  })
+
+  it('settles every same-locator binding on a full removal', () => {
+    const calls: string[] = []
+    const perHost: TaskRecordsUsageSource = {
+      captureSessionsForRemoval: () => {},
+      snapshotForRemoval: ({ worktreeId, hostId, now }) => {
+        calls.push(hostId)
+        return {
+          settlement: {
+            kind: 'known',
+            collectedAt: now,
+            scope: 'worktree-rollup',
+            worktreeId,
+            providers: [{ provider: 'claude', tokens: 1, costUsd: 0.1 }],
+            estimatedCostUsd: 0.1
+          },
+          sessions: []
+        }
+      }
+    }
+    const state = runtime(perHost)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ hostId: 'ssh:remote-a' }))
+
+    expect(settleTaskRecordsBeforeRemoval(state, null, ID, 700)).toBe(true)
+    expect(calls.sort()).toEqual(['local', 'ssh:remote-a'])
+    const bindings = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
+    expect(bindings).toHaveLength(2)
+    for (const binding of bindings) {
+      expect(binding.usageSettlement).toMatchObject({ kind: 'known', collectedAt: 700 })
+    }
+  })
+
+  it('keeps two hosts bound to different tasks apart', () => {
+    // The original regression: a host-qualified write read the first owner's
+    // legacy projection and recorded that owner's task under the second host.
+    const state = runtime()
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ linkedIssue: 31 }))
+    recordTaskRecordsForWorktreeMeta(
+      state,
+      ID,
+      meta({ hostId: 'ssh:remote-a', linkedIssue: 32 })
+    )
+
+    const local = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
+    const remote =
+      taskRecordForTask(state.state.taskRecords, {
+        ...QUERY,
+        number: 32
+      })?.bindings ?? []
+    expect(local).toEqual([expect.objectContaining({ hostId: 'local' })])
+    expect(remote).toEqual([expect.objectContaining({ hostId: 'ssh:remote-a' })])
+  })
+
+  it('seeds from the legacy ledger before the first write creates the domain', () => {
+    const state: TaskRecordsRuntime = {
+      state: {
+        taskRunHistory: {
+          version: 1,
+          records: [
+            {
+              repoId: 'repo-1',
+              itemType: 'issue',
+              number: 31,
+              worktreeId: 'repo-1::/repo/legacy',
+              path: '/repo/legacy',
+              state: 'active',
+              firstSeenAt: 50,
+              updatedAt: 60
+            }
+          ]
+        }
+      }
+    }
+
+    expect(recordTaskRecordsForWorktreeMeta(state, ID, meta())).toBe(true)
+    const bindings = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
+    expect(bindings.map((binding) => binding.worktreeId).sort()).toEqual([
+      'repo-1::/repo/feature',
+      'repo-1::/repo/legacy'
+    ])
+  })
+
+  it('does not create a domain when the legacy seed defers', () => {
+    // A deferred seed must stay deferred: creating the domain here would persist
+    // an empty "migrated" domain and the next start would never retry the ledger.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const state: TaskRecordsRuntime = {
+      state: {
+        taskRunHistory: {
+          version: 1,
+          records: [
+            {
+              repoId: 'repo-1',
+              itemType: 'issue',
+              number: 31,
+              worktreeId: 'repo-1::/repo/legacy',
+              path: '/repo/legacy',
+              state: 'active',
+              firstSeenAt: 50,
+              updatedAt: 60
+            },
+            {
+              repoId: 'repo-1',
+              itemType: 'issue',
+              number: 32,
+              worktreeId: 'repo-1::/repo/overflow',
+              path: `/${'x'.repeat(TASK_RECORDS_MAX_RECORD_BYTES)}`,
+              state: 'active',
+              firstSeenAt: 50,
+              updatedAt: 60
+            }
+          ]
+        }
+      }
+    }
+
+    expect(recordTaskRecordsForWorktreeMeta(state, ID, meta())).toBe(false)
+    expect(state.state.taskRecords).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy migration deferred'))
+    warn.mockRestore()
   })
 
   it('refuses to touch a domain this build cannot read', () => {
