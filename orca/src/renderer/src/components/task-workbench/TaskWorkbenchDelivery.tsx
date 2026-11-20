@@ -20,6 +20,7 @@ import {
   projectTaskWorkbenchDeliver,
   type TaskWorkbenchDeliverAction
 } from './task-workbench-deliver-state'
+import { DeliverFacts, DeliverStateChip } from './task-workbench-deliver-row-facts'
 import type { DeliveryEvidence, TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
 
 /**
@@ -96,7 +97,7 @@ function DeliverEntry({
     return null
   }
   let body: React.JSX.Element
-  if (action.kind === 'open-terminal') {
+  if (action.kind === 'open-terminal' || action.kind === 'open-session') {
     body = (
       <Button
         type="button"
@@ -105,7 +106,9 @@ function DeliverEntry({
         data-testid="task-workbench-deliver-action"
         onClick={onReveal}
       >
-        {translate(deliverKeys('openTerminal'), 'Open terminal')}
+        {action.kind === 'open-session'
+          ? translate(deliverKeys('openSession'), 'Open session')
+          : translate(deliverKeys('openTerminal'), 'Open terminal')}
       </Button>
     )
   } else if (!action.enabled) {
@@ -190,6 +193,9 @@ export function TaskWorkbenchDelivery({
   const [override, setOverride] = React.useState<boolean | null>(null)
   const delivery = view.delivery
   const expanded = override ?? layout.delivery === 'expanded'
+  // The page's own issue number is the only source for the `关闭 issue` tick and
+  // for the issue fact; the sidebar/wrapper simply has none (§7.12 A3).
+  const issueNumber = view.tracker?.number
 
   // §7.11's one projection, read here exactly as the sidebar entry reads it.
   const projection = projectTaskWorkbenchDeliver(view)
@@ -271,6 +277,9 @@ export function TaskWorkbenchDelivery({
       worktreeId: workspaceId,
       targetBranch: value.targetBranch,
       integrationMode: value.integrationMode,
+      mergePullRequest: value.mergePullRequest,
+      closeIssue: value.closeIssue,
+      ...(issueNumber === undefined ? {} : { issueNumber }),
       archiveAfter: value.archiveAfter,
       source: 'task_page'
     })
@@ -314,6 +323,7 @@ export function TaskWorkbenchDelivery({
         {...(view.targetBranchDefault !== undefined
           ? { defaultTargetBranch: view.targetBranchDefault }
           : {})}
+        {...(issueNumber === undefined ? {} : { issueNumber })}
         attention={projection.attention}
         submitting={submitting}
         onCancel={closeConfirm}
@@ -345,9 +355,8 @@ export function TaskWorkbenchDelivery({
         className="flex min-w-0 items-center gap-2 px-3 py-2"
       >
         {label}
-        <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground ring-1 ring-inset ring-border/60">
-          {translate(deliveryKeys('notRead'), 'Not loaded')}
-        </span>
+        <DeliverStateChip projection={projection} />
+        <DeliverFacts projection={projection} delivery={delivery} />
         <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
           {translate(
             deliveryKeys('noEvidence'),
@@ -365,7 +374,7 @@ export function TaskWorkbenchDelivery({
     )
   }
 
-  const commitCount = delivery.commits.count
+  const commitCount = delivery.commits?.count ?? 0
   const pullRequest = delivery.pullRequest
   const checks = delivery.checks
   const review = delivery.review
@@ -375,6 +384,9 @@ export function TaskWorkbenchDelivery({
       <Collapsible open={expanded} onOpenChange={setOverride}>
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           {label}
+
+          <DeliverStateChip projection={projection} />
+          <DeliverFacts projection={projection} delivery={delivery} />
 
           {commitCount > 0 ? (
             <span className="text-[12px] tabular-nums" data-testid="task-workbench-delivery-commits">
@@ -436,7 +448,7 @@ export function TaskWorkbenchDelivery({
             data-testid="task-workbench-delivery-body"
             className="mt-1.5 flex flex-col gap-0.5 text-[12px] text-muted-foreground"
           >
-            {delivery.commits.lastSubject ? (
+            {delivery.commits?.lastSubject ? (
               <span className="min-w-0 truncate">
                 {translate(deliveryKeys('lastCommit'), 'Last commit: {{value0}}', {
                   value0: delivery.commits.lastSubject
@@ -444,7 +456,7 @@ export function TaskWorkbenchDelivery({
               </span>
             ) : null}
 
-            {pullRequest ? (
+            {pullRequest?.url && pullRequest.title ? (
               <a
                 href={pullRequest.url}
                 target="_blank"

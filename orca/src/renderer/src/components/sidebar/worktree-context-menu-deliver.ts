@@ -61,6 +61,7 @@ export type WorktreeContextMenuDeliverInput = {
 export const NO_SIDEBAR_DELIVER_PROJECTION: TaskWorkbenchDeliverProjection = {
   state: 'no-workspace',
   action: { kind: 'none' },
+  facts: {},
   attention: []
 }
 
@@ -328,6 +329,12 @@ export function useWorktreeContextMenuDeliver(
             worktreeId: worktree.id,
             targetBranch: value.targetBranch,
             integrationMode: value.integrationMode,
+            mergePullRequest: value.mergePullRequest,
+            // The menu is not a page: it carries no item number, so the issue
+            // close stays unauthorized here rather than guessing one from the
+            // worktree's link (§7.12 A3). The task page is where an issue is
+            // named.
+            closeIssue: value.closeIssue,
             archiveAfter: value.archiveAfter,
             source: 'sidebar'
           })

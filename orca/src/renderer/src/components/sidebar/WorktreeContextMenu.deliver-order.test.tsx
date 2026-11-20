@@ -465,6 +465,10 @@ describe('sidebar deliver entry — opening and submitting', () => {
       worktreeId: WORKTREE_ID,
       targetBranch: 'release/2026-11',
       integrationMode: 'pr',
+      mergePullRequest: true,
+      // The menu carries no item number, so it authorizes no issue close (§7.12
+      // A3): the task page is where an issue is named.
+      closeIssue: false,
       archiveAfter: false,
       source: 'sidebar'
     })

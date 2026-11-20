@@ -5,6 +5,7 @@ import type { DashboardCard, DashboardSnapshot } from '../../../shared/dashboard
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import type { TaskRecord } from '../../../shared/task-records-types'
 import type { Worktree } from '../../../shared/worktree/types'
+import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 
 /**
  * The tab's assembly, not the selectors' rules: a detail page states which item
@@ -115,7 +116,11 @@ function deletedRecord(worktreeId: string): TaskRecord {
   }
 }
 
-function view(args: { number: number; itemType?: 'issue' | 'pr' }) {
+function view(args: {
+  number: number
+  itemType?: 'issue' | 'pr'
+  tracker?: { state: 'open' | 'closed'; url: string }
+}) {
   const itemType = args.itemType ?? 'issue'
   return renderHook(() =>
     useTaskWorkbenchView({
@@ -123,6 +128,7 @@ function view(args: { number: number; itemType?: 'issue' | 'pr' }) {
       number: args.number,
       itemType,
       title: `#${args.number}`,
+      ...(args.tracker ? { tracker: args.tracker } : {}),
       taskSourceContext: GITHUB_WEB_APP
     })
   ).result.current
@@ -428,5 +434,53 @@ describe('useTaskWorkbenchView — delivery target branch default', () => {
     ])
 
     expect(view({ number: 9 })?.targetBranchDefault).toBeUndefined()
+  })
+
+})
+
+describe('useTaskWorkbenchView — delivery evidence (§7.12)', () => {
+  function snapshotWorkspace(
+    overrides: Partial<NonNullable<DashboardSnapshot['workspaces']>[number]> = {}
+  ): NonNullable<DashboardSnapshot['workspaces']>[number] {
+    return {
+      repoId: REPO_ID,
+      worktreeId: 'wt-9',
+      repoName: 'acme/web-app',
+      worktreeName: 'feat/task-9',
+      hostKind: 'local',
+      executionHostId: LOCAL_EXECUTION_HOST_ID,
+      workspaceKind: 'worktree',
+      ...overrides
+    }
+  }
+
+  it('fills delivery evidence from the workspace’s own review, and only that', () => {
+    seed([issueWorktree('wt-9', 9)])
+    snapshotState.current = {
+      generatedAt: 1,
+      cards: [],
+      workspaces: [
+        snapshotWorkspace({
+          workspaceStatusId: 'completed',
+          workspaceStatusLabel: 'Done',
+          review: { number: 431, state: 'merged' }
+        })
+      ]
+    }
+
+    const current = view({ number: 9 })
+    // The one source this renderer has: a PR number and state. No commit count,
+    // no checks, no invented `0`.
+    expect(current?.delivery).toEqual({ pullRequest: { number: 431, state: 'merged' } })
+    expect(current?.delivery?.commits).toBeUndefined()
+    const merged = current?.workspaces.find((workspace) => workspace.worktreeId === 'wt-9')
+    expect(merged?.review).toEqual({ number: 431, state: 'merged' })
+    expect(merged?.workspaceStatusId).toBe('completed')
+  })
+
+  it('leaves delivery absent when no workspace carries a review', () => {
+    seed([issueWorktree('wt-9', 9)])
+
+    expect(view({ number: 9 })?.delivery).toBeUndefined()
   })
 })

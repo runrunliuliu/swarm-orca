@@ -20,6 +20,9 @@ export function openStructuredAgentSessionProvisionalTab(args: {
   agent: 'claude' | 'codex'
   targetGroupId?: string
   activate?: boolean
+  /** The launch's own tab marker (README §7.12 S5). `createUnifiedTab` already
+   *  persists this field, so carrying it here costs no new storage. */
+  quickCommandLabel?: string | null
 }): Tab {
   const state = useAppStore.getState()
   const tabId = structuredAgentSessionTabId(args.sessionId)
@@ -44,6 +47,7 @@ export function openStructuredAgentSessionProvisionalTab(args: {
     agentSessionAgent: args.agent,
     label: defaultAgentChatLabel(args.agent),
     ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {}),
+    ...(args.quickCommandLabel ? { quickCommandLabel: args.quickCommandLabel } : {}),
     activate: args.activate !== false
   })
   if (args.activate !== false) {
@@ -61,6 +65,9 @@ export function beginStructuredAgentSessionProvisionalLaunch(args: {
   activate?: boolean
   /** Lets workspace flows reveal between final identity allocation and tab ownership. */
   beforeOpen?: (sessionId: string) => boolean | void
+  /** §7.12 S5: the marker must reach the provisional tab too, or the structured
+   *  route has no way to answer "a delivery session already exists". */
+  quickCommandLabel?: string | null
 }): StructuredAgentSessionProvisionalLaunch | null {
   const handle = args.plan.begin(args.hooks, args.target)
   if (!handle) {
@@ -82,7 +89,8 @@ export function beginStructuredAgentSessionProvisionalLaunch(args: {
         sessionId: handle.sessionId,
         agent: args.plan.agent,
         ...(args.targetGroupId ? { targetGroupId: args.targetGroupId } : {}),
-        ...(args.activate !== undefined ? { activate: args.activate } : {})
+        ...(args.activate !== undefined ? { activate: args.activate } : {}),
+        ...(args.quickCommandLabel ? { quickCommandLabel: args.quickCommandLabel } : {})
       })
     }
   } catch (error) {

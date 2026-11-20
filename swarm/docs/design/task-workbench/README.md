@@ -1050,11 +1050,12 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 
 **已知边界（实现接受了它们，而不是修掉了它们）**：
 
-1. `structured-native-chat` 路由（三个实验开关全开）创建 provisional tab 时不写 `quickCommandLabel`
-   （`lib/structured-agent-session-provisional-tab.ts`），所以该路由上 DELIVER 标记不存在，第二次激活会再次启动。
-2. `host-published`（web-runtime / paired）启动没有 `quickCommandLabel` 参数
-   （`lib/launch-agent-web-host-tab.ts`），host 持有的 tab 要携带标记需要改 wire；该路由上
-   `launchTaskWorkbenchDeliver` 返回 `ok: true, tabId: ''`，调用方必须把空 id 当作「本地没有可 reveal 的 tab」。
+1. ~~`structured-native-chat` 路由（三个实验开关全开）创建 provisional tab 时不写 `quickCommandLabel`~~
+   **§7.12 S5 已关闭**：`openStructuredAgentSessionProvisionalTab` 现在把标记交给 `createUnifiedTab`。
+2. ~~`host-published`（web-runtime / paired）启动没有 `quickCommandLabel` 参数~~
+   **§7.12 S5 已收窄**：启动参数把标记带到运行时的创建请求，由 `setTabQuickCommandLabel` 写到镜像的本地
+   tab 行；host wire 仍无此字段，所以对端设备/重连后的 host 快照读不到它。该路由上
+   `launchTaskWorkbenchDeliver` 仍返回 `ok: true, tabId: ''`，调用方必须把空 id 当作「本地没有可 reveal 的 tab」。
 3. 空启动计划被报成 `no-agent`：没有会话被启动，冻结的结果类型没有单独的 reason。
 4. 用户重命名交付 tab 后，投影（读 `conversationName`，`customTitle` 优先）会显示 `[ 交付… ]`，而启动器
    仍回答 `already-delivering`。这是 D2 写明的 reopen condition，不是可以掩盖的缺陷。反方向的 name-only
@@ -1098,11 +1099,11 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 
 ---
 
-### 7.12 交付完成：合并 / 关 issue / 状态化（2026-11-20，设计稿，未实现）
+### 7.12 交付完成：合并 / 关 issue / 状态化（2026-11-20，已实现）
 
 §7.11 的交付入口只有起点没有终点：它开一个 agent 就结束，不合并、不关 issue、不写状态，
 界面也读不出交付证据（`deliveryByWorktree` 恒为 `undefined`）。§7.12 补的是终点，方案与验收口径
-在 [delivery-completion-plan.md](delivery-completion-plan.md)，本节只记结论与它改写了什么。
+在 [delivery-completion-plan.md](delivery-completion-plan.md)，本节记结论、落地清单与证据缺口。
 
 ![已交付：issue 详情 Orca tab](ui/design-deliver-20261120-complete.png)
 
@@ -1119,6 +1120,53 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 保留 bound 3/4/5。设计稿三张（已交付 / 确认面 / 交付行五态）见
 [delivery-completion-plan.md](delivery-completion-plan.md)；
 它们与 §7.11.2 同层，是 HTML/CSS 渲染稿，不是生产组件渲染，也不是真机截图。
+
+#### 7.12.1 落地清单（分支 `feat-task-workbench-pr-issue-7.12`）
+
+| 片 | 改动 | 位置 |
+| --- | --- | --- |
+| S1 投影 | 新增 `completed`（已交付）状态、`facts`（PR 事实 + issue 事实）、`open-session` 动作；判定 = `workspaceStatusId === 'completed'` ∧ `review.state === 'merged'`；`DeliveryEvidence.commits` 改为可选，`pullRequest.title/url` 改为可选（无来源即整项不渲染） | `task-workbench-deliver-state.ts`、`task-workbench-view.ts` |
+| S2 指令 | 六阶段指令：读 skill → 验证/评审 → 经 PR 集成 →（勾选）合并（`gh pr merge`）→（勾选）关 issue（`gh issue close <n>`）→ 标记 `workspace-status completed` → 三段报告；未勾选的动作明确要求 stop 并写「未授权」；始终不含归档动作；`--force` / 改分支保护 / stash-reset-clean 全部禁止 | `lib/task-workbench/task-workbench-deliver-launch.ts` |
+| S2 确认面 | 新增「交付范围」：创建 PR（固定勾选、禁用）/ 合并 PR（默认开）/ 关闭 issue #n（有编号时默认开，无编号禁用并说明）/ 完成后归档（默认关）。提交值新增 `mergePullRequest` / `closeIssue` | `task-workbench-deliver-confirm.tsx`、六个 `locales/*.json` |
+| S3 证据接线 | 每个工作区自己的 `review`（number + state）成为唯一的 PR 证据来源，经 `deliveryByWorktree` 进入 join；tracker 增加可选 `number`（只从 issue 页取，PR 页不冒充 issue）；交付行渲染状态签 + 事实项 | `hooks/use-task-workbench-view.ts`、`TaskWorkbenchDelivery.tsx`、`github-item-dialog-orca-tab.tsx` |
+| S4 归档执行 | 勾选归档时只记内存意图；观察到 `completed` 后由 Orca 用既有 `updateWorktreeMeta({ isArchived: true })` 执行一次，失败只 toast、不重试；重启丢意图，退回工作区行的一键归档 | `lib/task-workbench/task-workbench-deliver-archive-intent.ts`、`hooks/use-task-workbench-deliver-archive.ts` |
+| S5 路由标记 | 结构化 provisional tab 携带 `quickCommandLabel`；host-published 路由把标记写到镜像的本地 tab 行（host wire 无此字段，见缺口），并在 host RPC 期间用 20s 的 in-flight 窗口挡住同一 tick 的第二次点击 | `structured-agent-session-provisional-tab.ts`、`launch-agent-in-new-tab-structured.ts`、`launch-agent-web-host-tab.ts`、`web-runtime-terminal-create-operation.ts`、store 的 `setTabQuickCommandLabel` |
+
+没有新增 storage domain、RPC/IPC 或 schema：完成事实走既有 `orca worktree set --workspace-status completed`，
+归档走既有工作区元数据写入，交付标记走既有 `quickCommandLabel` 字段。
+
+#### 7.12.2 证据与缺口
+
+**已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts <路径> --maxWorkers=2`）：
+`src/renderer/src/components/task-workbench`、`src/renderer/src/lib/task-workbench`、
+`src/renderer/src/hooks/use-task-workbench-view.test.tsx`、
+`src/renderer/src/hooks/use-task-workbench-deliver-archive.test.tsx`、
+`src/renderer/src/components/sidebar/WorktreeContextMenu.deliver-order.test.tsx`、
+`src/renderer/src/components/github-item-dialog`、`src/renderer/src/lib/launch-agent-in-new-tab.test.ts`、
+两个新 marker 用例、`src/renderer/src/store/slices/tabs*`、
+`src/renderer/src/runtime/web-runtime-terminal-creation*`、`src/renderer/src/runtime/web-session-tabs-sync`
+（21 个文件 / 354 个用例，另有 store tabs 与 web-session-sync 批 51 文件 / 425 用例）。
+`tsc --noEmit -p config/tsconfig.web.json` 通过；`verify-localization-catalogs.mjs` 退出 0（13 个新键手写进
+`en-runtime-required.json`，因为 `sync:localization-runtime-catalog --fix` 仍在 `integrationMode` 的
+「标签 + 子键」形状上抛 `TypeError`，见 §7.11.6）。全量 vitest 未跑。
+
+**没有证明的事**：
+
+- 没有一次真实交付演练：`gh pr merge` / `gh issue close` 的权限、分支保护、目标分支 HEAD 核验、
+  agent 实际按六阶段执行，全部只有单测（A1/A9 的「真机手工」条目未做，属单独授权动作）。
+- host-published 路由的标记只写在本客户端的镜像 tab 行上；host wire 仍不携带它，因此另一端
+  （另一台设备或重连后的 host 快照）读不到这个标记。这条是「把 bound 2 修到可用」而不是「修到对端可见」。
+  in-flight 窗口（20s）只挡住 window 内的重复点击；超时后若 host 仍未回镜像，第二次点击仍会再启动一次。
+- S4 的归档意图不跨应用重启；重启后只有工作区行的一键归档，界面上没有「曾经想要自动归档」的提示。
+- item 详情缓存未在关闭 issue 后主动失效（计划 S3 的一项）：页面刷新/重开才会读到新状态。
+- 交付行没有新增 fixture 渲染图，也没有重跑 §7.11.6 那六张；`ui/design-deliver-20261120-*.png` 仍是设计稿。
+- es/fr/ja/ko 本轮新增文案是英文回退，未做词级翻译。
+- oxlint 的 `max-lines` 在三个被本切片触及的文件上仍是红的：`hooks/use-task-workbench-view.ts`
+  （本切片前 330，现 331）、`lib/launch-agent-in-new-tab.ts`（317→319）、
+  `runtime/web-runtime-terminal-create-operation.ts`（303→311）。它们在本切片前就超预算（工作树 HEAD
+  上的实测值），本切片只加了标记传递的必需行，没有顺手拆文件；拆它们属于独立的重构。
+  `WorktreeContextMenu.copy-worktree-name.test.tsx` 的 2 个用例仍因既有 store mock 缺
+  `folderWorkspaces` 失败（§7.11.6 已记录）。
 
 ---
 

@@ -93,6 +93,11 @@ export type TabsSlice = {
     opts?: { recordInteraction?: boolean }
   ) => void
   setTabLabel: (tabId: string, label: string) => void
+  /** Write the tab's `quickCommandLabel` marker after a launch has already
+   *  created its tab (the host-published route, README §7.12 S5). No wire call:
+   *  the marker is a renderer-side fact, and the host mirror keeps an existing
+   *  row's value instead of clearing it. */
+  setTabQuickCommandLabel: (tabId: string, label: string) => void
   /** Set a tab's view mode (terminal vs native chat). Patches only that tab. */
   setTabViewMode: (tabId: string, mode: 'terminal' | 'chat') => void
   /** Flip a tab between terminal and native-chat renderings; the live TerminalPane stays mounted. */

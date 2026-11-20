@@ -144,7 +144,13 @@ describe('projectTaskWorkbenchDeliver — which workspace it targets', () => {
     )
     // README §7.5: `recent-activity` must not masquerade as a user's choice, so
     // the projection carries no primary-ish field at all.
-    expect(Object.keys(projection).sort()).toEqual(['action', 'attention', 'state', 'workspaceId'])
+    expect(Object.keys(projection).sort()).toEqual([
+      'action',
+      'attention',
+      'facts',
+      'state',
+      'workspaceId'
+    ])
   })
 })
 
@@ -419,5 +425,91 @@ describe('projectTaskWorkbenchDeliver — purity', () => {
     // Strict mode: an assignment to a frozen property throws, so a projection
     // that memoised onto its input would fail here.
     expect(projectTaskWorkbenchDeliver(view).state).toBe('deliver-session')
+  })
+
+})
+
+describe('projectTaskWorkbenchDeliver — delivered (§7.12 A6/A8)', () => {
+  const MERGED = workspace('web-app', 'feature/deliver-merged', {
+    workspaceStatusId: 'completed',
+    workspaceStatusLabel: 'Done',
+    review: { number: 431, state: 'merged' }
+  })
+
+  it('completed ∧ merged reads `completed`, with the PR fact and Open session', () => {
+    const view = makeView({
+      workspaces: [MERGED],
+      agents: [agentRow('a1', MERGED, 'done', { conversationName: 'DELIVER' })]
+    })
+
+    const projection = projectTaskWorkbenchDeliver(view)
+    expect(projection.state).toBe('completed')
+    expect(projection.facts.pullRequest).toEqual({ number: 431, state: 'merged' })
+    expect(projection.action).toEqual({ kind: 'open-session', paneKey: 'pane-a1' })
+    // No new status word and no count in the copy-bearing fields.
+    expect(projection.attention).toEqual([])
+  })
+
+  it('completed alone is not delivered: the status is user data (§7.12 D3)', () => {
+    expect(
+      projectTaskWorkbenchDeliver(
+        makeView({ workspaces: [{ ...MERGED, review: { number: 431, state: 'open' } }] })
+      ).state
+    ).not.toBe('completed')
+  })
+
+  it('merged alone is not delivered: the workspace was never marked completed', () => {
+    expect(
+      projectTaskWorkbenchDeliver(
+        makeView({ workspaces: [{ ...MERGED, workspaceStatusId: undefined }] })
+      ).state
+    ).not.toBe('completed')
+  })
+
+  it('a delivered workspace with no marker row has no action to open', () => {
+    const projection = projectTaskWorkbenchDeliver(makeView({ workspaces: [MERGED] }))
+    expect(projection.state).toBe('completed')
+    expect(projection.action).toEqual({ kind: 'none' })
+    expect(projection.facts.pullRequest).toEqual({ number: 431, state: 'merged' })
+  })
+
+  it('an archived delivered workspace keeps its facts and offers no action (A8)', () => {
+    const archived = { ...MERGED, archived: true }
+    const projection = projectTaskWorkbenchDeliver(makeView({ workspaces: [archived] }))
+    expect(projection.state).toBe('archived')
+    expect(projection.facts.pullRequest).toEqual({ number: 431, state: 'merged' })
+    expect(projection.action).toEqual({ kind: 'none' })
+  })
+
+  it('the issue fact exists only when the view carries a number (A3/A7)', () => {
+    const withoutNumber = projectTaskWorkbenchDeliver(
+      makeView({
+        tracker: { state: 'closed', url: 'https://github.com/acme/web-app/issues/412' }
+      })
+    )
+    expect(withoutNumber.facts.issue).toBeUndefined()
+
+    const withNumber = projectTaskWorkbenchDeliver(
+      makeView({
+        tracker: { state: 'closed', url: 'https://github.com/acme/web-app/issues/412', number: 412 }
+      })
+    )
+    expect(withNumber.facts.issue).toEqual({ number: 412, state: 'closed' })
+  })
+
+  it('an absent commit source is never read as zero evidence (A7)', () => {
+    // `delivery.commits` is optional: no source is not `0 commits`.
+    const projection = projectTaskWorkbenchDeliver(
+      makeView({
+        delivery: {
+          pullRequest: {
+            number: 431,
+            state: 'open'
+          }
+        }
+      })
+    )
+    expect(projection.state).toBe('has-evidence')
+    expect(projection.facts.pullRequest).toEqual({ number: 431, state: 'open' })
   })
 })

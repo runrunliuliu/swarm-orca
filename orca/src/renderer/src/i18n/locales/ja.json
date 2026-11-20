@@ -17230,7 +17230,17 @@
         "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
         "cancel": "Cancel",
         "start": "Start delivery",
-        "targetBranchRequired": "Choose a target branch first."
+        "targetBranchRequired": "Choose a target branch first.",
+        "openSession": "Open session",
+        "stateCompleted": "Delivered",
+        "stateDelivering": "Delivering",
+        "stateDeliverable": "Ready",
+        "scope": "Deliver scope",
+        "createPullRequest": "Create pull request",
+        "mergePullRequest": "Merge the pull request",
+        "closeIssue": "Close issue #{{value0}}",
+        "closeIssueUnavailable": "Close the issue",
+        "closeIssueUnavailableHint": "This page names no issue, so delivery will not close one."
       },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
@@ -17253,7 +17263,10 @@
           "pending": "レビュー待ち",
           "approved": "レビュー承認済み",
           "changes-requested": "変更をリクエスト済み"
-        }
+        },
+        "issueClosed": "Issue #{{value0}} closed",
+        "issueOpen": "Issue #{{value0}} open",
+        "archiveFailed": "Delivery completed, but archiving the workspace failed. Archive it from the workspace row."
       },
       "TaskWorkbenchPanel": {
         "emptyTitle": "このタスクにはまだワークスペースがリンクされていません",

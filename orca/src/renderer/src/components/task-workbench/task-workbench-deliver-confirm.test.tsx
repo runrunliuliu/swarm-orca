@@ -180,7 +180,67 @@ describe('task-workbench deliver confirm — three required inputs', () => {
     expect(onSubmit).toHaveBeenCalledWith({
       targetBranch: 'release/2026-11',
       integrationMode: 'local-merge',
+      // §7.12 D1 defaults: merging is on, archiving is off. Closing stays off
+      // here because this panel was rendered without an issue number, even
+      // though `renderConfirm`'s default target branch is set.
+      mergePullRequest: true,
+      closeIssue: false,
       archiveAfter: true
+    })
+  })
+
+  // §7.12 D1/A2/A3: the three writes are the operator's explicit consent. The
+  // create-PR tick is fixed and cannot be turned off (§7.11.3 rule 7).
+  it('shows the deliver scope with create-PR fixed on and merge/close ticked by default', () => {
+    renderConfirm({ defaultTargetBranch: 'main', issueNumber: 412 })
+
+    const create = screen.getByTestId('task-workbench-deliver-create-pr')
+    expect(create).toHaveAttribute('data-state', 'checked')
+    expect(create).toBeDisabled()
+    expect(screen.getByTestId('task-workbench-deliver-merge-pr')).toHaveAttribute(
+      'data-state',
+      'checked'
+    )
+    expect(screen.getByTestId('task-workbench-deliver-close-issue')).toHaveAttribute(
+      'data-state',
+      'checked'
+    )
+    expect(screen.getByText('Close issue #412')).toBeInTheDocument()
+  })
+
+  it('does not authorize closing an issue the page does not name', () => {
+    const { onSubmit } = renderConfirm({ defaultTargetBranch: 'main' })
+
+    const close = screen.getByTestId('task-workbench-deliver-close-issue')
+    expect(close).toHaveAttribute('data-state', 'unchecked')
+    expect(close).toBeDisabled()
+    expect(
+      screen.getByText('This page names no issue, so delivery will not close one.')
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+    expect(onSubmit).toHaveBeenCalledWith({
+      targetBranch: 'main',
+      integrationMode: 'pr',
+      mergePullRequest: true,
+      closeIssue: false,
+      archiveAfter: false
+    })
+  })
+
+  it('drops the merge when the operator unticks it', () => {
+    const { onSubmit } = renderConfirm({ defaultTargetBranch: 'main', issueNumber: 412 })
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-merge-pr'))
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-close-issue'))
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      targetBranch: 'main',
+      integrationMode: 'pr',
+      mergePullRequest: false,
+      closeIssue: false,
+      archiveAfter: false
     })
   })
 

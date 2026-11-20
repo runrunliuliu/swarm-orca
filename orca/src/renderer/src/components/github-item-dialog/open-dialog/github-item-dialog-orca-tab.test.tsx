@@ -143,8 +143,45 @@ describe('GitHub item dialog Orca tab', () => {
       number: 412,
       itemType: 'issue',
       title: 'Add login auth',
-      tracker: { state: 'open', url: 'https://github.com/acme/web-app/issues/412' },
+      // §7.12 A3: the issue page hands its own number to the view, so the
+      // delivery row can name the issue it would close.
+      tracker: {
+        state: 'open',
+        url: 'https://github.com/acme/web-app/issues/412',
+        number: 412
+      },
       taskSourceContext: SOURCE_CONTEXT
+    })
+  })
+
+  it('does not hand a PR page’s number over as an issue number', () => {
+    useTaskWorkbenchViewMock.mockReturnValue(TRACKER_VIEW)
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <Tabs defaultValue="orca">
+          <TabsList>
+            <OrcaTabTrigger />
+          </TabsList>
+          <TabsContent value="orca">
+            <OrcaTabContent
+              repoId="repo-web-app"
+              number={431}
+              itemType="pr"
+              title="Deliver login"
+              tracker={{ state: 'open', url: 'https://github.com/acme/web-app/pull/431' }}
+              sourceContext={SOURCE_CONTEXT}
+            />
+          </TabsContent>
+        </Tabs>
+      </I18nextProvider>
+    )
+
+    // The tracker on a PR page describes the PR; an issue fact there would name
+    // the wrong item, so the number stays absent (§7.12 A3).
+    expect(useTaskWorkbenchViewMock.mock.calls[0][0].tracker).toEqual({
+      state: 'open',
+      url: 'https://github.com/acme/web-app/pull/431'
     })
   })
 

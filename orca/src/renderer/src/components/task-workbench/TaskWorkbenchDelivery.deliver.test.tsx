@@ -250,6 +250,9 @@ describe('task-workbench deliver entry — the confirmation', () => {
       worktreeId: WORKSPACE.worktreeId,
       targetBranch: 'release/2026-11',
       integrationMode: 'squash',
+      mergePullRequest: true,
+      // No tracker on this view, so the issue close is not authorized (A3).
+      closeIssue: false,
       archiveAfter: true,
       source: 'task_page'
     })
@@ -311,6 +314,8 @@ describe('task-workbench deliver entry — the confirmation', () => {
       worktreeId: WORKSPACE.worktreeId,
       targetBranch: 'main',
       integrationMode: 'pr',
+      mergePullRequest: true,
+      closeIssue: false,
       archiveAfter: false,
       source: 'task_page'
     })
@@ -422,5 +427,103 @@ describe('task-workbench deliver entry — the row keeps its own degradation rul
     expect(screen.getByTestId('task-workbench-delivery-checks')).toHaveTextContent('checks 5/6')
     expect(screen.getByTestId('task-workbench-delivery-toggle')).toBeInTheDocument()
     expect(screen.getByTestId('task-workbench-deliver-action')).toBeEnabled()
+  })
+
+  // §7.12 A3: the close tick and the issue fact take their number from the view,
+  // never from a URL or a guess.
+  it('carries the view’s tracker number into the scope and the launch', () => {
+    launchModule.launchTaskWorkbenchDeliver.mockReturnValue({ ok: true, tabId: 'tab-deliver' })
+    renderRow(
+      makeView({
+        targetBranchDefault: 'main',
+        tracker: { state: 'open', url: 'https://github.com/acme/web-app/issues/412', number: 412 }
+      })
+    )
+
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-action'))
+    expect(screen.getByText('Close issue #412')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('task-workbench-deliver-submit'))
+
+    expect(launchModule.launchTaskWorkbenchDeliver).toHaveBeenCalledWith({
+      worktreeId: WORKSPACE.worktreeId,
+      targetBranch: 'main',
+      integrationMode: 'pr',
+      mergePullRequest: true,
+      closeIssue: true,
+      issueNumber: 412,
+      archiveAfter: false,
+      source: 'task_page'
+    })
+  })
+})
+
+describe('task-workbench deliver entry — the delivered row (§7.12 A6/A7/A8)', () => {
+  const MERGED = {
+    ...WORKSPACE,
+    workspaceStatusId: 'completed',
+    workspaceStatusLabel: 'Done',
+    review: { number: 431, state: 'merged' as const }
+  }
+  const TRACKER_CLOSED = {
+    state: 'closed' as const,
+    url: 'https://github.com/acme/web-app/issues/412',
+    number: 412
+  }
+
+  it('A6: completed ∧ merged reads Delivered, with the issue fact and Open session', () => {
+    renderRow(
+      makeView({
+        workspaces: [MERGED],
+        agents: [agentRow('done', 'DELIVER')],
+        tracker: TRACKER_CLOSED
+      })
+    )
+
+    expect(screen.getByTestId('task-workbench-delivery-state')).toHaveTextContent('Delivered')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('PR #431')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent(
+      'Issue #412 closed'
+    )
+    expect(screen.getByTestId('task-workbench-deliver-action')).toHaveTextContent('Open session')
+  })
+
+  it('A6: a completed status without a merged review is not Delivered', () => {
+    renderRow(
+      makeView({
+        workspaces: [{ ...MERGED, review: { number: 431, state: 'open' } }]
+      })
+    )
+    expect(screen.getByTestId('task-workbench-delivery-state')).not.toHaveTextContent('Delivered')
+  })
+
+  it('A6: a merged review without the completed status is not Delivered', () => {
+    renderRow(makeView({ workspaces: [{ ...MERGED, workspaceStatusId: undefined }] }))
+    expect(screen.getByTestId('task-workbench-delivery-state')).not.toHaveTextContent('Delivered')
+  })
+
+  it('A7: not-read is never rendered as not-delivered, and no 0/0 checks appear', () => {
+    renderRow(makeView())
+
+    expect(screen.getByTestId('task-workbench-delivery-state')).toHaveTextContent('Not loaded')
+    expect(screen.getByTestId('task-workbench-delivery-state')).not.toHaveTextContent('Delivered')
+    expect(screen.queryByTestId('task-workbench-delivery-checks')).toBeNull()
+    expect(screen.queryByTestId('task-workbench-delivery-commits')).toBeNull()
+  })
+
+  it('A7: a PR fact with no title or url still states its number and state', () => {
+    renderRow(makeView({ workspaces: [MERGED] }))
+
+    // No review row on the facts strip (that needs `view.delivery`), so the
+    // projection's own fact is what prints — no fabricated link, no `PR #0`.
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('PR #431')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('merged')
+  })
+
+  it('A8: an archived workspace still states Delivered, and loses the entry', () => {
+    renderRow(makeView({ workspaces: [{ ...MERGED, archived: true }], tracker: TRACKER_CLOSED }))
+
+    expect(screen.getByTestId('task-workbench-delivery-state')).toHaveTextContent('Archived')
+    expect(screen.getByTestId('task-workbench-delivery-facts')).toHaveTextContent('PR #431')
+    expect(screen.queryByTestId('task-workbench-deliver-action')).toBeNull()
   })
 })

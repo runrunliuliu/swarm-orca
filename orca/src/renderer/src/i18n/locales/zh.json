@@ -17444,7 +17444,17 @@
         "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
         "cancel": "取消",
         "start": "开始交付",
-        "targetBranchRequired": "先选一个目标分支。"
+        "targetBranchRequired": "先选一个目标分支。",
+        "openSession": "打开会话",
+        "stateCompleted": "已交付",
+        "stateDelivering": "交付中",
+        "stateDeliverable": "可交付",
+        "scope": "交付范围",
+        "createPullRequest": "创建 PR",
+        "mergePullRequest": "合并 PR",
+        "closeIssue": "关闭 issue #{{value0}}",
+        "closeIssueUnavailable": "关闭 issue",
+        "closeIssueUnavailableHint": "此页面没有 issue 编号，因此交付不会关闭 issue。"
       },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
@@ -17470,7 +17480,10 @@
         },
         "notRead": "尚未读取",
         "read": "读取证据",
-        "notWired": "此版本暂不支持"
+        "notWired": "此版本暂不支持",
+        "issueClosed": "issue #{{value0}} 已关闭",
+        "issueOpen": "issue #{{value0}} 仍开放",
+        "archiveFailed": "交付已完成，但归档工作区失败。请从工作区行手动归档。"
       },
       "TaskWorkbenchHistory": {
         "newBadge": "新增",
