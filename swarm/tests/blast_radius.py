@@ -66,6 +66,16 @@ UNTESTED: dict[str, str] = {
     "run_modules": "parallel runner helper; launched as a subprocess, so nothing imports it",
 }
 
+# Test modules whose subject is a document, so the usual "which source does this test reach?"
+# derivation answers nothing: no basename source, no import. An entry is a reviewed statement that
+# the module pins files by path, not a way to excuse a test that lost its subject — `PATH_MAP` must
+# also name it, so a doc-only test that stops being reachable fails the invariant instead of
+# disappearing from both maps. `test_offline_baseline` asserts both directions.
+DOC_ONLY_TESTS: dict[str, str] = {
+    "core.test_incident_triage_skill":
+        "pins skills/incident-triage/** by path; the subject is a document, not a module",
+}
+
 # Modules under `tests/` that are code rather than fixtures. They are sources for the same reason
 # `log_io.py` is: one has a test module of its own, the other is executed. Leaving them out made
 # `test_blast_radius` — which covers the selector — look "unexplained" to the invariant that every
@@ -128,7 +138,7 @@ def source_files() -> dict[str, Path]:
         if path.exists():
             files[path.stem] = path
     for package in sorted(ROOT.glob("*/")):
-        if package.name in {"tests", "docs", "examples", "field-guide", "skills", "runit"}:
+        if package.name in {"tests", "docs", "examples", "field-guide", "skills"}:
             continue
         if (package / "__init__.py").exists():
             files[package.name] = package

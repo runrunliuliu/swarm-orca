@@ -54,6 +54,11 @@ bootstrap（S0–S5）阶段的两个 gate role 另有**自己的** `provider` �
 provider 可以不同。Pi Coordinator 的 `runtime_config` 必须是
 [pi runtime policy](strict-bootstrap-protocol.md#51-provider-能力与拒绝码) 记录。
 
+> **2026-11-19 更新：** 上面这段 gate-role 核验随旧握手一起删除。`bootstrap_identity.py` 现在只剩
+> `operator_monitor` 仍在捕获的两个 typed denial，不再解析 provider 或 `/proc` 证据；那几个类编码的
+> 设计意图存档在 [native identity 退休记录](docs/design/native-identity-retirement.md)。现行 unused 的
+> 只有 Operator 身份输入这一条 provider 声明路径。
+
 **Pi Operator 的核验通道**（2026-11-10 复核 Orca 1.4.219 快照与本机 pi 日志格式后确认）：
 
 - Orca 会给经它启动的 pi pane 装托管状态扩展（`orca/src/main/pi/agent-status-extension-source.ts`），
@@ -257,11 +262,13 @@ pin、必要会话 ID、有效设置摘要和信任边界，不输出 hook 原�
 
 `strict-bootstrap-registration` 采集入口与 `bootstrap_registration.py` 已删除：现行启动授权是一次
 [start grant](docs/design/start-grant.md) 的 mint，不再有 attempt 级 registration 文件。
-仍保留的是**运行时证据的解析方式**（`bootstrap_identity.py`，供 Operator 观察与 session 绑定使用）：
-它按 `agent-hooks/last-status.json` 里 `tabId:leafId` 的 `providerSession{key:'session_id',id,transcriptPath}`
-与 `launchTokenHash`，叠加 `/proc` 的 `pid`/`start`/`boot`/`uid` 做校验，从不看 transcript 文件名，
-也不从 pane 推断 provider。那张表是本机**所有 pane 共用**的有界映射（实测只剩最近 6 条），条目会被
-后来的 pane 覆盖或挤掉，所以观测要新鲜，且角色 provider 仍由调用方显式声明。
+那段 gate-role 核验代码（`bootstrap_identity.NativeIdentity`）也随旧握手删除了，本文只保留当时它解析的
+证据形状：`agent-hooks/last-status.json` 里 `tabId:leafId` 的 `providerSession{key:'session_id',id,transcriptPath}`
+与 `launchTokenHash`，叠加 `/proc` 的 `pid`/`start`/`boot`/`uid`，从不看 transcript 文件名，也不从 pane
+推断 provider。那张表是本机**所有 pane 共用**的有界映射（实测只剩最近 6 条），条目会被后来的 pane 覆盖或
+挤掉，所以观测要新鲜，且角色 provider 必须由调用方显式声明。设计意图存档在
+[native identity 退休记录](docs/design/native-identity-retirement.md)；现行只读路径的 provider 声明只有
+Operator 身份输入这一条。
 
 ## 4. 启动前接入任务归档目录
 

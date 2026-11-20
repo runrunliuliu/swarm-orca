@@ -5676,6 +5676,7 @@
           "sleepWithDescendants": "Mettre en veille avec les descendants ({{value0}})",
           "sleepWithDescendantsDescription": "Fermez les panneaux actifs de cet espace de travail et de chaque descendant imbriqué pour libérer de la mémoire et du CPU.",
           "deleteWithDescendants": "Supprimer avec les descendants…",
+          "deliver": "Deliver…",
           "archiveDraft": "Archiver le brouillon",
           "deleteDraft": "Supprimer le brouillon"
         },
@@ -17309,6 +17310,26 @@
         "collapse": "Réduire",
         "expand": "Développer",
         "historyEmpty": "Aucun historique pour l'instant."
+      },
+      "TaskWorkbenchDeliver": {
+        "action": "Deliver…",
+        "openTerminal": "Open terminal",
+        "disabledWorking": "A working agent already owns this workspace; delivery waits for one writer.",
+        "confirmHeading": "Deliver {{value0}}",
+        "close": "Close",
+        "targetBranch": "Target branch",
+        "targetBranchDefault": "Default · needs confirmation",
+        "integrationMode": "Integration",
+        "integrationMode.pr": "PR",
+        "integrationMode.localMerge": "Local merge",
+        "integrationMode.squash": "Squash",
+        "archiveAfter": "Archive this workspace after delivery",
+        "archiveAfterHint": "Archiving keeps the checkout and its records; it only hides the row.",
+        "policy": "Delivery integrates through a pull request; nothing is written to the primary checkout.",
+        "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
+        "cancel": "Cancel",
+        "start": "Start delivery",
+        "targetBranchRequired": "Choose a target branch first."
       },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",

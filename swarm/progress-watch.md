@@ -114,9 +114,10 @@ python3 -B /absolute/deployed/progress_watch.py --config /absolute/config.json -
 `status.json`/`status.md` are atomically replaced. `snapshots.jsonl`,
 `summaries.jsonl` and deduplicated `alerts.jsonl` are append-only operator-private
 observations. `state.json` and advisory `watch.lock` prevent overlapping instances
-using the same output. Use one dedicated runit service running as tiger; do not
-modify/restart the Orca Server or install the fixed-DAG Supervisor for monitoring.
-Stop the dedicated service before rotating closed log files; there is no automatic
+using the same output. Run it under your own service manager (one dedicated service as tiger
+works); this repository ships no service template since 2026-11-19 and the fixed-DAG Supervisor
+no longer exists, so "do not install the Supervisor for monitoring" is now a non-issue rather
+than a rule. Stop the dedicated service before rotating closed log files; there is no automatic
 deletion. Monitor disk space for long runs. A separate deployment is task-specific,
 not an installed global automation. The current chat need not stay open for the
 process to run; actual remote/offline reliability needs its own evidence.

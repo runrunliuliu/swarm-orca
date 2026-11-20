@@ -179,16 +179,19 @@ describe('task records normalization', () => {
     expect(Object.keys(state.byId)).toEqual([good.taskId])
   })
 
-  it('does not load a record written by a newer schema version', () => {
-    const { state, dropped } = normalizeTaskRecords({
+  it('leaves a domain holding a newer-schema record unreadable instead of rewriting it', () => {
+    // Dropping only the newer record and saving the rest would delete history
+    // this build cannot read; the whole domain stays verbatim and writers refuse.
+    const raw = {
       recordsVersion: TASK_RECORDS_VERSION,
       byId: {
         'task:github:repo-1:issue:31': record({ schemaVersion: 2 })
       }
-    })
+    }
+    const result = normalizeTaskRecords(raw)
 
-    expect(state.byId).toEqual({})
-    expect(dropped).toBe(1)
+    expect(result).toMatchObject({ state: EMPTY_TASK_RECORDS, dropped: 0, readable: false })
+    expect(isReadableTaskRecords(raw)).toBe(false)
   })
 
   it('keeps the origin provider identity and the domain-level extras on a round-trip', () => {

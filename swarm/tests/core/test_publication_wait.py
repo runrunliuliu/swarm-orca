@@ -10,9 +10,7 @@ inotify cannot be opened at all.
 
 import io
 import json
-import os
 from pathlib import Path
-import sys
 import tempfile
 import threading
 import time

@@ -89,8 +89,10 @@ export function upsertTaskRecordBinding(
     return grown(state, record, indexKey, input.taskId)
   }
 
+  // Host-qualified: `repoId::path` repeats across hosts, so a bare worktree id
+  // would let one host's metadata write overwrite the other owner's binding.
   const bindingIndex = existing.bindings.findIndex(
-    (binding) => binding.worktreeId === input.worktreeId
+    (binding) => binding.worktreeId === input.worktreeId && binding.hostId === input.hostId
   )
   if (bindingIndex === -1 && existing.bindings.length >= TASK_RECORDS_MAX_BINDINGS_PER_RECORD) {
     return { ok: false, reason: 'limit' }
@@ -187,12 +189,17 @@ export function mergeTaskRecordBindingSessions(
   args: {
     taskId: string
     worktreeId: string
+    /** The owner whose workspace reported these sessions. Same-id owners on two
+     *  hosts are two bindings and must not share one session list. */
+    hostId: ExecutionHostId
     sessions: readonly TaskRecordSession[]
     now: number
   }
 ): TaskRecordsWriteResult {
   const record = state.byId[args.taskId]
-  const binding = record?.bindings.find((entry) => entry.worktreeId === args.worktreeId)
+  const binding = record?.bindings.find(
+    (entry) => entry.worktreeId === args.worktreeId && entry.hostId === args.hostId
+  )
   if (!record || !binding || args.sessions.length === 0) {
     return { ok: true, state, changed: false }
   }
@@ -238,10 +245,17 @@ export function mergeTaskRecordBindingSessions(
  *  replay keeps the first snapshot instead of appending a second one. */
 export function setTaskRecordBindingSettlement(
   state: TaskRecordsState,
-  args: { taskId: string; worktreeId: string; settlement: TaskUsageSettlement }
+  args: {
+    taskId: string
+    worktreeId: string
+    hostId: ExecutionHostId
+    settlement: TaskUsageSettlement
+  }
 ): TaskRecordsWriteResult {
   const record = state.byId[args.taskId]
-  const binding = record?.bindings.find((entry) => entry.worktreeId === args.worktreeId)
+  const binding = record?.bindings.find(
+    (entry) => entry.worktreeId === args.worktreeId && entry.hostId === args.hostId
+  )
   if (!record || !binding) {
     return { ok: true, state, changed: false }
   }
@@ -274,7 +288,9 @@ function replaceBinding(
     {
       ...record,
       bindings: record.bindings.map((entry) =>
-        entry.worktreeId === binding.worktreeId ? binding : entry
+        entry.worktreeId === binding.worktreeId && entry.hostId === binding.hostId
+          ? binding
+          : entry
       ),
       updatedAt: Math.max(record.updatedAt, now)
     },

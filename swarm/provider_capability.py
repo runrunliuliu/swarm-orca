@@ -1,12 +1,14 @@
 """Provider capability seam for the strict bootstrap gate roles.
 
 A gate role's provider is never a constant in the reader code: it is declared in
-the reviewed registration (`bootstrap_identity.py`) or in the Operator identity
-input (`operator_session.py`), and the declared name is then verified against
-native evidence by `swarm_ledger.runtime_binding`. This module holds the one
-thing that verification cannot discover by itself — which evidence format, which
-identity fields, which transcript records and which effective settings this build
-is able to verify for a given provider.
+the Operator identity input (`operator_session.py`) — or, before the 2026-11-13 handshake
+removal, in the reviewed bootstrap registration (`bootstrap_identity.py`, since deleted) — and the
+declared name is then verified against native evidence by `swarm_ledger.runtime_binding`. This
+module holds the one thing that verification cannot discover by itself — which evidence format,
+which identity fields, which transcript records and which effective settings this build is able to
+verify for a given provider. `BOOTSTRAP_ROLE` rows below are therefore vocabulary with no live
+caller: they are kept because the table is one seam, and deleting a row is a design decision, not
+cleanup (see `docs/design/native-identity-retirement.md`).
 
 Two refusals are kept distinct, and neither is a default:
 

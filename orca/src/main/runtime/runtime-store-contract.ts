@@ -37,6 +37,7 @@ export type RuntimeStore = {
   setWorktreeMeta: Store['setWorktreeMeta']
   setWorktreeMetaForHost?: Store['setWorktreeMetaForHost']
   removeWorktreeMeta: Store['removeWorktreeMeta']
+  captureTaskRecordsRemovalSessions?: Store['captureTaskRecordsRemovalSessions']
   getWorktreeLineage?: Store['getWorktreeLineage']
   getAllWorktreeLineage?: Store['getAllWorktreeLineage']
   setWorktreeLineage?: Store['setWorktreeLineage']

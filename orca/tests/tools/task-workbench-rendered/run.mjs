@@ -29,11 +29,11 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a fixtures, the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, history facts/compact/trace-lost claims, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC or locale switching.'
+  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery-entry fixtures, the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the six delivery-entry states and their closed-popover semantics, history facts/compact/trace-lost claims, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction or locale switching.'
 
-// Contract §4.2, copied by hand: the fixture data is the other side of this
-// pin, so a fixture edit that changes a count fails here instead of silently
-// moving every layout decision with it.
+// Contract §4.2 plus the two §7.11 delivery-only fixture rows, copied by hand:
+// the fixture data is the other side of this pin, so a fixture edit that changes
+// a count fails here instead of silently moving every layout decision with it.
 const CONTRACT_COUNTS = {
   f1_baseline: { workspaces: 1, agents: 2, activeAgents: 1, attentionAgents: 0, historyAgents: 1 },
   f2a_zero_workspace_open: { workspaces: 0, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
@@ -49,7 +49,9 @@ const CONTRACT_COUNTS = {
   f9_long_labels: { workspaces: 1, agents: 3, activeAgents: 2, attentionAgents: 0, historyAgents: 1 },
   f10_ambiguous_session: { workspaces: 1, agents: 2, activeAgents: 1, attentionAgents: 0, historyAgents: 1 },
   f11_no_matching_session: { workspaces: 1, agents: 2, activeAgents: 1, attentionAgents: 0, historyAgents: 1 },
-  f12_new_workspace_no_agents: { workspaces: 1, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 }
+  f12_new_workspace_no_agents: { workspaces: 1, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 },
+  f13_existing_deliver_session: { workspaces: 1, agents: 1, activeAgents: 0, attentionAgents: 0, historyAgents: 1 },
+  f14_zero_delivery_evidence: { workspaces: 1, agents: 0, activeAgents: 0, attentionAgents: 0, historyAgents: 0 }
 }
 
 // The single-run path is the only implementation; --all is a sequential loop
@@ -76,6 +78,10 @@ const SHOT_MATRIX = [
   { id: 'S10c', fixture: 'f8_failure_outcome', width: 1440, height: 900 },
   { id: 'S10d', fixture: 'f12_new_workspace_no_agents', width: 1440, height: 900 },
   { id: 'F9', fixture: 'f9_long_labels', width: 1440, height: 900 },
+  // README §7.11.3: the other four frozen states reuse S1/S4/S10a/S10d.
+  // Only these two states need new fixture data and therefore new matrix rows.
+  { id: 'D-existing-session', fixture: 'f13_existing_deliver_session', width: 1440, height: 900 },
+  { id: 'D-zero-evidence', fixture: 'f14_zero_delivery_evidence', width: 1440, height: 900 },
   // Issue #27: the wide list row, then the same rows at a narrow window, where
   // §7.2's row priority must keep the mark on screen.
   { id: 'G1', fixture: 'd6_github_task_rows', width: 1440, height: 900, mandatory: true },
@@ -93,6 +99,7 @@ const CALIBRATION_MATRIX = [
 const DERIVE_SOURCE = `
 import { getTaskWorkbenchFixture } from './src/renderer/src/components/task-workbench/task-workbench-fixtures'
 import { computeTaskWorkbenchLayout } from './src/renderer/src/components/task-workbench/task-workbench-layout'
+import { projectTaskWorkbenchDeliver } from './src/renderer/src/components/task-workbench/task-workbench-deliver-state'
 import { countRowBuckets } from './src/renderer/src/components/task-workbench/task-workbench-row-projection'
 import { formatTokens } from './src/renderer/src/components/stats/usage-formatters'
 
@@ -216,6 +223,7 @@ export function derive(fixtureKey, width, height) {
   const historyRuns = hasHistory && deletedTrace && historyDetailsOpen ? history.runs.length : 0
   const spend = view.spend
   const delivery = view.delivery
+  const deliverProjection = projectTaskWorkbenchDeliver(view)
   const outcomes = visibleRows.flatMap((row) => (row.outcome ? [row.outcome] : []))
   const successOutcomes = outcomes.filter((outcome) => outcome === 'success').length
   // An unknown token count renders nothing at all (README §7.4.2), so the chip
@@ -304,7 +312,12 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-delivery-commits':
       delivery !== undefined && delivery.commits.count > 0 ? 1 : 0,
     'task-workbench-delivery-checks': delivery && delivery.checks ? 1 : 0,
-    'task-workbench-delivery-review': delivery && delivery.review ? 1 : 0
+    'task-workbench-delivery-review': delivery && delivery.review ? 1 : 0,
+    // The delivery entry is derived from the fixture through the production
+    // projection, never copied from a list of fixture names. The rendered pass
+    // does not click, so the shared confirmation must stay closed.
+    'task-workbench-deliver-action': deliverProjection.action.kind === 'none' ? 0 : 1,
+    'task-workbench-deliver-confirm': 0
   }
 
   const semantic = {
@@ -336,7 +349,11 @@ export function derive(fixtureKey, width, height) {
           runs: historyRuns,
           compact: historyCompact
         }
-      : null
+      : null,
+    deliver: {
+      state: deliverProjection.state,
+      action: deliverProjection.action
+    }
   }
 
   return {
@@ -531,6 +548,38 @@ async function collectDom(page) {
       archivedCards: document.querySelectorAll(
         '[data-testid="task-workbench-workspace-card"][data-archived="true"]'
       ).length,
+      deliverEntry: (() => {
+        const row = document.querySelector('[data-testid="task-workbench-delivery"]')
+        const action = document.querySelector('[data-testid="task-workbench-deliver-action"]')
+        const describedBy = action?.getAttribute('aria-describedby') ?? null
+        const described = describedBy === null ? null : document.getElementById(describedBy)
+        return {
+          rowText: text(row),
+          claims: {
+            commits: texts('[data-testid="task-workbench-delivery-commits"]'),
+            pullRequests: [
+              ...(row?.querySelectorAll('span') ?? [])
+            ].map((element) => text(element)).filter((value) => /^PR #\d+$/.test(value)),
+            checks: texts('[data-testid="task-workbench-delivery-checks"]'),
+            reviews: texts('[data-testid="task-workbench-delivery-review"]')
+          },
+          confirmCount: document.querySelectorAll(
+            '[data-testid="task-workbench-deliver-confirm"]'
+          ).length,
+          action:
+            action === null
+              ? null
+              : {
+                  label: text(action),
+                  disabled: action.hasAttribute('disabled'),
+                  ariaDisabled: action.getAttribute('aria-disabled'),
+                  ariaDescribedBy: describedBy,
+                  describedText: text(described),
+                  describedSrOnly: described?.classList.contains('sr-only') ?? false,
+                  wrapperTitle: action.closest('[title]')?.getAttribute('title') ?? null
+                }
+        }
+      })(),
       history: (() => {
         const node = document.querySelector('[data-testid="task-workbench-history"]')
         if (!node) {
@@ -647,6 +696,7 @@ async function runOne(entry, builds) {
         spendStatus: dom.spendStatus,
         spendTotal: dom.spendTotal,
         archivedCards: dom.archivedCards,
+        deliver: dom.deliverEntry,
         historyFacts: dom.history?.facts ?? null,
         historyCompact: dom.history?.compact ?? null,
         historyTraceLost: dom.history?.traceLost ?? null,
@@ -737,6 +787,61 @@ async function runOne(entry, builds) {
         }
       }
       const semantic = expectation.semantic
+      const expectedDeliver = semantic.deliver
+      const actualDeliver = dom.deliverEntry
+      compare(failures, 'deliver:confirm-closed', actualDeliver.confirmCount, 0)
+      if (expectedDeliver.action.kind === 'none') {
+        compare(failures, `deliver:${expectedDeliver.state}:action-absent`, actualDeliver.action, null)
+      } else {
+        compare(
+          failures,
+          `deliver:${expectedDeliver.state}:action-present`,
+          actualDeliver.action !== null,
+          true
+        )
+      }
+      if (expectedDeliver.state === 'one-writer' && expectedDeliver.action.kind === 'deliver') {
+        const reason = expectedDeliver.action.disabledReason.fallback
+        compare(failures, 'deliver:one-writer:disabled', actualDeliver.action?.disabled, true)
+        compare(failures, 'deliver:one-writer:aria-disabled', actualDeliver.action?.ariaDisabled, 'true')
+        compare(
+          failures,
+          'deliver:one-writer:aria-describedby',
+          (actualDeliver.action?.ariaDescribedBy ?? '') !== '',
+          true
+        )
+        compare(failures, 'deliver:one-writer:title', actualDeliver.action?.wrapperTitle, reason)
+        compare(failures, 'deliver:one-writer:reason', actualDeliver.action?.describedText, reason)
+        compare(failures, 'deliver:one-writer:reason-sr-only', actualDeliver.action?.describedSrOnly, true)
+      } else if (
+        expectedDeliver.state === 'deliver-session' &&
+        expectedDeliver.action.kind === 'open-terminal'
+      ) {
+        compare(failures, 'deliver:existing-session:enabled', actualDeliver.action?.disabled, false)
+        compare(failures, 'deliver:existing-session:label', actualDeliver.action?.label, 'Open terminal')
+      } else if (expectedDeliver.action.kind === 'deliver') {
+        compare(
+          failures,
+          `deliver:${expectedDeliver.state}:disabled`,
+          actualDeliver.action?.disabled,
+          !expectedDeliver.action.enabled
+        )
+        compare(failures, `deliver:${expectedDeliver.state}:label`, actualDeliver.action?.label, 'Deliver…')
+      }
+      if (expectedDeliver.state === 'zero-evidence') {
+        compare(
+          failures,
+          'deliver:zero-evidence:claims',
+          actualDeliver.claims,
+          { commits: [], pullRequests: [], checks: [], reviews: [] }
+        )
+        compare(
+          failures,
+          'deliver:zero-evidence:no-zero-commit-copy',
+          /\b0\s+commits?\b/i.test(actualDeliver.rowText),
+          false
+        )
+      }
       compare(failures, 'semantic:token-chips', [...dom.tokenChips].sort(), semantic.tokenChips)
       compare(failures, 'semantic:outcome-badges', [...dom.outcomeBadges].sort(), semantic.outcomeBadges)
       if (entry.fixture === 'f8_failure_outcome') {

@@ -3,7 +3,6 @@
 The fake CLI/adapter blocks at a ready file so SIGINT arrives during I/O, not
 at a timing guess. Only per-test temporary paths and child process groups are used.
 """
-import json
 import os
 from pathlib import Path
 import signal

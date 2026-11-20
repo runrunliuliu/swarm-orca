@@ -169,25 +169,6 @@ def trigger_window(value, *, publishing):
     require(remaining > needed, "startup_trigger_window_insufficient")
 
 
-def trigger_candidate(input_ref):
-    """Shared structural/pin checks; never infer a review from a raw preflight."""
-    candidate = parse(pinned(input_ref))
-    require(isinstance(candidate, dict) and set(candidate) == set(trigger_template())
-            | ({"release_window"} if "release_window" in candidate else set())
-            and candidate["decision"] == "ready" and isinstance(candidate["notes"], str) and candidate["notes"].strip()
-            and isinstance(candidate["evidence"], list) and candidate["evidence"]
-            and isinstance(candidate["valid_until"], str), "startup_trigger_review_required")
-    timestamp(candidate["valid_until"])
-    trigger = parse(pinned(candidate["trigger"]))
-    require(isinstance(trigger, dict), "startup_trigger_scope_changed")
-    for evidence in candidate["evidence"]:
-        pinned(evidence)
-    trigger_window(candidate, publishing=True)
-    return candidate, trigger
-
-
-
-
 def startup_gate(config):
     """The historical dispatch field is null only on the reviewed no-Worker path."""
     if config.get("dispatch_gate") is not None:

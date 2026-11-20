@@ -17,6 +17,7 @@ import {
 } from './store-domain-composition'
 import type { PersistedState } from '../../../shared/persisted-state-types'
 import type { TaskRecord, TaskRecordItemType } from '../../../shared/task-records-types'
+import type { TaskProvider } from '../../../shared/task-providers'
 import { taskRecordForTask } from './task-records-persistence'
 import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
 import { scheduleSave } from './write-scheduling'
@@ -161,6 +162,7 @@ export class Store {
     repoId: string
     itemType: TaskRecordItemType
     number: number
+    provider?: TaskProvider
   }): TaskRecord | null {
     return taskRecordForTask(this.state.taskRecords, args)
   }
@@ -169,6 +171,13 @@ export class Store {
    *  the observers use); until then a removal simply settles nothing. */
   setTaskRecordsUsageSource(source: TaskRecordsUsageSource | null): void {
     this.runtime.taskRecordsUsageSource = source
+  }
+
+  /** Freeze the worktree's agent sessions before a destructive PTY teardown
+   *  clears the hook server's pane state (issue #36 review B1). Best-effort: a
+   *  missing source just means the removal settles without a session list. */
+  captureTaskRecordsRemovalSessions(worktreeId: string): void {
+    this.runtime.taskRecordsUsageSource?.captureSessionsForRemoval(worktreeId)
   }
 
   /** Every persisted session partition, for the task ledger's pane → provider

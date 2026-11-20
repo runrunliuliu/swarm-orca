@@ -35,6 +35,9 @@ export async function removeOrphanOrFolderWorktree({
     const ptyProvider = sshPtyProvider ?? runtime.getLocalProvider()
     const externalOrphanHost = orphanHost?.kind === 'ssh' || orphanHost?.kind === 'runtime'
     if (ptyProvider) {
+      // Freeze the agent sessions before the sweep clears hook pane state; the
+      // task record is settled after the metadata row is dropped (issue #36 B1).
+      runtime.captureTaskRecordsRemovalSessions?.(removalTarget.id)
       await killAllProcessesForWorktree(removalTarget.id, {
         runtime,
         resolvedWorktreeId: removalTarget.id,

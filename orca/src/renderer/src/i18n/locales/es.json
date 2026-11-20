@@ -4768,6 +4768,7 @@
           "workspaceSection": "Espacio de trabajo",
           "primaryDeleteDisabled": "El worktree principal no se puede eliminar. Quita el proyecto en su lugar.",
           "deleteWorktree": "Eliminar worktree",
+          "deliver": "Deliver…",
           "archiveDraft": "Archivar borrador",
           "deleteDraft": "Eliminar borrador"
         },
@@ -14841,6 +14842,26 @@
         "collapse": "Contraer",
         "expand": "Expandir",
         "historyEmpty": "Aún no hay historial."
+      },
+      "TaskWorkbenchDeliver": {
+        "action": "Deliver…",
+        "openTerminal": "Open terminal",
+        "disabledWorking": "A working agent already owns this workspace; delivery waits for one writer.",
+        "confirmHeading": "Deliver {{value0}}",
+        "close": "Close",
+        "targetBranch": "Target branch",
+        "targetBranchDefault": "Default · needs confirmation",
+        "integrationMode": "Integration",
+        "integrationMode.pr": "PR",
+        "integrationMode.localMerge": "Local merge",
+        "integrationMode.squash": "Squash",
+        "archiveAfter": "Archive this workspace after delivery",
+        "archiveAfterHint": "Archiving keeps the checkout and its records; it only hides the row.",
+        "policy": "Delivery integrates through a pull request; nothing is written to the primary checkout.",
+        "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
+        "cancel": "Cancel",
+        "start": "Start delivery",
+        "targetBranchRequired": "Choose a target branch first."
       },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",

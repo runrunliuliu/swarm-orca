@@ -9,7 +9,11 @@ import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboar
 import { projectMissingWorkspace } from '@/components/dashboard/project-missing-workspace'
 import type { TaskWorkbenchView } from '@/components/task-workbench/task-workbench-view'
 import { useTaskRecords } from './use-task-records'
-import { resolveTaskIdentity } from '@/lib/task-workbench/task-workbench-identity'
+import {
+  resolveTaskIdentity,
+  selectTaskItemWorktrees
+} from '@/lib/task-workbench/task-workbench-identity'
+import type { TaskWorkbenchItem } from '@/lib/task-workbench/task-workbench-selector-types'
 import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspace-branch'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
 import { mergeTaskRecordHistory } from '@/lib/task-workbench/task-workbench-history-merge'
@@ -99,44 +103,108 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     openCodeScanState?.enabled === true ||
     museScanState?.enabled === true
 
-  const resolution = useMemo(() => {
-    // Provenance the identity selector reads. Archived rows are handed over as
-    // such; since issue #31 they are a fallback identity rather than a refusal,
-    // because a closed task whose only workspace was archived still has a name.
-    const identityWorktrees = (worktrees ?? []).map((worktree) => ({
-      worktreeId: worktree.id,
-      isArchived: worktree.isArchived,
-      linkedTaskSourceContext: worktree.linkedTaskSourceContext
-    }))
-    return resolveTaskIdentity({
-      taskSourceContext: taskSourceContext ?? null,
-      worktrees: identityWorktrees
-    })
-  }, [worktrees, taskSourceContext])
+  // The page's own item. The pair is the identity's item scope, not `number`
+  // alone: the link columns are typed, so the type decides which one counts
+  // (issue #38).
+  const item = useMemo<TaskWorkbenchItem>(() => ({ type: itemType, number }), [itemType, number])
 
-  // Matched worktrees are a 0..N question that includes archived rows: the
-  // single-row `find*WorkspaceAttachment` helpers return at most one
-  // non-archived match, and README §7.6 names the plural variant as the upgrade
-  // point. Store order, visited once each, so the union is de-duplicated.
+  // The task's own durable record (issue #36), read before the identity because a
+  // deleted workspace is still evidence that this item ran: with no provider
+  // identity on the page and no workspace left, the record is the only thing that
+  // can name the closed task instead of showing the never-started notice (issue
+  // #38 review). The page's provider is passed when it has one, so the lookup is
+  // exact instead of the ambiguous provider-less suffix scan.
+  const taskRecord = useTaskRecords(
+    repoId === null
+      ? null
+      : {
+          repoId,
+          itemType,
+          number,
+          ...(taskSourceContext?.provider ? { provider: taskSourceContext.provider } : {})
+        },
+    // Any change to this repo's workspace list can change the record: a removal
+    // settles it, an archive rewrites a binding.
+    worktrees
+  )
+
+  // A binding the store no longer lists is a deleted workspace; the identity
+  // selector may name the task after it when no live or archived row is left
+  // (issue #38).
+  const removedWorktreeIds = useMemo(() => {
+    const record = taskRecord.record
+    if (!record || worktrees === undefined) {
+      return []
+    }
+    const live = new Set(worktrees.map((worktree) => worktree.id))
+    return record.bindings
+      .filter((binding) => !live.has(binding.worktreeId))
+      .map((binding) => binding.worktreeId)
+  }, [taskRecord.record, worktrees])
+
+  // Provenance the selectors read, projected once. Archived rows are handed over
+  // as such; since issue #31 they are a fallback identity rather than a refusal,
+  // because a closed task whose only workspace was archived still has a name.
+  const identityWorktrees = useMemo(
+    () =>
+      (worktrees ?? []).map((worktree) => ({
+        worktreeId: worktree.id,
+        isArchived: worktree.isArchived,
+        linkedIssue: worktree.linkedIssue,
+        linkedPR: worktree.linkedPR,
+        linkedWorkItem: worktree.linkedWorkItem,
+        linkedTaskSourceContext: worktree.linkedTaskSourceContext
+      })),
+    [worktrees]
+  )
+
+  const resolution = useMemo(
+    () =>
+      resolveTaskIdentity({
+        taskSourceContext: taskSourceContext ?? null,
+        item,
+        historyWorktreeIds: removedWorktreeIds,
+        worktrees: identityWorktrees
+      }),
+    [identityWorktrees, taskSourceContext, item, removedWorktreeIds]
+  )
+
+  // The task's workspaces are chosen per item, not from the identity's name: the
+  // identity is evidence for naming (its provider segment is repo-scoped and its
+  // tracker key carries the item) and reading its matches as a set is what
+  // listed every branch of the repo in every issue's tab (issue #38). Archived
+  // rows are included on purpose (issue #31 history) and zero matches stays zero.
+  // The provider is the page's own, exactly what the list row's badge passes;
+  // when the page has none there is no authority to scope by host, so both entry
+  // points scope by the item links alone instead of guessing from a worktree.
   const taskWorktrees = useMemo(() => {
     if (!resolution) {
       return []
     }
-    const matched = new Set(resolution.matchedWorktreeIds)
-    return (worktrees ?? []).filter((worktree) => {
-      if (matched.has(worktree.id)) {
-        return true
-      }
-      const linked = itemType === 'pr' ? worktree.linkedPR : worktree.linkedIssue
-      return worktree.repoId === repoId && linked === number
-    })
-  }, [resolution, worktrees, repoId, number, itemType])
+    const provider = taskSourceContext?.providerIdentity ?? null
+    const selected = new Set(
+      selectTaskItemWorktrees(identityWorktrees, item, provider).map(
+        (worktree) => worktree.worktreeId
+      )
+    )
+    return (worktrees ?? []).filter((worktree) => selected.has(worktree.id))
+  }, [resolution, identityWorktrees, worktrees, item, taskSourceContext])
 
   // The archived worktrees of THIS task: the dashboard board never includes
   // them, but a closed task's history needs their rows (issue #31).
   const archivedTaskWorktreeIds = taskWorktrees
     .filter((worktree) => worktree.isArchived)
     .map((worktree) => worktree.id)
+
+  // The delivery confirm's default target branch: the repo's main worktree
+  // branch, and only when the store named that worktree (`isMainWorktree` +
+  // `branch`). `Worktree.branch` keeps the ref `git worktree list` reports
+  // (`refs/heads/<name>`), and the form asks a person for a branch name that is
+  // then handed to `git`/`gh` as one, so only the name is kept. An unscanned or
+  // detached main worktree leaves it absent, so the form starts empty and asks
+  // instead of naming `main` (§7.11.3 rule 3).
+  const mainRef = (worktrees ?? []).find((worktree) => worktree.isMainWorktree)?.branch
+  const targetBranchDefault = mainRef?.replace(/^refs\/heads\//, '').trim() || undefined
 
   // The in-window dashboard projection: one card per agent, one workspace per
   // active worktree (plus this task's archived ones). Reusing this hook is the
@@ -145,13 +213,6 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   const snapshot = useLiveDashboardSnapshot({
     includeArchivedWorktreeIds: archivedTaskWorktreeIds
   })
-  const taskRecord = useTaskRecords(
-    repoId === null ? null : { repoId, itemType, number },
-    // Any change to this repo's workspace list can change the record: a removal
-    // settles it, an archive rewrites a binding.
-    worktrees
-  )
-
   return useMemo<TaskWorkbenchView | null>(() => {
     // No identity means there is nothing to name the tab after: that is the one
     // case the identity selector returns null for, and `identity` is a required
@@ -172,15 +233,19 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       const workspace = projected.get(worktree.id)
       // The store's own activity signal (the sidebar's "Recent" key): newest
       // wins the default workspace, and 0 can only lose that comparison.
-      const branchName = workspaceBranchName(workspace?.workspaceKind, worktree)
-      return workspace
-        ? {
-            ...workspace,
-            isArchived: worktree.isArchived,
-            lastActivityAt: worktree.lastActivityAt,
-            ...(branchName ? { branchName } : {})
-          }
-        : projectMissingWorkspace(repo, worktree)
+      const base = workspace ?? projectMissingWorkspace(repo, worktree)
+      const branchName = workspaceBranchName(base.workspaceKind, worktree)
+      return {
+        ...base,
+        isArchived: worktree.isArchived,
+        lastActivityAt: worktree.lastActivityAt,
+        ...(branchName ? { branchName } : {}),
+        // The delivery entry's eligibility (§7.11.3 rule 7 / A9): the sidebar
+        // already hides a primary checkout from its archivable targets, and this
+        // is the same existing store fact, carried so the task-page route can
+        // apply the same rule (no new store read).
+        isMainWorktree: worktree.isMainWorktree
+      }
     })
     const activeWorktrees = joinedWorktrees.filter((workspace) => !workspace.isArchived)
     const activeIds = activeWorktrees.map((workspace) => workspace.worktreeId)
@@ -307,11 +372,13 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       spend: usage.spend,
       delivery: join.delivery,
       history,
-      historyPending: taskRecord.pending
+      historyPending: taskRecord.pending,
+      ...(targetBranchDefault ? { targetBranchDefault } : {})
     }
   }, [
     resolution,
     taskWorktrees,
+    targetBranchDefault,
     repo,
     snapshot,
     agentStatusByPaneKey,

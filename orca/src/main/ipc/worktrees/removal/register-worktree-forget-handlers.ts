@@ -93,6 +93,10 @@ export function registerWorktreeForgetHandlers(context: WorktreeIpcContext): voi
         const sshPtyProvider =
           ownerHost?.kind === 'ssh' ? getSshPtyProvider(ownerHost.targetId) : undefined
         const externalHost = ownerHost?.kind === 'ssh' || ownerHost?.kind === 'runtime'
+        // Freeze the agent sessions before the sweep clears hook pane state; the
+        // task record is settled below, after the list would already be gone
+        // (issue #36 review B1).
+        store.captureTaskRecordsRemovalSessions(args.worktreeId)
         // External host inventories must never sweep a same-id local workspace.
         await killAllProcessesForWorktree(args.worktreeId, {
           runtime,

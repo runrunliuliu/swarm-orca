@@ -112,6 +112,7 @@ describe('upsertTaskRecordBinding', () => {
     const result = mergeTaskRecordBindingSessions(first.state, {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       sessions: [
         {
           provider: 'claude',
@@ -147,6 +148,7 @@ describe('upsertTaskRecordBinding', () => {
     const result = mergeTaskRecordBindingSessions(first.state, {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       sessions,
       now: 2
     })
@@ -236,6 +238,7 @@ describe('mergeTaskRecordBindingSessions', () => {
     const first = mergeTaskRecordBindingSessions(state, {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       sessions: [
         { provider: 'claude', key: 'session_id', id: 'abc', firstSeenAt: 100, lastSeenAt: 100 }
       ],
@@ -250,6 +253,7 @@ describe('mergeTaskRecordBindingSessions', () => {
     const second = mergeTaskRecordBindingSessions(first.state, {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       sessions: [
         {
           provider: 'claude',
@@ -283,6 +287,7 @@ describe('mergeTaskRecordBindingSessions', () => {
     const result = mergeTaskRecordBindingSessions(state, {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       sessions: [
         { provider: 'claude', key: 'session_id', id: 'abc', firstSeenAt: 100, lastSeenAt: 100 },
         { provider: 'codex', key: 'conversation_id', id: 'abc', firstSeenAt: 100, lastSeenAt: 100 }
@@ -319,6 +324,7 @@ describe('setTaskRecordBindingSettlement', () => {
     const first = setTaskRecordBindingSettlement(stateWithBinding(), {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       settlement: known
     })
     expect(first.ok).toBe(true)
@@ -331,6 +337,7 @@ describe('setTaskRecordBindingSettlement', () => {
     const replay = setTaskRecordBindingSettlement(first.state, {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       settlement: known
     })
     expect(replay).toMatchObject({ ok: true, changed: false })
@@ -347,6 +354,7 @@ describe('setTaskRecordBindingSettlement', () => {
     const result = setTaskRecordBindingSettlement(stateWithBinding(), {
       taskId: TASK_ID,
       worktreeId: 'repo-1::/repo/feature',
+      hostId: 'local',
       settlement: unavailable
     })
     expect(result.ok).toBe(true)

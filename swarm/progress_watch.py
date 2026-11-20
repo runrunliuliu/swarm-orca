@@ -17,7 +17,6 @@ import re
 import selectors
 import signal
 import stat
-import sys
 import threading
 import subprocess
 import tempfile

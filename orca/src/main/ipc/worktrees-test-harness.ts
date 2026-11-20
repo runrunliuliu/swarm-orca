@@ -151,6 +151,7 @@ export function setupWorktreeHandlers(): WorktreeRuntimeStub {
     store.setWorktreeMetaForHost,
     store.getProjectHostSetups,
     store.removeWorktreeMeta,
+    store.captureTaskRecordsRemovalSessions,
     store.pruneSessionlessMissingLocalWorktreeMetadataForRepo,
     store.removeWorkspaceSessionStateForWorktree,
     store.getAllWorktreeLineage,

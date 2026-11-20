@@ -110,7 +110,8 @@
 - `operator_monitor.py` 的 `native()` 内 `idle_wait_target(args)`（当前 116 行）：**反向识别** CLI 的命令行，命中才走
   `decode_idle_wait()`；不命中退到通用 `decode_response()`（**不是静默**：两个要求
   `IdleWaitResult` 的调用方会以 `tui_idle_state_unavailable` fail-closed，见 R5）；
-- `supervisor/watchdog.py` 的 `tick()` 内写死 1 s argv 的 `terminal wait`（当前 47 行）：它不是 `idle_wait_args()`
+- 先例（**2026-11-19 已退役**：`supervisor/watchdog.py` 随固定 DAG MVP 删除，见
+  [退役记录](../supervisor.md)；下列旧实现只作历史）：`supervisor/watchdog.py` 的 `tick()` 内写死 1 s argv 的 `terminal wait`（当时 47 行）：它不是 `idle_wait_args()`
   的调用方，用的是**自己的** native reader（`supervisor/orca.py` 的 `read()`，当前 57 行，带独立 runtime pin），
   **不受 P2 影响**；而且它已经在执行本文要求的 I2：当前 66–70 行的 `sent = self.op("wake:…", ["terminal", "send", …, "--wait-submit", "10"])`
   与紧随的判定要求 `turn_started` 出现在 `stages` 里，否则 `prompt_submission_unproven` 并停。
@@ -299,7 +300,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
 
 - **阈值与现有纪律的关系**（评审要求写清）：仓内文档的禁用线是 `N>=60`，本包取 30 是**更严**的运行侧选择，
   理由是把“又快又没用的唤醒”也算进去；因此它**必须**：只作用在 agent 交接场景（交互式 pane 会话），
-  不影响脚本内 backoff、`service_finish.py` 等进程内轮询，并提供显式 allowlist。
+  不影响脚本内 backoff、`service_finish.py`（**2026-11-19 已随固定 DAG MVP 退役删除**，此句只作历史）等进程内轮询，并提供显式 allowlist。
 - 实现位置属 agent 运行侧（`~/.pi/agent/extensions/`），**不进本仓**；本仓只记录“该门禁存在时，禁用清单与
   文档一致”的对应关系。
 
@@ -382,7 +383,7 @@ pi pre-tool hook 拒绝 `sleep N` 且 `N>=30` 的 `bash` 调用，回显三层�
   `--wait` 不 `ack`）；
 - 不改 scheduler 的 1 s 默认值与调用方给的 20 s RPC 预算；
 - 不把 `sleep` 从既有 helper 里删除（`coordinator_driver.py:689/698` 的 `wait_poll_seconds ≤ 60`、
-  `service_finish.py` 属于**进程内**轮询，不是 agent 回合等待，另立任务）；
+  `service_finish.py`（已随该 MVP 退役）属于**进程内**轮询，不是 agent 回合等待，另立任务）；
 - 不部署、不重启、不更新远端副本。
 
 ## 10. 顺序、体量与依赖

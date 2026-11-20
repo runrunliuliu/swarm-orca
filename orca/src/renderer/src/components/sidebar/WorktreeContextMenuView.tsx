@@ -30,6 +30,7 @@ import { WorktreeDeveloperMenu } from './WorktreeDeveloperMenu'
 import { WorkspaceSleepMenuItems } from './WorkspaceSleepMenuItems'
 import { WorktreeContextMenuArchiveDraftItem } from './WorktreeContextMenuDraftAction'
 import { WorktreeContextMenuDeleteItem } from './WorktreeContextMenuDeleteItem'
+import { WorktreeContextMenuDeliverItem } from './worktree-context-menu-deliver-item'
 import { isEventTargetInsideCurrentTarget } from './worktree-card-dom-events'
 import { translate } from '@/i18n/i18n'
 import { useOptionalShortcutLabel } from '@/hooks/useShortcutLabel'
@@ -58,6 +59,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     deleteLabel,
     deletingContext,
     deletingSubtree,
+    deliverProjection,
     developerMenuRevealed,
     eligibleParentCount,
     effectiveSelectedWorktrees,
@@ -71,6 +73,7 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
     handleCopyPath,
     handleCreateGroupFromRepo,
     handleDelete,
+    handleDeliver,
     handleMoveProjectToGroup,
     handleOpenParent,
     handleOpenParentPicker,
@@ -308,6 +311,13 @@ export default function WorktreeContextMenuView({ model }: { model: WorktreeCont
               <DropdownMenuSeparator />
             </>
           ) : null}
+          <WorktreeContextMenuDeliverItem
+            archivableWorktreeCount={archivableWorktrees.length}
+            isMultiContext={isMultiContext}
+            isTaskDraft={isTaskDraft}
+            onSelect={handleDeliver}
+            projection={deliverProjection}
+          />
           {!isTaskDraft && archivableWorktrees.length > 0 ? (
             <DropdownMenuItem onSelect={handleArchive} disabled={deletingContext}>
               <Archive className="size-3.5" />

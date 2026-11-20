@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 from coordinator_io import (bound_lock, file_ref, now, publish_new, read_json,
                             replace_json)
-import operator_monitor as monitor
 import operator_monitor_deploy as deploy
 import operator_sender_correct as correct
 import coordinator.test_coordinator_tui_scheduler as scheduler

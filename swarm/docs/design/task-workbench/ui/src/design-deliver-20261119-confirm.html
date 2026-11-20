@@ -1,0 +1,106 @@
+<!doctype html>
+<!--
+  交付入口 · 设计稿 D2「确认面：一次鼠标点击里问清三件事」
+  数据为脱敏占位。版面依据 swarm/docs/design/task-workbench/README.md §7.11。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="design-deliver.css" />
+    <title>交付入口 D2</title>
+  </head>
+  <body>
+    <div class="topbar">
+      <span class="crumb">‹ GitHub list</span>
+      <span class="sep">|</span>
+      <span><strong>acme</strong> <span class="sep">/</span> <strong>web-app</strong></span>
+      <span class="sep">·</span>
+      <span>#431</span>
+    </div>
+
+    <div class="tabs">
+      <div class="tab">对话</div>
+      <div class="tab is-active">◆ Orca</div>
+    </div>
+
+    <div class="body" style="padding: 14px 16px">
+      <!-- 锚点：交付事实行右端的动作 -->
+      <div class="face" style="width: 508px">
+        <div class="fact-row">
+          <span class="fact-label">交付</span>
+          <span class="fact-body">
+            <span>3 个提交</span>
+            <span class="divider">·</span>
+            <span>PR #431 merged</span>
+            <span class="divider">·</span>
+            <span>检查 5/6</span>
+          </span>
+          <button class="btn is-quiet">读取</button>
+          <button class="btn is-primary-outline" style="position: relative">
+            交付…
+            <span
+              style="position: absolute; top: -3px; right: 10px; width: 6px; height: 6px; background: #1c1c1c; transform: rotate(45deg); box-shadow: -1px -1px 0 #333"
+            ></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 确认面 -->
+      <div class="popover" style="margin: 12px 0 0 56px">
+        <div class="popover-head">
+          <span class="identity">交付 <span class="mono">acme/web-app · feat/task-431</span></span>
+          <span style="flex: 1"></span>
+          <span class="quiet" style="font-size: 13px">×</span>
+        </div>
+        <div class="popover-body">
+          <div class="field">
+            <span class="k">目标分支</span>
+            <div style="display: flex; align-items: center; gap: 6px">
+              <div class="control" style="flex: 1">
+                <span class="mono">main</span>
+                <span style="flex: 1"></span>
+                <span class="quiet">▾</span>
+              </div>
+              <span class="guess">默认值 · 需确认</span>
+            </div>
+          </div>
+          <div class="field">
+            <span class="k">仓库政策</span>
+            <span class="muted">PR 合并 · 远端 origin</span>
+          </div>
+          <div class="field">
+            <span class="k">集成方式</span>
+            <div class="segmented">
+              <span class="seg is-on">PR</span>
+              <span class="seg">本地合并</span>
+              <span class="seg">squash</span>
+            </div>
+          </div>
+          <div class="field">
+            <span class="k">交付后归档</span>
+            <span class="checkbox-row">
+              <span class="checkbox is-on">✓</span>
+              <span>归档这个工作区（保留 checkout 与记录）</span>
+            </span>
+          </div>
+        </div>
+        <div class="popover-note">
+          未提交 2 个文件、未推送 1 个提交会一并交给交付 agent 处理；它不会替你 stash 或删除。
+          <div class="checkbox-row" style="margin-top: 7px">
+            <span class="checkbox"></span>
+            <span>我已看过这些改动</span>
+          </div>
+        </div>
+        <div class="popover-foot">
+          <button class="btn is-quiet">取消</button>
+          <button class="btn is-primary-outline">开始交付</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="caption">
+      设计稿 D2 · 非生产组件渲染 · 占位数据 · 确认面是 inline popover：不引入第二个白底主按钮（§7.4.2 只留页头那一个），
+      三个必填项都是 worktree-delivery §1/§3 要求人确认的输入
+    </div>
+  </body>
+</html>

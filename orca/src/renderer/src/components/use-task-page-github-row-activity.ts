@@ -90,6 +90,7 @@ export function useTaskPageGitHubRowActivity<Model extends TaskPageGitHubRowActi
       repoId: worktree.repoId,
       linkedIssue: worktree.linkedIssue,
       linkedPR: worktree.linkedPR,
+      linkedWorkItem: worktree.linkedWorkItem,
       agents: agentsByWorktree.get(worktree.id) ?? []
     }))
 

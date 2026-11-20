@@ -1,3 +1,5 @@
+import type { ExecutionHostId } from '../../../shared/execution-host'
+import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
 import {
   persistTaskRecords,
   recordTaskRecordsForWorktreeMeta,
@@ -22,24 +24,37 @@ export type TaskRecordsMetadataContext = {
 
 export function recordTaskRecordsForWorktree(
   context: TaskRecordsMetadataContext,
-  worktreeId: string
+  worktreeId: string,
+  /** The row the caller just wrote. A host-qualified write must pass it: the
+   *  legacy `worktreeMeta[worktreeId]` projection belongs to the *first* owner,
+   *  so reading it back would record another host's links under this host. */
+  meta?: WorktreeMeta
 ): void {
-  const meta = context.runtime.state.worktreeMeta?.[worktreeId]
-  if (!meta) {
+  const resolved = meta ?? context.runtime.state.worktreeMeta?.[worktreeId]
+  if (!resolved) {
     return
   }
   persistTaskRecords(
     context.scheduling,
-    recordTaskRecordsForWorktreeMeta(context.runtime, worktreeId, meta)
+    recordTaskRecordsForWorktreeMeta(context.runtime, worktreeId, resolved)
   )
 }
 
 /** Bind from the last metadata row (a legacy worktree may never have written
- *  one), then settle — both before the row is deleted. */
+ *  one), then settle — both before the row is deleted. `hostId` names the owner
+ *  being removed, so a same-id owner on another host keeps its own binding. */
 export function recordTaskRecordsOnRemoval(
   context: TaskRecordsMetadataContext,
-  worktreeId: string
+  worktreeId: string,
+  meta?: WorktreeMeta,
+  hostId?: ExecutionHostId
 ): void {
-  recordTaskRecordsForWorktree(context, worktreeId)
-  settleTaskRecordsBeforeRemoval(context.runtime, context.scheduling, worktreeId)
+  recordTaskRecordsForWorktree(context, worktreeId, meta)
+  settleTaskRecordsBeforeRemoval(
+    context.runtime,
+    context.scheduling,
+    worktreeId,
+    Date.now(),
+    hostId
+  )
 }

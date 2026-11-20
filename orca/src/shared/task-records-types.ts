@@ -202,10 +202,17 @@ export function isTaskRecordResolvedVia(value: unknown): value is TaskRecordReso
 }
 
 /**
- * False for a payload this build cannot interpret (an unknown `recordsVersion`
- * or a non-object `byId`). The load path keeps such a payload verbatim — it is
- * never replaced by an empty domain — and every writer refuses to run, which is
- * the fail-closed arm of development plan §M2b F.
+ * False for a payload this build cannot interpret: an unknown `recordsVersion`,
+ * a non-object `byId`, or a record written by a newer schema. The load path
+ * keeps such a payload verbatim — it is never replaced by an empty domain — and
+ * every writer refuses to run, which is the fail-closed arm of development plan
+ * §M2b F.
+ *
+ * Why one newer record makes the *whole domain* unreadable: normalization can
+ * only keep what it understands, so loading the rest and saving on the next
+ * metadata write would silently delete the record this build cannot read. The
+ * cost is that a downgraded build shows no task history until the newer build
+ * is back; losing another build's record is the worse failure.
  */
 export function isReadableTaskRecords(value: unknown): value is TaskRecordsState {
   if (value === undefined) {
@@ -223,6 +230,19 @@ export function isReadableTaskRecords(value: unknown): value is TaskRecordsState
   const byId = value.byId
   if (typeof byId !== 'object' || byId === null || Array.isArray(byId)) {
     return false
+  }
+  for (const record of Object.values(byId)) {
+    if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+      continue
+    }
+    const schemaVersion = (record as { schemaVersion?: unknown }).schemaVersion
+    if (
+      typeof schemaVersion === 'number' &&
+      Number.isFinite(schemaVersion) &&
+      schemaVersion > TASK_RECORD_SCHEMA_VERSION
+    ) {
+      return false
+    }
   }
   if ('externalIndex' in value) {
     const externalIndex = value.externalIndex

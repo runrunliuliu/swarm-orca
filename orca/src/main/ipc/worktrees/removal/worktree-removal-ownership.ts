@@ -25,6 +25,10 @@ export async function stopPtysForDestructiveWorktreeRemoval(
   if (!provider) {
     throw new Error(`PTY provider unavailable for worktree deletion: ${worktreeId}`)
   }
+  // Freeze the agent sessions before the sweep clears the hook server's pane
+  // state; the task record is settled later, when the metadata row is dropped
+  // (issue #36 review B1).
+  runtime.captureTaskRecordsRemovalSessions(worktreeId)
   const teardownResult = await killAllProcessesForWorktree(worktreeId, {
     runtime,
     // Why: `repoId::path` ids repeat across hosts, so an unfenced sweep stops a same-id

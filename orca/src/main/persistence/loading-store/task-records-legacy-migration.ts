@@ -53,7 +53,14 @@ export function migrateTaskRecordsFromRunHistory(
       now: record.firstSeenAt
     })
     if (!result.ok) {
-      continue
+      // Atomic on purpose: once any `taskRecords` domain exists, this seed never
+      // runs again, so committing the rows that fit would silently drop the rest
+      // and leave the legacy ledger unread. Refusing the whole migration keeps
+      // the ledger as the source of truth and lets the next start retry it.
+      console.warn(
+        `[task-records] legacy migration deferred: ${record.repoId} ${record.itemType} #${record.number} refused (${result.reason})`
+      )
+      return undefined
     }
     state = result.state
     if (record.state === 'deleted') {

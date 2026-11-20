@@ -90,7 +90,9 @@ export class MetadataLineageOperations {
       executionHostId,
       meta
     )
-    recordTaskRecordsForWorktree(this[metadataLineageOperationsContext], worktreeId)
+    // The merged row, not the legacy projection: a second owner of the same
+    // locator must record its own links and host (issue #36 review B2).
+    recordTaskRecordsForWorktree(this[metadataLineageOperationsContext], worktreeId, updated)
     return updated
   }
 
@@ -124,15 +126,30 @@ export class MetadataLineageOperations {
     const updated = mergeWorktreeMetaForWrite(stored, meta)
     state.worktreeMeta[worktreeId] = updated
     scheduleSave(this[metadataLineageOperationsContext].scheduling, ['worktreeMeta'])
-    recordTaskRecordsForWorktree(this[metadataLineageOperationsContext], worktreeId)
+    recordTaskRecordsForWorktree(this[metadataLineageOperationsContext], worktreeId, updated)
     return updated
   }
 
   removeWorktreeMeta(worktreeId: string, hostId?: ExecutionHostId | null): void {
     // Bind and settle before the metadata row is deleted (issue #36): after this
     // point nothing can say which task the checkout ran, and the usage rollup it
-    // contributed to is no longer readable.
-    recordTaskRecordsOnRemoval(this[metadataLineageOperationsContext], worktreeId)
+    // contributed to is no longer readable. A host-qualified removal reads that
+    // owner's canonical row — the legacy projection may belong to another host —
+    // and settles only that owner's binding.
+    const removalMeta = hostId
+      ? getWorktreeMetaForHostOperation(
+          this[metadataLineageOperationsContext].runtime,
+          this[metadataLineageOperationsContext].scheduling,
+          worktreeId,
+          hostId
+        )
+      : this[metadataLineageOperationsContext].runtime.state.worktreeMeta[worktreeId]
+    recordTaskRecordsOnRemoval(
+      this[metadataLineageOperationsContext],
+      worktreeId,
+      removalMeta,
+      hostId ?? undefined
+    )
     // A host-qualified removal names the owner; the persisted host is the fallback.
     const persistedOwner =
       this[metadataLineageOperationsContext].runtime.state.worktreeMeta[worktreeId]?.hostId

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { taskRecordTaskId } from '../../../shared/task-records'
+import { TASK_RECORDS_MAX_RECORD_BYTES } from '../../../shared/task-records-types'
 import { normalizeTaskRunHistory } from '../../../shared/task-run-history'
 import { migrateTaskRecordsFromRunHistory } from './task-records-legacy-migration'
 
@@ -71,5 +72,22 @@ describe('task records ↔ legacy ledger migration', () => {
   it('returns nothing for an absent or empty ledger', () => {
     expect(migrateTaskRecordsFromRunHistory(undefined)).toBeUndefined()
     expect(migrateTaskRecordsFromRunHistory({ version: 1, records: [] })).toBeUndefined()
+  })
+
+  it('refuses the whole migration when one row does not fit, so no partial state is kept', () => {
+    // The seed runs once; committing the rows that fit would silently drop the
+    // rest and leave the legacy ledger unread. Deferring keeps it as the source.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ledger = {
+      version: 1,
+      records: [
+        DELETED,
+        { ...DELETED, number: 32, path: `/${'x'.repeat(TASK_RECORDS_MAX_RECORD_BYTES)}` }
+      ]
+    }
+
+    expect(migrateTaskRecordsFromRunHistory(ledger)).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('legacy migration deferred'))
+    warn.mockRestore()
   })
 })

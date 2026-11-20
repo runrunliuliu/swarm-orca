@@ -422,9 +422,6 @@ def historical_observation_snapshot(config, contract, root, config_ref, *, state
     require(timestamp(source["observed_at"]) >= timestamp(gate["completed_at"]),
             "tui_checkpoint_predates_dispatch_gate")
     validate_settled_history(state, config, contract)
-    action = record["checkpoint"]["next_action"]
-    key = digest(canonical(action["id"])) if action else None
-    existing = state["actions"].get(key)
     pending = [e for e in state["actions"].values() if e["result"] is None]
     require(len(pending) <= 1, "tui_outbox_invalid")
     require(not pending, "tui_pending_continuation_exists")

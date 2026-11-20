@@ -1,0 +1,480 @@
+/*
+ * Shared style for the `design-deliver-*.html` drafts.
+ *
+ * Numbers come from the task-workbench design record
+ * (swarm/docs/design/task-workbench/README.md §7.4.2 样式规则), not from taste:
+ * section headings 12px/600 with a 12px muted count, rows 13px, branches 12.5px
+ * mono, an 8px-radius face per section with `inset 0 0 0 1px` hairline and
+ * `inset 0 1px 0` row separators, and every action inside a section a 24px-high
+ * ghost button. The one filled/white button on a screen stays the page header's,
+ * which is why the confirm popover's primary action is an outline button.
+ *
+ * Palette lifted from the committed 2026-11-18 drafts so the two families of
+ * images read as one product: page #0a0a0a, face #171717, hairline #272727,
+ * primary text #fafafa, muted #a1a1a1, quiet #737373, accent green #059669.
+ */
+:root {
+  --bg: #0a0a0a;
+  --face: #171717;
+  --face-2: #121212;
+  --hairline: #272727;
+  --hairline-soft: #212121;
+  --text: #fafafa;
+  --text-2: #e5e5e5;
+  --muted: #a1a1a1;
+  --quiet: #737373;
+  --accent: #059669;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Noto Sans CJK SC", "Noto Sans SC", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  /* Why: a draft is captured at a fixed size; a stray scrollbar in the PNG reads
+     as a UI defect that the real surfaces do not have. */
+  overflow: hidden;
+}
+
+/* ── page framing (the detail page the workbench is embedded in) ───────────── */
+.topbar {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: var(--face-2);
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topbar .crumb {
+  color: var(--muted);
+}
+
+.topbar .sep {
+  color: #404040;
+}
+
+.topbar strong {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.tabs {
+  display: flex;
+  gap: 18px;
+  padding: 10px 16px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.tab {
+  padding: 0 2px 9px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.tab.is-active {
+  color: var(--text);
+  border-bottom: 2px solid var(--text);
+}
+
+.body {
+  padding: 16px;
+}
+
+/* ── sections ─────────────────────────────────────────────────────────────── */
+.section + .section {
+  margin-top: 20px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.section-head .name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.section-head .count {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.section-head .spacer {
+  flex: 1;
+}
+
+.face {
+  background: var(--face);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.row + .row {
+  box-shadow: inset 0 1px 0 var(--hairline-soft);
+}
+
+.row .mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.row .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.divider {
+  color: #404040;
+}
+
+/* ── buttons: 24px ghost/quiet, the only exception is the page header ─────── */
+.btn {
+  height: 24px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.btn.is-quiet {
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn.is-outline {
+  border-color: #3a3a3a;
+  color: var(--text-2);
+}
+
+.btn.is-primary-outline {
+  border-color: #e5e5e5;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.btn.is-disabled {
+  color: var(--quiet);
+  border-color: var(--hairline-soft);
+}
+
+.btn .caret {
+  color: var(--quiet);
+}
+
+/* ── badges / dots ────────────────────────────────────────────────────────── */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.dot.is-working {
+  background: var(--accent);
+}
+
+.dot.is-idle {
+  background: #525252;
+}
+
+.tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--muted);
+}
+
+.tag.is-accent {
+  background: #059669;
+  color: #04120c;
+  box-shadow: none;
+  font-weight: 500;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.quiet {
+  color: var(--quiet);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* ── the delivery fact strip (§7.4.2: one row per fact, actions on the row) ── */
+.fact-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+}
+
+.fact-row + .fact-row {
+  box-shadow: inset 0 1px 0 var(--hairline-soft);
+}
+
+.fact-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  min-width: 32px;
+}
+
+.fact-body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.fact-body > * {
+  white-space: nowrap;
+}
+
+.caption {
+  padding: 10px 16px 0;
+  font-size: 11.5px;
+  color: #6f6f6f;
+  border-top: 1px solid var(--hairline-soft);
+  margin: 14px 16px 0;
+}
+
+.fact-detail {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  box-shadow: inset 0 1px 0 var(--hairline-soft);
+}
+
+.fact-detail .k {
+  color: var(--quiet);
+  font-size: 12px;
+}
+
+.fact-detail .v {
+  color: var(--text-2);
+}
+
+/* ── popover (the confirm surface) ────────────────────────────────────────── */
+.popover {
+  width: 452px;
+  background: #1c1c1c;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px #333333, 0 14px 34px rgb(0 0 0 / 0.55);
+  overflow: hidden;
+}
+
+.popover-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.popover-head .identity {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.popover-head .identity .mono {
+  color: var(--text-2);
+}
+
+.popover-body {
+  padding: 10px 12px;
+  display: grid;
+  gap: 9px;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.field > .k {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.control {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px #3a3a3a;
+  background: #141414;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.control .guess {
+  font-size: 11px;
+  color: #d9a13b;
+  box-shadow: inset 0 0 0 1px #4a3613;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.seg {
+  height: 24px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+.seg.is-on {
+  color: var(--text);
+  background: #262626;
+  box-shadow: inset 0 0 0 1px #3a3a3a;
+  font-weight: 500;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.checkbox {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #4a4a4a;
+  flex: 0 0 auto;
+}
+
+.checkbox.is-on {
+  background: #e5e5e5;
+  box-shadow: none;
+  color: #141414;
+  font-size: 10px;
+  line-height: 13px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.popover-note {
+  padding: 9px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  background: #141414;
+  box-shadow: inset 0 1px 0 var(--hairline);
+}
+
+.popover-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ── context menu (sidebar) ───────────────────────────────────────────────── */
+.menu {
+  width: 208px;
+  background: #1c1c1c;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px #333333, 0 14px 34px rgb(0 0 0 / 0.55);
+  padding: 5px;
+  font-size: 12.5px;
+}
+
+.menu-item {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--text-2);
+}
+
+.menu-item.is-hover {
+  background: #2a2a2a;
+}
+
+.menu-item .hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--quiet);
+}
+
+.menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--hairline);
+}
+
+/* ── annotation layer: the draft explains itself, it is not a screenshot ──── */
+.annotation {
+  font-size: 11.5px;
+  color: #8a8a8a;
+  padding: 0 12px 10px;
+}
+
+.callout {
+  font-size: 11.5px;
+  color: #d9a13b;
+}

@@ -131,10 +131,9 @@ function normalizeTaskRecord(key: string, value: unknown): TaskRecord | null {
     updatedAt,
     schemaVersion: finiteNumber(value.schemaVersion) ?? TASK_RECORD_SCHEMA_VERSION
   }
-  if (record.schemaVersion > TASK_RECORD_SCHEMA_VERSION) {
-    // A newer build's record: this one may not downgrade it, so it is not loaded.
-    return null
-  }
+  // A newer record schema never reaches here: `isReadableTaskRecords` rejects the
+  // whole domain so the payload is preserved verbatim instead of being rewritten
+  // without the record this build cannot read.
   return recordBytes(record) > TASK_RECORDS_MAX_RECORD_BYTES
     ? null
     : withPreservedFields(record, value, KNOWN_RECORD_FIELDS)
@@ -158,12 +157,15 @@ function normalizeBindings(value: unknown): TaskWorkspaceBinding[] | null {
     if (!worktreeId || !repoId || !hostId || path === null || boundAt === null) {
       return null
     }
-    // One worktree appears once per task (plan §M2b A); a duplicate is a
-    // malformed record, not two bindings to merge.
-    if (seen.has(worktreeId)) {
+    // One worktree appears once per task *per owner* (plan §M2b A): `repoId::path`
+    // repeats across hosts, so the same bare id under two hosts is two bindings,
+    // not a duplicate. The same id under one host is malformed, not two rows to
+    // merge.
+    const ownerKey = `${worktreeId}\u0000${hostId}`
+    if (seen.has(ownerKey)) {
       return null
     }
-    seen.add(worktreeId)
+    seen.add(ownerKey)
     const resolvedVia = isTaskRecordResolvedVia(entry.resolvedVia) ? entry.resolvedVia : undefined
     const settlement = normalizeSettlement(entry.usageSettlement)
     const binding: TaskWorkspaceBinding = {

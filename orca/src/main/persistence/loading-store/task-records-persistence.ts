@@ -1,3 +1,4 @@
+import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
 import {
   isReadableTaskRecords,
@@ -12,7 +13,12 @@ import {
   upsertTaskRecordBinding,
   type TaskRecordsWriteResult
 } from '../../../shared/task-records-updates'
-import type { TaskRecord, TaskRecordsState } from '../../../shared/task-records-types'
+import type {
+  TaskRecord,
+  TaskRecordsRemovalSnapshot,
+  TaskRecordsState,
+  TaskWorkspaceBinding
+} from '../../../shared/task-records-types'
 import {
   taskRecordLinksForWorktree,
   type TaskRecordLink
@@ -93,15 +99,26 @@ export function settleTaskRecordsBeforeRemoval(
   runtime: TaskRecordsRuntime,
   scheduling: WriteSchedulingOperations | null,
   worktreeId: string,
-  now = Date.now()
+  now = Date.now(),
+  /** The owner being removed. A host-qualified removal settles only that owner's
+   *  binding; a full removal (`undefined`) settles every owner of the locator. */
+  hostId?: ExecutionHostId
 ): boolean {
   const stored = runtime.state.taskRecords
   if (!isReadableTaskRecords(stored) || stored === undefined) {
     return false
   }
-  const affected = Object.values(stored.byId).filter((record) =>
-    record.bindings.some((binding) => binding.worktreeId === worktreeId)
-  )
+  const matchesOwner = (binding: TaskWorkspaceBinding): boolean =>
+    binding.worktreeId === worktreeId && (hostId === undefined || binding.hostId === hostId)
+  // Pair each record with the binding being removed: the same bare id can be two
+  // owners, and settling the wrong binding writes another host's usage figure.
+  const affected: { record: TaskRecord; binding: TaskWorkspaceBinding }[] = []
+  for (const record of Object.values(stored.byId)) {
+    const binding = record.bindings.find(matchesOwner)
+    if (binding) {
+      affected.push({ record, binding })
+    }
+  }
   if (affected.length === 0) {
     return false
   }
@@ -109,24 +126,29 @@ export function settleTaskRecordsBeforeRemoval(
   if (!source) {
     return false
   }
-  const hostId =
-    affected[0].bindings.find((binding) => binding.worktreeId === worktreeId)?.hostId ??
-    affected[0].hostId
   let current = stored
   try {
-    const snapshot = source.snapshotForRemoval({ worktreeId, hostId, now })
-    for (const record of affected) {
+    // One snapshot per owner: the settlement is host-dependent (`remote_usage_
+    // unavailable` off-local), and the sessions are shared by the locator.
+    const snapshots = new Map<ExecutionHostId, TaskRecordsRemovalSnapshot>()
+    for (const { record, binding } of affected) {
+      let snapshot = snapshots.get(binding.hostId)
+      if (!snapshot) {
+        snapshot = source.snapshotForRemoval({ worktreeId, hostId: binding.hostId, now })
+        snapshots.set(binding.hostId, snapshot)
+      }
       // Sessions first, then the settlement: a refused session merge (the
       // per-binding cap) must not cost the figure that can never be read again.
       const withSessions = mergeTaskRecordBindingSessions(current, {
         taskId: record.taskId,
         worktreeId,
+        hostId: binding.hostId,
         sessions: snapshot.sessions,
         now
       })
       if (withSessions.ok) {
         current = withSessions.state
-        if (withSessions.dropped !== undefined) {
+        if (withSessions.dropped) {
           console.error(
             `[task-records] ${withSessions.dropped} sessions over the per-binding cap for ${worktreeId}`
           )
@@ -137,6 +159,7 @@ export function settleTaskRecordsBeforeRemoval(
       const withSettlement = setTaskRecordBindingSettlement(current, {
         taskId: record.taskId,
         worktreeId,
+        hostId: binding.hostId,
         settlement: snapshot.settlement
       })
       if (withSettlement.ok) {

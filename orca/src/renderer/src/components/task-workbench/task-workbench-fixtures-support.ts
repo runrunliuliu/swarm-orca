@@ -17,7 +17,7 @@ import type {
 /**
  * Shared builders for task-workbench-fixtures.ts.
  *
- * Why a sibling module: the twelve scenario entries alone sit close to the .ts
+ * Why a sibling module: the fourteen scenario entries alone sit close to the .ts
  * `max-lines` budget, and these builders are not part of the fixture contract.
  * Nothing here reads data; the fixtures module is still the only consumer, and
  * this file must not import React, a store or an RPC.
@@ -109,6 +109,7 @@ export function row(
   options: Partial<Pick<AgentRowView, 'outcome' | 'archivedWorkspace'>> & {
     ws?: TaskWorkbenchWorkspace
     subagents?: DashboardCard['subagents']
+    conversationName?: DashboardCard['conversationName']
   } = {}
 ): AgentRowView {
   const finished = state === 'done' || state === 'idle'
@@ -131,7 +132,10 @@ export function row(
       finishedAt: finished ? NOW - 6 * MINUTE : null,
       stateChangedAt: finished ? NOW - 6 * MINUTE : NOW - 5 * MINUTE,
       unseen: state === 'attention' || state === 'done',
-      subagents: options.subagents
+      subagents: options.subagents,
+      ...(options.conversationName === undefined
+        ? {}
+        : { conversationName: options.conversationName })
     },
     tokens,
     outcome: options.outcome,
@@ -215,6 +219,13 @@ export function deliveryEvidence(
     checks: { passing, total },
     review
   }
+}
+
+/** Evidence was read and found no commit or pull request. Keeping this shape in
+ *  one builder makes the fixture's missing fields deliberate rather than an
+ *  accidental partial object. */
+export function zeroDeliveryEvidence(): NonNullable<TaskWorkbenchView['delivery']> {
+  return { commits: { count: 0 } }
 }
 
 export const WS_LOGIN = workspace('web-app', 'feature/add-login', {

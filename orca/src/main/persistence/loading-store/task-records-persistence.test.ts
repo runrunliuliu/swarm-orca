@@ -32,6 +32,7 @@ function meta(overrides: Partial<WorktreeMeta> = {}): WorktreeMeta {
 }
 
 const SOURCE: TaskRecordsUsageSource = {
+  captureSessionsForRemoval: () => {},
   snapshotForRemoval: () => ({
     settlement: {
       kind: 'known',
@@ -96,6 +97,7 @@ describe('task records persistence', () => {
 
   it('never throws when the usage source fails, so a removal is not blocked', () => {
     const failing: TaskRecordsUsageSource = {
+      captureSessionsForRemoval: () => {},
       snapshotForRemoval: () => {
         throw new Error('scan unavailable')
       }
@@ -110,6 +112,41 @@ describe('task records persistence', () => {
     ).toBeUndefined()
     expect(error).toHaveBeenCalled()
     error.mockRestore()
+  })
+
+  it('settles only the removed owner and reads one snapshot per owner', () => {
+    const calls: { worktreeId: string; hostId: string }[] = []
+    const perHost: TaskRecordsUsageSource = {
+      captureSessionsForRemoval: () => {},
+      snapshotForRemoval: ({ worktreeId, hostId, now }) => {
+        calls.push({ worktreeId, hostId })
+        return {
+          settlement: {
+            kind: 'known',
+            collectedAt: now,
+            scope: 'worktree-rollup',
+            worktreeId,
+            providers: [{ provider: 'claude', tokens: 1, costUsd: 0.1 }],
+            estimatedCostUsd: 0.1
+          },
+          sessions: []
+        }
+      }
+    }
+    const state = runtime(perHost)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ hostId: 'ssh:remote-a' }))
+
+    expect(settleTaskRecordsBeforeRemoval(state, null, ID, 600, 'ssh:remote-a')).toBe(true)
+    expect(calls).toEqual([{ worktreeId: ID, hostId: 'ssh:remote-a' }])
+    const bindings = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
+    expect(bindings).toHaveLength(2)
+    expect(bindings.find((binding) => binding.hostId === 'ssh:remote-a')?.usageSettlement).toMatchObject(
+      { kind: 'known', collectedAt: 600 }
+    )
+    expect(
+      bindings.find((binding) => binding.hostId === 'local')?.usageSettlement
+    ).toBeUndefined()
   })
 
   it('refuses to touch a domain this build cannot read', () => {

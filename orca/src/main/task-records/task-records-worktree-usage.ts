@@ -78,12 +78,48 @@ export type TaskRecordsUsageSource = {
     hostId: ExecutionHostId
     now: number
   }): TaskRecordsRemovalSnapshot
+  /** Freeze the worktree's session list *before* a destructive PTY teardown.
+   *  The hook server drops a pane's status (and with it the provider session
+   *  identity) as each PTY is killed, so reading it at settlement time — after
+   *  teardown — would find nothing for exactly the workspaces being removed. */
+  captureSessionsForRemoval(worktreeId: string): void
 }
+
+/** A capture older than this was not consumed by a removal (the removal failed
+ *  before the metadata row was dropped), so it is no longer evidence. */
+const REMOVAL_SESSION_CAPTURE_TTL_MS = 10 * 60 * 1000
 
 export function createTaskRecordsUsageSource(
   deps: TaskRecordsUsageSourceDeps
 ): TaskRecordsUsageSource {
+  const capturedSessions = new Map<
+    string,
+    { capturedAt: number; sessions: TaskRecordSession[] }
+  >()
+  const captureSessionsForRemoval = (worktreeId: string): void => {
+    const now = Date.now()
+    for (const [key, entry] of capturedSessions) {
+      if (now - entry.capturedAt > REMOVAL_SESSION_CAPTURE_TTL_MS) {
+        capturedSessions.delete(key)
+      }
+    }
+    capturedSessions.set(worktreeId, {
+      capturedAt: now,
+      sessions: collectWorktreeSessions(deps, worktreeId, now)
+    })
+  }
+  const sessionsForRemoval = (worktreeId: string, now: number): TaskRecordSession[] => {
+    const captured = capturedSessions.get(worktreeId)
+    if (!captured) {
+      return collectWorktreeSessions(deps, worktreeId, now)
+    }
+    // Consumed once: a second removal of a re-created locator must read the live
+    // hook server again, not inherit a dead occupant's sessions.
+    capturedSessions.delete(worktreeId)
+    return captured.sessions
+  }
   return {
+    captureSessionsForRemoval,
     snapshotForRemoval: ({ worktreeId, hostId, now }) => ({
       settlement: buildTaskUsageSettlement({
         worktreeId,
@@ -92,7 +128,7 @@ export function createTaskRecordsUsageSource(
         providers: readProviderRows(deps.stores, worktreeId),
         enabled: anyProviderEnabled(deps.stores)
       }),
-      sessions: collectWorktreeSessions(deps, worktreeId, now)
+      sessions: sessionsForRemoval(worktreeId, now)
     })
   }
 }

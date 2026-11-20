@@ -128,6 +128,19 @@ taskKey = "provider:github:repo-17:#412"   // 有 tracker
 taskKey = "workspace:web-app::feature/add-login"  // 无 tracker（本地任务，标题取 worktree displayName）
 ```
 
+实现口径（issue #38 起，`orca/src/renderer/src/lib/task-workbench/task-workbench-identity.ts`）：
+条目身份是 `TaskWorkbenchItem {type: 'issue' | 'pr', number}`，追加在 repo 级 key 之后，即
+`tracker:github:acme/web-app:issue:412`；repo 段仍由 `taskProviderIdentityCachePart` 单一实现产出。
+条目级 key 只用于**命名**：某任务的 workspace 集合由 `worktreeLinksTaskItem` 逐个 worktree 判定
+（`linkedIssue` / `linkedPR` / `linkedWorkItem`，叠加 provider/host 校验：GitHub 用与 key 同口径的
+canonical repo key，其他 provider 保持逐字段比较，不拿有损 cache key 合并），
+零匹配就是零。`resolveTaskIdentity` 不再返回 matched ids——把 repo 级 key 当成集合来源正是该 bug。
+没有任何现存工作区但本条目在 run ledger 里有 deleted 记录时，用该记录（而非 repo 里别人的分支）
+命名这个已关闭的任务，历史条照旧（issue #31 S2）；未被条目命名时 ledger 不参与。ledger 的
+读取本身按 (repoId, itemType, number) 表记作答，切换条目时旧作答在 effect 前不被采用。
+已删除工作区没有条目身份（`workspace:<worktreeId>`），同一双关联工作区被删时两个任务会得到相同
+workspace key；P3 分组前必须解决这一点。
+
 投影意味着"分组/排序/合计"都从既有 store 现算，**不新增持久化契约**；代价是跨窗口/跨端不共享，
 跨入口续做仍需读 worktree 绑定（与现状一致）。
 
@@ -318,12 +331,13 @@ skills / CLI 动词建单。
 - glyph 复用 `AgentStateDot`（spinner=working / amber=needs you / red=blocked / emerald=done / gray=idle），
   失败 / 中断 / 未定论沿用 F8 映射，不新造状态词汇；文案（含 tooltip）全部走 locale catalog，
   `Delivered` 的文案只能是 `Delivered · agent done`。
-- 行级归属按 `repoId` + `linkedIssue` / `linkedPR` 反查，**不按** identity 的 `taskKey`：identity selector
-  的 GitHub key 是 owner/repo 级（`taskProviderIdentityCachePart` 不含 issue 号），拿它当行键会让同一
-   repo 的所有条目共享一行的活动。`taskKey` 仍记录在 selector 输出里，但它是 **repo 级、含 host** 的
-   身份、不是条目身份：P3 分组前必须先把 key 扩到条目粒度，不能直接当分组键。每行 O(1) 查表由
-   一个列表页级批量 hook 提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量
-   selector 与 dashboard snapshot）。
+- 行级归属按 `repoId` + `linkedIssue` / `linkedPR` / `linkedWorkItem` 反查，**不把** identity 的
+  `taskKey` 当集合：identity 是**命名**（issue #38 起 key 已扩到条目粒度，
+  `tracker:github:acme/web-app:issue:412`，但分组 UI 仍未实现），成员资格由 `worktreeLinksTaskItem`
+  逐 worktree 判定，页面与列表共用同一份判定实现；页面带 `providerIdentity` 时两处输入一致，页面没有
+  时两处都只用条目链接，不从某个 worktree 的身份反推 host。每行 O(1) 查表由一个列表页级批量 hook
+  提供，不按行调用 `useTaskWorkbenchView`（那个 hook 会为每行各跑一遍用量 selector 与 dashboard
+  snapshot）。
 - 本切片不做：列表分组 / 重排 / 主轴切换、`◇` 徽标、一任务多工作区合并、
   Linear / Jira / GitLab 列表、写回 tracker 状态、`taskRecords` 持久化。
 
@@ -881,6 +895,9 @@ resolveDefaultAgentForNewTab({ defaultTuiAgent, detectedAgentIds, disabledTuiAge
 
 明确不做：在详情页内嵌对话。
 
+> 唯一的受控例外是 **§7.11 交付入口**：一次带必填输入的交接，不是通用"起 agent"按钮；
+> 它不选 agent、不建分支与工作区，只在既有工作区上开一个 tab。那条边界与退化形态（未采用）写在 §7.11.4。
+
 ---
 
 ### 7.10 已完成任务的历史：三态与 S1 落地（issue #31）
@@ -924,6 +941,160 @@ Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`
 验收证据：`tests/tools/task-workbench-rendered/run.mjs --all`（F2c / F2c-narrow / F2d 三个新用例，
 20/20 通过）与 `task-workbench-join` / `task-workbench-identity` / `useRetainedAgentsSync` /
 `build-dashboard-snapshot` 单测。
+
+### 7.11 交付入口：把「先交付、再归档」做成一个显式动作（2026-11-19，已实现）
+
+状态：**已在分支 `feat-task-workbench-7.11` 实现**。生产实现是 renderer 代码 + 六语 i18n；验证与设计
+落在 `orca/tests/tools/task-workbench-rendered/`、本文档及六张实现图（完整清单见 §7.11.5）。没有新增
+持久化、RPC/IPC 或 schema，没有 merge / push / deploy。D1 按主形态落地——真实按钮 + 真实启动，
+退化形态 `[ 复制交付命令 ]` 未采用（§7.11.4）。§7.11.2 的三张图仍是与 §7.4.2 同层的 HTML/CSS 渲染稿
+（源文件与渲染脚本在 `ui/src/`；重渲染需要已准备好 `orca/node_modules` 的主机、CJK 字体和一个 X display，
+脚本不下载也不安装任何东西），不是生产组件渲染、也不是真机截图；图内数据为脱敏占位（`acme/web-app`、
+`feat/task-431`），不含真实主机、会话与用量。实现后的六张 fixture 渲染图、命令与它们证明不了的事见 §7.11.6。
+
+#### 7.11.1 要解决的问题
+
+实现之前，工作台上没有"交付"的入口：`swarm/skills/worktree-delivery` 是给 agent 的流程文档，只能由操作者在会话里
+自己发起；工作台当时能做的只有 `[ 打开终端 ]`。而**归档不是那个信号**：`worktree archive` 是交付之后的保留动作
+（`worktree-delivery` §5），也可能只是把一个任务暂时 park 住。
+
+被否掉的做法：**在归档时自动开一个 agent 走 worktree 流程**。三条理由，留在这里以免有人重新提议：
+
+| 理由 | 依据 |
+| --- | --- |
+| 方向反了 | 归档是交付完成后的保留动作；auto-deliver 会让交付发生在交付之后，且每次 park 都会开一个会 merge 的 agent |
+| 授权反了 | 归档点击不携带目标分支、模型、预算、`max_workers`、runtime；`AGENTS.md` 要求启动 agent 是单独授权动作 |
+| 挂不上 | `orca.yaml` 的 `scripts.archive` 是 120s 死线的 shell hook（`orca/src/main/hooks.ts` 的 `HOOK_TIMEOUT`），超时会被判失败并拦住 `worktree rm`（`worktree-archive-hook-gate.ts`）；SSH 路径根本跑不了 hook（`gateRemovalWhereArchiveHookCannotRun`）；多选批量归档会一次起 N 个 |
+
+结论：改成**显式 `[ 交付… ]` 动作**，其最后一步才是归档。
+
+#### 7.11.2 三张设计稿
+
+**D1 入口** · 1180×556（`ui/design-deliver-20261119-entry-wide.png`）
+![交付入口：宽屏工作台上的交付事实行](ui/design-deliver-20261119-entry-wide.png)
+
+**D2 确认面** · 660×545（`ui/design-deliver-20261119-confirm.png`）
+![交付确认面：目标分支 / 集成方式 / 交付后归档](ui/design-deliver-20261119-confirm.png)
+
+**D3 启动之后** · 900×365（`ui/design-deliver-20261119-after-launch.png`）
+![交付启动之后：动作换成打开终端，菜单按生命周期排序](ui/design-deliver-20261119-after-launch.png)
+
+#### 7.11.3 落地规则（逐条可验收）
+
+| # | 规则 | 为什么 | 落地位置 · 证明 |
+| --- | --- | --- | --- |
+| 1 | 一个动作两个入口：交付事实行右端 + sidebar 右键（`交付…` 在 `归档` 上方），同一命令 | 读者在想"交付"的地方和"归档"本来所在的地方都要能到；菜单次序＝生命周期次序 | 事实行：`TaskWorkbenchDelivery.tsx` 的 `DeliverEntry`（`data-testid="task-workbench-deliver-action"`，行右端、折叠按钮之后）；sidebar：`WorktreeContextMenuView.tsx`（`data-testid="worktree-context-menu-deliver"`，紧邻 `Archive workspace` 之上）；两处读同一个 `projectTaskWorkbenchDeliver`，启动都走 `lib/task-workbench/task-workbench-deliver-launch.ts`。证明：`TaskWorkbenchDelivery.deliver.test.tsx` › *renders a live entry at the row's right end when the workspace may be delivered*；`WorktreeContextMenu.deliver-order.test.tsx` › *renders Deliver… directly above Archive workspace, with Delete last* |
+| 2 | 确认面是 inline popover，不是模态框；主按钮是 outline | §7.4.2：全屏只有一个白底主按钮（页头）。模态框会造出第二个 | `task-workbench-deliver-confirm.tsx`：根节点 `data-testid="task-workbench-deliver-confirm"`，无 `Dialog` / `role="dialog"` / 遮罩，submit `variant="outline"`；两个宿主 import 同一个组件（`TaskWorkbenchDelivery.tsx`、`WorktreeContextMenuOverlays.tsx`），未复制实现。证明：`task-workbench-deliver-confirm.test.tsx` › *renders the panel without a dialog role or an overlay*、› *adds no solid primary: submit is outline and nothing is filled*；`TaskWorkbenchDelivery.deliver.test.tsx` › *opens the inline popover, not a dialog, with an outline submit* |
+| 3 | 必填三项：目标分支 / 集成方式 / 交付后归档；默认分支标 `默认值 · 需确认` | `worktree-delivery` §1「main branch 不一定叫 main」、§3「一个写者」；归档勾选把"自动归档"变成人看见的勾 | `task-workbench-deliver-confirm.tsx`：分支输入、`role="radiogroup"` 三选一、归档 `Checkbox`；默认值来自 `use-task-workbench-view.ts` 的 `targetBranchDefault`（主工作区分支，去掉 `refs/heads/`；detached 则 absent，不猜 `main`）与 `task-workbench-view.ts` 的 `targetBranchDefault?`；sidebar 侧从既有 `allWorktrees` 取主工作区分支，没有就留空。证明：confirm › *pre-fills the default branch and labels it as a default that needs confirmation*、› *drops the default label once the reader types their own branch*、› *blocks submit on an empty branch and says why*；`use-task-workbench-view.test.tsx` › *fills targetBranchDefault from the repo main worktree branch*；`WorktreeContextMenu.deliver-order.test.tsx` › *blocks submit when no main worktree branch is known, and launches nothing* |
+| 4 | 幂等：已有 `DELIVER` 会话时两个入口的同一位置都换成 `[ 打开终端 ]`，不再开第二个；目标工作区有 Working agent 时 `[ 交付… ]` 禁用，理由挂在 `title` + `sr-only` | §3 一个写者；确认面打开期间状态仍会变化，所以“打开时可交付”不是“提交时仍可交付” | 判定：`task-workbench-deliver-state.ts` 先认 marker（`open-terminal`）再认 one-writer；两个宿主都在 submit 时用最新输入重新投影，Working / archived / no-workspace 不启动，期间出现 marker 则 reveal；启动器再同步重查 live store 防连点。事实行禁用态复用 `TaskWorkbenchPendingAction`；sidebar 用可聚焦的 `aria-disabled` item，`title` + `aria-describedby` 指向 `sr-only` 理由，`onSelect.preventDefault()` 阻止激活（不是 Radix `disabled`）。证明：launch › *does not launch when a marker tab already exists (zero calls)*、› *launches exactly once across two activations, because the first publish is synchronous*；fact row › *refuses a submit after the view turned one-writer, and states the reason*、› *closes without launching when the view turns archived while the panel is open*；sidebar › *shows Open terminal for an existing DELIVER session and reveals it without launching*、› *keeps the one-writer item keyboard-focusable and refuses keyboard activation*、› *launches nothing when a working agent appears after the confirmation opened*、› *launches nothing when the workspace is archived after the confirmation opened*、› *reveals a session that appeared after the confirmation opened, and launches nothing* |
+| 5 | 不造状态词：运行态复用 `dashboardPopout.bucket.*`（Working/Done）与 `outcome`（Delivered）；未知字段整行不渲染 | §7.4.3「交付不自造状态词」、§7.5 三态规则 | 投影只读既有字段（`bucket` / `conversationName` / `delivery`），不引入新词（`task-workbench-deliver-state.ts`）；事实行原有证据词未改。证明：`TaskWorkbenchDelivery.deliver.test.tsx` › *keeps the evidence row's counts untouched when evidence is present*；`task-workbench-deliver-state.test.ts` › *emits only { key, fallback } copy, no count and no status word, for every fixture* |
+| 6 | `注意` 行（未提交 / 未推送）只陈述，不染色、不拦截 | 它是事实不是告警；`worktree-delivery` 也禁止自动 stash/reset/clean | `task-workbench-deliver-state.ts` 的 `attention` 今天恒为 `[]`；confirm 只在非空时渲染，且不 disabled / 不 gate（`task-workbench-deliver-confirm.tsx`）；启动指令里的 attention 也只作事实陈述（`task-workbench-deliver-launch.ts`）。证明：confirm › *states each notice when one exists, without disabling the submit*；`TaskWorkbenchDelivery.deliver.test.tsx` › *renders no attention row, because the projection has no such fact today*；`task-workbench-deliver-state.test.ts` › *projects the identical state and action for every fixture whatever 注意 carries* |
+| 7 | agent 宿主＝被交付的专用 git worktree；主检出与 folder workspace 都不是目标；每一种集成模式都必须经 PR，不写主检出、不直推目标分支 | §1/§2 就地核验与跑测试、复用已准备的 `node_modules`；主检出对修改型工作只读；mode 只决定 PR 携带的历史形状 | `task-workbench-deliver-state.ts` 的 `isDeliverableTarget` 同时供 task page 选目标，sidebar 沿用 `archivableWorktrees` 排除同两类；若只有主检出/folder，入口不出现。启动器在目标 `worktreeId` 上 activate + launch；固定指令无条件要求 PR，任何 mode 无法在此约束内完成时 stop/report。证明：state › *linked-main-only: the repository’s own checkout gets no entry (A9)*、› *main + a dedicated worktree: the dedicated worktree is chosen*、› *a folder workspace is skipped and never selected explicitly*；launch › *requires a pull request against the target branch in `<mode>` mode*（pr/local-merge/squash）、› *launches exactly once for the target worktree and passes the frozen marker*；sidebar › *launches exactly once with source sidebar and the clicked workspace id* |
+| 8 | 交付 agent 不归档自己：归档最后仍由人点 | archive 只把行移进 `Show archived`，**不杀 PTY**（§7.10）；agent 自我归档会让运行中的会话消失 | 指令固定句 *Do not archive, remove, stop terminals or delete anything. A human clicks Archive as the last step*（`task-workbench-deliver-launch.ts`）；勾了 archiveAfter 也只加一句提醒，不改指令。证明：`task-workbench-deliver-launch.test.ts` › *carries the three inputs and the archive-by-human rule*、› *adds the remind-only clause when archiveAfter is set, plus the workspace label* |
+
+#### 7.11.4 与 §7.9 的关系（必须一起读）
+
+§7.9 立过规矩：**工作台不建 agent**，任务详情 `Orca` tab 是只读的。§7.11 是它的一个**受控例外**，边界写死：
+
+- 不是通用"起 agent"入口，是一次带必填输入的交接；它不选 agent（沿用 `resolveDefaultAgentForNewTab`，
+  `task-workbench-deliver-launch.ts`），不建分支、不建 worktree，只在**既有**工作区上开一个 tab
+  （`launchAgentInNewTab({ worktreeId })`）；
+- `launchAgentInNewTab` 已支持初始 prompt（`renderer/src/components/tab-bar/QuickLaunchButton.tsx` 把初始
+  prompt 转发给它），所以"发固定交付指令"不需要新 RPC；本次也没有新增 RPC/IPC、持久化或 schema；
+- **D1 已按主形态落地**：真实按钮 + 真实启动（`launchTaskWorkbenchDeliver`），不是退化的
+  `[ 复制交付命令 ]`。退化形态未采用，只作为评审若否决这条例外时的退路保留：它保留"归档是终点"的
+  正确顺序，代价是回到手工。
+
+#### 7.11.5 实现清单（已落地）
+
+| 改动 | 位置 | 做什么 |
+| --- | --- | --- |
+| 状态投影 | `components/task-workbench/task-workbench-deliver-state.ts` | 六个验收状态（外加第七种 `has-evidence`）从既有字段推出；输出一个动作描述符（`none` / `deliver` enabled / `deliver` disabled + reason / `open-terminal`）；选目标时排除主检出与 folder workspace，不新增存储 |
+| 会话标记 | `components/task-workbench/task-workbench-deliver-session.ts` | `TASK_WORKBENCH_DELIVER_SESSION_LABEL = 'DELIVER'` 与精确匹配；投影和启动器共用这一处 |
+| 启动路径 | `lib/task-workbench/task-workbench-deliver-launch.ts` | `buildTaskWorkbenchDeliverInstruction` + `launchTaskWorkbenchDeliver` + `findTaskWorkbenchDeliverTabId` / `revealTaskWorkbenchDeliverTab`；指令对三种 mode 都强制 PR，无法遵守就 stop/report；复用 `resolveDefaultAgentForNewTab` / `launchAgentInNewTab`，启动前同步重查 marker；两个宿主共用导出的 `TASK_WORKBENCH_DELIVER_NO_AGENT_NOTICE` |
+| 确认面 | `components/task-workbench/task-workbench-deliver-confirm.tsx` | 唯一确认组件：目标分支 / 集成方式 / 交付后归档 + 政策句 + 归档提示 + 可选 `注意`；无模态、submit `outline` |
+| 事实行入口 | `components/task-workbench/TaskWorkbenchDelivery.tsx` | 行右端 `DeliverEntry`；`delivery === undefined` 与有证据两个分支都渲染；唯一启动点 `submitDeliver` 在提交时重新投影资格；name-only `DELIVER` 无 marker 时 reveal 失败后回确认面。`读取证据` 控件仍是 `Not wired`（P1b） |
+| 视图字段 | `components/task-workbench/task-workbench-view.ts`、`hooks/use-task-workbench-view.ts` | additive 可选字段 `targetBranchDefault?`（主工作区分支，去 `refs/heads/`；detached 则 absent）与 `TaskWorkbenchWorkspace.isMainWorktree?`（既有 store 事实，供投影排除主检出） |
+| sidebar 入口 | `components/sidebar/WorktreeContextMenuView.tsx`、`use-worktree-context-menu-model.tsx`、`WorktreeContextMenuOverlays.tsx`、`worktree-context-menu-deliver.ts` | `交付…` 在 `归档` 之上；已有会话同位置显示 `打开终端`；同一投影、确认组件、启动函数（`source: 'sidebar'`）；禁用 item 可聚焦但阻止激活；提交时用最新 row/worktree 重新投影资格 |
+| 文案 | 六个 `i18n/locales/*.json` | 冻结的 18 个 `TaskWorkbenchDeliver.*` + `sidebar.WorktreeContextMenu.deliver`；zh/en 词级，es/fr/ja/ko 本轮为英文回退（§7.4.3 口径，见 §7.11.6） |
+
+冻结 test id（两个入口共用）：`task-workbench-deliver-action`、`worktree-context-menu-deliver`、
+`task-workbench-deliver-confirm`、`task-workbench-deliver-target-branch`、`task-workbench-deliver-integration`、
+`task-workbench-deliver-archive-after`、`task-workbench-deliver-submit`、`task-workbench-deliver-cancel`。
+组件另有四个只服务自身断言的 id（`task-workbench-deliver-close`、
+`task-workbench-deliver-target-branch-default`、`task-workbench-deliver-target-branch-required`、
+`task-workbench-deliver-confirm-attention`），不在冻结表内。
+
+**D2（会话判据）**：`DELIVER` 会话用**既有字段** `quickCommandLabel` 标记
+（`task-workbench-deliver-session.ts`），再经 `shared/agent-row-conversation-name.ts` 解析进
+`DashboardCard.conversationName`，工作台从自己的 agent 行读回。三个必须成立的条件与证据：
+
+| 条件 | 结论 | 证据（file:line / 测试） |
+| --- | --- | --- |
+| 重载后仍在 | 成立 | 写入 `store/terminals/terminal-tab-creation.ts:97,126` 并原子发布 unified tab（`:203-205`）；持久化 `lib/workspace-session-unified-tabs.ts:91,96`；schema `shared/workspace-session-schema.ts:99,149`；读回 `store/slices/tabs-hydration.ts:90-94,109-116`、`terminal-session-row-hydration.ts:143-145,203-208`。测试：`task-workbench-deliver-launch.test.ts` › *(a) quickCommandLabel survives persist, schema parse and hydration* |
+| 能从工作台自己的行数据读到 | 在终端路由上成立；另两条路由有界（见 §7.11.6） | 启动把 label 交给 `createTab`（`lib/launch-agent-in-new-tab.ts:303`）；`DashboardCard.conversationName = rowConversationName(...)`（`components/dashboard/build-dashboard-snapshot.ts:262-269` → `dashboard-card-labels.ts:52` → `shared/agent-row-conversation-name.ts:130-133`）；投影读同字段（`task-workbench-deliver-state.ts:187-193`）。测试：› *(b) the row conversation name resolves the marker, and a rename outranks it* |
+| 第二次激活不会再建一个会话 | 成立（终端路由） | 投影先给 `open-terminal`（`task-workbench-deliver-state.ts:187-193`）；启动器再同步重查 live store（`task-workbench-deliver-launch.ts:173-175`，unified tabs 优先、legacy rows 兜底 `:137-144`）。测试：› *does not launch when a marker tab already exists (zero calls)*、› *launches exactly once across two activations, because the first publish is synchronous*、› *also finds a marker on a legacy terminal row* |
+
+第二条的边界不是空话：`structured-native-chat` 路由与 `host-published` 路由都不携带
+`quickCommandLabel`，因此在那两条路由上「已有会话」读不出来，第二次激活会再次启动；这正是
+§7.11.6 记录的两个 bound，不是把成立条件悄悄放宽。
+
+**D3（分层）**：本切片的生产实现只改 `orca/` 的 renderer 代码 + 六语 i18n；验证与设计证据另列在下。启动链路全在 renderer
+（`lib/launch-agent-in-new-tab.ts`、`lib/agent-tab-shortcuts.ts`、store 的 `createTab`），
+`quickCommandLabel` 是既有 tab 字段；因此**不需要任何 main / preload 改动**，也没有新增 IPC、
+持久化或 schema。本切片的生产代码、相邻单测与六语 i18n 在 `orca/src/renderer/`；fixture 渲染
+harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与六张 PNG 在
+`swarm/docs/design/task-workbench/`。这是完整的落地面，不把 harness 或证据文件排除在 diff 之外。
+
+#### 7.11.6 证据缺口
+
+**已知边界（实现接受了它们，而不是修掉了它们）**：
+
+1. `structured-native-chat` 路由（三个实验开关全开）创建 provisional tab 时不写 `quickCommandLabel`
+   （`lib/structured-agent-session-provisional-tab.ts`），所以该路由上 DELIVER 标记不存在，第二次激活会再次启动。
+2. `host-published`（web-runtime / paired）启动没有 `quickCommandLabel` 参数
+   （`lib/launch-agent-web-host-tab.ts`），host 持有的 tab 要携带标记需要改 wire；该路由上
+   `launchTaskWorkbenchDeliver` 返回 `ok: true, tabId: ''`，调用方必须把空 id 当作「本地没有可 reveal 的 tab」。
+3. 空启动计划被报成 `no-agent`：没有会话被启动，冻结的结果类型没有单独的 reason。
+4. 用户重命名交付 tab 后，投影（读 `conversationName`，`customTitle` 优先）会显示 `[ 交付… ]`，而启动器
+   仍回答 `already-delivering`。这是 D2 写明的 reopen condition，不是可以掩盖的缺陷。反方向的 name-only
+   collision 已做可恢复处理：普通 tab 只有 `customTitle = 'DELIVER'` 时，两个宿主 reveal 失败后回到确认面；
+   提交再由 marker-aware launcher 决定 reveal 真实会话或启动新会话。
+5. `注意` 行在 `DeliveryEvidence` 里**没有来源**：`DeliveryEvidence` 只有 commits / PR / checks / review，
+   所以 `attention` 在每个状态下都是 `[]`，界面上这一行今天不出现——这是正确的不猜；只证明了它永不拦截
+   （confirm 只在非空时渲染，且不 disabled / 不 gate）。要真正显示它，需要未来给证据模型加字段，不是在这里猜一句。
+
+**证据层级与未验证项**：
+
+- **六张 fixture 渲染图**是本节指名的证据，由
+  `cd orca && ORCA_BACKGROUND_LAUNCH=1 DISPLAY=:99 node tests/tools/task-workbench-rendered/run.mjs --all`
+  产出，视口 **1440×900**、`devicePixelRatio = 1`：
+  `ui/impl-20261119-deliver-no-workspace.png`、`ui/impl-20261119-deliver-archived.png`、
+  `ui/impl-20261119-deliver-one-writer.png`、`ui/impl-20261119-deliver-existing-session.png`、
+  `ui/impl-20261119-deliver-evidence-not-read.png`、`ui/impl-20261119-deliver-zero-evidence.png`。
+  它们是 **fixture 渲染，不是真机截图**（与 §7.4.5 同一证据层级）：只经过 fixture → 生产组件，
+  不经过 live store / selector / RPC / 持久化，也不切 locale（harness 用英文默认值）。
+- **打开的确认面没有被截图证明**：harness 没有点击路径，popover 自身的渲染由
+  `task-workbench-deliver-confirm.test.tsx` / `TaskWorkbenchDelivery.deliver.test.tsx` 的 vitest 证明，
+  不是真机截图。
+- **没有真机核对真实启动**：没有任何真实 agent 被这条链路在本轮启动过；`launchAgentInNewTab` 带初始 prompt
+  在远端 checkout / SSH 工作区上的行为、以及真实 agent CLI 的 ready 判定，均未验证。
+- **fixture 产生不出的状态**：`structured-native-chat` 与 `host-published` 两条路由（上面 bound 1/2）、
+  用户重命名后的投影/启动器分歧（bound 4）、以及任何依赖 live store 时序的竞态（例如渲染与点击之间出现
+  第二个会话）都不在六张图里；`注意` 行也因没有来源而无法用 fixture 产出。
+- 未核对 `v1.4.219` 之后上游是否已有同类交付入口（本仓库为快照）。
+- `ui/` 里只有 `design-deliver-*` 这组设计稿带源文件；2026-11-18 那批 `design-workbench-*.png` 没有提交
+  源文件，因此**不可复现**，只能作为当时的观察结果读，不能当作当前版面的定义。2026-11-19 的六张
+  `impl-20261119-deliver-*.png` 是 harness 产物（命令见上），不是设计稿。
+- 六语的词级覆盖：zh/en 按冻结表；es/fr/ja/ko 的 19 个新键本轮写的是**英文回退**（`Deliver…` 等），
+  不是已核对的翻译，因此不能说「六种语言都完成了这组文案」。纯模板 `confirmHeading` 六语都保留
+  `{{value0}}`，没有额外粘连词。
+- `en-runtime-required.json` 在本切片前已缺 23 个 `TaskWorkbenchHistory.*` 动态键（issue #31 遗留，
+  与本切片无关）；本切片只补了自己的 18 个 `TaskWorkbenchDeliver.*`，所以
+  `verify-localization-catalogs.mjs` 仍为红。`--fix` 生成器会在 `integrationMode` 的「标签 + 子键」
+  形状上抛 `TypeError`，这 18 个是手写进同一文件的。
+- `WorktreeContextMenu.copy-worktree-name.test.tsx` 的既有 store mock 没有 `folderWorkspaces`，因此
+  仍有 2 个用例在 `use-worktree-context-menu-model.tsx` 读 `.find` 时失败；该文件与失败行都不在本切片。
 
 ---
 
@@ -1261,6 +1432,8 @@ setup 钩子"或"需要新装/重建依赖"。
   真渲染与执行结果在 §7.4.5（8 张 `impl-20261118-*.png`、vitest 8/8 文件 149 用例、四个 tsc 项目、
   harness 17/17）。仍缺 **真机核对**（图是 fixture 渲染，不经过 store / selector / RPC，也不切 locale），
   以及 `verify:localization-coverage` 的两处既有红灯（`IncidentDetailDrawer` / `IncidentGrayTables`，与本次无关）。
+- §7.11 的交付入口、六个验收状态与 `DELIVER` 判据已经实现；当前仍受证据约束的路由边界、真机启动、
+  fixture 截图层级、locale 回退与两个既有红灯统一见 §7.11.6，本节不再重复旧状态。
 - `orca github create-issue` 只在单测里被验证过转发；`gh` 备通道的存在性、登录态与 `--repo` 实际行为未验证
   （只影响 agent 侧建单能力）。
 
@@ -1277,3 +1450,5 @@ setup 钩子"或"需要新装/重建依赖"。
 4. 路标是 P1（已实现）→ P3（列表主轴）→ P4（持久化）。
 5. agent 侧建单动词（`orca github create-issue`、`orca linear create`）与列表页无关，作为任何 agent 会话
    都可用的能力保留（§10）。
+6. §7.11 的 D1–D3、`DELIVER` 判据与真实启动入口已经落地，不再是待决项；下一步只按 §7.11.6 补
+   evidence-gated 验证（真机启动与两条 route bound 等）。任何 main / preload / wire 扩张仍需单独授权。
