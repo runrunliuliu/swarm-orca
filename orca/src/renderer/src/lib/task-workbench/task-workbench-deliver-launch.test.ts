@@ -113,7 +113,7 @@ describe('buildTaskWorkbenchDeliverInstruction', () => {
     expect(text).toContain('A human clicks Archive as the last step')
     // `<self>` is this instruction's placeholder, not a CLI alias: the agent is
     // told to write out the full workspace id instead of the angle brackets.
-    expect(text).toContain('substitute the workspace id printed above in full')
+    expect(text).toContain('use the workspace id printed above, prefixed with `id:`')
     expect(text).toContain('`id:<repoId>::<path>`')
     expect(text).toContain('never the angle brackets')
     // The tick is what adds the archive step (issue #49); without it the

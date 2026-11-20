@@ -20,7 +20,7 @@
 点交付（勾选范围） → 交付 agent 读 skill → 验证 + 独立评审
                    → 经 PR 集成 →（勾选）合并 PR
                    →（勾选）关闭 issue 并附交付提交
-                   → orca worktree set --workspace-status completed   ← 唯一的写入
+                   → orca worktree set --workspace-status completed   ← 唯一的完成状态写入
                    → 三段报告 →（勾选）交付 agent 最后一步自己归档（issue #49）
 界面：交付行从 [未读取] 变成 [已交付] PR #n 已合并 · #issue 已关闭；工作区行出现 ● 已完成
 ```

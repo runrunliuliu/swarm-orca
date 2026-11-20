@@ -135,7 +135,7 @@ export function buildTaskWorkbenchDeliverInstruction(
     // Why an explicit substitution rule: `<self>` is this instruction's own
     // placeholder, not a CLI alias (`selectors.ts` knows only active/current),
     // so an agent that types the angle brackets literal gets a lookup failure.
-    'Wherever a step says `<self>`, substitute the workspace id printed above in full (`id:<repoId>::<path>`), never the angle brackets.',
+    'Wherever a step says `<self>`, use the workspace id printed above, prefixed with `id:` (`id:<repoId>::<path>`); never the angle brackets.',
     '',
     '1. Read swarm/skills/worktree-delivery/SKILL.md in full before acting.',
     '2. Verify the change in this workspace: run the relevant tests and inspect the actual diff. Get independent review of the change before integrating it.',

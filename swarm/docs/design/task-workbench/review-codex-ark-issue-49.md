@@ -1,10 +1,11 @@
 # 只读评审：issue #49 交付后归档（codex-ark，2026-11-20）
 
 这是 codex-ark 对 `c692b58d..a1dbb15b`（issue #49 实现提交）的**只读**评审原文，结论“通过，无必修项”。
-评审通过 `CODEX_HOME=~/.codex-ark codex exec -s read-only -C <worktree>` 运行（wrapper 配置的 Ark
-provider/model，`model_reasoning_effort=high`），沙箱为 read-only：评审者没有修改仓库、提交、建分支、
-装依赖或启动应用。报告原文未改写，只把绝对工作区路径前缀换成仓库相对路径（`orca/src/...`），
-其余包括评审者自带的 `:行号` 后缀一并保留（行号指向 `a1dbb15b`）。
+评审通过一次 read-only 的 reviewer 运行（`codex exec -s read-only -C <worktree>`，评审配置见
+`<reviewer-profile>`，`model_reasoning_effort=high`），沙箱为 read-only：评审者没有修改仓库、提交、
+建分支、装依赖或启动应用。报告原文未改写，只把绝对工作区路径前缀换成仓库相对路径（`orca/src/...`），
+并把本地的 reviewer profile 名称换成 `<reviewer-profile>`；其余包括评审者自带的 `:行号` 后缀
+一并保留（行号指向 `a1dbb15b`）。
 
 处理结果见 [README §7.12.3](README.md) 的“只读评审”段：4 条建议全部处理——`<self>` 替换规则写进指令、
 `worktree-delivery` SKILL §5 增加 Task Workbench 限定、补 sidebar 勾选透传与启动 prompt 两条回归用例、

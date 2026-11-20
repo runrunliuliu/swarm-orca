@@ -76,7 +76,7 @@ const storeFreeSources: SourceFile[] = [
   { dir: libDir, file: 'task-workbench-row-activity.ts' },
   { dir: libDir, file: 'task-workbench-workspace-branch.ts' },
   // §7.12: the delivery evidence selector is pure; the delivery launch (which
-  // is not a shell component) performs any archive the operator ticked.
+  // is not a shell component) only hands the archive step to the agent.
   { dir: libDir, file: 'task-workbench-delivery-evidence.ts' }
 ]
 

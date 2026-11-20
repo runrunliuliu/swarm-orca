@@ -1215,12 +1215,12 @@ ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all 
 | 删除 | 意图集合、观察 hook、Orca tab 挂载点、启动时的 `recordTaskWorkbenchArchiveIntent`、`TaskWorkbenchDelivery.archiveFailed` 文案与 import-boundary 条目 | 已删 `lib/task-workbench/task-workbench-deliver-archive-intent.ts`、`hooks/use-task-workbench-deliver-archive.ts`（及其测试）；`components/github-item-dialog/open-dialog/github-item-dialog-orca-tab.tsx`、六个 `locales/*.json`、`en-runtime-required.json`、`task-workbench-import-boundary.test.ts` |
 | 文案 | 勾选提示改为“交付 agent 会在报告后自行归档，可在 Show archived 找回” | `task-workbench-deliver-confirm.tsx` 的 `archiveAfterHint` + 七个目录文件 |
 
-副作用是 side-effect：两个交付入口（事实行、sidebar 右键）共用同一个启动函数，所以 sidebar 入口
+副作用：两个交付入口（事实行、sidebar 右键）共用同一个启动函数，所以 sidebar 入口
 “勾了也无效”的缺口同一次改动一起消失。边界没变：archive 接口本身、`scripts.archive` hook、
 `worktree rm`、持久化字段都不动；“归档”仍不是交付完成信号（完成事实仍是 `workspace-status completed`
 ∧ merged review）。
 
-**验收映射**：A1/A2/A3 = 改写后的 `task-workbench-deliver-launch.test.ts`（归档命令行出现在报告段之后；
+**验收映射**（以下 A 编号是 issue #49 的，不是 plan §8 的）：A1/A2/A3 = 改写后的 `task-workbench-deliver-launch.test.ts`（归档命令行出现在报告段之后；
 未勾选不含任何归档命令；失败只提示、不重试、不判失败）；A5 = sidebar 用例断言勾选后 `archiveAfter: true`
 真的交给共享启动函数，启动函数用例断言它就是交给 agent 的 prompt 里的那一行；A6 = 四个反向 pin 改写后
 单测全绿（已跑，见下）；A4 需真机：归档后工作区行消失、`worktree unarchive` 能恢复、PTY 不被杀。
