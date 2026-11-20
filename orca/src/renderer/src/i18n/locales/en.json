@@ -14274,7 +14274,7 @@
               "label": "Start with",
               "maxWorkers": "max_workers",
               "summary": "Coordinator = {{value0}} · Workers ≤ {{value1}} · Task source = {{value2}}",
-              "noAgent": "no agent selected",
+              "noAgent": "no agent",
               "noTaskSource": "not linked",
               "maxWorkersInvalid": "Enter a whole number of 1 or more.",
               "hint": "The Coordinator confirms budget, writable scope and whether merging is allowed before it starts; with no link it asks for the goal first."

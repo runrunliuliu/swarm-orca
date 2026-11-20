@@ -126,6 +126,6 @@ describe('NewWorkspaceComposerLaunchModeSection', () => {
     })
 
     expect(container.textContent).toContain('Task source = not linked')
-    expect(container.textContent).toContain('Coordinator = no agent selected')
+    expect(container.textContent).toContain('Coordinator = no agent')
   })
 })

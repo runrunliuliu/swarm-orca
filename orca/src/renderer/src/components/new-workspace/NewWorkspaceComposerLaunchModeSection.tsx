@@ -72,7 +72,9 @@ export function NewWorkspaceComposerLaunchModeSection({
             className={cn(
               SEGMENT_CLASS,
               launchMode === segment.mode
-                ? 'bg-accent font-medium text-accent-foreground'
+                ? // Why solid: on a 28px segment a tinted fill reads as a hover state, and this
+                  // choice changes what the workspace starts with.
+                  'bg-primary font-medium text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
@@ -113,10 +115,7 @@ export function NewWorkspaceComposerLaunchModeSection({
                 {
                   value0:
                     coordinatorAgentLabel ??
-                    translate(
-                      'auto.components.new.workspace.launch.mode.noAgent',
-                      'no agent selected'
-                    ),
+                    translate('auto.components.new.workspace.launch.mode.noAgent', 'no agent'),
                   value1: parsedMaxWorkers === null ? '—' : String(parsedMaxWorkers),
                   value2:
                     taskSourceLabel ??

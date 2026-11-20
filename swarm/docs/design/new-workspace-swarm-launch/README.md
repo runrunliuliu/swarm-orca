@@ -231,9 +231,24 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
   `check-max-lines-ratchet.mjs`、`verify-localization-catalog.mjs`（含 `--fix` 写入 11 个 en 键）、
   `verify-localization-extraction.mjs`、`check-reliability-gates.mjs` 均通过。
 
-**没做**：真实组件截图与设计稿的比对（A8 的后半条）；pi（或其他 agent）在真实终端里
-`submit-after-ready` 的成功率与就绪时序；任何 swarm Run 演练。因此本记录只证明"表单能给出
-正确的指令并把它交给就绪后的 paste"，不证明任何 Run 能跑起来。
+**真实组件渲染核对（A8 后半条，一次性证据，未入库）**：用 `tests/e2e` 的 Electron fixture
+在 Xvfb 下启动真实应用，打开 rebuilt composer 并截了 4 张图（默认单 agent / 选中 swarm 且
+`max_workers=4` / 填 0 的非法态 / 填 6 的合法态）。截图脚本是一次性的，跑完即删，没有作为
+回归门禁提交。核对结果：
+
+| 项 | 真实渲染 | 设计稿 |
+| --- | --- | --- |
+| 位置 | Agent 与 Advanced 之间 | 一致 |
+| 默认态 | `单个 Agent` 选中，无 `max_workers`/说明行 | 一致 |
+| 选中态 | `max_workers` 输入框（64px、右对齐、默认 4）+ 摘要行 + 说明行 | 一致 |
+| 非法态 | 输入框红边 + `Enter a whole number of 1 or more.` + `Workers ≤ —` + 主按钮禁用 | 一致 |
+| 选中段填充 | 应用 `--primary` 实心 | 稿里是稿内的 `--accent`（蓝）；应用内 `--accent` 是中性 hover 色，28px 段上用它会读成 hover，故改用 `--primary` |
+| 标题 | 跟随 `primaryActionLabel`：swarm 下变成 `Create workspace & start coordinator` | 稿里标题固定 `New workspace`（沿用现状，不改标题逻辑） |
+| 摘要行 | 无 agent 标签时（`Blank Terminal`）会折成两行 | 单行；有真实 agent 名时单行 |
+
+**没做**：pi（或其他 agent）在真实终端里 `submit-after-ready` 的成功率与就绪时序；任何 swarm
+Run 演练。因此上面的证据只证明"表单能给出正确的指令、并把它交给就绪后的 paste，UI 与设计稿
+一致"，不证明任何 Run 能跑起来。
 
 已知与本改动无关的红点：`audit-localization-coverage.mjs --check` 在
 `components/right-sidebar/incidents/IncidentDetailDrawer.tsx:131`（`sha256:`）与
