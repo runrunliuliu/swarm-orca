@@ -17439,7 +17439,7 @@
         "integrationMode.localMerge": "本地合并",
         "integrationMode.squash": "squash",
         "archiveAfter": "交付后归档这个工作区",
-        "archiveAfterHint": "Archiving keeps the checkout and its records; it only hides the row.",
+        "archiveAfterHint": "The delivery agent archives this workspace after it reports; find it again under Show archived.",
         "policy": "Delivery integrates through a pull request; nothing is written to the primary checkout.",
         "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
         "cancel": "取消",
@@ -17482,8 +17482,7 @@
         "read": "读取证据",
         "notWired": "此版本暂不支持",
         "issueClosed": "issue #{{value0}} 已关闭",
-        "issueOpen": "issue #{{value0}} 仍开放",
-        "archiveFailed": "交付已完成，但归档工作区失败。请从工作区行手动归档。"
+        "issueOpen": "issue #{{value0}} 仍开放"
       },
       "TaskWorkbenchHistory": {
         "newBadge": "新增",

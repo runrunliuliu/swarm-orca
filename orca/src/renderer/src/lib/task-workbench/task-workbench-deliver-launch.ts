@@ -1,5 +1,4 @@
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
-import { recordTaskWorkbenchArchiveIntent } from './task-workbench-deliver-archive-intent'
 import { resolveDefaultAgentForNewTab } from '@/lib/agent-tab-shortcuts'
 import { getConnectionId } from '@/lib/connection-context'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
@@ -45,6 +44,9 @@ export type TaskWorkbenchDeliverInput = {
   closeIssue: boolean
   /** The page's own item number, taken from the view (A3). Never derived here. */
   issueNumber?: number
+  /** Whether archiving the workspace became part of the delivery (issue #49).
+   *  Tick means: the agent archives itself, last, after it reported. Unticked
+   *  means the agent must not archive at all. */
   archiveAfter: boolean
   source: TaskWorkbenchDeliverSource
 }
@@ -82,14 +84,20 @@ const INTEGRATION_MODE_COPY: Record<TaskWorkbenchDeliverIntegrationMode, string>
  *
  * Since §7.12 it is a pipeline with an end (§5 of the plan): verify + review →
  * integrate through a PR → merge when authorized → close the issue when
- * authorized → mark the workspace completed → report. Two rules survive from
+ * authorized → mark the workspace completed → report. One rule survives from
  * §7.11.3: every mode goes through a pull request (never a direct push, never
- * the primary checkout), and the agent still does not archive itself — Orca
- * archives after it observes the completion fact.
+ * the primary checkout).
+ *
+ * Since issue #49 the archive is the agent's own last step, and only when the
+ * operator ticked it: the old "Orca archives after it observes the completed
+ * fact" intent lived in renderer memory, was consumed only by a mounted task
+ * page, and was lost on a reload or a sidebar-started delivery — i.e. the tick
+ * silently did nothing. Running it from the delivery session itself removes
+ * that dependency on a mounted panel; report first, archive second.
  *
  * Unauthorized steps are absent, and the instruction says they are absent: an
- * unticked merge or issue close must stop and be reported as "not authorized",
- * not silently performed because the sentence was merely omitted.
+ * unticked merge, issue close or archive must stop and be reported as "not
+ * authorized", not silently performed because the sentence was merely omitted.
  */
 export function buildTaskWorkbenchDeliverInstruction(
   input: TaskWorkbenchDeliverInput & {
@@ -124,6 +132,10 @@ export function buildTaskWorkbenchDeliverInstruction(
     `Workspace: ${workspace}`,
     `Target branch: ${targetBranch}`,
     `Integration mode: ${INTEGRATION_MODE_COPY[integrationMode]}`,
+    // Why an explicit substitution rule: `<self>` is this instruction's own
+    // placeholder, not a CLI alias (`selectors.ts` knows only active/current),
+    // so an agent that types the angle brackets literal gets a lookup failure.
+    'Wherever a step says `<self>`, use the workspace id printed above, prefixed with `id:` (`id:<repoId>::<path>`); never the angle brackets.',
     '',
     '1. Read swarm/skills/worktree-delivery/SKILL.md in full before acting.',
     '2. Verify the change in this workspace: run the relevant tests and inspect the actual diff. Get independent review of the change before integrating it.',
@@ -139,17 +151,19 @@ export function buildTaskWorkbenchDeliverInstruction(
         ? '6. Do not close the issue: this page carries no issue number, so closing it was not authorized. Report it as not authorized.'
         : `6. Close the issue: \`gh issue close ${issue} --comment "delivered in <sha> via PR #<number>"\`. If the pull request already closed it (a \`Closes ${issue}\` body), only verify that it is closed and do not write a second comment.`
       : `6. Do not close the issue${issueNumber === undefined ? '' : ` ${issue}`}: closing it was not authorized. Report it as not authorized.`,
-    `7. Once every authorized step above has finished, mark this workspace completed: \`orca worktree set --worktree <self> --workspace-status completed --comment "${deliveredComment}"\` (adjust the comment to what actually happened). This is the only place delivery writes state.`,
+    `7. Once every authorized step above has finished, mark this workspace completed: \`orca worktree set --worktree <self> --workspace-status completed --comment "${deliveredComment}"\` (adjust the comment to what actually happened). This is the only place delivery writes the completion state.`,
     '',
     'Stop conditions: if any authorized step fails, stop at that step. Do not continue to a later write. Never use --force, never change branch protection, and never stash, reset, clean or delete the operator\'s work.',
     'Report finished / unfinished / not authorized as three separate sections, naming what already happened.',
     '',
-    'Do not archive, remove, stop terminals or delete anything. A human clicks Archive as the last step, after your report.'
+    archiveAfter
+      ? 'Do not remove, stop terminals or delete anything. Archiving the workspace after your report is the only cleanup this delivery performs.'
+      : 'Do not archive, remove, stop terminals or delete anything. A human clicks Archive as the last step, after your report.'
   ]
   if (archiveAfter) {
     lines.push(
       '',
-      'The operator asked to archive this workspace after delivery. Do not archive it yourself; Orca archives it once it observes the completed status, and only reminds you here so the report does not claim it.'
+      '8. The operator asked for the archive, so do this as the very last step, only after the report above: `orca worktree archive --worktree <self> --json`. Archiving only hides the workspace row — the checkout, its Git registration, its metadata, its terminals and its recorded trace stay — and `orca worktree unarchive` restores the row. If the archive fails, say so in the report; do not retry it, and do not treat the delivery as unfinished because of it.'
     )
   }
   if (attention && attention.length > 0) {
@@ -289,11 +303,6 @@ export function launchTaskWorkbenchDeliver(
   // host route needs the window (see the comment above).
   if (launched.surface.kind === 'host-published') {
     inFlightHostLaunches.set(input.worktreeId, Date.now())
-  }
-  if (input.archiveAfter) {
-    // Why only after a real launch: a failed launch must not leave an intent
-    // that would archive the workspace the next time it is seen completed.
-    recordTaskWorkbenchArchiveIntent(input.worktreeId)
   }
   // A paired host owns the tab; this client has no local id to reveal.
   return {

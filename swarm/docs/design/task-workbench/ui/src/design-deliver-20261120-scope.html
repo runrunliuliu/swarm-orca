@@ -89,7 +89,7 @@
               </span>
               <span class="checkbox-row">
                 <span class="checkbox"></span>
-                <span>完成后归档工作区（由 Orca 执行，agent 不碰归档）</span>
+                <span>完成后归档工作区（agent 报告后自己执行）</span>
               </span>
             </div>
           </div>
@@ -107,7 +107,7 @@
 
     <div class="caption">
       设计稿 D5 · 三个写动作各自可勾：合并 / 关闭 issue / 归档。默认「归档」关闭，因为它是交付之后的保留动作；
-      勾了也由 Orca 在观察到完成事实后执行，agent 的固定指令仍然禁止自归档（§7.11.3 规则 8 保留）
+      勾选后归档是交付 agent 报告写完后的最后一步（issue #49），未勾选时 agent 不归档、由人点
     </div>
   </body>
 </html>

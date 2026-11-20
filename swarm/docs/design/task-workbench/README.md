@@ -990,7 +990,7 @@ Token 只有在每一行都可归属时才是合计；否则保持 `unavailable`
 | 5 | 不造状态词：运行态复用 `dashboardPopout.bucket.*`（Working/Done）与 `outcome`（Delivered）；未知字段整行不渲染 | §7.4.3「交付不自造状态词」、§7.5 三态规则 | 投影只读既有字段（`bucket` / `conversationName` / `delivery`），不引入新词（`task-workbench-deliver-state.ts`）；事实行原有证据词未改。证明：`TaskWorkbenchDelivery.deliver.test.tsx` › *keeps the evidence row's counts untouched when evidence is present*；`task-workbench-deliver-state.test.ts` › *emits only { key, fallback } copy, no count and no status word, for every fixture* |
 | 6 | `注意` 行（未提交 / 未推送）只陈述，不染色、不拦截 | 它是事实不是告警；`worktree-delivery` 也禁止自动 stash/reset/clean | `task-workbench-deliver-state.ts` 的 `attention` 今天恒为 `[]`；confirm 只在非空时渲染，且不 disabled / 不 gate（`task-workbench-deliver-confirm.tsx`）；启动指令里的 attention 也只作事实陈述（`task-workbench-deliver-launch.ts`）。证明：confirm › *states each notice when one exists, without disabling the submit*；`TaskWorkbenchDelivery.deliver.test.tsx` › *renders no attention row, because the projection has no such fact today*；`task-workbench-deliver-state.test.ts` › *projects the identical state and action for every fixture whatever 注意 carries* |
 | 7 | agent 宿主＝被交付的专用 git worktree；主检出与 folder workspace 都不是目标；每一种集成模式都必须经 PR，不写主检出、不直推目标分支 | §1/§2 就地核验与跑测试、复用已准备的 `node_modules`；主检出对修改型工作只读；mode 只决定 PR 携带的历史形状 | `task-workbench-deliver-state.ts` 的 `isDeliverableTarget` 同时供 task page 选目标，sidebar 沿用 `archivableWorktrees` 排除同两类；若只有主检出/folder，入口不出现。启动器在目标 `worktreeId` 上 activate + launch；固定指令无条件要求 PR，任何 mode 无法在此约束内完成时 stop/report。证明：state › *linked-main-only: the repository’s own checkout gets no entry (A9)*、› *main + a dedicated worktree: the dedicated worktree is chosen*、› *a folder workspace is skipped and never selected explicitly*；launch › *requires a pull request against the target branch in `<mode>` mode*（pr/local-merge/squash）、› *launches exactly once for the target worktree and passes the frozen marker*；sidebar › *launches exactly once with source sidebar and the clicked workspace id* |
-| 8 | 交付 agent 不归档自己：归档最后仍由人点 | archive 只把行移进 `Show archived`，**不杀 PTY**（§7.10）；agent 自我归档会让运行中的会话消失 | 指令固定句 *Do not archive, remove, stop terminals or delete anything. A human clicks Archive as the last step*（`task-workbench-deliver-launch.ts`）；勾了 archiveAfter 也只加一句提醒，不改指令。证明：`task-workbench-deliver-launch.test.ts` › *carries the three inputs and the archive-by-human rule*、› *adds the remind-only clause when archiveAfter is set, plus the workspace label* |
+| 8 | 勾选「交付后归档」时，归档是交付 agent 的最后一步：**先报告、后归档**；未勾选时 agent 不归档 | 归档只把行移进 `Show archived`，不杀 PTY（§7.10）；让 agent 自己执行，才不依赖某个面板挂着、也不怕 renderer 重启丢意图（issue #49 替换了 §7.12 D2 的 renderer 内存意图） | 指令第 8 步 `orca worktree archive --worktree <self> --json`，排在报告段之后（`task-workbench-deliver-launch.ts`）；归档失败只写进报告，不重试、不判交付失败。证明：`task-workbench-deliver-launch.test.ts` › *adds the archive step after the report when archiveAfter is set, plus the workspace label*、› *A4: includes the archive step only when the tick is set, in any combination of ticks*、› *carries the three inputs and the archive-by-human rule when the tick is off* |
 
 #### 7.11.4 与 §7.9 的关系（必须一起读）
 
@@ -1109,12 +1109,14 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 
 三条结论：
 
-1. **完成事实不新增存储**：交付 agent 最后一步用既有 `orca worktree set --workspace-status completed`
-   标记工作区（`cli/specs/core.ts:158-181`），工作区行已能渲染该标签（`TaskWorkbenchWorkspaces.tsx:155`）。
+1. **完成事实不新增存储**：交付 agent 用既有 `orca worktree set --workspace-status completed`
+   写入完成状态（`cli/specs/core.ts:158-181`），工作区行已能渲染该标签（`TaskWorkbenchWorkspaces.tsx:155`）；
+   勾选归档时，归档是它之后的一步。
 2. **「已交付」是投影而不是新词**：`workspaceStatusId === 'completed'` ∧ `review.state === 'merged'`；
    issue 关闭只作事实项（本地任务没有 tracker，PR 页的 tracker 指的是 PR 自己），无证据仍是 `未读取`。
-3. **归档仍不由 agent 执行**：勾选「完成后归档」时由 Orca 在观察到完成事实后执行，
-   §7.11.3 规则 8 的语义不变（归档会隐藏 agent 自己的报告）。
+3. **勾选「完成后归档」时归档由交付 agent 自己执行**（先报告、后归档，issue #49）：
+   原先由 Orca 在观察到完成事实后执行的内存意图已删除——它只挂在 issue 详情 Orca tab 上、重启即丢、
+   从 sidebar 发起的交付根本没有消费者，等于勾了不生效。未勾选时 agent 仍不归档。
 
 本方案同时关闭 §7.11.6 的 bound 1/2（结构化与 host-published 路由补 `quickCommandLabel`），
 保留 bound 3/4/5。设计稿三张（已交付 / 确认面 / 交付行五态）见
@@ -1126,10 +1128,10 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 | 片 | 改动 | 位置 |
 | --- | --- | --- |
 | S1 投影 | 新增 `completed`（已交付）状态、`facts`（PR 事实 + issue 事实）、`open-session` 动作；判定 = `workspaceStatusId === 'completed'` ∧ `review.state === 'merged'`；`DeliveryEvidence.commits` 改为可选，`pullRequest.title/url` 改为可选（无来源即整项不渲染） | `task-workbench-deliver-state.ts`、`task-workbench-view.ts` |
-| S2 指令 | 六阶段指令：读 skill → 验证/评审 → 经 PR 集成 →（勾选）合并（`gh pr merge`）→（勾选）关 issue（`gh issue close <n>`）→ 标记 `workspace-status completed` → 三段报告；未勾选的动作明确要求 stop 并写「未授权」；始终不含归档动作；`--force` / 改分支保护 / stash-reset-clean 全部禁止 | `lib/task-workbench/task-workbench-deliver-launch.ts` |
+| S2 指令 | 六阶段指令：读 skill → 验证/评审 → 经 PR 集成 →（勾选）合并（`gh pr merge`）→（勾选）关 issue（`gh issue close <n>`）→ 标记 `workspace-status completed` → 三段报告；未勾选的动作明确要求 stop 并写「未授权」；勾选归档时追加第 8 步 `orca worktree archive`（排在报告之后，失败只报告、不重试），未勾选时不含任何归档动作；`--force` / 改分支保护 / stash-reset-clean 全部禁止 | `lib/task-workbench/task-workbench-deliver-launch.ts` |
 | S2 确认面 | 新增「交付范围」：创建 PR（固定勾选、禁用）/ 合并 PR（默认开）/ 关闭 issue #n（有编号时默认开，无编号禁用并说明）/ 完成后归档（默认关）。提交值新增 `mergePullRequest` / `closeIssue` | `task-workbench-deliver-confirm.tsx`、六个 `locales/*.json` |
 | S3 证据接线 | 每个工作区自己的 `review`（number + state）成为唯一的 PR 证据来源，经 `deliveryByWorktree` 进入 join；tracker 增加可选 `number`（只从 issue 页取，PR 页不冒充 issue）；交付行渲染状态签 + 事实项 | `hooks/use-task-workbench-view.ts`、`TaskWorkbenchDelivery.tsx`、`github-item-dialog-orca-tab.tsx` |
-| S4 归档执行 | 勾选归档时只记内存意图；观察到 `completed` 后由 Orca 用既有 `updateWorktreeMeta({ isArchived: true })` 执行一次，失败只 toast、不重试；重启丢意图，退回工作区行的一键归档 | `lib/task-workbench/task-workbench-deliver-archive-intent.ts`、`hooks/use-task-workbench-deliver-archive.ts` |
+| S4 归档执行 | **issue #49 已改**：勾选归档时由交付 agent 在报告后自己执行 `orca worktree archive --worktree <self> --json`（失败只写进报告），renderer 侧的意图集合与观察 hook 已删除；未勾选时 agent 不归档，人仍可从工作区行一键归档 | `lib/task-workbench/task-workbench-deliver-launch.ts`（指令）；已删除 `lib/task-workbench/task-workbench-deliver-archive-intent.ts`、`hooks/use-task-workbench-deliver-archive.ts` |
 | S5 路由标记 | 结构化 provisional tab 携带 `quickCommandLabel`；host-published 路由把标记写到镜像的本地 tab 行（host wire 无此字段，见缺口），并在 host RPC 期间用 20s 的 in-flight 窗口挡住同一 tick 的第二次点击 | `structured-agent-session-provisional-tab.ts`、`launch-agent-in-new-tab-structured.ts`、`launch-agent-web-host-tab.ts`、`web-runtime-terminal-create-operation.ts`、store 的 `setTabQuickCommandLabel` |
 
 没有新增 storage domain、RPC/IPC 或 schema：完成事实走既有 `orca worktree set --workspace-status completed`，
@@ -1165,7 +1167,7 @@ ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all 
 **单测已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts <路径> --maxWorkers=2`）：
 `src/renderer/src/components/task-workbench`、`src/renderer/src/lib/task-workbench`、
 `src/renderer/src/hooks/use-task-workbench-view.test.tsx`、
-`src/renderer/src/hooks/use-task-workbench-deliver-archive.test.tsx`、
+`src/renderer/src/hooks/use-task-workbench-deliver-archive.test.tsx`（该文件已在 issue #49 中删除，见 §7.12.3）、
 `src/renderer/src/components/sidebar/WorktreeContextMenu.deliver-order.test.tsx`、
 `src/renderer/src/components/github-item-dialog`、`src/renderer/src/lib/launch-agent-in-new-tab.test.ts`、
 两个新 marker 用例、`src/renderer/src/store/slices/tabs*`、
@@ -1183,6 +1185,7 @@ ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all 
   （另一台设备或重连后的 host 快照）读不到这个标记。这条是「把 bound 2 修到可用」而不是「修到对端可见」。
   in-flight 窗口（20s）只挡住 window 内的重复点击；超时后若 host 仍未回镜像，第二次点击仍会再启动一次。
 - S4 的归档意图不跨应用重启；重启后只有工作区行的一键归档，界面上没有「曾经想要自动归档」的提示。
+  **issue #49 已把这个缺口连同实现一起删除**（见 §7.12.3）：现在归档由交付 agent 自己在报告后执行。
 - item 详情缓存未在关闭 issue 后主动失效（计划 S3 的一项）：页面刷新/重开才会读到新状态。
 - 渲染图是 **fixture → 生产组件** 的证据（与 §7.11.6 同层），不经过 live store / selector / RPC / 持久化，也不切 locale；
   它证明不了真实 `gh pr merge`/`gh issue close`、真实归档 hook、真实 agent 的第一条消息，也不能替代 A1/A9 的真机演练。
@@ -1195,6 +1198,48 @@ ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all 
   它们在本切片前就超预算，本切片没有顺手拆文件；拆它们属于独立的重构。
   `WorktreeContextMenu.copy-worktree-name.test.tsx` 的 2 个用例仍因既有 store mock 缺
   `folderWorkspaces` 失败（§7.11.6 已记录）。
+
+#### 7.12.3 「交付后归档」改为交给交付 agent 执行（issue #49，2026-11-20）
+
+§7.12 的 D2 把归档搬到了 renderer：勾选后记一个内存意图，由挂在 **issue 详情 → Orca tab** 的
+`useTaskWorkbenchDeliverArchive` 在观察到 `completed` ∧ merged 后执行一次。实测（PR #48 那次交付）
+勾了归档却没有归档：交付会话正常跑完、指令里的归档提醒也在，但意图只活在渲染进程内存里，
+消费者只在那个弹窗挂着时存在，而 agent 跑完时弹窗早已关闭；从 sidebar 发起的交付更是**没有任何消费者**。
+结论是“勾了等于没勾，且丢弃时无提示”。
+
+**改法**：删掉 renderer 侧意图与消费者，把归档写成指令自身的第 8 步——**先报告、后归档**：
+
+| 片 | 改动 | 位置 |
+| --- | --- | --- |
+| 指令 | `archiveAfter=true` 时在报告段之后追加第 8 步：`orca worktree archive --worktree <self> --json`；归档失败只写进报告，不重试、不判交付失败；`archiveAfter=false` 保持原有“不归档、由人点”的句子 | `lib/task-workbench/task-workbench-deliver-launch.ts` |
+| 删除 | 意图集合、观察 hook、Orca tab 挂载点、启动时的 `recordTaskWorkbenchArchiveIntent`、`TaskWorkbenchDelivery.archiveFailed` 文案与 import-boundary 条目 | 已删 `lib/task-workbench/task-workbench-deliver-archive-intent.ts`、`hooks/use-task-workbench-deliver-archive.ts`（及其测试）；`components/github-item-dialog/open-dialog/github-item-dialog-orca-tab.tsx`、六个 `locales/*.json`、`en-runtime-required.json`、`task-workbench-import-boundary.test.ts` |
+| 文案 | 勾选提示改为“交付 agent 会在报告后自行归档，可在 Show archived 找回” | `task-workbench-deliver-confirm.tsx` 的 `archiveAfterHint` + 七个目录文件 |
+
+副作用：两个交付入口（事实行、sidebar 右键）共用同一个启动函数，所以 sidebar 入口
+“勾了也无效”的缺口同一次改动一起消失。边界没变：archive 接口本身、`scripts.archive` hook、
+`worktree rm`、持久化字段都不动；“归档”仍不是交付完成信号（完成事实仍是 `workspace-status completed`
+∧ merged review）。
+
+**验收映射**（以下 A 编号是 issue #49 的，不是 plan §8 的）：A1/A2/A3 = 改写后的 `task-workbench-deliver-launch.test.ts`（归档命令行出现在报告段之后；
+未勾选不含任何归档命令；失败只提示、不重试、不判失败）；A5 = sidebar 用例断言勾选后 `archiveAfter: true`
+真的交给共享启动函数，启动函数用例断言它就是交给 agent 的 prompt 里的那一行；A6 = 四个反向 pin 改写后
+单测全绿（已跑，见下）；A4 需真机：归档后工作区行消失、`worktree unarchive` 能恢复、PTY 不被杀。
+
+**只读评审**（codex-ark，`codex exec -s read-only`，2026-11-20，HEAD `a1dbb15b`）：结论“通过，无必修项”，
+4 条建议已全部处理——“`<self>` 不是 CLI 别名，指令必须明说替换成完整 `id:<repoId>::<path>`”（已写进指令）；
+`worktree-delivery` SKILL §5 的通用“先归档后报告”加了 Task Workbench 限定；
+sidebar 勾选透传缺回归用例（已补两条）；README 的 A4/A6 编号与两处“最后一步”措辞（已改）。
+原文归档在 [review-codex-ark-issue-49.md](review-codex-ark-issue-49.md)（路径已换为仓库相对形式，其余未改写）。
+
+**已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts … --maxWorkers=2`）：
+`src/renderer/src/lib/task-workbench`、`src/renderer/src/components/task-workbench`、
+`src/renderer/src/components/github-item-dialog`、`src/renderer/src/components/sidebar/WorktreeContextMenu.deliver-order.test.tsx`、
+`src/renderer/src/hooks/use-task-workbench-view.test.tsx`、`src/renderer/src/i18n/runtime-required-catalog.test.ts`
+（21 个文件 / 382 个用例，全绿）。`tsc --noEmit -p config/tsconfig.tc.web.json` 退出 0；
+`verify-localization-catalogs.mjs` 退出 0。渲染驱动与真机交付未重跑。
+
+**仍未证明**：没有一次“勾选归档 → agent 真的执行 → 行消失 → Restore 恢复”的真机演练；
+归档现在依赖交付会话按指令走到第 8 步，agent 中途停止或被 kill 时工作区仍保留（可人工归档，与之前一致）。
 
 ---
 

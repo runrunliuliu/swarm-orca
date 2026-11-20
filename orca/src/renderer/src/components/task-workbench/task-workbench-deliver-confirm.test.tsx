@@ -27,7 +27,8 @@ afterEach(cleanup)
 
 const DEFAULT_BRANCH_LABEL = 'Default · needs confirmation'
 const REQUIRED_COPY = 'Choose a target branch first.'
-const ARCHIVE_HINT = 'Archiving keeps the checkout and its records; it only hides the row.'
+const ARCHIVE_HINT =
+  'The delivery agent archives this workspace after it reports; find it again under Show archived.'
 
 function renderConfirm(
   props: Partial<Parameters<typeof TaskWorkbenchDeliverConfirm>[0]> = {}

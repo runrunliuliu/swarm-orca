@@ -121,6 +121,12 @@ row. It does not stop terminals or delete the branch; use workspace Sleep when s
 hibernate and resume. The same action is in the workspace context menu, and Restore is in the
 worktree visibility dialog. Do not simulate an archive by editing metadata or running raw Git.
 
+A Task Workbench delivery instruction that was launched with `archiveAfter` owns a different order:
+send the delivery report first, then archive once as the last step, and if that archive fails report
+the failure without changing the delivery verdict (`swarm/docs/design/task-workbench/README.md` §7.12.3).
+This exception is scoped to that instruction; every other delivery still archives when cleanup is
+requested, and reports it as retained.
+
 Physical removal (`worktree rm`) is a separate, destructive outcome that needs an explicit
 instruction naming the workspace, or an explicit “delete it / reclaim the disk”. Do not infer it
 from “done”, “clean up”, “ship it” or a merged PR. Removal deletes the checkout, its retained agent

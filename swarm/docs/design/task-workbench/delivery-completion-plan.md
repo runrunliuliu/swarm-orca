@@ -1,10 +1,12 @@
 # 交付完成：合并、关闭 issue、状态化（技术方案）
 
 状态：**已实现（S1–S5），真机验收未做**。方案与验收口径不变；落地清单、已执行的测试与仍缺的证据
-见 [README §7.12.1–§7.12.2](README.md)。基线：`origin/main` @ `6e3d4bd7`（含 §7.11 交付入口与
+见 [README §7.12.1–§7.12.3](README.md)。基线：`origin/main` @ `6e3d4bd7`（含 §7.11 交付入口与
 §8.10 `taskRecords`）。
 上位记录：[README.md](README.md) §7.11（交付入口）与 §7.4.2（面板版面）；本文是它的下一片，
-不改 §7.11.3 规则 1–7，只重写规则 8（归档归属，见 §3 D2）并关闭 §7.11.6 的两条路由缺口（D5）。
+不改 §7.11.3 规则 1–7，重写规则 8（归档归属，见 §3 D2）并关闭 §7.11.6 的两条路由缺口（D5）。
+**D2 的机制已被 issue #49 改写**：归档不再由 renderer 的观察 hook 执行，而是交付 agent 报告后的
+最后一步；下文原方案保留为决策记录，改写处标出。
 
 ## 0. 摘要
 
@@ -18,8 +20,8 @@
 点交付（勾选范围） → 交付 agent 读 skill → 验证 + 独立评审
                    → 经 PR 集成 →（勾选）合并 PR
                    →（勾选）关闭 issue 并附交付提交
-                   → orca worktree set --workspace-status completed   ← 唯一的写入
-                   → 报告；Orca 观察到完成事实后（勾选）执行归档
+                   → orca worktree set --workspace-status completed   ← 唯一的完成状态写入
+                   → 三段报告 →（勾选）交付 agent 最后一步自己归档（issue #49）
 界面：交付行从 [未读取] 变成 [已交付] PR #n 已合并 · #issue 已关闭；工作区行出现 ● 已完成
 ```
 
@@ -53,7 +55,7 @@
 | --- | --- |
 | 交付启动是既有链路：`launchAgentInNewTab` + 固定指令 + `submit-after-ready` | `lib/task-workbench/task-workbench-deliver-launch.ts:170-198` |
 | 指令要求先读 `swarm/skills/worktree-delivery/SKILL.md`、跑测试、取独立评审、必须经 PR、禁止直推目标分支、禁止写主检出 | 同上 `:101-104` |
-| 指令禁止 agent 自归档 | 同上 `:106`、`:111` |
+| 指令禁止 agent 自归档（issue #49 已改为勾选时由 agent 在报告后执行，见 §3 D2） | 同上 `:106`、`:111` |
 | 一个投影服务两个宿主（事实行 + sidebar 右键） | `components/task-workbench/task-workbench-deliver-state.ts:170`（`projectTaskWorkbenchDeliver`） |
 | 会话标记是 tab 的 `quickCommandLabel = 'DELIVER'` | `task-workbench-deliver-session.ts:28`；写入点 `lib/launch-agent-in-new-tab.ts:303` |
 
@@ -63,7 +65,7 @@
 | --- | --- | --- |
 | 合并 PR | 指令只要求"经 PR 集成"，没有 merge 步骤，也没有合并授权 | `task-workbench-deliver-launch.ts:103-104` |
 | 关闭 issue | 完全缺失；实测一次交付的 PR 用 `Refs #39`，issue 保持 open | 同上（指令全文）+ 现场报告 |
-| 归档 | **明确禁止** agent 执行 | 同上 `:106`、`:111` |
+| 归档 | **明确禁止** agent 执行（issue #49 后改为：勾选时由 agent 在报告后执行，见 §3 D2） | 同上 `:106`、`:111` |
 | 完成状态 | 没有任何写入；没有可供读取的"已完成"事实来源 | 见下 |
 | 交付证据接线 | `deliveryByWorktree` 恒为 `undefined`，交付行永远是 `未读取` | `hooks/use-task-workbench-view.ts:343` |
 | issue 状态渲染 | `tracker.state` 传进视图后无人读 | `github-item-dialog.tsx:256` → `task-workbench-view.ts:196` |
@@ -87,22 +89,31 @@
 - **被否**：默认全自动且不可关（首次误合并无法回滚，且没有二次确认）。
 - **后果**：指令按勾选裁剪；三个勾的组合是验收矩阵的一部分（§8）。
 
-### D2 归档不由 agent 执行，由 Orca 在观察到完成事实后执行
+### D2 归档归属：由交付 agent 在报告后执行（issue #49 改写）
 
-保留 §7.11.3 规则 8 的语义（agent 不归档），把"归档"从 agent 的步骤挪到渲染层：
-勾了 `完成后归档` 时，Orca 观察到该工作区进入 `completed` 且交付事实成立，就执行
-`worktree archive`（既有动作，只隐藏行、不杀 PTY）。
+原方案（已删除）：保留“agent 不归档”，把归档从 agent 的步骤挪到渲染层——勾了 `完成后归档` 时，
+Orca 观察该工作区进入 `completed` 且交付事实成立，就执行 `worktree archive`（既有动作，只隐藏行、
+不杀 PTY）。
 
-- **为什么**：归档会把 agent 自己的会话从列表移走，报告还没看就消失；且 `scripts.archive`
-  是 120s 死线的 shell hook，SSH 路径跑不了 hook，批量归档会一次起 N 个（§7.11.1 已记录）。
-- **被否**：agent 自己 `orca worktree archive`（能实现"交付包含归档"，但代价是把报告藏起来；
-  若以后要这个口径，只需改固定指令 + 保留人工兜底，本文把它记为可切换 policy）。
-- **后果**：`archiveAfter` 变成"交付完成后的自动动作"；应用重启会丢失这个意图（只在启动时
-  记在内存），此时退回"工作区行上的一键归档"，界面必须诚实地区分这两种情况（§6.4）。
+为什么被改写：该意图只存在于 renderer 内存，消费者只有挂在 issue 详情 → Orca tab 的 hook，
+弹窗一关、renderer 一重启即丢；从 sidebar 发起的交付根本没有消费者；观察条件还要等 agent 跑完
+几分钟，那时弹窗早已关闭。实测（PR #48 交付）勾选后未归档，也没有任何提示。
+
+现行方案：`archiveAfter=true` 时指令追加第 8 步，**先报告、后归档**——
+`orca worktree archive --worktree <self> --json`；归档失败只写进报告，不重试、不判交付失败。
+`archiveAfter=false` 保持原句（agent 不归档、由人点）。当初两条反对理由复核后不再成立：
+archive 只隐藏行、不杀 PTY（`cli/specs/worktree-archive.ts`），Restore / `worktree unarchive` 一键恢复；
+`scripts.archive` 那个 120s 死线是 `worktree rm` 的前置门，不是 `worktree archive` 的。
+
+- **被否**（不改）：补持久化字段 + 全局消费者。做得到，但把一个执行者自己就能完成的事
+  变成新的存储与调度面（issue #49 已把这条记为“同源缺陷但本次不做”）。
+- **后果**：归档依赖交付会话自己走到第 8 步；agent 中途停止时工作区保留，人仍可从工作区行归档。
+  同一改动删除了 `lib/task-workbench/task-workbench-deliver-archive-intent.ts` 与
+  `hooks/use-task-workbench-deliver-archive.ts`，因此“重启丢意图”的缺口一并消失。
 
 ### D3 完成事实 = 既有 `workspaceStatus`，写入者是交付 agent，写入路径是既有 CLI
 
-指令最后一步：
+指令的完成状态写入步骤（勾选归档时其后还有第 8 步归档）：
 
 ```bash
 orca worktree set --worktree <self> --workspace-status completed \
@@ -178,7 +189,10 @@ view.tracker.state               ─┘      （issue 状态只做事实行，�
 4. **关闭 issue（勾选时、且任务有 tracker）**：`gh issue close <n> --comment "delivered in <sha> via PR #<n>"`；
    PR 已用 `Closes #n` 自动关闭时只核验，不再重复关闭。
 5. **标记完成（必做）**：`orca worktree set --worktree <self> --workspace-status completed --comment "…"`。
-6. **报告**：已完成 / 未完成 / 未授权三段分开写；不归档、不删、不停终端。
+6. **报告**：已完成 / 未完成 / 未授权三段分开写；不删、不停终端。
+7. **归档（勾选时）**：报告写完之后、作为最后一步执行 `orca worktree archive --worktree <self> --json`；
+   失败只在报告里说明，**不重试、不把交付判成失败**（issue #49）。未勾选时这一步不存在，
+   指令明确要求不归档、由人点。
 
 **停止条件**：任何一步失败即停，报告里必须写明"哪些已发生"，不得继续执行后续写动作；
 不得用 `--force`、不得改目标分支保护、不得替用户 stash/reset/clean（沿用
@@ -226,7 +240,7 @@ S4 已归档。同一行五种形态，证明"状态不靠新词、只靠既有�
 | `未读取` | `[未读取]` + 一句原因 | `交付…` | 状态 chip（若有） | 有 | 证据未接线时的唯一降级 |
 | `可交付` | 事实项（有则显示） | `交付…` | — | 有 | 有 Working agent 时入口禁用并给理由 |
 | `交付中` | `[交付中] 目标分支 · 启动时长` | `打开终端` | — | 有（不阻止） | 第二次点击 reveal，不新建 |
-| `已交付` | `[已交付] PR merged · issue closed · 完成于 …` | `打开会话` | `● 已完成` | 有 | 勾了归档时 Orca 自动执行 |
+| `已交付` | `[已交付] PR merged · issue closed · 完成于 …` | `打开会话` | `● 已完成` | 有 | 勾了归档时由交付 agent 在报告后执行 |
 | `已归档` | 同上，末尾 `已归档` | 不渲染 | `Archived` | 不渲染 | 记录在历史区，事实不丢 |
 
 ## 7. 实施切片
@@ -239,9 +253,9 @@ S4 已归档。同一行五种形态，证明"状态不靠新词、只靠既有�
 | 片 | 改动 | 文件 | 测试 |
 | --- | --- | --- | --- |
 | **S1 投影** | 新增两个状态（`completed` / `delivering` 用既有）与 `已交付` 事实项；判定读 `workspaceStatusId` + `review.state` | `task-workbench-deliver-state.ts`、`task-workbench-view.ts`（`tracker` 注释与可选事实字段） | `task-workbench-deliver-state.test.ts`（每个 fixture 只输出 `{key,fallback}`；证据缺失只出 S0） |
-| **S2 指令 + 确认面** | 四阶段指令、停止条件、三项勾选、i18n | `lib/task-workbench/task-workbench-deliver-launch.ts`、`task-workbench-deliver-confirm.tsx`、六语 `locales/*.json` | `task-workbench-deliver-launch.test.ts`（合并/关闭/标记三句、未勾选不出现、仍禁止归档）、`task-workbench-deliver-confirm.test.tsx`（三项默认值、未勾选裁剪） |
+| **S2 指令 + 确认面** | 四阶段指令、停止条件、三项勾选、i18n | `lib/task-workbench/task-workbench-deliver-launch.ts`、`task-workbench-deliver-confirm.tsx`、六语 `locales/*.json` | `task-workbench-deliver-launch.test.ts`（合并/关闭/标记三句、未勾选不出现、勾选时归档排在报告之后）、`task-workbench-deliver-confirm.test.tsx`（三项默认值、未勾选裁剪） |
 | **S3 事实接线** | 用 `review` 填交付证据、读 `tracker.state`、渲染状态签；关闭后使 item 详情缓存失效 | `hooks/use-task-workbench-view.ts`、`TaskWorkbenchDelivery.tsx`、`github-item-dialog-orca-tab.tsx` | `use-task-workbench-view.test.tsx`（merged/closed/open 三态）、`TaskWorkbenchDelivery.deliver.test.tsx`（五态渲染 + 无来源不渲染） |
-| **S4 归档执行** | 观察到 `completed` ∧ 勾选过归档 → 执行既有 archive；重启后退回一键归档 | `hooks/use-task-workbench-view.ts` 或 `TaskWorkbenchDelivery.tsx` 的完成回调 | 新增用例（只调用一次、未勾选不调用、失败只 toast、不杀 PTY） |
+| **S4 归档执行** | ~~观察到 `completed` ∧ 勾选过归档 → 执行既有 archive~~ → **issue #49 改写**：勾选时指令第 8 步 `orca worktree archive`，先报告后归档，失败只提示 | `lib/task-workbench/task-workbench-deliver-launch.ts`；已删意图模块与观察 hook | `task-workbench-deliver-launch.test.ts`（勾选/未勾选、报告前/后顺序、失败不重试不判失败） |
 | **S5 路由标记** | 结构化 provisional tab 与 host-published 启动参数携带 `quickCommandLabel` | `lib/structured-agent-session-provisional-tab.ts`、`lib/launch-agent-web-host-tab.ts`、`lib/launch-agent-in-new-tab-structured.ts` | 三条路由各一条 marker 用例；`task-workbench-deliver-launch.test.ts` 已有 (a)(b) 用例扩展到 structured/host 路由 |
 
 验证命令（每片按影响面选，不跑全量）：
@@ -261,13 +275,13 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 | A1 | G1 | 点交付 → 目标工作区出现 `DELIVER` 会话，指令为完整四阶段 | 单测（指令文本）+ 真机手工 |
 | A2 | G2 | 勾选合并时指令含 `gh pr merge`，未勾选时**不含**且要求 stop | 单测 |
 | A3 | G2 | 勾选关 issue 时指令含 `gh issue close <n>`，且编号取自视图而不是猜 | 单测 |
-| A4 | G2 | 指令**始终**不包含归档动作；勾选归档只加一句"提醒"或交给 Orca | 单测（回归 §7.11.3 规则 8） |
+| A4 | G2 | 勾选归档 → 指令含 `orca worktree archive --worktree <self>` 且在报告段之后；未勾选 → 不含任何归档命令且仍要求“不归档” | 单测（§3 D2 改写后；回归 §7.11.3 规则 8） |
 | A5 | G1 | 结构化与 host-published 路由也写 `quickCommandLabel`，第二次点击 reveal 不新建 | 单测（三条路由） |
 | A6 | G3 | `completed` ∧ `merged` → 交付行 `已交付`；缺任一 → 不出 `已交付` | 单测 + fixture 渲染 |
 | A7 | G3 | `未读取` 不渲染成"未交付"；无 checks 时不渲染 `0/0` | 单测 |
 | A8 | G3 | 归档后交付行仍显示 `已交付`，入口消失 | 单测 + fixture 渲染 |
 | A9 | G2 | 完成后工作区状态为 `completed`（写入路径 = 既有 `worktree set`） | 单测（指令）+ 真机手工 |
-| A10 | D2 | 勾选归档时，Orca 只在观察到完成事实后执行一次 archive；失败只 toast，不重试 | 单测 |
+| A10 | D2 | 勾选归档时，归档是交付 agent 的最后一步；失败只在报告里说明，不重试、不判交付失败；未勾选时不归档 | 单测（issue #49） |
 
 ## 9. 风险与回退
 
@@ -275,9 +289,9 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 | --- | --- |
 | 勾了合并但目标分支有保护/检查不过 | 指令 stop 并报告，不降级为直推、不改保护 |
 | 误关 issue | 需要显式勾选 + 编号来自视图；关闭后仍可在 GitHub 重开（不在 Orca 做二次写） |
-| 归档过早导致报告没看 | 归档由 Orca 在完成事实之后执行，且 archive 不杀 PTY（§7.10）；会话随时可打开 |
+| 归档过早导致报告没看 | 归档是 agent 自己的最后一步（先报告、后归档），且 archive 不杀 PTY（§7.10）；`unarchive` 可恢复 |
 | 「已完成」被手工误用 | `已交付` 额外要求 `review.state === 'merged'`；单一 `completed` 不构成已交付 |
-| 应用重启丢失"自动归档"意图 | 退回工作区行的一键归档，界面文案区分"已自动归档/可归档" |
+| 交付会话中途停止，归档没执行 | 工作区保留原状，人可从工作区行一键归档；只是少了自动性 |
 | Trae 首条消息不是交付指令 | 本方案不修（D6）；A5 的验收在终端路由上先行，Trae 修复单独授权 |
 
 **回退**：三个勾默认关掉即回到现有行为；完成事实是工作区状态，用户可改回；没有 schema 变更，
@@ -295,7 +309,7 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 
 | 位置 | 原文 | 新文 | 依据 |
 | --- | --- | --- | --- |
-| §7.11.3 规则 8 | 归档最后仍由人点（agent 不归档） | agent 仍不归档；**Orca 在完成事实后执行**（勾选时） | 归档会隐藏 agent 自己的报告；hook/PTY 约束见 §7.11.1 |
+| §7.11.3 规则 8 | 归档最后仍由人点（agent 不归档） | 勾选时由交付 agent 在报告后执行；未勾选时不归档 | 归档不杀 PTY、可 `unarchive`；renderer 意图不跨面板/重启（issue #49） |
 | §7.11.6 bound 1 | structured 路由不写 `quickCommandLabel`，第二次激活会再启动 | 本方案补齐（S5） | D5 |
 | §7.11.6 bound 2 | host-published 路由无 `quickCommandLabel` | 已收窄（S5）：标记写到镜像的本地 tab 行，host wire 仍不携带 | D5 |
 | §7.11.1 结论 | 归档是交付之后的保留动作 | 不变；但"交付完成"现在有可读事实，归档可以被自动化 | D2/D3 |
@@ -309,6 +323,7 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
   locale 切换后的排版、以及三条启动路由在真机上的 marker 持久化。
 - A1/A9 的"真机手工"条目仍未做：实现后跑的是单测（清单见 README §7.12.2），没有一次真实交付演练。
 - 实现新增的缺口（如实记录）：host-published 的标记只写本地镜像行，host wire 不携带，对端设备读不到；
-  S4 的归档意图不跨应用重启；关闭 issue 后没有主动失效 item 详情缓存；es/fr/ja/ko 的新文案是英文回退。
+  ~~S4 的归档意图不跨应用重启~~（issue #49 删除该实现，改为 agent 自己归档）；关闭 issue 后没有主动失效 item 详情缓存；
+  es/fr/ja/ko 的新文案是英文回退。
 - 实现补了四张 harness 渲染图（`ui/impl-20261120-delivered*.png`、`impl-20261120-deliver-confirm.png`，
   见 README §7.12.2）：它们是生产组件的 CDP 截图，不是设计稿，也仍不是真机截图。
