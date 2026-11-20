@@ -170,7 +170,7 @@
       "TaskWorkbenchDeliver": {
         "action": "Deliver…",
         "archiveAfter": "Archive this workspace after delivery",
-        "archiveAfterHint": "Archiving keeps the checkout and its records; it only hides the row.",
+        "archiveAfterHint": "The delivery agent archives this workspace after it reports; find it again under Show archived.",
         "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
         "cancel": "Cancel",
         "close": "Close",
@@ -198,7 +198,6 @@
         "targetBranchRequired": "Choose a target branch first."
       },
       "TaskWorkbenchDelivery": {
-        "archiveFailed": "Delivery completed, but archiving the workspace failed. Archive it from the workspace row.",
         "checksCount": "checks {{value0}}/{{value1}}",
         "collapse": "Collapse",
         "commitCount": "{{value0}} commits",

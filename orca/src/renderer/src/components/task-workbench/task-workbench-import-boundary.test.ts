@@ -75,10 +75,9 @@ const storeFreeSources: SourceFile[] = [
   // the list hook below is the only place that reads the store for it.
   { dir: libDir, file: 'task-workbench-row-activity.ts' },
   { dir: libDir, file: 'task-workbench-workspace-branch.ts' },
-  // §7.12: the delivery evidence selector and the one-shot archive intent are
-  // pure; the hook that performs the archive is the only store reader.
-  { dir: libDir, file: 'task-workbench-delivery-evidence.ts' },
-  { dir: libDir, file: 'task-workbench-deliver-archive-intent.ts' }
+  // §7.12: the delivery evidence selector is pure; the delivery launch (which
+  // is not a shell component) performs any archive the operator ticked.
+  { dir: libDir, file: 'task-workbench-delivery-evidence.ts' }
 ]
 
 /** Value imports that would make the shell read live data. Type imports are
