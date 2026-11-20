@@ -75,6 +75,9 @@ export type AgentHookStatusFreshnessObservation = AgentHookStatusChangeEntry & {
 export type AgentHookProviderSessionIdentity = {
   paneKey: string
   sessionId: string
+  /** The provider's own field name for `sessionId` (`session_id`, `conversation_id`).
+   *  Carried so a stored session reference can say which field it came from. */
+  key?: string
   transcriptPath?: string
   worktreeId?: string
 }

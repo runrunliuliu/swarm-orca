@@ -1,6 +1,7 @@
 # Tasks 工作台开发计划
 
-状态：**P1（= M1）已实现并合入 main**（GitHub issue/PR 的 `Orca` tab）；P3、P4 未开始。阶段状态见 §9。
+状态：**P1（= M1）已实现并合入 main**（GitHub issue/PR 的 `Orca` tab）；P3 未开始；**P4 的 main 数据面已落地**
+（issue #36，见 §9 与设计文档 §8.10），动作层与 M2a 验证未做。
 本文不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权。
 
 关联：[调研与设计](README.md)（数据链就绪度、UI、关系存储）、[任务与工作区模型](../task-workspaces.md)
@@ -315,11 +316,11 @@
 | **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 已实现：1a、1b 与真实 `Orca` tab 均合入 main（GitHub issue/PR）；真机交互验收未做 | `swarm-orca` main `42232cbd`（P1a）→ `e91e115d`（P1b）；父仓库 pin `36e06e3a`、`dev_liuliu` merge `08ce3fa7`；线上构件 `0.1.0+39a6ecbc2818` 于 2026-11-17 重启后核验（`buildId` 一致、`source=pointer`、`pointer.state=ok`）。缺口：只有 `tests/tools/task-workbench-rendered` 的渲染证据，无交互验收；仓库内未找到 P1b 独立评审回执 |
 | **P3 列表主轴**（= M2b renderer） | 未开始（其前置薄切片已完成，见下一行） | — |
 | **P3 前置薄切片：GitHub 列表行内活动徽标**（issue #27） | 已实现（本仓库；不分组、不重排、零持久化）；有 harness 的 CDP 截图（G1/G2），无真机验收 | 纯 selector `lib/task-workbench/task-workbench-row-activity.ts` + 列表页批量 hook `components/use-task-page-github-row-activity.ts` + 徽标 `components/task-page/github/RowActivityBadge.tsx`；CDP 截图 `ui/impl-github-rows-badge-{wide,narrow}.png`（harness fixture `d6_github_task_rows`）；单测覆盖 README §7.2 的并集规则（working+done → Working、任一 needs-you、归档不参与、failure/cancellation/sessionBoundary 不算 Delivered、outcome 缺失算 done、0 工作区不产徽标、有工作区无 agent → Workspace）；行级归属按 repoId+linkedIssue/linkedPR 反查（identity 的 GitHub key 是 owner/repo 级） |
-| **P4 持久化**（= M2a + M2b main） | 未开始 | — |
+| **P4 持久化**（= M2a + M2b main） | 部分：`taskRecords` domain、绑定写入、移除前结算、读取投影与降级（issue #36）；动作层、启动对账、M2a round-trip 未做 | 落点与偏离见 [设计文档 §8.10](README.md#810-p4-已落地切片issue-362026-11-19)；单测：`shared/task-records*`、`loading-store/task-records-*`、`main/task-records/*`、`main/ipc/task-records.test.ts`、renderer `task-workbench-history-merge` / `task-workbench-session-totals`；`tc:node`、`tc:web`、`check:code-quality:changed` 通过；未做真机渲染验收 |
 | T1 Agent 派生树（旁路） | 未开始 | — |
 | M0 决策冻结 | 部分：D12（`Delivered` = agent done）已定，D1/D3/D5/D6 待定 | — |
 | M1 只读面板（= P1） | 已实现（GitHub issue/PR；Linear/Jira/GitLab 未接） | 见 P1 行 |
 | M2a 存储兼容验证 | 未开始 | — |
-| M2b 列表主轴 + 落库 | 未开始 | — |
+| M2b 列表主轴 + 落库 | 部分（只做 main 侧数据面，见 P4 行） | 同上 |
 | M3 交付证据聚合 | 未开始 | — |
 | M4 跨端 | 未开始（未估） | — |

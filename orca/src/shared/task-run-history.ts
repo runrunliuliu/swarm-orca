@@ -1,24 +1,18 @@
-import { splitWorktreeIdForFilesystem } from './worktree/id'
-
 /**
- * The tiny worktree → task ledger behind issue #31's "ran before, but is not
- * here now" state (S2). It records only what a deleted worktree would otherwise
- * take with it: which task it belonged to, where its checkout was, and whether
- * it is active, archived or deleted.
+ * The issue #31 S2 worktree → task ledger, kept as a **read-only legacy input**.
  *
- * Why not `WorktreeMeta`: that row is deleted with the worktree (and its 30-day
- * GC), which is exactly the loss this ledger exists to prevent. Why not the full
- * `taskRecords` domain from the design doc: that is the M2b storage phase; this
- * is the one-line mapping the issue asks for, and it stores no runtime state or
- * user intent.
+ * Issue #36 replaced it with the `taskRecords` domain: the ledger stored one
+ * line per (task, worktree) and nothing about sessions or settled usage, and two
+ * durable answers to "which task did this workspace run" is exactly the drift the
+ * design forbids. This build therefore never writes the ledger; it reads it once
+ * at load to seed `taskRecords` (`task-records-legacy-migration.ts`), and leaves
+ * the stored key untouched so an older build can still read its own rows.
  *
- * Absence is not zero: a record that never saw a branch leaves it undefined, and
- * a missing ledger is `undefined`, never an empty "never ran" claim.
+ * Only the load-boundary normalization survives here, because that is all the
+ * migration needs.
  */
 export const TASK_RUN_HISTORY_VERSION = 1
 
-/** One task link of one worktree. A worktree can be linked to an issue and a PR;
- *  each task page gets its own record, because they are separate tasks. */
 export type TaskRunHistoryItemType = 'issue' | 'pr'
 
 export type TaskRunHistoryRecord = {
@@ -44,156 +38,14 @@ export type TaskRunHistoryState = {
   records: TaskRunHistoryRecord[]
 }
 
-export type TaskRunHistoryTaskQuery = {
-  repoId: string
-  itemType: TaskRunHistoryItemType
-  number: number
-}
-
-export type TaskRunHistoryTaskView = {
-  records: TaskRunHistoryRecord[]
-}
-
 export const EMPTY_TASK_RUN_HISTORY: TaskRunHistoryState = {
   version: TASK_RUN_HISTORY_VERSION,
   records: []
 }
 
-/** Bounds. The ledger is a convenience, not an audit log: only deleted rows are
- *  capped (oldest activity first). Active/archived rows are bounded by the real
- *  worktree count and are never pruned while their workspace exists. */
+/** Kept identical to the writing build's cap so a migrated profile cannot grow
+ *  past what the previous release would have stored. */
 export const TASK_RUN_HISTORY_MAX_DELETED_RECORDS = 1500
-
-type UpsertInput = {
-  repoId: string
-  itemType: TaskRunHistoryItemType
-  number: number
-  worktreeId: string
-  path?: string
-  branch?: string
-  state: TaskRunHistoryRecord['state']
-  lastActivityAt?: number
-  now: number
-}
-
-/** Falls back to the locator's own path when the caller did not pass one. */
-export function worktreePathFromId(worktreeId: string): string {
-  return splitWorktreeIdForFilesystem(worktreeId)?.worktreePath ?? worktreeId
-}
-
-export function taskRunHistoryKey(record: {
-  repoId: string
-  itemType: TaskRunHistoryItemType
-  number: number
-  worktreeId: string
-}): string {
-  return `${record.repoId}:${record.itemType}:${record.number}:${record.worktreeId}`
-}
-
-/** Insert or update one record. Returns the next state and whether anything
- *  changed, so a comment/pin write does not schedule a ledger write. */
-export function upsertTaskRunHistoryRecord(
-  state: TaskRunHistoryState | undefined,
-  input: UpsertInput
-): { state: TaskRunHistoryState; changed: boolean } {
-  const current = state ?? EMPTY_TASK_RUN_HISTORY
-  const key = taskRunHistoryKey(input)
-  const index = current.records.findIndex((record) => taskRunHistoryKey(record) === key)
-  const existing = index === -1 ? undefined : current.records[index]
-  const path = input.path ?? existing?.path ?? worktreePathFromId(input.worktreeId)
-  const branch = input.branch ?? existing?.branch
-  const lastActivityAt = input.lastActivityAt ?? existing?.lastActivityAt
-  const isFirst = existing === undefined
-  const stateChanged = existing?.state !== input.state
-
-  if (
-    !isFirst &&
-    !stateChanged &&
-    existing.path === path &&
-    existing.branch === branch &&
-    existing.lastActivityAt === lastActivityAt
-  ) {
-    return { state: current, changed: false }
-  }
-
-  const now = input.now
-  const next: TaskRunHistoryRecord = {
-    repoId: input.repoId,
-    itemType: input.itemType,
-    number: input.number,
-    worktreeId: input.worktreeId,
-    path,
-    ...(branch ? { branch } : {}),
-    state: input.state,
-    firstSeenAt: existing?.firstSeenAt ?? now,
-    updatedAt: now,
-    ...(input.state === 'active' ? { activeAt: existing?.activeAt ?? now } : {}),
-    ...(existing?.activeAt !== undefined && input.state !== 'active'
-      ? { activeAt: existing.activeAt }
-      : {}),
-    ...(input.state === 'archived' ? { archivedAt: existing?.archivedAt ?? now } : {}),
-    ...(existing?.archivedAt !== undefined && input.state !== 'archived'
-      ? { archivedAt: existing.archivedAt }
-      : {}),
-    ...(input.state === 'deleted' ? { deletedAt: existing?.deletedAt ?? now } : {}),
-    ...(lastActivityAt === undefined ? {} : { lastActivityAt })
-  }
-  const records = [...current.records]
-  if (index === -1) {
-    records.push(next)
-  } else {
-    records[index] = next
-  }
-  return { state: { version: TASK_RUN_HISTORY_VERSION, records: prune(records) }, changed: true }
-}
-
-/** Mark every record of a worktree deleted; keeps the identity for the task page. */
-export function markTaskRunHistoryDeleted(
-  state: TaskRunHistoryState | undefined,
-  worktreeId: string,
-  now: number
-): { state: TaskRunHistoryState; changed: boolean } {
-  const current = state ?? EMPTY_TASK_RUN_HISTORY
-  let changed = false
-  const records = current.records.map((record) => {
-    if (record.worktreeId !== worktreeId || record.state === 'deleted') {
-      return record
-    }
-    changed = true
-    return { ...record, state: 'deleted' as const, updatedAt: now, deletedAt: now }
-  })
-  return changed
-    ? { state: { version: TASK_RUN_HISTORY_VERSION, records }, changed }
-    : { state: current, changed: false }
-}
-
-/** Records of one task, newest activity first (the page's own order is decided
- *  by the caller; this only makes the input deterministic). */
-export function taskRunHistoryForTask(
-  state: TaskRunHistoryState | undefined,
-  args: { repoId: string; itemType: TaskRunHistoryItemType; number: number }
-): TaskRunHistoryRecord[] {
-  return (state?.records ?? [])
-    .filter(
-      (record) =>
-        record.repoId === args.repoId &&
-        record.itemType === args.itemType &&
-        record.number === args.number
-    )
-    .sort((left, right) => (right.lastActivityAt ?? right.updatedAt) - (left.lastActivityAt ?? left.updatedAt))
-}
-
-function prune(records: TaskRunHistoryRecord[]): TaskRunHistoryRecord[] {
-  const live = records.filter((record) => record.state !== 'deleted')
-  const deleted = records
-    .filter((record) => record.state === 'deleted')
-    .sort(
-      (left, right) =>
-        (right.lastActivityAt ?? right.updatedAt) - (left.lastActivityAt ?? left.updatedAt)
-    )
-    .slice(0, TASK_RUN_HISTORY_MAX_DELETED_RECORDS)
-  return [...live, ...deleted]
-}
 
 /** Load-boundary normalization: malformed rows are dropped, never guessed. */
 export function normalizeTaskRunHistory(value: unknown): TaskRunHistoryState {
@@ -217,9 +69,7 @@ export function normalizeTaskRunHistory(value: unknown): TaskRunHistoryState {
       !Number.isFinite(record.number) ||
       typeof record.worktreeId !== 'string' ||
       typeof record.path !== 'string' ||
-      (record.state !== 'active' &&
-        record.state !== 'archived' &&
-        record.state !== 'deleted') ||
+      (record.state !== 'active' && record.state !== 'archived' && record.state !== 'deleted') ||
       typeof record.firstSeenAt !== 'number' ||
       typeof record.updatedAt !== 'number'
     ) {
@@ -244,4 +94,16 @@ export function normalizeTaskRunHistory(value: unknown): TaskRunHistoryState {
     })
   }
   return { version: TASK_RUN_HISTORY_VERSION, records: prune(records) }
+}
+
+function prune(records: TaskRunHistoryRecord[]): TaskRunHistoryRecord[] {
+  const live = records.filter((record) => record.state !== 'deleted')
+  const deleted = records
+    .filter((record) => record.state === 'deleted')
+    .sort(
+      (left, right) =>
+        (right.lastActivityAt ?? right.updatedAt) - (left.lastActivityAt ?? left.updatedAt)
+    )
+    .slice(0, TASK_RUN_HISTORY_MAX_DELETED_RECORDS)
+  return [...live, ...deleted]
 }

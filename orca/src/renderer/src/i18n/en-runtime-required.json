@@ -140,8 +140,6 @@
         "cd8c34aac1": "gh",
         "cf82170065": "Could not star the repo. Make sure"
       },
-      "TaskPage": {
-      },
       "TaskWorkbenchAgentRow": {
         "notWired": "Not available in this version",
         "openTerminal": "Open terminal",
@@ -215,6 +213,44 @@
         },
         "reviewDetail": "Review state: {{value0}}"
       },
+      "TaskWorkbenchHistory": {
+        "agentsKnown": "{{value0}} agents",
+        "agentsUnknown": "agents unknown",
+        "archivedMany": "{{value0}} archived workspaces; their content is still on this machine.",
+        "archivedOne": "1 workspace archived; its content is still on this machine.",
+        "collapse": "Collapse",
+        "copyResume": "Copy resume command",
+        "details": "Details",
+        "heading": "Run history",
+        "lastActivity": "last {{value0}}",
+        "locateTrace": "Locate trace",
+        "newBadge": "NEW",
+        "notWired": "Not available in this version",
+        "run": {
+          "cancellation": "cancelled",
+          "failure": "failed",
+          "success": "delivered"
+        },
+        "runDone": "done",
+        "session": {
+          "noResume": "Resume unavailable: its workspace was removed.",
+          "noTranscript": "no transcript path recorded",
+          "transcript": "transcript path recorded"
+        },
+        "settled": "settled",
+        "state": {
+          "archived": "Archived",
+          "removed": "Removed"
+        },
+        "tokensKnown": "{{value0}} tokens",
+        "tokensUnknown": "tokens unknown",
+        "totalScope": "Total: every run",
+        "traceLost": "Workspace deleted; the recorded trace is out of reach.",
+        "unverified": "not verified",
+        "wallMeasured": "{{value0}} wall",
+        "wallPartial": "{{value0}} wall (partial)",
+        "wallUnknown": "wall unknown"
+      },
       "TaskWorkbenchPanel": {
         "createWorkspace": "Create workspace",
         "emptyBody": "Create a workspace to start an agent on this task.",
@@ -242,6 +278,7 @@
           "disabled": "unavailable · disabled",
           "no_matching_session": "unavailable · no_matching_session",
           "remote_host": "unavailable · remote_host",
+          "scan_failed": "unavailable · scan_failed",
           "unattributed": "unavailable · unattributed",
           "unpriced": "unavailable · unpriced"
         },
@@ -251,6 +288,7 @@
           "disabled": "Not enabled",
           "no_matching_session": "No matching session",
           "remote_host": "Remote host",
+          "scan_failed": "Scan failed",
           "unattributed": "Unattributed",
           "unpriced": "Unpriced"
         },

@@ -44,6 +44,7 @@ const STATUS_COPY: Record<UsageStatus, string> = {
   ambiguous_session: 'unavailable · ambiguous_session',
   no_matching_session: 'unavailable · no_matching_session',
   remote_host: 'unavailable · remote_host',
+  scan_failed: 'unavailable · scan_failed',
   unattributed: 'unavailable · unattributed'
 }
 
@@ -55,6 +56,7 @@ const REASON_COPY: Record<SpendReason, string> = {
   ambiguous_session: 'More than one session matches this task, so usage cannot be attributed.',
   no_matching_session: 'No session matches this task yet, so there is nothing to total.',
   remote_host: 'This workspace runs on a remote host, where usage is not collected yet.',
+  scan_failed: 'The usage scan failed, so this figure could not be read.',
   unattributed: 'Some sessions could not be tied to this task.'
 }
 

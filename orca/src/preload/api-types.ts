@@ -64,7 +64,7 @@ import type { UpdaterApi } from './api/updater-api'
 import type { WorkspaceCleanupApi, WorkspaceSpaceApi } from './api/workspace-cleanup-api'
 import type { LocalhostWorktreeLabelsApi, WorkspacePortsApi } from './api/workspace-port-api'
 import type { WorkspaceSessionApi } from './api/workspace-session-api'
-import type { TaskRunHistoryApi } from './api/task-run-history-api'
+import type { TaskRecordsApi } from './api/task-records-api'
 import type { FolderWorkspacesApi, SparsePresetsApi, WorktreeApi } from './api/worktree-api'
 
 // Flattens contracts that share one PreloadApi key: an intersection is not type-identical to the flat shape.
@@ -81,7 +81,7 @@ export type PreloadApi = {
   folderWorkspaces: FolderWorkspacesApi
   sparsePresets: SparsePresetsApi
   worktrees: WorktreeApi
-  taskRunHistory: TaskRunHistoryApi
+  taskRecords: TaskRecordsApi
   workspaceCleanup: WorkspaceCleanupApi
   workspaceSpace: WorkspaceSpaceApi
   workspacePorts: WorkspacePortsApi

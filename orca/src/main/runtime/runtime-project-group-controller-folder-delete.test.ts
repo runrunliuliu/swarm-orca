@@ -71,11 +71,24 @@ describe('RuntimeProjectGroupController.deleteFolderWorkspace', () => {
     await expect(deps.controller.deleteFolderWorkspace('ws-1')).resolves.toEqual({ deleted: true })
 
     expect(deps.teardownFolderWorkspacePtys).toHaveBeenCalledWith('folder:ws-1', 'ssh-1')
-    expect(deps.cleanupRemovedFolderWorkspaceState).toHaveBeenCalledWith('folder:ws-1')
+    expect(deps.cleanupRemovedFolderWorkspaceState).toHaveBeenCalledWith('folder:ws-1', undefined)
     expect(deps.teardownFolderWorkspacePtys.mock.invocationCallOrder[0]).toBeLessThan(
       deps.removeFolderWorkspace.mock.invocationCallOrder[0]!
     )
     expect(deps.notifyReposChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the catalog row owner to the cleanup so only that host settles', async () => {
+    const deps = createController(() => 'ssh-1', [
+      makeFolderWorkspace({ executionHostId: 'ssh:remote-a' })
+    ])
+
+    await expect(deps.controller.deleteFolderWorkspace('ws-1')).resolves.toEqual({ deleted: true })
+
+    expect(deps.cleanupRemovedFolderWorkspaceState).toHaveBeenCalledWith(
+      'folder:ws-1',
+      'ssh:remote-a'
+    )
   })
 
   it('still deletes when the folder host is ambiguous, skipping only the PTY sweep', async () => {
@@ -87,7 +100,7 @@ describe('RuntimeProjectGroupController.deleteFolderWorkspace', () => {
     await expect(deps.controller.deleteFolderWorkspace('ws-1')).resolves.toEqual({ deleted: true })
 
     expect(deps.teardownFolderWorkspacePtys).not.toHaveBeenCalled()
-    expect(deps.cleanupRemovedFolderWorkspaceState).toHaveBeenCalledWith('folder:ws-1')
+    expect(deps.cleanupRemovedFolderWorkspaceState).toHaveBeenCalledWith('folder:ws-1', undefined)
     expect(deps.removeFolderWorkspace).toHaveBeenCalledWith('ws-1')
     warn.mockRestore()
   })

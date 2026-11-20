@@ -263,6 +263,7 @@ export abstract class AgentHookServerListeners extends AgentHookServerState {
         providerSessions.push({
           paneKey,
           sessionId: enriched.providerSession.id,
+          key: enriched.providerSession.key,
           ...(enriched.providerSession.transcriptPath
             ? { transcriptPath: enriched.providerSession.transcriptPath }
             : {}),

@@ -19,6 +19,7 @@ export type UsageStatus =
   | 'ambiguous_session'
   | 'no_matching_session'
   | 'remote_host'
+  | 'scan_failed'
   | 'unattributed'
 
 /** Stable display order: the available state first, then absence reasons in the
@@ -30,6 +31,7 @@ export const USAGE_STATUS_ORDER: readonly UsageStatus[] = [
   'ambiguous_session',
   'no_matching_session',
   'remote_host',
+  'scan_failed',
   'unattributed'
 ]
 
@@ -65,6 +67,7 @@ export const USAGE_STATUS_WORD: Record<UsageStatus, string> = {
   // Not "No session": a session may exist and simply not match this task.
   no_matching_session: 'No matching session',
   remote_host: 'Remote host',
+  scan_failed: 'Scan failed',
   unattributed: 'Unattributed'
 }
 

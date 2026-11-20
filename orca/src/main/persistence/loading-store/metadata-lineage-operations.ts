@@ -15,7 +15,10 @@ import type { WriteSchedulingOperations } from './write-scheduling'
 import type { SessionHostPartitionOperations } from './session-host-partitions'
 import { invalidateLocalWorktreeMetadataPruneInputs } from '../../local-worktree-metadata-prune-gate'
 import { scheduleSave } from './write-scheduling'
-import { persistTaskRunHistory, recordTaskRunLinks, recordTaskRunWorktreeDeleted } from './task-run-history-persistence'
+import {
+  recordTaskRecordsForWorktree,
+  recordTaskRecordsOnRemoval
+} from './task-records-metadata-hooks'
 import {
   hasPersistedWorkspaceSession,
   partitionOwnsWorktreeTabs,
@@ -40,7 +43,7 @@ import {
   type NativeLocalWorktreeMetadataScanExpectation
 } from '../tracking-repos/missing-local-worktree-metadata-pruning'
 
-type MetadataLineageOperationsRuntime = Pick<StoreRuntimeState, 'state'>
+type MetadataLineageOperationsRuntime = Pick<StoreRuntimeState, 'state' | 'taskRecordsUsageSource'>
 
 const metadataLineageOperationsContext = Symbol('MetadataLineageOperations')
 type MetadataLineageOperationsContext = {
@@ -87,13 +90,10 @@ export class MetadataLineageOperations {
       executionHostId,
       meta
     )
-    this.recordTaskRunFor(worktreeId, updated)
+    // The merged row, not the legacy projection: a second owner of the same
+    // locator must record its own links and host (issue #36 review B2).
+    recordTaskRecordsForWorktree(this[metadataLineageOperationsContext], worktreeId, updated)
     return updated
-  }
-
-  private recordTaskRunFor(worktreeId: string, meta: WorktreeMeta): void {
-    const { runtime, scheduling } = this[metadataLineageOperationsContext]
-    persistTaskRunHistory(scheduling, recordTaskRunLinks(runtime, worktreeId, meta))
   }
 
   getAllWorktreeMeta(): Record<string, WorktreeMeta> {
@@ -126,16 +126,30 @@ export class MetadataLineageOperations {
     const updated = mergeWorktreeMetaForWrite(stored, meta)
     state.worktreeMeta[worktreeId] = updated
     scheduleSave(this[metadataLineageOperationsContext].scheduling, ['worktreeMeta'])
-    this.recordTaskRunFor(worktreeId, updated)
+    recordTaskRecordsForWorktree(this[metadataLineageOperationsContext], worktreeId, updated)
     return updated
   }
 
   removeWorktreeMeta(worktreeId: string, hostId?: ExecutionHostId | null): void {
-    // Keep the ledger before the metadata row is deleted (issue #31 S2): the
-    // record is the only thing that still knows which task this checkout ran.
-    const { runtime, scheduling } = this[metadataLineageOperationsContext]
-    const storedMeta = runtime.state.worktreeMeta[worktreeId]
-    persistTaskRunHistory(scheduling, recordTaskRunWorktreeDeleted(runtime, worktreeId, storedMeta))
+    // Bind and settle before the metadata row is deleted (issue #36): after this
+    // point nothing can say which task the checkout ran, and the usage rollup it
+    // contributed to is no longer readable. A host-qualified removal reads that
+    // owner's canonical row — the legacy projection may belong to another host —
+    // and settles only that owner's binding.
+    const removalMeta = hostId
+      ? getWorktreeMetaForHostOperation(
+          this[metadataLineageOperationsContext].runtime,
+          this[metadataLineageOperationsContext].scheduling,
+          worktreeId,
+          hostId
+        )
+      : this[metadataLineageOperationsContext].runtime.state.worktreeMeta[worktreeId]
+    recordTaskRecordsOnRemoval(
+      this[metadataLineageOperationsContext],
+      worktreeId,
+      removalMeta,
+      hostId ?? undefined
+    )
     // A host-qualified removal names the owner; the persisted host is the fallback.
     const persistedOwner =
       this[metadataLineageOperationsContext].runtime.state.worktreeMeta[worktreeId]?.hostId

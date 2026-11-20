@@ -17671,6 +17671,17 @@
           "success": "delivered",
           "failure": "failed",
           "cancellation": "cancelled"
+        },
+        "settled": "settled",
+        "state": {
+          "removed": "Removed",
+          "archived": "Archived"
+        },
+        "unverified": "not verified",
+        "session": {
+          "transcript": "transcript path recorded",
+          "noTranscript": "no transcript path recorded",
+          "noResume": "Resume unavailable: its workspace was removed."
         }
       },
       "TaskWorkbenchPanel": {
@@ -17702,7 +17713,8 @@
           "ambiguous_session": "unavailable · ambiguous_session",
           "no_matching_session": "unavailable · no_matching_session",
           "remote_host": "unavailable · remote_host",
-          "unattributed": "unavailable · unattributed"
+          "unattributed": "unavailable · unattributed",
+          "scan_failed": "unavailable · scan_failed"
         },
         "notWired": "Not available in this version",
         "providerCost": "${{value0}}",
@@ -17713,7 +17725,8 @@
           "ambiguous_session": "Multiple matches",
           "no_matching_session": "No matching session",
           "remote_host": "Remote host",
-          "unattributed": "Unattributed"
+          "unattributed": "Unattributed",
+          "scan_failed": "Scan failed"
         }
       },
       "TaskWorkbenchWorkspaces": {

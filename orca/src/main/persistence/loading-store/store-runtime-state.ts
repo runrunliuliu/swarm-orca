@@ -21,6 +21,7 @@ import type {
 } from '../scheduling-automations/automation-owner-projection'
 import type { ProfileStatePersistenceAuthority } from './profile-state-authority'
 import type { AutomationRun } from '../../../shared/automations-types'
+import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
 
 export type DurableProfileStateMutation<T> = {
   value: T
@@ -71,6 +72,8 @@ export class StoreRuntimeState {
   readonly gitUsernameCache = new Map<string, string>()
   readonly protectedSecrets = new ProtectedSecretPersistence()
   loadNeedsSave = false
+  /** Bound by main startup once the four usage stores exist (issue #36). */
+  taskRecordsUsageSource: TaskRecordsUsageSource | null = null
   flushOrThrow!: () => void
   runDurableMutation!: <T>(mutate: () => DurableProfileStateMutation<T>) => Promise<T>
   settingsChangeListeners = new Set<

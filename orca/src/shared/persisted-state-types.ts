@@ -24,6 +24,7 @@ import type { WorkspaceLineage, WorktreeLineage } from './worktree/lineage-types
 import type { WorktreeMeta } from './worktree/meta-types'
 import type { WorkspaceSessionState } from './workspace-session-state-types'
 import type { TaskRunHistoryState } from './task-run-history'
+import type { TaskRecordsState } from './task-records-types'
 
 export type LegacyPaneKeyAliasEntry = {
   ptyId: string
@@ -77,7 +78,11 @@ export type PersistedState = {
   retiredWorktreeNamesByNamespace?: Record<string, RetiredNameRegistry>
   /** Per paired device last tab selection by worktree; keeps mobile navigation across host restarts. */
   mobileClientTabSelectionsByDeviceId?: PersistedMobileClientTabSelections
-  /** Worktree → task ledger kept after archive/delete (issue #31 S2). */
+  /** Task entity + binding set + settled usage (issue #36, design doc §8.3). */
+  taskRecords?: TaskRecordsState
+  /** Legacy worktree → task ledger (issue #31 S2). Read once to seed
+   *  `taskRecords`; no longer written, and kept in place so an older build can
+   *  still read its own rows. */
   taskRunHistory?: TaskRunHistoryState
   worktreeMeta: Record<string, WorktreeMeta>
   /** Canonical host/instance metadata; optional for legacy profiles. */

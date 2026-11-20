@@ -19,6 +19,8 @@ import { CodexUsageStore } from '../codex-usage/store'
 import { OpenCodeUsageStore } from '../opencode-usage/store'
 import { MuseUsageStore } from '../muse-usage/store'
 import { installRepoMaintenanceIdleGate } from '../repo-maintenance-idle-gate'
+import { createTaskRecordsUsageSource } from '../task-records/task-records-worktree-usage'
+import { usageProviderForPaneKey } from '../task-records/task-records-pane-provider'
 import { mainProcessState as state } from './main-process-state'
 
 export function initializeMainProcessObservers(): void {
@@ -136,4 +138,20 @@ export function initializeMainProcessObservers(): void {
   state.codexUsage = new CodexUsageStore(store)
   state.openCodeUsage = new OpenCodeUsageStore(store)
   state.museUsage = new MuseUsageStore(store)
+  // Task records settle a worktree's usage before its row is deleted (issue
+  // #36). The source is bound here because the four usage stores do not exist
+  // when the Store is constructed; until this line a removal settles nothing.
+  store.setTaskRecordsUsageSource(
+    createTaskRecordsUsageSource({
+      stores: {
+        claude: state.claudeUsage,
+        codex: state.codexUsage,
+        opencode: state.openCodeUsage,
+        muse: state.museUsage
+      },
+      sessionIdentities: () => agentHookServer.getProviderSessionIdentities(),
+      providerForPaneKey: (paneKey) =>
+        usageProviderForPaneKey(store.getWorkspaceSessionPartitions(), paneKey)
+    })
+  )
 }

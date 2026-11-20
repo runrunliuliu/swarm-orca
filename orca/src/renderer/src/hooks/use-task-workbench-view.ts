@@ -8,7 +8,7 @@ import type { TaskSourceContext } from '../../../shared/task-source-context'
 import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
 import { projectMissingWorkspace } from '@/components/dashboard/project-missing-workspace'
 import type { TaskWorkbenchView } from '@/components/task-workbench/task-workbench-view'
-import { useTaskRunHistory } from './use-task-run-history'
+import { useTaskRecords } from './use-task-records'
 import {
   resolveTaskIdentity,
   selectTaskItemWorktrees
@@ -16,7 +16,12 @@ import {
 import type { TaskWorkbenchItem } from '@/lib/task-workbench/task-workbench-selector-types'
 import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspace-branch'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
-import { mergeTaskRunHistory } from '@/lib/task-workbench/task-workbench-history-merge'
+import { mergeTaskRecordHistory } from '@/lib/task-workbench/task-workbench-history-merge'
+import {
+  sessionTokenTotals,
+  sessionTokensFor,
+  type SessionTokenClaim
+} from '@/lib/task-workbench/task-workbench-session-totals'
 import {
   worktreeUsageKey,
   type JoinAgentInput,
@@ -103,12 +108,39 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   // (issue #38).
   const item = useMemo<TaskWorkbenchItem>(() => ({ type: itemType, number }), [itemType, number])
 
-  // The task's own run ledger (issue #31 S2), read before the identity because a
+  // The task's own durable record (issue #36), read before the identity because a
   // deleted workspace is still evidence that this item ran: with no provider
-  // identity on the page and no workspace left, the ledger is the only thing that
+  // identity on the page and no workspace left, the record is the only thing that
   // can name the closed task instead of showing the never-started notice (issue
-  // #38 review). The records are already scoped to this item by the main process.
-  const runHistory = useTaskRunHistory(repoId === null ? null : { repoId, itemType, number })
+  // #38 review). The page's provider is passed when it has one, so the lookup is
+  // exact instead of the ambiguous provider-less suffix scan.
+  const taskRecord = useTaskRecords(
+    repoId === null
+      ? null
+      : {
+          repoId,
+          itemType,
+          number,
+          ...(taskSourceContext?.provider ? { provider: taskSourceContext.provider } : {})
+        },
+    // Any change to this repo's workspace list can change the record: a removal
+    // settles it, an archive rewrites a binding.
+    worktrees
+  )
+
+  // A binding the store no longer lists is a deleted workspace; the identity
+  // selector may name the task after it when no live or archived row is left
+  // (issue #38).
+  const removedWorktreeIds = useMemo(() => {
+    const record = taskRecord.record
+    if (!record || worktrees === undefined) {
+      return []
+    }
+    const live = new Set(worktrees.map((worktree) => worktree.id))
+    return record.bindings
+      .filter((binding) => !live.has(binding.worktreeId))
+      .map((binding) => binding.worktreeId)
+  }, [taskRecord.record, worktrees])
 
   // Provenance the selectors read, projected once. Archived rows are handed over
   // as such; since issue #31 they are a fallback identity rather than a refusal,
@@ -131,12 +163,10 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       resolveTaskIdentity({
         taskSourceContext: taskSourceContext ?? null,
         item,
-        historyWorktreeIds: runHistory.records
-          .filter((record) => record.state === 'deleted')
-          .map((record) => record.worktreeId),
+        historyWorktreeIds: removedWorktreeIds,
         worktrees: identityWorktrees
       }),
-    [identityWorktrees, taskSourceContext, item, runHistory.records]
+    [identityWorktrees, taskSourceContext, item, removedWorktreeIds]
   )
 
   // The task's workspaces are chosen per item, not from the identity's name: the
@@ -183,7 +213,6 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   const snapshot = useLiveDashboardSnapshot({
     includeArchivedWorktreeIds: archivedTaskWorktreeIds
   })
-
   return useMemo<TaskWorkbenchView | null>(() => {
     // No identity means there is nothing to name the tab after: that is the one
     // case the identity selector returns null for, and `identity` is a required
@@ -236,27 +265,32 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     // `sessionId` two providers both claim — stays absent, and the usage
     // selector turns absence into `unattributed`, never into a fabricated share
     // (README §7.5).
-    const sessionTotals = new Map<string, number | null>()
-    const record = (sessionId: string, tokens: number): void => {
-      sessionTotals.set(sessionId, sessionTotals.has(sessionId) ? null : tokens)
-    }
-    for (const session of claudeSessions) {
-      record(session.sessionId, claudeSessionTokens(session))
-    }
-    for (const session of codexSessions) {
-      record(session.sessionId, session.totalTokens)
-    }
-    for (const session of openCodeSessions) {
-      record(session.sessionId, session.totalTokens)
-    }
-    for (const session of museSessions) {
-      record(session.sessionId, session.totalTokens)
-    }
+    // Same session id under two providers is ambiguous, not additive; see
+    // `sessionTokenTotals`, which owns that rule and its test.
+    const claims: SessionTokenClaim[] = [
+      ...claudeSessions.map((session) => ({
+        sessionId: session.sessionId,
+        tokens: claudeSessionTokens(session)
+      })),
+      ...codexSessions.map((session) => ({
+        sessionId: session.sessionId,
+        tokens: session.totalTokens
+      })),
+      ...openCodeSessions.map((session) => ({
+        sessionId: session.sessionId,
+        tokens: session.totalTokens
+      })),
+      ...museSessions.map((session) => ({
+        sessionId: session.sessionId,
+        tokens: session.totalTokens
+      }))
+    ]
+    const sessionTotals = sessionTokenTotals(claims)
     const agentUsage: AgentUsageEntry[] = []
     for (const worktreeId of activeIds) {
       for (const card of cards.get(worktreeId) ?? []) {
         const sessionId = agentStatusByPaneKey[card.paneKey]?.providerSession?.id
-        const tokens = sessionId ? sessionTotals.get(sessionId) : null
+        const tokens = sessionTokensFor(sessionTotals, sessionId)
         if (typeof tokens === 'number') {
           agentUsage.push({ paneKey: card.paneKey, session: { tokens } })
         }
@@ -311,16 +345,22 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       // reports `recent-activity` / `none` and never claims a user choice.
       primaryWorktreeId: undefined
     })
-    // A deleted worktree left the store but not the ledger (issue #31 S2). With
-    // no live or archived row left, that record is the only proof the task ran:
-    // state it as `deleted` instead of falling back to the never-started state.
-    // With an archived row the strip already says "still on this machine", so
-    // only the deleted count is added; an active task gets no strip at all.
-    const history = mergeTaskRunHistory({
-      history: join.history,
-      worktreeCount: joinedWorktrees.length,
-      records: runHistory.records
-    })
+    // A deleted worktree left the store but not the persisted record (issue
+    // #36). The record is what still names it, its sessions and the usage that
+    // was settled before it became unreadable; a record with nothing removed
+    // leaves the join's answer exactly as it was.
+    // Why the whole repo list and not `joinedWorktrees`: presence is "does this
+    // workspace still exist", not "does it still belong to this task". An
+    // unloaded list (undefined) is not evidence of anything, so the join's answer
+    // stands rather than labelling every binding `Removed`.
+    const history =
+      worktrees === undefined
+        ? join.history
+        : mergeTaskRecordHistory({
+            history: join.history,
+            existingWorktreeIds: worktrees.map((worktree) => worktree.id),
+            record: taskRecord.record
+          })
 
     return {
       identity: resolution.identity,
@@ -332,7 +372,7 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       spend: usage.spend,
       delivery: join.delivery,
       history,
-      historyPending: runHistory.pending,
+      historyPending: taskRecord.pending,
       ...(targetBranchDefault ? { targetBranchDefault } : {})
     }
   }, [
@@ -353,7 +393,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     museSessions,
     title,
     tracker,
-    runHistory
+    taskRecord,
+    // Presence projection reads the repo's whole workspace list.
+    worktrees
   ])
 }
 

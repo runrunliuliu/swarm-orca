@@ -40,10 +40,7 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
 
   // Active first, archived last (the "Show archived" fold reads the tail of
   // this list), each side keeping the caller's display order.
-  const workspaces = [
-    ...activeWorktrees.map(toWorkspace),
-    ...archivedWorktrees.map(toWorkspace)
-  ]
+  const workspaces = [...activeWorktrees.map(toWorkspace), ...archivedWorktrees.map(toWorkspace)]
   const activeWorktreeIds = activeWorktrees.map((worktree) => worktree.worktreeId)
   const archivedWorktreeIds = archivedWorktrees.map((worktree) => worktree.worktreeId)
 
@@ -55,37 +52,33 @@ export function joinTaskWorkbench(input: JoinInput): JoinResult {
   // display name alone would usually repeat the task title (README §7.4.2).
   const showWorkspaceLabel = activeWorktrees.length + archivedWorktrees.length > 1
   const activeAgents = activeWorktrees.flatMap((worktree) =>
-    (input.agentsByWorktree[worktree.worktreeId] ?? []).map(
-      (agent): AgentRowView => ({
-        base: agent.card,
-        // Unknown is not zero: an agent the usage selector could not attribute
-        // keeps the reason, so the row prints "—" instead of a fabricated share.
-        tokens: agent.tokens ?? UNATTRIBUTED_TOKENS,
-        outcome: agent.outcome,
-        sessionBoundary: agent.sessionBoundary,
-        workspaceLabel: showWorkspaceLabel
-          ? `${worktree.repoName} · ${worktree.branchName ?? worktree.worktreeName}`
-          : undefined
-      })
-    )
+    (input.agentsByWorktree[worktree.worktreeId] ?? []).map((agent): AgentRowView => ({
+      base: agent.card,
+      // Unknown is not zero: an agent the usage selector could not attribute
+      // keeps the reason, so the row prints "—" instead of a fabricated share.
+      tokens: agent.tokens ?? UNATTRIBUTED_TOKENS,
+      outcome: agent.outcome,
+      sessionBoundary: agent.sessionBoundary,
+      workspaceLabel: showWorkspaceLabel
+        ? `${worktree.repoName} · ${worktree.branchName ?? worktree.worktreeName}`
+        : undefined
+    }))
   )
   // Archived rows last, so the History fold reads them after the live history.
   // The flag — not the card's bucket — decides the section: a retained row is
   // already `done`, but an archived worktree can still hold a stale working
   // status, and that must not resurrect `Working` on a task the user closed.
   const archivedAgents = archivedWorktrees.flatMap((worktree) =>
-    (input.agentsByWorktree[worktree.worktreeId] ?? []).map(
-      (agent): AgentRowView => ({
-        base: agent.card,
-        tokens: agent.tokens ?? UNATTRIBUTED_TOKENS,
-        outcome: agent.outcome,
-        sessionBoundary: agent.sessionBoundary,
-        workspaceLabel: showWorkspaceLabel
-          ? `${worktree.repoName} · ${worktree.branchName ?? worktree.worktreeName}`
-          : undefined,
-        archivedWorkspace: true
-      })
-    )
+    (input.agentsByWorktree[worktree.worktreeId] ?? []).map((agent): AgentRowView => ({
+      base: agent.card,
+      tokens: agent.tokens ?? UNATTRIBUTED_TOKENS,
+      outcome: agent.outcome,
+      sessionBoundary: agent.sessionBoundary,
+      workspaceLabel: showWorkspaceLabel
+        ? `${worktree.repoName} · ${worktree.branchName ?? worktree.worktreeName}`
+        : undefined,
+      archivedWorkspace: true
+    }))
   )
   const agents = [...activeAgents, ...archivedAgents]
 
@@ -244,6 +237,11 @@ function buildHistory(
     ...(lastActivityAt === undefined ? {} : { lastActivityAt }),
     archivedWorkspaces: archived.length,
     deletedWorkspaces: 0,
+    // The join only sees what the store can show; a settled figure comes from the
+    // persisted record (`mergeTaskRecordHistory`).
+    tokensSource: 'live',
+    workspaces: [],
+    sessions: [],
     trace: archived.length > 0 ? 'archived' : 'none',
     runs: agents.map((agent) => ({
       key: agent.base.paneKey,

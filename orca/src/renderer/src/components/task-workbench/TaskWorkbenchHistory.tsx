@@ -1,6 +1,7 @@
 import React from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -10,6 +11,8 @@ import { USAGE_STATUS_WORD } from './task-workbench-usage-status'
 import type {
   AgentOutcome,
   TaskWorkbenchHistory as HistoryFacts,
+  TaskWorkbenchHistorySession,
+  TaskWorkbenchHistoryWorkspace,
   TaskWorkbenchLayout,
   TaskWorkbenchView,
   TaskWorkbenchWallClock
@@ -114,6 +117,17 @@ function FactsLine({ history }: { history: HistoryFacts }): React.JSX.Element {
       >
         {tokensText}
       </span>
+      {history.tokensSource === 'settled' ? (
+        // A settled figure is a snapshot taken before a workspace became
+        // unreadable; calling it live would be a claim about a scan that no
+        // longer covers it.
+        <span
+          data-testid="task-workbench-history-tokens-settled"
+          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+        >
+          {translate(historyKeys('settled'), 'settled')}
+        </span>
+      ) : null}
       {history.lastActivityAt === undefined ? null : (
         <>
           <span aria-hidden="true" className="text-muted-foreground/60">
@@ -158,6 +172,71 @@ function RunList({ history }: { history: HistoryFacts }): React.JSX.Element {
         </li>
       ))}
     </ul>
+  )
+}
+
+function WorkspaceRow({
+  workspace
+}: {
+  workspace: TaskWorkbenchHistoryWorkspace
+}): React.JSX.Element {
+  return (
+    <li
+      data-testid="task-workbench-history-workspace"
+      data-state={workspace.state}
+      className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 px-3 py-1.5 text-[12.5px]"
+    >
+      <Badge
+        data-testid="task-workbench-history-workspace-state"
+        variant={workspace.state === 'removed' ? 'secondary' : 'outline'}
+      >
+        {workspace.state === 'removed'
+          ? translate(historyKeys('state.removed'), 'Removed')
+          : translate(historyKeys('state.archived'), 'Archived')}
+      </Badge>
+      <span className="min-w-32 flex-1 truncate" title={workspace.path}>
+        {workspace.path}
+      </span>
+      <span className="shrink-0 text-muted-foreground">
+        {workspace.lastVerifiedAt === null
+          ? translate(historyKeys('unverified'), 'not verified')
+          : formatClock(workspace.lastVerifiedAt)}
+      </span>
+    </li>
+  )
+}
+
+function SessionRow({ session }: { session: TaskWorkbenchHistorySession }): React.JSX.Element {
+  return (
+    <li
+      data-testid="task-workbench-history-session"
+      data-resumable={session.resumable ? 'true' : 'false'}
+      className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 px-3 py-1.5 text-[12.5px]"
+    >
+      <span className="min-w-32 flex-1 truncate font-mono text-[11.5px]">{session.key}</span>
+      {session.provider === undefined ? null : (
+        <span className="shrink-0 text-muted-foreground">{session.provider}</span>
+      )}
+      <span className="shrink-0 text-muted-foreground">
+        {session.hasTranscriptPath
+          ? translate(historyKeys('session.transcript'), 'transcript path recorded')
+          : translate(historyKeys('session.noTranscript'), 'no transcript path recorded')}
+      </span>
+      {session.resumable ? null : (
+        // Why a visible sentence and not a disabled button: the row is here
+        // because the workspace is gone, and a disabled control would leave the
+        // reader guessing which half is unavailable.
+        <span
+          data-testid="task-workbench-history-session-no-resume"
+          className="w-full text-[11.5px] text-muted-foreground"
+        >
+          {translate(
+            historyKeys('session.noResume'),
+            'Resume unavailable: its workspace was removed.'
+          )}
+        </span>
+      )}
+    </li>
   )
 }
 
@@ -221,6 +300,28 @@ export function TaskWorkbenchHistory({
 
       <FactsLine history={history} />
 
+      {detailsOpen && history.workspaces.length > 0 ? (
+        <ul
+          data-testid="task-workbench-history-workspaces"
+          className="flex flex-col divide-y divide-border/50 overflow-hidden rounded-lg ring-1 ring-inset ring-border/60"
+        >
+          {history.workspaces.map((workspace) => (
+            <WorkspaceRow key={workspace.worktreeId} workspace={workspace} />
+          ))}
+        </ul>
+      ) : null}
+
+      {detailsOpen && history.sessions.length > 0 ? (
+        <ul
+          data-testid="task-workbench-history-sessions"
+          className="flex flex-col divide-y divide-border/50 overflow-hidden rounded-lg ring-1 ring-inset ring-border/60"
+        >
+          {history.sessions.map((session) => (
+            <SessionRow key={`${session.worktreeId}:${session.key}`} session={session} />
+          ))}
+        </ul>
+      ) : null}
+
       {detailsOpen && history.trace === 'archived' ? (
         <>
           <p
@@ -238,7 +339,10 @@ export function TaskWorkbenchHistory({
                   { value0: String(history.archivedWorkspaces) }
                 )}
           </p>
-          <div data-testid="task-workbench-history-trace" className="flex flex-wrap items-center gap-1">
+          <div
+            data-testid="task-workbench-history-trace"
+            className="flex flex-wrap items-center gap-1"
+          >
             <TaskWorkbenchPendingAction
               label={translate(historyKeys('locateTrace'), 'Locate trace')}
               hint={translate(historyKeys('notWired'), NOT_WIRED)}

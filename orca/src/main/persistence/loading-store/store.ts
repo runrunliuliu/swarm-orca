@@ -16,13 +16,10 @@ import {
   type StoreDomainOperations
 } from './store-domain-composition'
 import type { PersistedState } from '../../../shared/persisted-state-types'
-import {
-  EMPTY_TASK_RUN_HISTORY,
-  taskRunHistoryForTask,
-  type TaskRunHistoryItemType,
-  type TaskRunHistoryRecord,
-  type TaskRunHistoryState
-} from '../../../shared/task-run-history'
+import type { TaskRecord, TaskRecordItemType } from '../../../shared/task-records-types'
+import type { TaskProvider } from '../../../shared/task-providers'
+import { taskRecordForTask } from './task-records-persistence'
+import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
 import { scheduleSave } from './write-scheduling'
 import { enqueuePrimaryStateOperation, writeToDiskAsync } from './primary-state-writes'
 import type { ProfileStateDatabaseQuarantine } from '../profile-state/profile-state-database-quarantine'
@@ -158,14 +155,37 @@ export class Store {
     }
   }
 
-  /** The worktree → task ledger for a task page (issue #31 S2). Read-only. */
-  getTaskRunHistoryForTask(args: {
+  /** The one task record behind a task page (issue #36). Read-only: an absent
+   *  record is `null`, which the panel renders as "no recorded history", never
+   *  as "never ran". */
+  getTaskRecordForTask(args: {
     repoId: string
-    itemType: TaskRunHistoryItemType
+    itemType: TaskRecordItemType
     number: number
-  }): { state: TaskRunHistoryState; records: TaskRunHistoryRecord[] } {
-    const state = this.state.taskRunHistory ?? EMPTY_TASK_RUN_HISTORY
-    return { state, records: taskRunHistoryForTask(state, args) }
+    provider?: TaskProvider
+  }): TaskRecord | null {
+    return taskRecordForTask(this.state.taskRecords, args)
+  }
+
+  /** Late-bound because the usage stores are created after the Store (same order
+   *  the observers use); until then a removal simply settles nothing. */
+  setTaskRecordsUsageSource(source: TaskRecordsUsageSource | null): void {
+    this.runtime.taskRecordsUsageSource = source
+  }
+
+  /** Freeze the worktree's agent sessions before a destructive PTY teardown
+   *  clears the hook server's pane state (issue #36 review B1). Best-effort: a
+   *  missing source just means the removal settles without a session list. */
+  captureTaskRecordsRemovalSessions(worktreeId: string): void {
+    this.runtime.taskRecordsUsageSource?.captureSessionsForRemoval(worktreeId)
+  }
+
+  /** Every persisted session partition, for the task ledger's pane → provider
+   *  lookup. Read-only. */
+  getWorkspaceSessionPartitions(): PersistedState['workspaceSession'][] {
+    return this.domains.sessions
+      .getWorkspaceSessionHostIds()
+      .map((hostId) => this.domains.sessions.getWorkspaceSession(hostId))
   }
 
   getProfileStorageDirectory(): string {

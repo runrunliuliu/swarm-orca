@@ -126,6 +126,13 @@ export class OrcaRuntimeWithPtyForegroundProcessReads extends OrcaRuntimeWithSta
     return this.getLocalProviderFn ? this.getLocalProviderFn() : null
   }
 
+  /** Freeze the worktree's agent sessions before the destructive sweep clears the
+   *  hook server's pane state (issue #36 review B1). The task record is settled
+   *  later, when the metadata row is dropped, and by then this list is gone. */
+  captureTaskRecordsRemovalSessions(worktreeId: string): void {
+    this.store?.captureTaskRecordsRemovalSessions?.(worktreeId)
+  }
+
   protected async stopPtysForDestructiveWorktreeRemoval(
     worktreeId: string,
     options: { connectionId?: string; allowUnverifiedStop?: boolean } = {}
@@ -135,6 +142,7 @@ export class OrcaRuntimeWithPtyForegroundProcessReads extends OrcaRuntimeWithSta
     if (!provider) {
       throw new Error(`PTY provider unavailable for worktree deletion: ${worktreeId}`)
     }
+    this.captureTaskRecordsRemovalSessions(worktreeId)
     const teardownResult = await killAllProcessesForWorktree(worktreeId, {
       runtime: this as RuntimeCommandSurfaceHost<this>,
       // Why: `repoId::path` ids repeat across hosts, so an unfenced sweep stops a same-id

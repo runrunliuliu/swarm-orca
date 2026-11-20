@@ -25,6 +25,11 @@ import {
   normalizeLoadedProjectCatalog
 } from './normalize-loaded-state-collections'
 import { normalizeTaskRunHistory } from '../../../shared/task-run-history'
+import { normalizeTaskRecords } from '../../../shared/task-records'
+import {
+  migrateTaskRecordsFromRunHistory,
+  type TaskRecordsLegacyMigration
+} from './task-records-legacy-migration'
 import { normalizeRetiredNameRegistryMap } from './retired-name-registry-normalization'
 import { hydrateWorktreeMetaAliasProjection } from './worktree-meta-alias-projection'
 
@@ -39,6 +44,23 @@ export function normalizeLoadedProfileState(
   const projectCatalog = normalizeLoadedProjectCatalog(parsed, markNeedsSave)
   // Ordered: the host partitions drop the global fields this slice already owns.
   const workspaceSession = normalizeLoadedLocalSession(parsed, defaults, markNeedsSave)
+  const taskRecords = normalizeTaskRecords(parsed.taskRecords)
+  // Why normalize the legacy ledger before migrating: this is untrusted JSON. The
+  // raw value can be `{}` or hold null rows, and a throw here would fail the whole
+  // profile load instead of dropping a bad row.
+  const legacyTaskRunHistory = normalizeTaskRunHistory(parsed.taskRunHistory)
+  // No `taskRecords` domain yet means a profile written by issue #31 S2's ledger;
+  // seed from it once. An existing domain always wins (no re-migration). A
+  // deferred seed leaves the domain absent, and the write path refuses to create
+  // one until a later start can migrate the whole ledger (issue #36 review B4).
+  const legacyMigration: TaskRecordsLegacyMigration =
+    parsed.taskRecords === undefined && taskRecords.readable
+      ? migrateTaskRecordsFromRunHistory(legacyTaskRunHistory)
+      : { kind: 'none' }
+  const migratedTaskRecords = legacyMigration.kind === 'migrated' ? legacyMigration.state : undefined
+  if (migratedTaskRecords) {
+    markNeedsSave()
+  }
 
   return {
     ...defaults,
@@ -92,7 +114,12 @@ export function normalizeLoadedProfileState(
     deletedSshConfigAliases: Array.isArray(parsed.deletedSshConfigAliases)
       ? parsed.deletedSshConfigAliases.filter((alias): alias is string => typeof alias === 'string')
       : [],
-    taskRunHistory: normalizeTaskRunHistory(parsed.taskRunHistory),
+    // Why conditional: a payload this build cannot read must reach a full save
+    // byte-for-byte, so the raw spread above stays the only copy of it.
+    ...(taskRecords.readable && (parsed.taskRecords !== undefined || migratedTaskRecords)
+      ? { taskRecords: migratedTaskRecords ?? taskRecords.state }
+      : {}),
+    taskRunHistory: legacyTaskRunHistory,
     retiredWorktreeNamesByRepo: normalizeRetiredNameRegistryMap(parsed.retiredWorktreeNamesByRepo),
     retiredWorktreeNamesByNamespace: normalizeRetiredNameRegistryMap(
       parsed.retiredWorktreeNamesByNamespace

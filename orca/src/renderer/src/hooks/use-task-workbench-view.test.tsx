@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardCard, DashboardSnapshot } from '../../../shared/dashboard-snapshot'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
-import type { TaskRunHistoryRecord } from '../../../shared/task-run-history'
+import type { TaskRecord } from '../../../shared/task-records-types'
 import type { Worktree } from '../../../shared/worktree/types'
 
 /**
@@ -89,18 +89,29 @@ function card(worktreeId: string, paneKey: string): DashboardCard {
   }
 }
 
-/** A deleted-workspace ledger row for this item (issue #31 S2). */
-function deletedRecord(worktreeId: string): TaskRunHistoryRecord {
+/** The persisted record of a deleted workspace for this item (issue #36). */
+function deletedRecord(worktreeId: string): TaskRecord {
   return {
-    repoId: REPO_ID,
-    itemType: 'issue',
-    number: 9,
-    worktreeId,
-    path: '/tmp/gone',
-    state: 'deleted',
-    firstSeenAt: 1,
+    taskId: 'task:github:repo-1:issue:9',
+    hostId: 'local',
+    origin: { kind: 'external', provider: 'github', itemType: 'issue', number: 9 },
+    bindings: [
+      {
+        worktreeId,
+        repoId: REPO_ID,
+        hostId: 'local',
+        path: '/tmp/gone',
+        isArchived: false,
+        boundAt: 1,
+        boundBy: 'created',
+        lastVerifiedAt: null,
+        sessions: []
+      }
+    ],
+    intent: {},
+    createdAt: 1,
     updatedAt: 2,
-    deletedAt: 2
+    schemaVersion: 1
   }
 }
 
@@ -212,7 +223,7 @@ describe('useTaskWorkbenchView — item scope', () => {
     seed([issueWorktree('wt-1', 1)])
     snapshotState.current = { generatedAt: 0, cards: [card('wt-1', 'pane-1')] }
     window.api = {
-      taskRunHistory: { get: async () => ({ records: [deletedRecord('repo-1::/gone')] }) }
+      taskRecords: { get: async () => ({ record: deletedRecord('repo-1::/gone') }) }
     } as never
 
     const current = renderHook(() =>
@@ -232,10 +243,11 @@ describe('useTaskWorkbenchView — item scope', () => {
     expect(current.result.current?.history).toMatchObject({
       trace: 'deleted',
       deletedWorkspaces: 1,
-      // S2 stores the mapping, not the runs: unknown, never 0.
+      // The record stores the mapping and the settled figures, not the runs:
+      // unknown, never 0.
       agents: null,
       wall: { kind: 'unknown' },
-      tokens: { kind: 'unavailable', reason: 'unattributed' }
+      tokens: { kind: 'unavailable', reason: 'no_matching_session' }
     })
     expect(current.result.current?.spend).toMatchObject({ kind: 'unavailable' })
   })
@@ -246,12 +258,12 @@ describe('useTaskWorkbenchView — item scope', () => {
     // (issue #38 review R1). #10 has no provider identity and no workspace, so
     // the only correct answer before the new answer arrives is "no identity".
     seed([issueWorktree('wt-1', 1)])
-    let releaseNext: ((value: { records: TaskRunHistoryRecord[] }) => void) | null = null
+    let releaseNext: ((value: { record: TaskRecord | null }) => void) | null = null
     window.api = {
-      taskRunHistory: {
+      taskRecords: {
         get: (query: { number: number }) =>
           query.number === 9
-            ? Promise.resolve({ records: [deletedRecord('repo-1::/gone')] })
+            ? Promise.resolve({ record: deletedRecord('repo-1::/gone') })
             : new Promise((resolve) => {
                 releaseNext = resolve
               })
@@ -289,7 +301,7 @@ describe('useTaskWorkbenchView — item scope', () => {
     expect(numberTenViews.every((view) => view === null)).toBe(true)
 
     await act(async () => {
-      releaseNext?.({ records: [] })
+      releaseNext?.({ record: null })
     })
     expect(
       renders.filter((entry) => entry.number === 10).every((entry) => entry.view === null)
@@ -298,9 +310,9 @@ describe('useTaskWorkbenchView — item scope', () => {
 
   it('keeps the never-started notice when the ledger has nothing for the item', async () => {
     seed([issueWorktree('wt-1', 1)])
-    let release: ((value: { records: TaskRunHistoryRecord[] }) => void) | null = null
+    let release: ((value: { record: TaskRecord | null }) => void) | null = null
     window.api = {
-      taskRunHistory: {
+      taskRecords: {
         get: () =>
           new Promise((resolve) => {
             release = resolve
@@ -321,9 +333,36 @@ describe('useTaskWorkbenchView — item scope', () => {
     // Pending is not an identity, and neither is an empty answer.
     expect(current.result.current).toBeNull()
     await act(async () => {
-      release?.({ records: [] })
+      release?.({ record: null })
     })
     expect(current.result.current).toBeNull()
+  })
+
+  it('asks the ledger with the page’s provider, so another tracker’s record cannot answer', async () => {
+    // Issue #36 review B3: the query key, effect and bridge must carry the
+    // provider; a provider-less query is answered by the shared suffix scan,
+    // which can hand this page a colliding number from another tracker.
+    seed([issueWorktree('wt-1', 9)])
+    const get = vi.fn(async () => ({ record: null }))
+    window.api = { taskRecords: { get } } as never
+
+    renderHook(() =>
+      useTaskWorkbenchView({
+        repoId: REPO_ID,
+        number: 9,
+        itemType: 'issue',
+        title: '#9',
+        taskSourceContext: GITHUB_WEB_APP
+      })
+    )
+
+    await waitFor(() => expect(get).toHaveBeenCalled())
+    expect(get).toHaveBeenCalledWith({
+      repoId: REPO_ID,
+      itemType: 'issue',
+      number: 9,
+      provider: 'github'
+    })
   })
 })
 

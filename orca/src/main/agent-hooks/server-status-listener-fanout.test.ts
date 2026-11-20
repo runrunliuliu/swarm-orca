@@ -96,6 +96,8 @@ describe('AgentHookServer listener replay', () => {
       {
         paneKey: PANE,
         sessionId: 'pi-session-1',
+        // Carried so a stored session reference can name the provider field.
+        key: 'session_id',
         transcriptPath: '/tmp/pi-session-1.jsonl',
         worktreeId: 'wt-1'
       }
