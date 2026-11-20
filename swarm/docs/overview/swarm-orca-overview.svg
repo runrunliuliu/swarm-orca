@@ -1,0 +1,229 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <style>
+    text { font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif; fill: #212529; }
+    .h1 { font-size: 44px; font-weight: 700; }
+    .sub { font-size: 22px; fill: #495057; }
+    .sec { font-size: 24px; font-weight: 700; fill: #1F3A93; }
+    .t18 { font-size: 18px; font-weight: 700; }
+    .t20 { font-size: 20px; font-weight: 700; }
+    .b15 { font-size: 15px; fill: #343a40; }
+    .b14 { font-size: 14px; fill: #495057; }
+    .b13 { font-size: 13px; fill: #6c757d; }
+    .num { font-size: 15px; font-weight: 700; fill: #fff; }
+    .pill { font-size: 13px; font-weight: 600; fill: #fff; }
+    .mk { font-size: 18px; font-weight: 700; text-anchor: middle; }
+  </style>
+
+  <rect width="1920" height="1080" fill="#FAFBFC"/>
+
+  <!-- ===== Header ===== -->
+  <rect x="0" y="0" width="1920" height="150" fill="#1F3A93"/>
+  <text x="60" y="78" class="h1" style="fill:#fff">swarm-orca：可治理的 AI 编码 Agent 集群控制平面</text>
+  <text x="60" y="122" class="sub" style="fill:#DBE4FF">让多个 AI 编码 Agent 像工程团队一样交付 —— 可恢复 · 可授权 · 可隔离 · 有证据</text>
+  <text x="1860" y="78" font-size="18" text-anchor="end" style="fill:#BAC8FF">项目概览</text>
+  <text x="1860" y="110" font-size="16" text-anchor="end" style="fill:#BAC8FF">2026-11</text>
+
+  <!-- ===== Left: Design philosophy ===== -->
+  <text x="40" y="204" class="sec">设计理念</text>
+  <g>
+    <rect x="40" y="222" width="400" height="110" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <rect x="40" y="222" width="6" height="110" rx="3" fill="#3B5BDB"/>
+    <text x="64" y="256" class="t20">事实优先</text>
+    <text x="64" y="285" class="b15">未知就记为未知，不记 0，不臆测</text>
+    <text x="64" y="311" class="b15">实施完成 ≠ 业务验收，以证据交付</text>
+
+    <rect x="40" y="342" width="400" height="110" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <rect x="40" y="342" width="6" height="110" rx="3" fill="#3B5BDB"/>
+    <text x="64" y="376" class="t20">权限分离</text>
+    <text x="64" y="405" class="b15">签发者 ≠ 执行者，在特权行使处校验</text>
+    <text x="64" y="431" class="b15">技能、检查器、讨论结论都不授权</text>
+
+    <rect x="40" y="462" width="400" height="110" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <rect x="40" y="462" width="6" height="110" rx="3" fill="#3B5BDB"/>
+    <text x="64" y="496" class="t20">分层解耦</text>
+    <text x="64" y="525" class="b15">控制平面 / 领域适配 / 运行底座分离</text>
+    <text x="64" y="551" class="b15">与 Agent 内部框架互补组合，而非替代</text>
+
+    <rect x="40" y="582" width="400" height="110" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <rect x="40" y="582" width="6" height="110" rx="3" fill="#3B5BDB"/>
+    <text x="64" y="616" class="t20">敢做减法</text>
+    <text x="64" y="645" class="b15">没有可验证收益的机制即退役</text>
+    <text x="64" y="671" class="b15">固定 DAG 调度器、多步启动握手已删除</text>
+  </g>
+
+  <!-- ===== Center: Architecture ===== -->
+  <text x="470" y="204" class="sec">核心架构</text>
+
+  <!-- Task layer -->
+  <rect x="470" y="222" width="780" height="70" rx="12" fill="#E6FCF5" stroke="#12B886" stroke-width="1.5"/>
+  <text x="492" y="264" class="t18" style="fill:#087F5B">任务层</text>
+  <text x="600" y="253" class="b15">以“独立修改任务”为隔离单位，可跨多个仓库</text>
+  <text x="600" y="277" class="b15">每仓专属 worktree，换终端 / 入口不改变任务身份，按仓交付</text>
+  <circle cx="1222" cy="257" r="14" fill="#1F3A93"/><text x="1222" y="263" class="num" text-anchor="middle">4</text>
+
+  <!-- Control plane -->
+  <rect x="470" y="302" width="780" height="166" rx="12" fill="#EDF2FF" stroke="#3B5BDB" stroke-width="3"/>
+  <text x="492" y="335" class="t18" style="fill:#1F3A93">控制平面</text>
+  <rect x="582" y="316" width="138" height="26" rx="13" fill="#3B5BDB"/>
+  <text x="651" y="334" class="pill" text-anchor="middle">swarm-orca 新增</text>
+  <text x="736" y="335" class="b14">一个 Run 一条控制路径，最多挂一个领域适配</text>
+  <circle cx="1190" cy="329" r="14" fill="#1F3A93"/><text x="1190" y="335" class="num" text-anchor="middle">2</text>
+  <circle cx="1222" cy="329" r="14" fill="#1F3A93"/><text x="1222" y="335" class="num" text-anchor="middle">3</text>
+
+  <rect x="490" y="352" width="236" height="60" rx="8" fill="#fff" stroke="#91A7FF"/>
+  <text x="506" y="377" font-size="16" font-weight="700">Coordinator · 决策</text>
+  <text x="506" y="400" class="b13">决定继续 / 转向 / 收尾</text>
+  <rect x="742" y="352" width="236" height="60" rx="8" fill="#fff" stroke="#91A7FF"/>
+  <text x="758" y="377" font-size="16" font-weight="700">Driver · 续跑</text>
+  <text x="758" y="400" class="b13">同会话续跑，校验身份与证据</text>
+  <rect x="994" y="352" width="236" height="60" rx="8" fill="#fff" stroke="#91A7FF"/>
+  <text x="1010" y="377" font-size="16" font-weight="700">Operator · 特权执行</text>
+  <text x="1010" y="400" class="b13">只执行获准的外层动作</text>
+
+  <g font-size="14">
+    <rect x="490" y="424" width="150" height="30" rx="15" fill="#DBE4FF"/>
+    <text x="565" y="444" text-anchor="middle" style="fill:#1F3A93">启动凭据 · 并发上限</text>
+    <rect x="650" y="424" width="170" height="30" rx="15" fill="#DBE4FF"/>
+    <text x="735" y="444" text-anchor="middle" style="fill:#1F3A93">意图先落盘 · 未知只对账</text>
+    <rect x="830" y="424" width="190" height="30" rx="15" fill="#DBE4FF"/>
+    <text x="925" y="444" text-anchor="middle" style="fill:#1F3A93">独立审查 + 单写者集成</text>
+    <rect x="1030" y="424" width="200" height="30" rx="15" fill="#DBE4FF"/>
+    <text x="1130" y="444" text-anchor="middle" style="fill:#1F3A93">检查点 · 预算 · 用量台账</text>
+  </g>
+
+  <!-- Domain adapter -->
+  <rect x="470" y="478" width="780" height="70" rx="12" fill="#FFF4E6" stroke="#F08C00" stroke-width="1.5"/>
+  <text x="492" y="520" class="t18" style="fill:#D9480F">领域适配层</text>
+  <text x="600" y="509" class="b15">角色技能 + 领域契约检查器 + SHA256 固定引用，可插拔</text>
+  <text x="600" y="533" class="b15">软件开发 · 研究实验 · 事故分诊 · 交付合并 ……</text>
+
+  <!-- Orca runtime -->
+  <rect x="470" y="558" width="780" height="70" rx="12" fill="#F1F3F5" stroke="#ADB5BD" stroke-width="1.5"/>
+  <text x="492" y="600" class="t18" style="fill:#495057">Orca 底座</text>
+  <text x="600" y="589" class="b15">Run / 任务 / 派发 / 投递持久化 · 消费者代际 · 请求回执</text>
+  <text x="600" y="613" class="b15">故障在事发处落盘 · 定时自动化 · 多端监控</text>
+  <circle cx="1190" cy="593" r="14" fill="#1F3A93"/><text x="1190" y="599" class="num" text-anchor="middle">1</text>
+  <circle cx="1222" cy="593" r="14" fill="#1F3A93"/><text x="1222" y="599" class="num" text-anchor="middle">5</text>
+
+  <!-- Agents -->
+  <rect x="470" y="638" width="780" height="56" rx="12" fill="#F8F9FA" stroke="#CED4DA" stroke-dasharray="6 4"/>
+  <text x="492" y="672" class="t18" style="fill:#495057">异构 Agent</text>
+  <g font-size="15" font-weight="600">
+    <rect x="600" y="650" width="96" height="32" rx="16" fill="#fff" stroke="#ADB5BD"/><text x="648" y="671" text-anchor="middle">Codex</text>
+    <rect x="706" y="650" width="128" height="32" rx="16" fill="#fff" stroke="#ADB5BD"/><text x="770" y="671" text-anchor="middle">Claude Code</text>
+    <rect x="844" y="650" width="116" height="32" rx="16" fill="#fff" stroke="#ADB5BD"/><text x="902" y="671" text-anchor="middle">OpenCode</text>
+    <rect x="970" y="650" width="70" height="32" rx="16" fill="#fff" stroke="#ADB5BD"/><text x="1005" y="671" text-anchor="middle">Pi</text>
+    <rect x="1050" y="650" width="76" height="32" rx="16" fill="#fff" stroke="#ADB5BD"/><text x="1088" y="671" text-anchor="middle">Trae</text>
+  </g>
+  <text x="1138" y="671" class="b13">· 独立 worktree</text>
+
+  <!-- ===== Right: Positioning ===== -->
+  <text x="1280" y="204" class="sec">AI Coding 演进与定位</text>
+
+  <rect x="1280" y="222" width="600" height="58" rx="10" fill="#3B5BDB"/>
+  <text x="1298" y="258" font-size="20" font-weight="800" style="fill:#fff">L4</text>
+  <text x="1340" y="248" font-size="17" font-weight="700" style="fill:#fff">可治理 Agent 集群</text>
+  <text x="1340" y="270" font-size="13" style="fill:#DBE4FF">★ swarm-orca</text>
+  <text x="1864" y="257" font-size="15" font-weight="600" text-anchor="end" style="fill:#fff">可信地交付一项工程</text>
+
+  <rect x="1330" y="288" width="550" height="54" rx="10" fill="#DBE4FF"/>
+  <text x="1348" y="322" font-size="20" font-weight="800" style="fill:#3B5BDB">L3</text>
+  <text x="1390" y="312" font-size="17" font-weight="700">多 Agent 并行工作台</text>
+  <text x="1390" y="333" class="b13">上游 Orca 等</text>
+  <text x="1864" y="321" class="b15" text-anchor="end">并行推进多个任务</text>
+
+  <rect x="1380" y="350" width="500" height="54" rx="10" fill="#E7EBF5"/>
+  <text x="1398" y="384" font-size="20" font-weight="800" style="fill:#748FFC">L2</text>
+  <text x="1440" y="374" font-size="17" font-weight="700">单 Agent 终端</text>
+  <text x="1440" y="395" class="b13">Claude Code / Codex CLI 等</text>
+  <text x="1864" y="383" class="b15" text-anchor="end">自主完成单个任务</text>
+
+  <rect x="1430" y="412" width="450" height="54" rx="10" fill="#F1F3F5"/>
+  <text x="1448" y="446" font-size="20" font-weight="800" style="fill:#ADB5BD">L1</text>
+  <text x="1490" y="436" font-size="17" font-weight="700">代码补全</text>
+  <text x="1490" y="457" class="b13">Copilot 类</text>
+  <text x="1864" y="445" class="b15" text-anchor="end">补全一段代码</text>
+
+  <!-- compare table -->
+  <rect x="1280" y="482" width="600" height="212" rx="10" fill="#fff" stroke="#DEE2E6"/>
+  <rect x="1280" y="482" width="600" height="36" rx="10" fill="#F1F3F5"/>
+  <rect x="1760" y="482" width="120" height="212" fill="#EDF2FF"/>
+  <g font-size="15" font-weight="700">
+    <text x="1296" y="506">关键能力</text>
+    <text x="1580" y="506" text-anchor="middle">L2</text>
+    <text x="1680" y="506" text-anchor="middle">L3</text>
+    <text x="1820" y="506" text-anchor="middle" style="fill:#1F3A93">swarm-orca</text>
+  </g>
+  <g class="b15">
+    <text x="1296" y="545">跨 Agent 断线安全续跑</text>
+    <text x="1296" y="580">服务端授权与并发上限</text>
+    <text x="1296" y="615">任务级多仓隔离与交付</text>
+    <text x="1296" y="650">独立审查 + 单写者集成</text>
+    <text x="1296" y="685">故障自沉淀与自修复</text>
+  </g>
+  <g class="mk" style="fill:#ADB5BD">
+    <text x="1580" y="546">—</text><text x="1680" y="546">△</text>
+    <text x="1580" y="581">—</text><text x="1680" y="581">—</text>
+    <text x="1580" y="616">—</text><text x="1680" y="616">△</text>
+    <text x="1580" y="651">△</text><text x="1680" y="651">—</text>
+    <text x="1580" y="686">—</text><text x="1680" y="686">—</text>
+  </g>
+  <g class="mk" style="fill:#2F9E44">
+    <text x="1820" y="546">✓</text><text x="1820" y="581">✓</text><text x="1820" y="616">✓</text>
+    <text x="1820" y="651">✓</text><text x="1820" y="686">✓</text>
+  </g>
+
+  <!-- ===== Bottom: Innovations ===== -->
+  <text x="40" y="748" class="sec">五大创新</text>
+  <text x="160" y="748" class="b14">编号对应架构图中的位置</text>
+
+  <!-- card template: x, width 352, y 764, h 196 -->
+  <g>
+    <rect x="40" y="764" width="352" height="196" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <circle cx="74" cy="800" r="18" fill="#1F3A93"/><text x="74" y="806" class="num" font-size="17" text-anchor="middle">1</text>
+    <text x="102" y="807" class="t20">编排层可恢复</text>
+    <text x="60" y="850" class="b15">Run / 任务 / 派发 / 投递全程持久化</text>
+    <text x="60" y="876" class="b15">消费者代际拒绝旧会话，断线可续跑</text>
+    <rect x="60" y="908" width="78" height="28" rx="14" fill="#2F9E44"/><text x="99" y="927" class="pill" text-anchor="middle">已实现</text>
+  </g>
+  <g>
+    <rect x="412" y="764" width="352" height="196" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <circle cx="446" cy="800" r="18" fill="#1F3A93"/><text x="446" y="806" class="num" font-size="17" text-anchor="middle">2</text>
+    <text x="474" y="807" class="t20">未知结果不盲重提</text>
+    <text x="432" y="850" class="b15">动作意图先落盘，结果不明只查询对账</text>
+    <text x="432" y="876" class="b15">避免重复提交与副作用叠加</text>
+    <rect x="432" y="908" width="78" height="28" rx="14" fill="#2F9E44"/><text x="471" y="927" class="pill" text-anchor="middle">已实现</text>
+  </g>
+  <g>
+    <rect x="784" y="764" width="352" height="196" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <circle cx="818" cy="800" r="18" fill="#1F3A93"/><text x="818" y="806" class="num" font-size="17" text-anchor="middle">3</text>
+    <text x="846" y="807" class="t20">启动凭据 Start Grant</text>
+    <text x="804" y="850" class="b15">签发与执行分离，在创建 / 派生处校验</text>
+    <text x="804" y="876" class="b15">并发上限由提示词变为服务端计数</text>
+    <rect x="804" y="908" width="190" height="28" rx="14" fill="#E8590C"/><text x="899" y="927" class="pill" text-anchor="middle">已实现 · 强制开关未开</text>
+  </g>
+  <g>
+    <rect x="1156" y="764" width="352" height="196" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <circle cx="1190" cy="800" r="18" fill="#1F3A93"/><text x="1190" y="806" class="num" font-size="17" text-anchor="middle">4</text>
+    <text x="1218" y="807" class="t20">任务级工作区隔离</text>
+    <text x="1176" y="850" class="b15">以任务而非 Agent 为隔离单位</text>
+    <text x="1176" y="876" class="b15">多仓专属 worktree，就绪门禁后再启动</text>
+    <rect x="1176" y="908" width="214" height="28" rx="14" fill="#E8590C"/><text x="1283" y="927" class="pill" text-anchor="middle">最小版已交付 · 路由设计中</text>
+  </g>
+  <g>
+    <rect x="1528" y="764" width="352" height="196" rx="12" fill="#fff" stroke="#DEE2E6"/>
+    <circle cx="1562" cy="800" r="18" fill="#1F3A93"/><text x="1562" y="806" class="num" font-size="17" text-anchor="middle">5</text>
+    <text x="1590" y="807" class="t20">故障自沉淀与自修复</text>
+    <text x="1548" y="850" class="b15">主进程在事发处记录故障，定期分诊修复</text>
+    <text x="1548" y="876" class="b15">同类产品更新自动巡检，持续演进</text>
+    <rect x="1548" y="908" width="78" height="28" rx="14" fill="#2F9E44"/><text x="1587" y="927" class="pill" text-anchor="middle">已实现</text>
+  </g>
+
+  <!-- ===== Footer ===== -->
+  <rect x="0" y="982" width="1920" height="98" fill="#F1F3F5"/>
+  <text x="40" y="1020" font-size="16" font-weight="700" style="fill:#1F3A93">工程规模</text>
+  <text x="130" y="1020" class="b15">控制平面约 5.4 万行 Python（含测试，约 100 个测试文件） · 编排运行时约 2.6 万行 TypeScript（126 个测试文件） · 4 个可复用技能</text>
+  <text x="40" y="1054" class="b13">状态口径：“已实现”指源码已合入主干，不等于已部署或已通过实机验收。对比表为基于公开能力的定性归纳：✓ 具备 / △ 部分具备 / — 未见。</text>
+  <circle cx="1666" cy="1015" r="7" fill="#2F9E44"/><text x="1680" y="1020" class="b14">已实现</text>
+  <circle cx="1756" cy="1015" r="7" fill="#E8590C"/><text x="1770" y="1020" class="b14">部分交付</text>
+</svg>
