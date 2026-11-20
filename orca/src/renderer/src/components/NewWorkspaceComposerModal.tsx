@@ -228,7 +228,8 @@ function QuickTabBody({
     ? 'single'
     : launchMode
   const createDisabled =
-    composerCreateDisabled || launchModeBlocksCreate(launchModeForCreate, maxWorkers)
+    composerCreateDisabled ||
+    launchModeBlocksCreate(launchModeForCreate, maxWorkers, quickAgent !== null)
 
   const handleCreate = useCallback(async (): Promise<void> => {
     await submitQuick(quickAgent, { mode: launchModeForCreate, maxWorkers: parsedMaxWorkers })

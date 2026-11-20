@@ -57,15 +57,37 @@ describe('deliverSubmittedLaunchPromptWhenReady', () => {
       agent: 'pi',
       content: args.content,
       submit: true,
-      forcePaste: true
+      forcePaste: true,
+      onTimeout: expect.any(Function)
     })
     // Why: a second paste would duplicate the brief if the first one landed.
     expect(mockPasteDraftToAgentPtyWhenReady).not.toHaveBeenCalled()
     expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
-  it('keeps the brief as an unsubmitted draft when the readiness wait expires', async () => {
+  it('does not paste again when the paste landed but the Enter verdict was unverified', async () => {
+    // Why: `false` without a readiness timeout means the text is already in the
+    // input box; pasting it again would duplicate the brief.
     mockDeliverLaunchPromptToAgentTab.mockResolvedValue(false)
+
+    await deliverSubmittedLaunchPromptWhenReady(args)
+
+    expect(mockPasteDraftToAgentPtyWhenReady).not.toHaveBeenCalled()
+    expect(mockToastMessage).toHaveBeenCalledTimes(1)
+    expect(mockToastMessage.mock.calls[0]?.[0]).toContain('press Enter')
+    expect(mockTrack).toHaveBeenCalledWith('agent_error', {
+      error_class: 'submit_not_verified',
+      agent_kind: 'pi'
+    })
+  })
+
+  it('keeps the brief as an unsubmitted draft when the readiness wait expires', async () => {
+    mockDeliverLaunchPromptToAgentTab.mockImplementation(
+      async (options: { onTimeout?: () => void }) => {
+        options.onTimeout?.()
+        return false
+      }
+    )
 
     await deliverSubmittedLaunchPromptWhenReady(args)
 
@@ -87,7 +109,12 @@ describe('deliverSubmittedLaunchPromptWhenReady', () => {
   })
 
   it('falls back to the not-sent notice when even the draft paste times out', async () => {
-    mockDeliverLaunchPromptToAgentTab.mockResolvedValue(false)
+    mockDeliverLaunchPromptToAgentTab.mockImplementation(
+      async (options: { onTimeout?: () => void }) => {
+        options.onTimeout?.()
+        return false
+      }
+    )
     mockPasteDraftToAgentPtyWhenReady.mockImplementation(
       async (options: { onTimeout?: () => void }) => {
         options.onTimeout?.()

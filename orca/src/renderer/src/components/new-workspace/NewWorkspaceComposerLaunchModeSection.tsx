@@ -131,7 +131,15 @@ export function NewWorkspaceComposerLaunchModeSection({
             <p className="text-xs text-destructive">
               {translate(
                 'auto.components.new.workspace.launch.mode.maxWorkersInvalid',
-                'Enter a whole number of 1 or more.'
+                'Enter a whole number from 1 to 1000.'
+              )}
+            </p>
+          ) : null}
+          {coordinatorAgentLabel === null ? (
+            <p className="text-xs text-destructive">
+              {translate(
+                'auto.components.new.workspace.NewWorkspaceComposerLaunchModeSection.13b4ab780a',
+                'Pick an agent to run the Coordinator.'
               )}
             </p>
           ) : null}

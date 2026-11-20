@@ -1043,7 +1043,8 @@
         "launch": {
           "prompt": {
             "delivery": {
-              "3ad61f7c0e": "The agent took too long to start. Your Coordinator prompt is in its input box, unsent — press Enter when it's ready."
+              "3ad61f7c0e": "The agent took too long to start. Your Coordinator prompt is in its input box, unsent — press Enter when it's ready.",
+              "e987796905": "Your Coordinator prompt is in the agent's input box — press Enter to start it."
             }
           }
         }
@@ -14276,9 +14277,12 @@
               "summary": "Coordinator = {{value0}} · Workers ≤ {{value1}} · Task source = {{value2}}",
               "noAgent": "no agent",
               "noTaskSource": "not linked",
-              "maxWorkersInvalid": "Enter a whole number of 1 or more.",
+              "maxWorkersInvalid": "Enter a whole number from 1 to 1000.",
               "hint": "The Coordinator confirms budget, writable scope and whether merging is allowed before it starts; with no link it asks for the goal first."
             }
+          },
+          "NewWorkspaceComposerLaunchModeSection": {
+            "13b4ab780a": "Pick an agent to run the Coordinator."
           }
         }
       },

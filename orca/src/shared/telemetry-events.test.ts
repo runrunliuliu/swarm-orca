@@ -256,6 +256,14 @@ describe('agent_error schema', () => {
     expect(parsed.success).toBe(true)
   })
 
+  it('accepts the submit_not_verified class', () => {
+    const parsed = eventSchemas.agent_error.safeParse({
+      error_class: 'submit_not_verified',
+      agent_kind: 'claude-code'
+    })
+    expect(parsed.success).toBe(true)
+  })
+
   // Core invariant: `.strict()` rejects raw error strings. If this test ever
   // flips, the analytics lane is leaking UGC — revert the offending schema
   // change.

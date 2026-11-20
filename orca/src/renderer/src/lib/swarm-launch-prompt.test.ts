@@ -18,22 +18,34 @@ describe('parseSwarmMaxWorkers', () => {
       expect(parseSwarmMaxWorkers(value), value).toBeNull()
     }
   })
+
+  it('accepts the form cap and rejects one above it', () => {
+    expect(parseSwarmMaxWorkers('1000')).toBe(1000)
+    expect(parseSwarmMaxWorkers('1001')).toBeNull()
+  })
 })
 
 describe('launchModeBlocksCreate', () => {
   it('blocks a swarm start with a blank, zero or fractional cap', () => {
-    expect(launchModeBlocksCreate('swarm', '')).toBe(true)
-    expect(launchModeBlocksCreate('swarm', '0')).toBe(true)
-    expect(launchModeBlocksCreate('swarm', '2.5')).toBe(true)
+    expect(launchModeBlocksCreate('swarm', '', true)).toBe(true)
+    expect(launchModeBlocksCreate('swarm', '0', true)).toBe(true)
+    expect(launchModeBlocksCreate('swarm', '2.5', true)).toBe(true)
   })
 
   it('allows a swarm start once the cap is a positive integer', () => {
-    expect(launchModeBlocksCreate('swarm', '4')).toBe(false)
+    expect(launchModeBlocksCreate('swarm', '4', true)).toBe(false)
+  })
+
+  it('blocks a swarm start when no agent is selected', () => {
+    // Why: without an agent there is no Coordinator to start, and the composer
+    // must not silently fall back to the single-agent plan instead.
+    expect(launchModeBlocksCreate('swarm', '4', false)).toBe(true)
   })
 
   it('never blocks the single-agent start, whatever the field holds', () => {
-    expect(launchModeBlocksCreate('single', '')).toBe(false)
-    expect(launchModeBlocksCreate('single', '0')).toBe(false)
+    expect(launchModeBlocksCreate('single', '', true)).toBe(false)
+    expect(launchModeBlocksCreate('single', '0', true)).toBe(false)
+    expect(launchModeBlocksCreate('single', '', false)).toBe(false)
   })
 })
 

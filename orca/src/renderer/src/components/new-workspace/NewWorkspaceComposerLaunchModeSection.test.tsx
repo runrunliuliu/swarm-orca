@@ -106,7 +106,15 @@ describe('NewWorkspaceComposerLaunchModeSection', () => {
     container = renderSection({ launchMode: 'swarm', maxWorkers: '0' })
 
     expect(maxWorkersInput(container)?.getAttribute('aria-invalid')).toBe('true')
-    expect(container.textContent).toContain('Enter a whole number of 1 or more.')
+    expect(container.textContent).toContain('Enter a whole number from 1 to 1000.')
+    expect(container.textContent).toContain('Workers ≤ —')
+  })
+
+  it('flags a cap above the form limit', () => {
+    container = renderSection({ launchMode: 'swarm', maxWorkers: '1001' })
+
+    expect(maxWorkersInput(container)?.getAttribute('aria-invalid')).toBe('true')
+    expect(container.textContent).toContain('Enter a whole number from 1 to 1000.')
     expect(container.textContent).toContain('Workers ≤ —')
   })
 
@@ -114,8 +122,14 @@ describe('NewWorkspaceComposerLaunchModeSection', () => {
     container = renderSection({ launchMode: 'swarm', maxWorkers: '6' })
 
     expect(maxWorkersInput(container)?.getAttribute('aria-invalid')).toBe('false')
-    expect(container.textContent).not.toContain('Enter a whole number of 1 or more.')
+    expect(container.textContent).not.toContain('Enter a whole number from 1 to 1000.')
     expect(container.textContent).toContain('Workers ≤ 6')
+  })
+
+  it('asks for a Coordinator agent when none is selected', () => {
+    container = renderSection({ launchMode: 'swarm', coordinatorAgentLabel: null })
+
+    expect(container.textContent).toContain('Pick an agent to run the Coordinator.')
   })
 
   it('says nothing is linked instead of inventing a task source', () => {

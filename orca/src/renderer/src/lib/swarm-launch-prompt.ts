@@ -22,11 +22,14 @@ export type NewWorkspaceLaunchSelection = {
 /** Form default, not a repository policy: the user still sees and can edit it. */
 export const DEFAULT_SWARM_MAX_WORKERS = 4
 
+/** Upper bound on the form field; a larger cap is a typo, not a real Run budget. */
+export const MAX_SWARM_MAX_WORKERS = 1000
+
 /**
  * Parse the `max_workers` field. Only a positive integer is a usable cap on one
- * Run's concurrency: blank, zero, negative, decimal and non-numeric input all
- * return null, so the composer disables submit instead of sending a value the
- * Coordinator would have to reinterpret.
+ * Run's concurrency: blank, zero, negative, decimal, over-limit and non-numeric
+ * input all return null, so the composer disables submit instead of sending a
+ * value the Coordinator would have to reinterpret.
  */
 export function parseSwarmMaxWorkers(value: string): number | null {
   const trimmed = value.trim()
@@ -34,19 +37,23 @@ export function parseSwarmMaxWorkers(value: string): number | null {
     return null
   }
   const parsed = Number(trimmed)
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_SWARM_MAX_WORKERS
+    ? parsed
+    : null
 }
 
 /**
  * Whether the start mode keeps the primary button disabled. A swarm start needs
- * a real cap; every other combination leaves the existing create gates alone, so
- * this can only ever *add* a reason to block.
+ * a selected agent to run the Coordinator and a real cap; every other
+ * combination leaves the existing create gates alone, so this can only ever
+ * *add* a reason to block.
  */
 export function launchModeBlocksCreate(
   launchMode: NewWorkspaceLaunchMode,
-  rawMaxWorkers: string
+  rawMaxWorkers: string,
+  agentSelected: boolean
 ): boolean {
-  return launchMode === 'swarm' && parseSwarmMaxWorkers(rawMaxWorkers) === null
+  return launchMode === 'swarm' && (!agentSelected || parseSwarmMaxWorkers(rawMaxWorkers) === null)
 }
 
 /**
