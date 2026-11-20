@@ -14,8 +14,8 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 
 ## What it proves
 
-- The production `TaskWorkbenchPanel` and its seven sections render the committed P1a fixtures
-  unchanged, one fixture and one window size per run.
+- The production `TaskWorkbenchPanel` and its seven sections render the committed P1a and delivery
+  fixtures unchanged, one fixture and one window size per run.
 - Every `data-testid` in contract §4.3 is present exactly when its condition holds, with the expected
   count, asserted by name. The expectation is derived from the fixture data plus
   `computeTaskWorkbenchLayout` and `countRowBuckets`, not copied from a testid list.
@@ -33,6 +33,12 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
   rows, the trace-lost sentence, and neither `0 tokens` nor `$0` anywhere. F2c at 900×700 asserts
   `data-compact="true"` plus the Details control, and no note/action is mounted until it is used.
 - No `pageerror`, and every `BrowserWindow` is `!visible && !focused`.
+- **The delivery entry (§7.11.3).** Six production projections are rendered: no workspace and an
+  archived workspace have no entry; one writer has one disabled `Deliver…` entry with `title`,
+  `aria-disabled` and an `sr-only` described reason; an existing `DELIVER` session has one enabled
+  `Open terminal` entry; evidence-not-read and read-with-zero-evidence each have one enabled
+  `Deliver…` entry. The zero-evidence row has no commit, PR, checks or review claim, and every
+  rendered state asserts that the shared confirmation is still closed.
 - A per-run `task-workbench-<fixture>-<w>x<h>.report.json` and a PNG of the same name under
   `.bench-fixtures/` (git-ignored). `--all` also writes `task-workbench-summary.json`.
 - **The sidebar draft row (`d5_sidebar_draft_row`).** The production
@@ -54,7 +60,9 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 
 - Screenshots prove layout; the named DOM assertions are the pass/fail verdict. For the workbench
   fixtures there is no click, keyboard, resize or interaction path; the collapsible and archived
-  toggles are only asserted in their initial state.
+  toggles are only asserted in their initial state. The delivery popover is likewise never opened
+  here; its open state and controls are covered by `TaskWorkbenchDelivery.deliver.test.tsx` and
+  `task-workbench-deliver-confirm.test.tsx`, not by a faked harness interaction.
 - No store, selector, RPC, persistence or locale switching is exercised. `i18n.ts` serves the
   English defaults; no locale file is fetched. F2d's `trace: 'deleted'` is fixture data: no
   persisted probe can produce it yet (issue #31 S2), so this run proves the rendering, not the
@@ -99,6 +107,22 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 
 The P2b sidebar row is a single-fixture run, not part of `--all`: it is listed here as the evidence
 name, and the driver still writes the same per-run report JSON and PNG.
+
+## Delivery fixture renders
+
+These six images match §7.4.5's evidence tier: they are **fixture renders, not live-machine
+screenshots** — fixture → production `TaskWorkbenchPanel` → CDP screenshot. Every image uses the
+standard wide viewport 1440×900 with `devicePixelRatio = 1`; the harness asserts both values before
+the run can pass. Reused states come from the existing matrix run rather than a duplicate fixture.
+
+| state | fixture · per-run report | design evidence image |
+| --- | --- | --- |
+| no workspace | `f2a_zero_workspace_open` · `task-workbench-f2a_zero_workspace_open-1440x900.report.json` | `ui/impl-20261119-deliver-no-workspace.png` |
+| archived | `f5_archived_only` · `task-workbench-f5_archived_only-1440x900.report.json` | `ui/impl-20261119-deliver-archived.png` |
+| one writer | `f1_baseline` · `task-workbench-f1_baseline-1440x900.report.json` | `ui/impl-20261119-deliver-one-writer.png` |
+| existing session | `f13_existing_deliver_session` · `task-workbench-f13_existing_deliver_session-1440x900.report.json` | `ui/impl-20261119-deliver-existing-session.png` |
+| evidence not read | `f12_new_workspace_no_agents` · `task-workbench-f12_new_workspace_no_agents-1440x900.report.json` | `ui/impl-20261119-deliver-evidence-not-read.png` |
+| zero evidence | `f14_zero_delivery_evidence` · `task-workbench-f14_zero_delivery_evidence-1440x900.report.json` | `ui/impl-20261119-deliver-zero-evidence.png` |
 
 ## Known contract edge
 

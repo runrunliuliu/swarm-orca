@@ -5531,6 +5531,7 @@
           "sleepWithDescendants": "子孫と一緒に寝る ({{value0}})",
           "sleepWithDescendantsDescription": "このワークスペースとすべてのネストされた子孫のアクティブなパネルを閉じて、メモリと CPU を解放します。",
           "deleteWithDescendants": "子孫と一緒に削除…",
+          "deliver": "Deliver…",
           "archiveDraft": "下書きをアーカイブ",
           "deleteDraft": "下書きを削除"
         },
@@ -17210,6 +17211,26 @@
         "collapse": "折りたたむ",
         "expand": "展開する",
         "historyEmpty": "履歴はまだありません。"
+      },
+      "TaskWorkbenchDeliver": {
+        "action": "Deliver…",
+        "openTerminal": "Open terminal",
+        "disabledWorking": "A working agent already owns this workspace; delivery waits for one writer.",
+        "confirmHeading": "Deliver {{value0}}",
+        "close": "Close",
+        "targetBranch": "Target branch",
+        "targetBranchDefault": "Default · needs confirmation",
+        "integrationMode": "Integration",
+        "integrationMode.pr": "PR",
+        "integrationMode.localMerge": "Local merge",
+        "integrationMode.squash": "Squash",
+        "archiveAfter": "Archive this workspace after delivery",
+        "archiveAfterHint": "Archiving keeps the checkout and its records; it only hides the row.",
+        "policy": "Delivery integrates through a pull request; nothing is written to the primary checkout.",
+        "attention": "Uncommitted or unpushed work is handed to the delivery agent; nothing is stashed or deleted.",
+        "cancel": "Cancel",
+        "start": "Start delivery",
+        "targetBranchRequired": "Choose a target branch first."
       },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",

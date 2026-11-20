@@ -35,6 +35,11 @@ import type { TaskProviderIdentity } from '../../../../shared/task-provider-iden
 export type TaskWorkbenchWorkspace = DashboardWorkspace & {
   archived?: boolean
   branchName?: string
+  /** True for the repository's own checkout. It is still listed (a task can be
+   *  linked to it), but §7.11.3 rule 7 / A9 forbid delivering there: the
+   *  projection never selects it as a target. Optional because a folder
+   *  workspace has no worktree at all, and an absent flag is not `false`. */
+  isMainWorktree?: boolean
 }
 
 /** Reasons a token or cost figure is absent. These tokens stay the vocabulary of
@@ -170,6 +175,13 @@ export type TaskWorkbenchView = {
   /** True until the persisted run ledger answered; the panel must not render the
    *  never-started empty state while a deleted history may still arrive. */
   historyPending?: boolean
+  /** The repository's main worktree branch, used only to pre-fill the delivery
+   *  confirm's target branch (README §7.11.3 rule 3, §7.11.5). Optional on
+   *  purpose: a folder workspace, a host that has not scanned yet, or a detached
+   *  main worktree has no name here, and the form then starts empty and asks
+   *  instead of guessing `main` (`worktree-delivery` §1). The confirm always
+   *  labels it `默认值 · 需确认`, so a filled field is still a question. */
+  targetBranchDefault?: string
 }
 
 // Why: components import every view type from one module, so they never reach

@@ -29,6 +29,7 @@ import {
   shouldRemoveProjectFromContextMenu
 } from './worktree-context-menu-policy'
 import { useWorktreeContextMenuCommands } from './use-worktree-context-menu-commands'
+import { useWorktreeContextMenuDeliver } from './worktree-context-menu-deliver'
 import { useWorktreeParentPickerTransition } from './use-worktree-parent-picker-transition'
 import { useWorktreeContextMenuSecondaryActions } from './use-worktree-context-menu-secondary-actions'
 import { getDraftContextMenuState } from './worktree-context-menu-draft-actions'
@@ -253,6 +254,12 @@ export function useWorktreeContextMenuModel({
     [onOpenChange]
   )
 
+  // Why one hook: the entry's state, its projection and its one launch path live
+  // together in `worktree-context-menu-deliver.ts`, so this model stays a layout
+  // model and neither entry can grow a second opinion about the six states.
+  const deliverMenu = { menuOpen, menuPoint, scopeRef, setMenuOpenState }
+  const deliver = useWorktreeContextMenuDeliver(worktree, repo, allWorktrees, deliverMenu)
+
   const handleArchiveDraft = useCallback(() => {
     if (!folderWorkspaceId || !isTaskDraft) {
       return
@@ -368,6 +375,7 @@ export function useWorktreeContextMenuModel({
 
   return {
     ...commands,
+    ...deliver,
     activeContextWorktrees,
     allWorktrees,
     archivableWorktrees,

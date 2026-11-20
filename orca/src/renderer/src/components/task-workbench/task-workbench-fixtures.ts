@@ -22,12 +22,14 @@ import {
   tracked,
   vault,
   workspace,
+  zeroDeliveryEvidence,
   zeroWorkspace
 } from './task-workbench-fixtures-support'
 import type { TaskWorkbenchView } from './task-workbench-view'
 
 /**
- * The twelve P1a workbench scenarios (p1a-ui-shell-plan.md §3), as data only.
+ * The twelve P1a workbench scenarios (p1a-ui-shell-plan.md §3) plus the two
+ * delivery-entry states that need their own data (§7.11.3), as data only.
  *
  * Why this file exists: P1a has no selector, so the rendered harness needs one
  * deterministic view per scenario. Nothing here reads a store, RPC or IPC, and
@@ -261,6 +263,27 @@ export const TASK_WORKBENCH_FIXTURES = {
     view: tracked('Add login auth', WS_LOGIN, 'open', {
       agents: [],
       spend: { kind: 'unavailable', reason: 'no_matching_session' }
+    })
+  },
+
+  f13_existing_deliver_session: {
+    label: 'F13 · existing delivery session',
+    summary: 'A finished DELIVER session makes the entry reopen its terminal instead of launching.',
+    view: tracked('Add login auth', WS_LOGIN, 'open', {
+      agents: [
+        row('f13-1', 'claude', 'done', 'Deliver the workspace', rollup(144_000), { conversationName: 'DELIVER' })
+      ],
+      spend: availableSpend(144_000, 0.36, [providerSpend('claude', 144_000, 0.36)])
+    })
+  },
+
+  f14_zero_delivery_evidence: {
+    label: 'F14 · zero delivery evidence',
+    summary: 'Evidence was read and found zero commits and no pull request, without inventing a claim.',
+    view: tracked('Add login auth', WS_LOGIN, 'open', {
+      agents: [],
+      spend: { kind: 'unavailable', reason: 'no_matching_session' },
+      delivery: zeroDeliveryEvidence()
     })
   }
 } satisfies Record<string, TaskWorkbenchFixture>
