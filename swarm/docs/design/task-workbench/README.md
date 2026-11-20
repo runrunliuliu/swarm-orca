@@ -1137,7 +1137,32 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
 
 #### 7.12.2 证据与缺口
 
-**已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts <路径> --maxWorkers=2`）：
+**渲染证据（本次新增，html/CSS 设计稿之外的第一层真实组件渲染）**：
+
+![已交付：宽屏](ui/impl-20261120-delivered.png)
+![已交付：窄屏](ui/impl-20261120-delivered-narrow.png)
+![已交付后归档](ui/impl-20261120-delivered-archived.png)
+![确认面：交付范围](ui/impl-20261120-deliver-confirm.png)
+
+命令（本机 `DISPLAY=:99`，Electron 隐藏窗口 + CDP 截图）：
+
+```bash
+cd orca
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture f15_delivered --width 1440 --height 900
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture f15_delivered --width 900 --height 700
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture f16_delivered_archived --width 1440 --height 900
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --fixture deliver_confirm --width 720 --height 660
+ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all   # 26/26 passed
+```
+
+新增两个 fixture（`f15_delivered` = completed ∧ merged + 关闭的 issue；`f16_delivered_archived` = 上述事实的归档形态）
+与一个直接渲染 `TaskWorkbenchDeliverConfirm` 的 `deliver_confirm` fixture；驱动按投影断言状态签的
+`data-state`/文字、事实行文本、四条勾选项的选中/禁用、`outline` 提交与「无 dialog / 无 aria-modal」。
+渲染结果已核对：宽屏交付行显示 `Delivered · Issue #412 closed · 3 commits · PR #431 merged · checks 6/6` +
+`Open session`，工作区行显示 `● Done`；归档形态显示 `Archived` 且入口消失；确认面显示「交付范围」四项，
+创建 PR 固定勾选且禁用、合并/关 #412 默认勾选、归档默认不勾。
+
+**单测已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts <路径> --maxWorkers=2`）：
 `src/renderer/src/components/task-workbench`、`src/renderer/src/lib/task-workbench`、
 `src/renderer/src/hooks/use-task-workbench-view.test.tsx`、
 `src/renderer/src/hooks/use-task-workbench-deliver-archive.test.tsx`、
@@ -1159,12 +1184,15 @@ harness 还改了 `orca/tests/tools/task-workbench-rendered/`，设计记录与�
   in-flight 窗口（20s）只挡住 window 内的重复点击；超时后若 host 仍未回镜像，第二次点击仍会再启动一次。
 - S4 的归档意图不跨应用重启；重启后只有工作区行的一键归档，界面上没有「曾经想要自动归档」的提示。
 - item 详情缓存未在关闭 issue 后主动失效（计划 S3 的一项）：页面刷新/重开才会读到新状态。
-- 交付行没有新增 fixture 渲染图，也没有重跑 §7.11.6 那六张；`ui/design-deliver-20261120-*.png` 仍是设计稿。
+- 渲染图是 **fixture → 生产组件** 的证据（与 §7.11.6 同层），不经过 live store / selector / RPC / 持久化，也不切 locale；
+  它证明不了真实 `gh pr merge`/`gh issue close`、真实归档 hook、真实 agent 的第一条消息，也不能替代 A1/A9 的真机演练。
+- `ui/design-deliver-20261120-*.png` 仍是 HTML/CSS 设计稿；本次新增的是 `ui/impl-20261120-*.png`（真实组件渲染）。
 - es/fr/ja/ko 本轮新增文案是英文回退，未做词级翻译。
-- oxlint 的 `max-lines` 在三个被本切片触及的文件上仍是红的：`hooks/use-task-workbench-view.ts`
-  （本切片前 330，现 331）、`lib/launch-agent-in-new-tab.ts`（317→319）、
-  `runtime/web-runtime-terminal-create-operation.ts`（303→311）。它们在本切片前就超预算（工作树 HEAD
-  上的实测值），本切片只加了标记传递的必需行，没有顺手拆文件；拆它们属于独立的重构。
+- oxlint 的 `max-lines` 在四个被本切片触及的文件上仍是红的（括号内为工作树 HEAD 上的实测值 → 现在）：
+  `hooks/use-task-workbench-view.ts`（330→331）、`lib/launch-agent-in-new-tab.ts`（317→319）、
+  `runtime/web-runtime-terminal-create-operation.ts`（303→311）、
+  `tests/tools/task-workbench-rendered/run.mjs`（888→1121，渲染驱动新增了交付行/确认面的断言）。
+  它们在本切片前就超预算，本切片没有顺手拆文件；拆它们属于独立的重构。
   `WorktreeContextMenu.copy-worktree-name.test.tsx` 的 2 个用例仍因既有 store mock 缺
   `folderWorkspaces` 失败（§7.11.6 已记录）。
 

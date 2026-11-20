@@ -5,6 +5,7 @@ import type { VirtualItem } from '@tanstack/react-virtual'
 import { i18n } from '../../../src/renderer/src/i18n/i18n'
 import { TooltipProvider } from '../../../src/renderer/src/components/ui/tooltip'
 import { TaskWorkbenchPanel } from '../../../src/renderer/src/components/task-workbench/TaskWorkbenchPanel'
+import { TaskWorkbenchDeliverConfirm } from '../../../src/renderer/src/components/task-workbench/task-workbench-deliver-confirm'
 import { TaskPageGitHubRows } from '../../../src/renderer/src/components/task-page/github/Rows'
 import { GITHUB_TASK_GRID_CLASS } from '../../../src/renderer/src/components/task-page-source-context'
 import type { TaskPageComposerActionsModel } from '../../../src/renderer/src/components/use-task-page-composer-actions'
@@ -317,6 +318,32 @@ function GitHubTaskRowsFixture(): React.JSX.Element {
   )
 }
 
+/**
+ * §7.12's delivery scope, rendered on its own.
+ *
+ * Why a separate fixture: the panel only mounts after a click on the Delivery
+ * row, and this harness deliberately has no click path. Rendering the production
+ * component directly is what makes the new confirm surface checkable by pixels
+ * and by testid; the two hosts that mount it are covered by vitest.
+ */
+function DeliverConfirmFixture(): React.JSX.Element {
+  return (
+    <main
+      data-testid="deliver-confirm-fixture-root"
+      className="min-h-screen bg-background p-10 text-foreground"
+    >
+      <TaskWorkbenchDeliverConfirm
+        heading="acme/web-app · feat/task-431"
+        defaultTargetBranch="main"
+        issueNumber={412}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+      />
+    </main>
+  )
+}
+
 function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element {
   return (
     <main className="min-h-screen bg-background p-6 text-foreground">
@@ -328,7 +355,7 @@ function FixtureError({ fixtureKey }: { fixtureKey: string }): React.JSX.Element
         Unknown task-workbench fixture: <code>{fixtureKey || '(missing)'}</code>. Known fixtures:{' '}
         <code>
           {Object.keys(TASK_WORKBENCH_FIXTURES)
-            .concat(['d5_sidebar_draft_row', 'd6_github_task_rows'])
+            .concat(['d5_sidebar_draft_row', 'd6_github_task_rows', 'deliver_confirm'])
             .join(', ')}
         </code>
       </div>
@@ -367,6 +394,8 @@ createRoot(root).render(
         <SidebarDraftRowFixture />
       ) : fixtureKey === 'd6_github_task_rows' ? (
         <GitHubTaskRowsFixture />
+      ) : fixtureKey === 'deliver_confirm' ? (
+        <DeliverConfirmFixture />
       ) : (
         <FixtureError fixtureKey={fixtureKey} />
       )}

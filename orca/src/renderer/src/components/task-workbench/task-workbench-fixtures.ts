@@ -13,6 +13,7 @@ import {
   WS_SPIKE,
   availableSpend,
   deliveryEvidence,
+  deliveredView,
   FIXTURE_NOW,
   measuredWall,
   providerSpend,
@@ -285,6 +286,21 @@ export const TASK_WORKBENCH_FIXTURES = {
       spend: { kind: 'unavailable', reason: 'no_matching_session' },
       delivery: zeroDeliveryEvidence()
     })
+  },
+
+  // §7.12 D4/A6–A8: the delivered row, live and archived. Both views come from
+  // one builder so the two screenshots differ only in `archived`.
+  f15_delivered: {
+    label: 'F15 · delivered',
+    summary:
+      'completed ∧ merged reads Delivered, states PR and issue facts, and opens the session report.',
+    view: deliveredView({ archived: false })
+  },
+
+  f16_delivered_archived: {
+    label: 'F16 · delivered, then archived',
+    summary: 'An archived workspace keeps its delivery facts and loses only the entry.',
+    view: deliveredView({ archived: true })
   }
 } satisfies Record<string, TaskWorkbenchFixture>
 

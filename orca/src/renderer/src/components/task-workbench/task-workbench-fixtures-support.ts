@@ -65,12 +65,20 @@ export function tracked(
   title: string,
   defaultWorkspace: TaskWorkbenchWorkspace | null,
   state: 'open' | 'closed',
-  body: ViewBody
+  body: ViewBody,
+  /** The item's own number, when the fixture is about the issue fact (§7.12).
+   *  Omitted means "this view carries no number", which is what every pre-§7.12
+   *  fixture means: no issue fact is printed and none is guessed. */
+  itemNumber?: number
 ): TaskWorkbenchView {
   return {
     identity: { kind: 'tracker', provider: GITHUB },
     title,
-    tracker: { state, url: 'https://github.com/acme/web-app/issues/412' },
+    tracker: {
+      state,
+      url: 'https://github.com/acme/web-app/issues/412',
+      ...(itemNumber === undefined ? {} : { number: itemNumber })
+    },
     defaultWorkspace: {
       workspaceId: defaultWorkspace?.worktreeId ?? '',
       source: defaultWorkspace ? 'explicit' : 'none'
@@ -219,6 +227,44 @@ export function deliveryEvidence(
     checks: { passing, total },
     review
   }
+}
+
+/**
+ * The §7.12 delivered view (``completed`` workspace status ∧ merged review),
+ * used twice: live (`archived: false`) and after the operator archived it.
+ *
+ * Why a builder and not two hand-written views: the two fixtures must differ
+ * only in `archived`, otherwise the archived screenshot would prove a different
+ * task. The issue is closed and the page names its number, so the issue fact has
+ * a real source; the PR fact comes from the workspace's own review.
+ */
+export function deliveredView(options: { archived: boolean }): TaskWorkbenchView {
+  const deliveredWorkspace = workspace('web-app', 'feature/add-login', {
+    worktreeName: 'Add login auth',
+    workspaceStatusId: 'completed',
+    workspaceStatusLabel: 'Done',
+    workspaceStatusColor: '#22c55e',
+    review: { number: 431, state: 'merged' },
+    ...(options.archived ? { archived: true } : {})
+  })
+  return tracked(
+    'Add login auth',
+    deliveredWorkspace,
+    'closed',
+    {
+      agents: [
+        row('delivered-1', 'claude', 'done', 'Deliver the workspace', rollup(144_000), {
+          conversationName: 'DELIVER',
+          archivedWorkspace: options.archived
+        })
+      ],
+      spend: options.archived
+        ? { kind: 'unavailable', reason: 'no_matching_session' }
+        : availableSpend(144_000, 0.36, [providerSpend('claude', 144_000, 0.36)]),
+      delivery: deliveryEvidence(3, [431, 'merged'], [6, 6], 'approved')
+    },
+    412
+  )
 }
 
 /** Evidence was read and found no commit or pull request. Keeping this shape in
