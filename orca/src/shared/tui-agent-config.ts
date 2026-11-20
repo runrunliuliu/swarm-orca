@@ -135,6 +135,12 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
     promptInjectionMode: 'argv',
     // Why: pi has no `--prefill` and paste-after-ready races its long startup; the orca-prefill extension seeds this env var instead.
     draftPromptEnvVar: 'ORCA_PI_PREFILL',
+    // Why: a submitted prompt (Swarm Coordinator start) cannot use that prefill — it has to be
+    // pasted and submitted once the TUI owns its composer. pi's startup is slower than the 8s
+    // default budget, and an expired budget pastes nothing at all. 20s is deliberately the same
+    // budget as opencode's measured composer wait (see opencode above), not a pi measurement:
+    // treat it as a hypothesis until a pi transcript backs it.
+    draftPasteReadyTimeoutMs: 20_000,
     // Why: Pi decodes CSI-u; Esc+CR submits after tool subprocesses reset live KKP state (#9703).
     windowsShiftEnterEncoding: 'csi-u'
   },

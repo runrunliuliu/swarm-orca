@@ -43,6 +43,7 @@ import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import { translate } from '@/i18n/i18n'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
+import type { NewWorkspaceLaunchSelection } from '@/lib/swarm-launch-prompt'
 import { buildQuickComposerStartup } from './quick-startup-plan'
 import { buildQuickCreationRequest } from './quick-creation-request'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
@@ -87,7 +88,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       workspaceNameSeed: string,
       workspaceRunContext: WorktreeCreationRequest['workspaceRunContext'],
       repoId: string,
-      selectedRepo: Repo
+      selectedRepo: Repo,
+      launch: NewWorkspaceLaunchSelection = { mode: 'single', maxWorkers: null }
     ): Promise<void> => {
       const prepared = await prepareQuickSubmit(
         smartGitHubResolution,
@@ -129,11 +131,20 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       const {
         startupPlan,
         backendStartup,
+        deliveredPrompt,
+        creationPrompt,
+        launchDraftPrompt,
+        promptDelivery,
         telemetry: quickTelemetry
       } = buildQuickComposerStartup({
         agent,
         prompt: quickPrompt,
         draftPrompt: quickDraftPrompt,
+        launch,
+        linkedWorkItemUrl: submitLinkedWorkItem?.url ?? null,
+        repoPath: selectedRepo.path,
+        baseRef: submitBaseBranch ?? null,
+        note: trimmedNote,
         settings,
         repoConnectionId: selectedRepo.connectionId,
         platform: selectedRepoAgentLaunchPlatform,
@@ -194,7 +205,6 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         }
       }
 
-      const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
       // Why: the verdict is persisted on the request as data and re-entered once the worktree exists.
       const agentLaunchRoute = agent
         ? planAgentSessionLaunch(useAppStore.getState(), {
@@ -206,7 +216,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
                 ? 'runtime:pending-ephemeral-vm'
                 : (workspaceRunContext?.hostId ?? selectedRepoExecutionHostId ?? undefined)
             },
-            prompt: quickDraftPrompt ?? quickPrompt,
+            prompt: deliveredPrompt,
             promptDelivery,
             initialSessionOptions: startupPlan?.sessionOptions
           }).route
@@ -252,8 +262,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         pendingFirstAgentMessageRename,
         note: trimmedNote,
         startupPlan,
-        quickPrompt,
-        launchDraftPrompt: quickDraftPrompt,
+        quickPrompt: creationPrompt,
+        ...(launchDraftPrompt ? { launchDraftPrompt } : {}),
         promptDelivery,
         quickTelemetry,
         suppressTerminalFocusOnCompletion: createMultiple

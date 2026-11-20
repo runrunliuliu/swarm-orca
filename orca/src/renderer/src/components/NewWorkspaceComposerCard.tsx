@@ -25,6 +25,7 @@ import type { RuntimeStatus } from '../../../shared/runtime-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { NewWorkspaceComposerAdvancedSection } from './new-workspace/NewWorkspaceComposerAdvancedSection'
 import { NewWorkspaceComposerAgentSection } from './new-workspace/NewWorkspaceComposerAgentSection'
+import { NewWorkspaceComposerLaunchModeSection } from './new-workspace/NewWorkspaceComposerLaunchModeSection'
 import { NewWorkspaceComposerFooter } from './new-workspace/NewWorkspaceComposerFooter'
 import { NewWorkspaceComposerNameSection } from './new-workspace/NewWorkspaceComposerNameSection'
 import { NewWorkspaceComposerProjectSection } from './new-workspace/NewWorkspaceComposerProjectSection'
@@ -172,6 +173,26 @@ export default function NewWorkspaceComposerCard(
       (props.detectedAgentIds === null || props.detectedAgentIds.has(agent.id))
     )
   })
+  // Why: a seeded linked work item and a picker selection surface as the same state, so this is
+  // the selection the user is looking at. A branch start is not a task source and shows as none.
+  const launchTaskSource = props.smartNameSelection
+  // Why: the mode control is the composer's own state, so a surface that does not
+  // pass a change handler (nothing but the new-workspace modal does today) keeps
+  // rendering the single-agent composer it always had.
+  const launchModeSection = props.onLaunchModeChange ? (
+    <NewWorkspaceComposerLaunchModeSection
+      launchMode={props.launchMode ?? 'single'}
+      onLaunchModeChange={props.onLaunchModeChange}
+      maxWorkers={props.maxWorkers ?? ''}
+      onMaxWorkersChange={props.onMaxWorkersChange ?? (() => {})}
+      coordinatorAgentLabel={
+        agentCatalog.find((candidate) => candidate.id === props.quickAgent)?.label ?? null
+      }
+      taskSourceLabel={
+        launchTaskSource && launchTaskSource.kind !== 'branch' ? launchTaskSource.label : null
+      }
+    />
+  ) : null
 
   const cancelNameInputFocusFrame = React.useCallback((): void => {
     if (nameInputFocusFrameRef.current !== null) {
@@ -323,6 +344,7 @@ export default function NewWorkspaceComposerCard(
           {...props}
           createDisabled={props.createDisabled || sparseEditing}
           advancedLocked={sparseEditing}
+          launchModeSection={launchModeSection}
           visibleQuickAgents={visibleQuickAgents}
           defaultTuiAgent={defaultTuiAgent}
           handleSetDefaultAgent={handleSetDefaultAgent}

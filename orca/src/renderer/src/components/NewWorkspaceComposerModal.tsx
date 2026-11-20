@@ -28,6 +28,12 @@ import type { TaskSourceContext } from '../../../shared/task-source-context'
 import { translate } from '@/i18n/i18n'
 import { getWorkspaceComposerInitialFocusTarget } from '@/lib/workspace-composer-initial-focus'
 import { getFolderWorkspacePrimaryActionLabel } from '@/components/sidebar/folder-workspace-composer-helpers'
+import {
+  DEFAULT_SWARM_MAX_WORKERS,
+  launchModeBlocksCreate,
+  parseSwarmMaxWorkers,
+  type NewWorkspaceLaunchMode
+} from '@/lib/swarm-launch-prompt'
 
 // Why: match App-level AddRepoDialog loading — the add flow is off the hot
 // path for the composer, so keep its clone/SSH machinery out of the entry render.
@@ -131,7 +137,7 @@ function QuickTabBody({
     onComposerNodeChange,
     nameInputRef,
     submitQuick,
-    createDisabled,
+    createDisabled: composerCreateDisabled,
     selectAddedProjectRepo
   } = useComposerState({
     initialName: modalData.prefilledName ?? '',
@@ -207,9 +213,26 @@ function QuickTabBody({
     setQuickAgentOverride(agent)
   }, [])
 
+  // Why: a project-group (folder) target creates a folder workspace and never launches an agent
+  // itself, so the start mode does not apply to it — no control, no label, no gate.
+  const isFolderWorkspaceTarget =
+    cardProps.projectOptions.find((option) => option.id === cardProps.selectedProjectId)?.kind ===
+    'project-group'
+
+  // Why local state, not a setting: the start mode belongs to this one workspace,
+  // and a stale global "always swarm" would silently change every later create.
+  const [launchMode, setLaunchMode] = useState<NewWorkspaceLaunchMode>('single')
+  const [maxWorkers, setMaxWorkers] = useState<string>(String(DEFAULT_SWARM_MAX_WORKERS))
+  const parsedMaxWorkers = parseSwarmMaxWorkers(maxWorkers)
+  const launchModeForCreate: NewWorkspaceLaunchMode = isFolderWorkspaceTarget
+    ? 'single'
+    : launchMode
+  const createDisabled =
+    composerCreateDisabled || launchModeBlocksCreate(launchModeForCreate, maxWorkers)
+
   const handleCreate = useCallback(async (): Promise<void> => {
-    await submitQuick(quickAgent)
-  }, [quickAgent, submitQuick])
+    await submitQuick(quickAgent, { mode: launchModeForCreate, maxWorkers: parsedMaxWorkers })
+  }, [launchModeForCreate, parsedMaxWorkers, quickAgent, submitQuick])
   // Why: Add Project layers over the composer as a nested dialog instead of
   // replacing it in the activeModal slot — closing the composer mid-flow (and
   // losing the typed name/prompt) was the old, abrupt behavior. Once opened it
@@ -249,15 +272,16 @@ function QuickTabBody({
     }),
     [addProjectOpen, handleAddProjectCloseAutoFocus, handleProjectAdded]
   )
-  const selectedProjectOption = cardProps.projectOptions.find(
-    (option) => option.id === cardProps.selectedProjectId
-  )
-  const isFolderWorkspaceTarget = selectedProjectOption?.kind === 'project-group'
   const primaryActionLabel = isFolderWorkspaceTarget
     ? getFolderWorkspacePrimaryActionLabel()
-    : cardProps.selectedRepoIsGit
-      ? translate('auto.components.NewWorkspaceComposerModal.createWorktree', 'Create worktree')
-      : translate('auto.components.NewWorkspaceComposerModal.createWorkspace', 'Create workspace')
+    : launchModeForCreate === 'swarm'
+      ? translate(
+          'auto.components.NewWorkspaceComposerModal.createAndStartCoordinator',
+          'Create workspace & start coordinator'
+        )
+      : cardProps.selectedRepoIsGit
+        ? translate('auto.components.NewWorkspaceComposerModal.createWorktree', 'Create worktree')
+        : translate('auto.components.NewWorkspaceComposerModal.createWorkspace', 'Create workspace')
 
   // Cmd/Ctrl+Enter submits. Escape belongs to the dialog's dismissable layer:
   // the page-style "blur the focused field first" rule assumes the user chose
@@ -325,6 +349,11 @@ function QuickTabBody({
         onQuickAgentChange={handleQuickAgentChange}
         {...cardProps}
         primaryActionLabel={primaryActionLabel}
+        launchMode={launchModeForCreate}
+        onLaunchModeChange={isFolderWorkspaceTarget ? undefined : setLaunchMode}
+        maxWorkers={maxWorkers}
+        onMaxWorkersChange={setMaxWorkers}
+        createDisabled={createDisabled}
         onOpenAgentSettings={() => setAgentSettingsOpen(true)}
         onCreate={() => void handleCreate()}
         onAddProjectOverride={handleOpenAddProject}

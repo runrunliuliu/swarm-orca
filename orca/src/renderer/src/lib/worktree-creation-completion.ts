@@ -32,7 +32,10 @@ export async function completeWorktreeCreation(args: {
     void ensureAgentStartupInTerminal({
       worktreeId: args.worktreeId,
       primaryTabId: args.primaryTabId,
-      startup: request.startupPlan
+      startup: request.startupPlan,
+      // Why: the composer decided delivery before the worktree existed; the paste must not
+      // re-derive it, or a retry could submit a prompt the user chose to leave editable.
+      submitDraft: request.promptDelivery === 'submit-after-ready'
     })
   }
   if (

@@ -4,6 +4,7 @@ const {
   mockInspectRuntimeTerminalProcess,
   mockSendRuntimePtyInputVerified,
   mockPasteDraftToAgentPtyWhenReady,
+  mockDeliverSubmittedLaunchPromptWhenReady,
   mockShowAutomationPromptNotSentToast,
   mockTrack,
   store,
@@ -13,6 +14,7 @@ const {
   mockInspectRuntimeTerminalProcess: vi.fn(),
   mockSendRuntimePtyInputVerified: vi.fn(),
   mockPasteDraftToAgentPtyWhenReady: vi.fn(),
+  mockDeliverSubmittedLaunchPromptWhenReady: vi.fn(),
   mockShowAutomationPromptNotSentToast: vi.fn(),
   mockTrack: vi.fn(),
   storeListeners: new Set<(state: unknown, previousState: unknown) => void>(),
@@ -88,6 +90,10 @@ vi.mock('@/lib/browser-uuid', () => ({
 
 vi.mock('@/lib/telemetry', () => ({
   track: mockTrack
+}))
+
+vi.mock('@/lib/swarm-launch-prompt-delivery', () => ({
+  deliverSubmittedLaunchPromptWhenReady: mockDeliverSubmittedLaunchPromptWhenReady
 }))
 
 vi.mock('@/lib/agent-background-session-timeout-toast', () => ({
@@ -274,6 +280,7 @@ describe('ensureAgentStartupInTerminal prompt delivery', () => {
     })
     mockSendRuntimePtyInputVerified.mockResolvedValue(true)
     mockPasteDraftToAgentPtyWhenReady.mockResolvedValue(true)
+    mockDeliverSubmittedLaunchPromptWhenReady.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
@@ -395,6 +402,41 @@ describe('ensureAgentStartupInTerminal prompt delivery', () => {
     ).resolves.toBeUndefined()
 
     expect(mockTrack).not.toHaveBeenCalledWith('agent_prompt_sent', expect.anything())
+  })
+
+  const coordinatorStartup = (
+    submitDraft: boolean
+  ): Parameters<typeof ensureAgentStartupInTerminal>[0] => ({
+    worktreeId: 'wt-1',
+    submitDraft,
+    startup: {
+      agent: 'pi',
+      launchCommand: 'pi',
+      expectedProcess: 'pi',
+      followupPrompt: null,
+      launchConfig: { agentArgs: '', agentEnv: {} },
+      draftPrompt: 'Coordinator brief'
+    }
+  })
+
+  it('submits the pasted draft when the create asked for submit-after-ready', async () => {
+    await ensureAgentStartupInTerminal(coordinatorStartup(true))
+
+    expect(mockDeliverSubmittedLaunchPromptWhenReady).toHaveBeenCalledWith({
+      tabId: 'tab-1',
+      ptyId: 'pty-1',
+      agent: 'pi',
+      content: 'Coordinator brief'
+    })
+    // Why: the unsubmitted paste would leave the Coordinator brief editable.
+    expect(mockPasteDraftToAgentPtyWhenReady).not.toHaveBeenCalled()
+  })
+
+  it('leaves the draft editable when the create did not ask to submit', async () => {
+    await ensureAgentStartupInTerminal(coordinatorStartup(false))
+
+    expect(mockDeliverSubmittedLaunchPromptWhenReady).not.toHaveBeenCalled()
+    expect(mockPasteDraftToAgentPtyWhenReady).toHaveBeenCalledTimes(1)
   })
 
   it('does not track draft prompt delivery as a sent prompt', async () => {

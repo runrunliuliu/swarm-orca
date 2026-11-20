@@ -4,6 +4,7 @@ import {
   pasteDraftToAgentPtyWhenReady
 } from '@/lib/agent-paste-draft'
 import { sendFollowupPromptWhenAgentReady } from '@/lib/agent-followup-delivery'
+import { deliverSubmittedLaunchPromptWhenReady } from '@/lib/swarm-launch-prompt-delivery'
 import { showAutomationPromptNotSentToast } from '@/lib/agent-background-session-timeout-toast'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { LinkedWorkItemContext } from '@/lib/linked-work-item-context'
@@ -228,8 +229,10 @@ export async function ensureAgentStartupInTerminal(args: {
   worktreeId: string
   primaryTabId?: string | null
   startup: AgentStartupPlan
+  /** Submit the pasted prompt instead of leaving it editable — the Swarm Coordinator start. */
+  submitDraft?: boolean
 }): Promise<void> {
-  const { worktreeId, primaryTabId, startup } = args
+  const { worktreeId, primaryTabId, startup, submitDraft = false } = args
   const draftPrompt = startup.draftPrompt ?? null
   if (startup.followupPrompt === null && draftPrompt === null) {
     return
@@ -265,21 +268,23 @@ export async function ensureAgentStartupInTerminal(args: {
         tabId,
         launchToken,
         startup,
-        deliver: deliverAgentStartupToTerminal
+        deliver: (tabId, ptyId, startup) =>
+          deliverAgentStartupToTerminal(tabId, ptyId, startup, { submitDraft })
       })
     }
     return
   }
 
   if (beginAgentStartupDeliveryAttempt({ worktreeId, tabId, launchToken })) {
-    await deliverAgentStartupToTerminal(tabId, ptyId, startup)
+    await deliverAgentStartupToTerminal(tabId, ptyId, startup, { submitDraft })
   }
 }
 
 async function deliverAgentStartupToTerminal(
   tabId: string,
   ptyId: string,
-  startup: AgentStartupPlan
+  startup: AgentStartupPlan,
+  options: { submitDraft: boolean }
 ): Promise<void> {
   const draftPrompt = startup.draftPrompt ?? null
   const runtimeSettings = getSettingsForAgentTabRuntimeOwner(tabId)
@@ -301,9 +306,16 @@ async function deliverAgentStartupToTerminal(
   }
 
   // Why: draftPrompt uses bracketed-paste so the URL lands atomically in the
-  // agent's input buffer (no per-char echo, no auto-submit). Shared with the
-  // launch-work-item-direct flow so both behave identically.
-  if (draftPrompt) {
+  // agent's input buffer (no per-char echo). Same helper as the
+  // launch-work-item-direct flow, which is also where `submit` comes from.
+  if (draftPrompt && options.submitDraft) {
+    await deliverSubmittedLaunchPromptWhenReady({
+      tabId,
+      ptyId,
+      agent: startup.agent,
+      content: draftPrompt
+    })
+  } else if (draftPrompt) {
     await pasteDraftToAgentPtyWhenReady({
       tabId,
       ptyId,

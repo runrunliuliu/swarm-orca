@@ -18,6 +18,9 @@ type NewWorkspaceComposerAgentSectionProps = Pick<
   | 'onToggleAdvanced'
 > & {
   advancedLocked?: boolean
+  /** Rendered between the agent picker and Advanced: the agent decides what receives the prompt,
+   *  so the launch mode belongs next to it rather than inside the Advanced drawer. */
+  launchModeSection?: React.ReactNode
   visibleQuickAgents: React.ComponentProps<typeof AgentCombobox>['agents']
   defaultTuiAgent: React.ComponentProps<typeof AgentCombobox>['defaultAgent']
   handleSetDefaultAgent: (
@@ -34,6 +37,7 @@ export function NewWorkspaceComposerAgentSection({
   advancedOpen,
   advancedLocked = false,
   onToggleAdvanced,
+  launchModeSection = null,
   visibleQuickAgents,
   defaultTuiAgent,
   handleSetDefaultAgent
@@ -79,6 +83,8 @@ export function NewWorkspaceComposerAgentSection({
           onTriggerEnter={createDisabled ? undefined : onCreate}
         />
       </div>
+
+      {launchModeSection}
 
       <div className="!mb-2">
         <Button

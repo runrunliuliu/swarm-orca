@@ -1,6 +1,7 @@
 # 新建工作区的「起步方式」：单 Agent / Swarm Coordinator
 
-状态：设计稿。本文描述目标形态与窄实现范围，**不含**实现、部署、Agent 启动或费用授权；
+状态：M1 已在 `orca/` 落地（未部署、未发布）。§1–§9 是设计定稿，§10 记录落地时的
+两个决定、与设计的差异和证据层级。本文不授权部署、重启、Agent 启动或费用；
 文中数据为脱敏占位（`acme/web-app`、`main`），不含真实主机、运行 ID 与用量。
 
 - 目标问题：从 issue 建工作区后，agent 会起来，但输入框只有 issue 链接且不提交；
@@ -183,3 +184,58 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 7. 首终端 draft 投递处：新值走 submit；超时降级保持 draft。
 
 不改：`launch-work-item-direct*`、`linked-issue-context-*`、`worktree-startup-payload` 的现有字段语义。
+
+## 10. M1 落地记录
+
+### 10.1 需要先定的两件事：已定
+
+1. **pi 的提交走 (b)，不走 (a)。** (a) 要 pi 在 `session_start` 后自己发一次提交，而 pi 的扩展
+   API 里只有 `ctx.ui.setEditorText` 这类 fire-and-forget 方法，没有提交入口；照 (a) 做等于先
+   发明一个新 API。因此：`shared/tui-agent-config.ts` 给 pi 补
+   `draftPasteReadyTimeoutMs: 20_000`（与 opencode 相同的预算），并把超时降级为"至少留
+   draft"——`renderer/src/lib/swarm-launch-prompt-delivery.ts` 在就绪等待失败后以未提交方式
+   再 paste 一次，并明确提示"已在输入框、未发送"。
+   **这个 20s 是假设，不是 pi 的实测值**（opencode 的 20s 有测量记录，pi 还没有）；pi 上的
+   真实成功率仍未验证。
+2. **`max_workers` 是表单值（默认 4），不是"开工前问我"。** 模板里同时写值与语义
+   （含审查、集成、嵌套与讨论用 agent），所以选完即开工，不需要多一轮问答；字段非正整数时
+   主按钮禁用。
+
+### 10.2 与设计的差异
+
+- §5 的 `launchDraftText`：swarm 路径不写"未发送上下文"的 draft 镜像，而是把已提交的首条
+  prompt 镜像成 chat 的 prompt 气泡（`deliverLaunchPromptToAgentTab` 的 seed）。理由：这条
+  prompt 是**提交**而非留白，draft 镜像会让 GUI 显示一段其实已经发出去的未发送文本。
+- 校验与摘要的实现归属：`max_workers` 的解析/门禁在 `lib/swarm-launch-prompt.ts`
+  （`parseSwarmMaxWorkers`、`launchModeBlocksCreate`），首条 prompt 与 delivery 的选择在
+  `hooks/composer-state/quick-startup-plan.ts`（`buildQuickComposerStartup` 内调用
+  `planQuickCreateLaunchPrompt`），因此 `quick-creation-execution.ts` 只多了一次
+  `buildQuickComposerStartup` 的入参，没有新增抽象层。
+- 新增 `lib/swarm-launch-prompt-delivery.ts`（第 7 项的实现体）：创建链的"首终端投递"原本
+  只有 draft paste，提交语义与超时降级需要单独一处可测代码。
+
+### 10.3 证据层级（做到了什么、没做到什么）
+
+已执行（`orca/`，批次小集合，`--maxWorkers=2`）：
+
+- `src/renderer/src/lib/swarm-launch-prompt.test.ts`、`.../swarm-launch-prompt-delivery.test.ts`、
+  `src/renderer/src/hooks/composer-state/quick-startup-plan.test.ts`、
+  `src/renderer/src/hooks/composer-state/quick-creation-request.test.ts`、
+  `src/renderer/src/lib/new-workspace.test.ts`（新增 `submitDraft` 两例）、
+  `src/renderer/src/components/new-workspace/NewWorkspaceComposerLaunchModeSection.test.tsx`、
+  `src/renderer/src/components/NewWorkspaceComposerCard.launch-mode.test.tsx`；
+- 既有回归：`hooks/composer-state`、`components/NewWorkspaceComposer*`、`components/new-workspace`、
+  `lib/launch-work-item-direct*`、`lib/agent-paste-draft*`、`components/terminal-pane/pty-connection`、
+  `shared/tui-agent-config.test.ts`；
+- `tsc -p config/tsconfig.web.json` / `tsconfig.node.json`、`oxlint`、`oxfmt --check`、
+  `check-max-lines-ratchet.mjs`、`verify-localization-catalog.mjs`（含 `--fix` 写入 11 个 en 键）、
+  `verify-localization-extraction.mjs`、`check-reliability-gates.mjs` 均通过。
+
+**没做**：真实组件截图与设计稿的比对（A8 的后半条）；pi（或其他 agent）在真实终端里
+`submit-after-ready` 的成功率与就绪时序；任何 swarm Run 演练。因此本记录只证明"表单能给出
+正确的指令并把它交给就绪后的 paste"，不证明任何 Run 能跑起来。
+
+已知与本改动无关的红点：`audit-localization-coverage.mjs --check` 在
+`components/right-sidebar/incidents/IncidentDetailDrawer.tsx:131`（`sha256:`）与
+`IncidentGrayTables.tsx:186`（`exit`）上失败，两文件本次未修改；本改动自己的 `max_workers`
+字样已按技术字面量登记进 `config/localization-coverage-allowlist.json`。

@@ -12,6 +12,7 @@ import {
 import { toast } from 'sonner'
 
 import type { ComposerModel } from './composer-model'
+import type { NewWorkspaceLaunchSelection } from '@/lib/swarm-launch-prompt'
 
 type QuickSubmitActionInput = Pick<
   ComposerModel,
@@ -66,7 +67,10 @@ export function useQuickSubmitAction(input: QuickSubmitActionInput) {
   } = input
 
   const submitQuick = useCallback(
-    async (requestedAgent: TuiAgent | null): Promise<void> => {
+    async (
+      requestedAgent: TuiAgent | null,
+      launch?: NewWorkspaceLaunchSelection
+    ): Promise<void> => {
       if (isProjectGroupTarget) {
         await submitFolderTarget(requestedAgent)
         return
@@ -144,7 +148,8 @@ export function useQuickSubmitAction(input: QuickSubmitActionInput) {
           workspaceNameSeed,
           workspaceRunContext,
           repoId,
-          selectedRepo
+          selectedRepo,
+          launch
         )
       } catch (error) {
         if (isSubmissionCancelled()) {
