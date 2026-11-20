@@ -1,6 +1,7 @@
 # 新建工作区的「起步方式」：单 Agent / Swarm Coordinator
 
-状态：设计稿。本文描述目标形态与窄实现范围，**不含**实现、部署、Agent 启动或费用授权；
+状态：M1 已在 `orca/` 落地（未部署、未发布）。§1–§9 是设计定稿，§10 记录落地时的
+两个决定、与设计的差异和证据层级。本文不授权部署、重启、Agent 启动或费用；
 文中数据为脱敏占位（`acme/web-app`、`main`），不含真实主机、运行 ID 与用量。
 
 - 目标问题：从 issue 建工作区后，agent 会起来，但输入框只有 issue 链接且不提交；
@@ -59,7 +60,7 @@ agent 时才会被 `renderer/src/lib/linked-issue-context-draft.ts:44-101` 渲�
 
 | 元素 | 内容 | 说明 |
 | --- | --- | --- |
-| `max_workers` | 数字输入，默认 4，必须为正整数 | 用户值，不是仓库私有策略；留空则禁用主按钮 |
+| `max_workers` | 数字输入，默认 4，必须为 1–1000 的整数 | 用户值，不是仓库私有策略；留空则禁用主按钮 |
 | 摘要行（只读） | `Coordinator = <所选 agent> · Workers ≤ 4 · 任务源 = issue #123` | 只显示本次解析结果，不显示模型/profile |
 | 提示行（muted） | `Coordinator 会在开工前确认预算、可写范围与是否允许合并。` | 让"自动提交"的后果可预期：先问答，不直接开跑 |
 
@@ -136,7 +137,7 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 
 | 情况 | 行为 |
 | --- | --- |
-| `max_workers` 为空/非正整数 | 主按钮禁用，字段级提示；不发请求 |
+| `max_workers` 为空/非 1–1000 整数 | 主按钮禁用，字段级提示；不发请求 |
 | 所选 agent 未被检测到 | 沿用现有 agent 选择逻辑禁用提交（不新增分支） |
 | 就绪等待超时（长启动 agent） | 保留 draft + 现有 toast 提示，不静默失败 |
 | pi 作为 Coordinator（选 Swarm 且 agent=pi） | 见 §7 风险 1：`submit-after-ready` 会 `forcePaste` 绕过 `ORCA_PI_PREFILL`，必须同时处理 |
@@ -183,3 +184,76 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 7. 首终端 draft 投递处：新值走 submit；超时降级保持 draft。
 
 不改：`launch-work-item-direct*`、`linked-issue-context-*`、`worktree-startup-payload` 的现有字段语义。
+
+## 10. M1 落地记录
+
+### 10.1 需要先定的两件事：已定
+
+1. **pi 的提交走 (b)，不走 (a)。** (a) 要 pi 在 `session_start` 后自己发一次提交，而 pi 的扩展
+   API 里只有 `ctx.ui.setEditorText` 这类 fire-and-forget 方法，没有提交入口；照 (a) 做等于先
+   发明一个新 API。因此：`shared/tui-agent-config.ts` 给 pi 补
+   `draftPasteReadyTimeoutMs: 20_000`（与 opencode 相同的预算），并把超时降级为"至少留
+   draft"——`renderer/src/lib/swarm-launch-prompt-delivery.ts` 在就绪等待失败后以未提交方式
+   再 paste 一次，并明确提示"已在输入框、未发送"。
+   **这个 20s 是假设，不是 pi 的实测值**（opencode 的 20s 有测量记录，pi 还没有）；pi 上的
+   真实成功率仍未验证。
+2. **`max_workers` 是表单值（默认 4），不是"开工前问我"。** 模板里同时写值与语义
+   （含审查、集成、嵌套与讨论用 agent），所以选完即开工，不需要多一轮问答；字段非 1–1000 整数时
+   主按钮禁用。
+
+### 10.2 与设计的差异
+
+- §5 的 `launchDraftText`：swarm 路径不写"未发送上下文"的 draft 镜像，而是把已提交的首条
+  prompt 镜像成 chat 的 prompt 气泡（`deliverLaunchPromptToAgentTab` 的 seed）。理由：这条
+  prompt 是**提交**而非留白，draft 镜像会让 GUI 显示一段其实已经发出去的未发送文本。
+- 校验与摘要的实现归属：`max_workers` 的解析/门禁在 `lib/swarm-launch-prompt.ts`
+  （`parseSwarmMaxWorkers`、`launchModeBlocksCreate`），首条 prompt 与 delivery 的选择在
+  `hooks/composer-state/quick-startup-plan.ts`（`buildQuickComposerStartup` 内调用
+  `planQuickCreateLaunchPrompt`），因此 `quick-creation-execution.ts` 只多了一次
+  `buildQuickComposerStartup` 的入参，没有新增抽象层。
+- 新增 `lib/swarm-launch-prompt-delivery.ts`（第 7 项的实现体）：创建链的"首终端投递"原本
+  只有 draft paste，提交语义与超时降级需要单独一处可测代码。
+
+### 10.3 证据层级（做到了什么、没做到什么）
+
+已执行（`orca/`，批次小集合，`--maxWorkers=2`）：
+
+- `src/renderer/src/lib/swarm-launch-prompt.test.ts`、`.../swarm-launch-prompt-delivery.test.ts`、
+  `src/renderer/src/hooks/composer-state/quick-startup-plan.test.ts`、
+  `src/renderer/src/hooks/composer-state/quick-creation-request.test.ts`、
+  `src/renderer/src/lib/new-workspace.test.ts`（新增 `submitDraft` 两例）、
+  `src/renderer/src/components/new-workspace/NewWorkspaceComposerLaunchModeSection.test.tsx`、
+  `src/renderer/src/components/NewWorkspaceComposerCard.launch-mode.test.tsx`；
+- 既有回归：`hooks/composer-state`、`components/NewWorkspaceComposer*`、`components/new-workspace`、
+  `lib/launch-work-item-direct*`、`lib/agent-paste-draft*`、`components/terminal-pane/pty-connection`、
+  `shared/tui-agent-config.test.ts`；
+- `tsc -p config/tsconfig.web.json` / `tsconfig.node.json`、`oxlint`、`oxfmt --check`、
+  `check-max-lines-ratchet.mjs`、`verify-localization-catalog.mjs`（含 `--fix` 写入 11 个 en 键）、
+  `verify-localization-extraction.mjs`、`check-reliability-gates.mjs` 均通过。
+
+**真实组件渲染核对（A8 后半条，一次性证据，未入库）**：用 `tests/e2e` 的 Electron fixture
+在 Xvfb 下启动真实应用，打开 rebuilt composer 并截了 4 张图（默认单 agent / 选中 swarm 且
+`max_workers=4` / 填 0 的非法态 / 填 6 的合法态）。截图脚本是一次性的，跑完即删，没有作为
+回归门禁提交。核对结果：
+
+| 项 | 真实渲染 | 设计稿 |
+| --- | --- | --- |
+| 位置 | Agent 与 Advanced 之间 | 一致 |
+| 默认态 | `单个 Agent` 选中，无 `max_workers`/说明行 | 一致 |
+| 选中态 | `max_workers` 输入框（64px、右对齐、默认 4）+ 摘要行 + 说明行 | 一致 |
+| 非法态 | 输入框红边 + `Enter a whole number of 1 or more.` + `Workers ≤ —` + 主按钮禁用 | 一致 |
+| 选中段填充 | 应用 `--primary` 实心 | 稿里是稿内的 `--accent`（蓝）；应用内 `--accent` 是中性 hover 色，28px 段上用它会读成 hover，故改用 `--primary` |
+| 标题 | 跟随 `primaryActionLabel`：swarm 下变成 `Create workspace & start coordinator` | 稿里标题固定 `New workspace`（沿用现状，不改标题逻辑） |
+| 摘要行 | 无 agent 标签时（`Blank Terminal`）会折成两行 | 单行；有真实 agent 名时单行 |
+
+A8 之后按审查意见把上限收到 1000：字段提示现为 `Enter a whole number from 1 to 1000.`，
+校验在 `lib/swarm-launch-prompt.ts`（`MAX_SWARM_MAX_WORKERS`）；本轮未重拍真实渲染。
+
+**没做**：pi（或其他 agent）在真实终端里 `submit-after-ready` 的成功率与就绪时序；任何 swarm
+Run 演练。因此上面的证据只证明"表单能给出正确的指令、并把它交给就绪后的 paste，UI 与设计稿
+一致"，不证明任何 Run 能跑起来。
+
+已知与本改动无关的红点：`audit-localization-coverage.mjs --check` 在
+`components/right-sidebar/incidents/IncidentDetailDrawer.tsx:131`（`sha256:`）与
+`IncidentGrayTables.tsx:186`（`exit`）上失败，两文件本次未修改；本改动自己的 `max_workers`
+字样已按技术字面量登记进 `config/localization-coverage-allowlist.json`。

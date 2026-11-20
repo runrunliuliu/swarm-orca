@@ -4,6 +4,10 @@ import type { AgentStartupShell } from '../../../../shared/tui-agent-startup-she
 import type { AgentStartedTelemetry } from '@/lib/worktree-startup-payload'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
+import {
+  planQuickCreateLaunchPrompt,
+  type NewWorkspaceLaunchSelection
+} from '@/lib/swarm-launch-prompt'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import {
   resolveTuiAgentLaunchArgs,
@@ -15,8 +19,17 @@ import { tuiAgentToAgentKind } from '@/lib/telemetry'
 
 export type QuickComposerStartupInput = {
   agent: TuiAgent | null
+  /** Single-agent prompt: the linked work item text this composer would send today. */
   prompt: string
+  /** Single-agent draft prompt; null when the text is submitted rather than drafted. */
   draftPrompt: string | null | undefined
+  /** Start mode chosen in the composer. Defaults to the single-agent behaviour. */
+  launch?: NewWorkspaceLaunchSelection
+  /** Swarm-only inputs: what the generated Coordinator prompt names. */
+  linkedWorkItemUrl?: string | null
+  repoPath?: string
+  baseRef?: string | null
+  note?: string
   settings: GlobalSettings | null | undefined
   repoConnectionId: string | null | undefined
   platform: NodeJS.Platform
@@ -28,11 +41,33 @@ export type QuickComposerStartupInput = {
 export type QuickComposerStartup = {
   startupPlan: AgentStartupPlan | null
   backendStartup: WorktreeCreationRequest['startup']
+  /** Text the agent receives first, whichever route delivers it. */
+  deliveredPrompt: string
+  /** Value for `WorktreeCreationRequest.quickPrompt`: the single-agent command prompt, or the
+   *  generated Coordinator brief. Deliberately not the draft — `launchDraftPrompt` carries that. */
+  creationPrompt: string
+  /** Unsent launch context for the chat mirror; null once the prompt is submitted. */
+  launchDraftPrompt: string | null
+  /** Decided once, beside the startup plan, and carried on the creation request. */
+  promptDelivery: 'draft' | 'auto-submit' | 'submit-after-ready'
   telemetry: AgentStartedTelemetry | null
 }
 
 export function buildQuickComposerStartup(input: QuickComposerStartupInput): QuickComposerStartup {
-  const { agent, draftPrompt, prompt, settings } = input
+  const { agent, settings } = input
+  const launchPrompt = planQuickCreateLaunchPrompt({
+    selection: input.launch ?? { mode: 'single', maxWorkers: null },
+    agentSelected: agent !== null,
+    singleAgentPrompt: input.prompt,
+    singleAgentDraftPrompt: input.draftPrompt ?? null,
+    linkedWorkItemUrl: input.linkedWorkItemUrl ?? null,
+    repoPath: input.repoPath ?? '',
+    baseRef: input.baseRef ?? null,
+    note: input.note ?? ''
+  })
+  const draftPrompt = launchPrompt.draftPrompt
+  const pasteAfterReadyPrompt = launchPrompt.pasteAfterReadyPrompt
+  const prompt = launchPrompt.commandPrompt
   const sessionOptions =
     agent === null
       ? undefined
@@ -67,7 +102,25 @@ export function buildQuickComposerStartup(input: QuickComposerStartupInput): Qui
           isRemote: input.isRemote
         })
   let startupPlan: AgentStartupPlan | null = null
-  if (draftLaunchPlan) {
+  if (agent !== null && pasteAfterReadyPrompt) {
+    // Why first: a paste-only prompt must not be folded into the launch command by either branch
+    // below, and the plan still has to carry the text so the post-create delivery knows what to type.
+    startupPlan = buildAgentStartupPlan({
+      agent,
+      prompt: '',
+      cmdOverrides: settings?.agentCmdOverrides ?? {},
+      agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
+      agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
+      sessionOptions,
+      platform: input.platform,
+      shell: input.shell ?? undefined,
+      isRemote: input.isRemote,
+      allowEmptyPromptLaunch: true
+    })
+    if (startupPlan) {
+      startupPlan.draftPrompt = pasteAfterReadyPrompt
+    }
+  } else if (draftLaunchPlan) {
     startupPlan = {
       agent: draftLaunchPlan.agent,
       launchCommand: draftLaunchPlan.launchCommand,
@@ -119,5 +172,13 @@ export function buildQuickComposerStartup(input: QuickComposerStartupInput): Qui
           ...(telemetry ? { telemetry } : {})
         }
       : undefined
-  return { startupPlan, backendStartup, telemetry }
+  return {
+    startupPlan,
+    backendStartup,
+    deliveredPrompt: launchPrompt.deliveredPrompt,
+    creationPrompt: pasteAfterReadyPrompt ?? input.prompt,
+    launchDraftPrompt: draftPrompt,
+    promptDelivery: launchPrompt.promptDelivery,
+    telemetry
+  }
 }

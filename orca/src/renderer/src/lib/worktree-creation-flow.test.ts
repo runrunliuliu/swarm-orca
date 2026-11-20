@@ -88,6 +88,7 @@ import { toast } from 'sonner'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { ensureWorktreeHasInitialTerminal } from '@/lib/worktree-initial-terminal-seeding'
 import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace-activation-terminal-focus'
+import { ensureAgentStartupInTerminal } from '@/lib/new-workspace'
 import {
   beginBackgroundWorktreePreparation,
   continueBackgroundWorktreeCreation,
@@ -845,6 +846,48 @@ describe('staged background worktree creation', () => {
       )
     )
     expect(ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
+  })
+
+  // Why: the pane claims an unsent `draftPrompt` and pastes it without Enter,
+  // which would consume the delivery slot before the submit-capable path runs.
+  it('keeps a submitted swarm brief out of the pane draft contract', async () => {
+    store.activeView = 'terminal'
+    store.activePendingCreationId = 'creation-1'
+    store.createWorktree.mockResolvedValueOnce({
+      worktree: { id: 'wt-1', repoId: 'repo-1', path: '/repo/wt-1' }
+    })
+    vi.mocked(activateAndRevealWorktree).mockReturnValueOnce({ primaryTabId: 'tab-1' })
+    const brief = '以 Swarm Coordinator 模式开始工作'
+
+    continueBackgroundWorktreeCreation(
+      'creation-1',
+      makeRequest({
+        agent: 'codex',
+        promptDelivery: 'submit-after-ready',
+        startupPlan: {
+          agent: 'codex',
+          launchCommand: 'codex',
+          expectedProcess: 'codex',
+          followupPrompt: null,
+          launchConfig: { agentArgs: '', agentEnv: {} },
+          draftPrompt: brief
+        }
+      })
+    )
+
+    await vi.waitFor(() => expect(activateAndRevealWorktree).toHaveBeenCalled())
+    const startup = vi.mocked(activateAndRevealWorktree).mock.calls[0]?.[1]?.startup
+    expect(startup?.draftPrompt).toBeUndefined()
+    // Why: the launch token still ties the pane to the delivery that submits it.
+    expect(startup?.launchToken).toBeDefined()
+    await vi.waitFor(() =>
+      expect(ensureAgentStartupInTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          startup: expect.objectContaining({ draftPrompt: brief }),
+          submitDraft: true
+        })
+      )
+    )
   })
 
   it('toasts a staged create error after the user leaves the creation surface', async () => {

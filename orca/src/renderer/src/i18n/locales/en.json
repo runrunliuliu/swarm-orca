@@ -1038,6 +1038,16 @@
         "symlink": "Symbolic links cannot be attached.",
         "permissionDenied": "Permission denied.",
         "unsupported": "Unsupported file type."
+      },
+      "swarm": {
+        "launch": {
+          "prompt": {
+            "delivery": {
+              "40c2ebd0e1": "The agent took too long to start. Your Coordinator prompt is in its input box, unsent — press Enter when it's ready.",
+              "e987796905": "Your Coordinator prompt is in the agent's input box — press Enter to start it."
+            }
+          }
+        }
       }
     },
     "hooks": {
@@ -1778,7 +1788,8 @@
       "NewWorkspaceComposerModal": {
         "createWorktree": "Create worktree",
         "createWorkspace": "Create workspace",
-        "fa90f739a5": "Choose the project, workspace name, and agent before creating the workspace."
+        "fa90f739a5": "Choose the project, workspace name, and agent before creating the workspace.",
+        "createAndStartCoordinator": "Create workspace & start coordinator"
       },
       "PullRequestPage": {
         "2560588245": "Failed to request reviewer",
@@ -14256,6 +14267,22 @@
             "listLabel": "Run targets",
             "label": "Run on",
             "browse": "Browse run targets"
+          },
+          "launch": {
+            "mode": {
+              "single": "Single agent",
+              "swarm": "Swarm Coordinator",
+              "label": "Start with",
+              "maxWorkers": "max_workers",
+              "summary": "Coordinator = {{value0}} · Workers ≤ {{value1}} · Task source = {{value2}}",
+              "noAgent": "no agent",
+              "noTaskSource": "not linked",
+              "maxWorkersInvalid": "Enter a whole number from 1 to 1000.",
+              "hint": "The Coordinator confirms budget, writable scope and whether merging is allowed before it starts; with no link it asks for the goal first."
+            }
+          },
+          "NewWorkspaceComposerLaunchModeSection": {
+            "13b4ab780a": "Pick an agent to run the Coordinator."
           }
         }
       },

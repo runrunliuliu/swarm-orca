@@ -19,6 +19,7 @@ import type { SshConnectionStatus } from '../../../../shared/ssh-types'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { ExecutionHostId } from '../../../../shared/execution-host'
+import type { NewWorkspaceLaunchMode } from '@/lib/swarm-launch-prompt'
 
 export type RepoOption = React.ComponentProps<typeof RepoCombobox>['repos'][number]
 export type EphemeralVmRecipeOption = NonNullable<OrcaHooks['environmentRecipes']>[number]
@@ -95,6 +96,12 @@ export type NewWorkspaceComposerCardProps = {
   advancedOpen: boolean
   onToggleAdvanced: () => void
   createDisabled: boolean
+  /** Start mode for this workspace. Absent on surfaces that only ever start one agent. */
+  launchMode?: NewWorkspaceLaunchMode
+  onLaunchModeChange?: (next: NewWorkspaceLaunchMode) => void
+  /** Raw `max_workers` text; parsed by the section so an invalid entry can disable submit. */
+  maxWorkers?: string
+  onMaxWorkersChange?: (next: string) => void
   projectError: string | null
   creating: boolean
   onCreate: () => void

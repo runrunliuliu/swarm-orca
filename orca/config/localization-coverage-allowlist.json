@@ -418,5 +418,12 @@
     "text": "draft",
     "dynamic": false,
     "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/components/new-workspace/NewWorkspaceComposerLaunchModeSection.tsx",
+    "kind": "jsx-text",
+    "text": "max_workers",
+    "dynamic": false,
+    "count": 1
   }
 ]

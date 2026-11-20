@@ -119,6 +119,21 @@ describe('quick composer creation request', () => {
     })
   })
 
+  it('carries a submit-after-ready delivery without a draft prompt', () => {
+    const request = buildQuickCreationRequest(
+      createInput({
+        startupPlan: null,
+        quickPrompt: '以 Swarm Coordinator 模式开始工作',
+        promptDelivery: 'submit-after-ready'
+      })
+    )
+
+    expect(request.promptDelivery).toBe('submit-after-ready')
+    expect(request.quickPrompt).toBe('以 Swarm Coordinator 模式开始工作')
+    // Why: the Coordinator brief is pasted, never left as argv draft context.
+    expect(request.launchDraftPrompt).toBeUndefined()
+  })
+
   it('drops repo-only and GitLab fields when their submit conditions are false', () => {
     const request = buildQuickCreationRequest(
       createInput({

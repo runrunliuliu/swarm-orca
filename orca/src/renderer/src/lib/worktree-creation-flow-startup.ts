@@ -22,7 +22,12 @@ export function buildWorktreeCreationStartupOpt(
     launchConfig: plan.launchConfig,
     ...(plan.launchToken ? { launchToken: plan.launchToken } : {}),
     ...(request.agent ? { launchAgent: request.agent } : {}),
-    ...(plan.draftPrompt ? { draftPrompt: plan.draftPrompt } : {}),
+    // Why: a submitted launch prompt must not also ride the pane's unsent-draft
+    // contract — the pane would claim the delivery slot and paste without Enter,
+    // leaving `ensureAgentStartupInTerminal(submitDraft)` nothing to deliver.
+    ...(plan.draftPrompt && request.promptDelivery !== 'submit-after-ready'
+      ? { draftPrompt: plan.draftPrompt }
+      : {}),
     // Why: view-mode only. An argv-prefill plan sets no draftPrompt, so this is
     // the sole signal that this launch starts with unsent context in the TUI.
     ...(request.launchDraftPrompt ? { launchDraftText: request.launchDraftPrompt } : {}),

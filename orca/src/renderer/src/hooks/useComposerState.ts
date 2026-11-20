@@ -9,6 +9,7 @@ import type { TuiAgent } from '../../../shared/tui-agent'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../shared/workspace-source'
 import type { WorkspaceStatus } from '../../../shared/worktree/types'
+import type { NewWorkspaceLaunchSelection } from '@/lib/swarm-launch-prompt'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 import { isWorkItemLookupText } from '@/lib/work-item-lookup-text'
 import { resolveGitHubWorkItemIdentity } from '@/lib/github-work-item-identity'
@@ -59,7 +60,7 @@ export type UseComposerStateResult = {
   promptTextareaRef: RefObject<HTMLTextAreaElement | null>
   nameInputRef: RefObject<HTMLInputElement | null>
   submit: () => Promise<void>
-  submitQuick: (agent: TuiAgent | null) => Promise<void>
+  submitQuick: (agent: TuiAgent | null, launch?: NewWorkspaceLaunchSelection) => Promise<void>
   createDisabled: boolean
   selectAddedProjectRepo: (repoId: string) => void
 }
