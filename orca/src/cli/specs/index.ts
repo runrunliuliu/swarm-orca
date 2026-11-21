@@ -21,6 +21,7 @@ import { SKILL_COMMAND_SPECS } from './skills'
 import { ARTIFACT_COMMAND_SPECS } from './artifacts'
 import { SEARCH_COMMAND_SPECS } from './search'
 import { PROFILE_STATE_COMMAND_SPECS } from './profile-state'
+import { HISTORY_COMMAND_SPECS } from './history'
 import { INCIDENT_COMMAND_SPECS } from './incident'
 
 export const COMMAND_SPECS: CommandSpec[] = [
@@ -46,5 +47,6 @@ export const COMMAND_SPECS: CommandSpec[] = [
   ...SKILL_COMMAND_SPECS,
   ...SEARCH_COMMAND_SPECS,
   ...PROFILE_STATE_COMMAND_SPECS,
+  ...HISTORY_COMMAND_SPECS,
   ...INCIDENT_COMMAND_SPECS
 ]
