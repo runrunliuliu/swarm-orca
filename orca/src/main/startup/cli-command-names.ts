@@ -35,6 +35,7 @@ export const CLI_COMMAND_NAMES = [
   'get',
   'goto',
   'highlight',
+  'history',
   'host',
   'hover',
   'inserttext',
