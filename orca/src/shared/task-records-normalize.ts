@@ -1,17 +1,17 @@
 import {
-  TASK_RECORD_SCHEMA_VERSION,
   TASK_RECORDS_MAX_RECORD_BYTES,
   TASK_RECORDS_VERSION,
   EMPTY_TASK_RECORDS,
+  emptyDiscardedFacts,
   isReadableTaskRecords,
   isTaskRecordItemType,
   isTaskRecordResolvedVia,
   isTaskRecordUsageProvider,
   isTaskRecordUsageUnavailableReason,
   type TaskRecord,
-  type TaskRecordSession,
-  type TaskRecordUsageProvider,
+  type TaskRecordsDiscardedFacts,
   type TaskRecordsState,
+  type TaskRecordUsageProvider,
   type TaskUsageSettlement,
   type TaskWorkspaceBinding
 } from './task-records-types'
@@ -22,6 +22,11 @@ import {
   KNOWN_RECORD_FIELDS,
   withPreservedFields
 } from './task-records-preserved-fields'
+import {
+  normalizeGapRows,
+  normalizeRunRows,
+  normalizeSessionRows
+} from './task-records-runs-normalize'
 import { normalizeExecutionHostId } from './execution-host'
 import { normalizeTaskProviderIdentity } from './task-provider-identity'
 
@@ -38,6 +43,9 @@ export type TaskRecordsNormalization = {
   state: TaskRecordsState
   /** Records dropped for a malformed or out-of-range shape (reported, not hidden). */
   dropped: number
+  /** Rows and fields the load boundary refused to keep inside the records it did
+   *  load (`sessions`, `runs`, `gaps`, unknown providers, unknown fields). */
+  discarded: TaskRecordsDiscardedFacts
   /** False means "keep the stored payload untouched" (see `isReadableTaskRecords`). */
   readable: boolean
 }
@@ -48,17 +56,18 @@ export type TaskRecordsNormalization = {
  * delete records this build simply does not understand yet.
  */
 export function normalizeTaskRecords(value: unknown): TaskRecordsNormalization {
+  const discarded = emptyDiscardedFacts()
   if (!isReadableTaskRecords(value)) {
-    return { state: EMPTY_TASK_RECORDS, dropped: 0, readable: false }
+    return { state: EMPTY_TASK_RECORDS, dropped: 0, discarded, readable: false }
   }
   if (value === undefined) {
-    return { state: EMPTY_TASK_RECORDS, dropped: 0, readable: true }
+    return { state: EMPTY_TASK_RECORDS, dropped: 0, discarded, readable: true }
   }
   const byId: Record<string, TaskRecord> = {}
   const externalIndex: Record<string, string> = {}
   let dropped = 0
   for (const [key, candidate] of Object.entries(value.byId)) {
-    const record = normalizeTaskRecord(key, candidate)
+    const record = normalizeTaskRecord(key, candidate, discarded)
     if (!record) {
       dropped += 1
       continue
@@ -84,15 +93,20 @@ export function normalizeTaskRecords(value: unknown): TaskRecordsNormalization {
       KNOWN_DOMAIN_FIELDS
     ),
     dropped,
+    discarded,
     readable: true
   }
 }
 
-function normalizeTaskRecord(key: string, value: unknown): TaskRecord | null {
+function normalizeTaskRecord(
+  key: string,
+  value: unknown,
+  discarded: TaskRecordsDiscardedFacts
+): TaskRecord | null {
   if (!isRecord(value)) {
     return null
   }
-  const bindings = normalizeBindings(value.bindings)
+  const bindings = normalizeBindings(value.bindings, discarded)
   if (bindings === null) {
     return null
   }
@@ -129,7 +143,10 @@ function normalizeTaskRecord(key: string, value: unknown): TaskRecord | null {
     intent: normalizeIntent(value.intent),
     createdAt,
     updatedAt,
-    schemaVersion: finiteNumber(value.schemaVersion) ?? TASK_RECORD_SCHEMA_VERSION
+    // The stored version is kept as written; it is never upgraded on read. A
+    // record from before the field existed is a v1 record: stamping the current
+    // version would claim semantics (`runs`) it never had.
+    schemaVersion: finiteNumber(value.schemaVersion) ?? 1
   }
   // A newer record schema never reaches here: `isReadableTaskRecords` rejects the
   // whole domain so the payload is preserved verbatim instead of being rewritten
@@ -139,7 +156,10 @@ function normalizeTaskRecord(key: string, value: unknown): TaskRecord | null {
     : withPreservedFields(record, value, KNOWN_RECORD_FIELDS)
 }
 
-function normalizeBindings(value: unknown): TaskWorkspaceBinding[] | null {
+function normalizeBindings(
+  value: unknown,
+  discarded: TaskRecordsDiscardedFacts
+): TaskWorkspaceBinding[] | null {
   if (!Array.isArray(value)) {
     return null
   }
@@ -168,6 +188,8 @@ function normalizeBindings(value: unknown): TaskWorkspaceBinding[] | null {
     seen.add(ownerKey)
     const resolvedVia = isTaskRecordResolvedVia(entry.resolvedVia) ? entry.resolvedVia : undefined
     const settlement = normalizeSettlement(entry.usageSettlement)
+    const runs = entry.runs === undefined ? undefined : normalizeRunRows(entry.runs, discarded)
+    const gaps = entry.gaps === undefined ? undefined : normalizeGapRows(entry.gaps, discarded)
     const binding: TaskWorkspaceBinding = {
       worktreeId,
       repoId,
@@ -181,41 +203,16 @@ function normalizeBindings(value: unknown): TaskWorkspaceBinding[] | null {
           : 'created',
       lastVerifiedAt: finiteNumber(entry.lastVerifiedAt),
       ...(resolvedVia ? { resolvedVia } : {}),
-      sessions: normalizeSessions(entry.sessions),
+      sessions: normalizeSessionRows(entry.sessions, discarded),
+      // Absent stays absent: a v1 binding never recorded runs, which is not the
+      // same statement as "the snapshot writer looked and stored none".
+      ...(runs === undefined ? {} : { runs }),
+      ...(gaps === undefined ? {} : { gaps }),
       ...(settlement ? { usageSettlement: settlement } : {})
     }
     bindings.push(withPreservedFields(binding, entry, KNOWN_BINDING_FIELDS))
   }
   return bindings
-}
-
-function normalizeSessions(value: unknown): TaskRecordSession[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  const sessions: TaskRecordSession[] = []
-  for (const entry of value) {
-    if (!isRecord(entry)) {
-      continue
-    }
-    const key = nonEmptyString(entry.key)
-    const id = nonEmptyString(entry.id)
-    const firstSeenAt = finiteNumber(entry.firstSeenAt)
-    const lastSeenAt = finiteNumber(entry.lastSeenAt)
-    if (!key || !id || firstSeenAt === null || lastSeenAt === null) {
-      continue
-    }
-    const transcriptPath = nonEmptyString(entry.transcriptPath)
-    sessions.push({
-      ...(isTaskRecordUsageProvider(entry.provider) ? { provider: entry.provider } : {}),
-      key,
-      id,
-      ...(transcriptPath ? { transcriptPath } : {}),
-      firstSeenAt,
-      lastSeenAt
-    })
-  }
-  return sessions
 }
 
 function normalizeSettlement(value: unknown): TaskUsageSettlement | null {

@@ -1,3 +1,5 @@
+import type { AgentType } from './agent-status-types'
+import type { AgentJournalTurnOutcome } from './agent-turn-outcome'
 import type { AutomationRunUsageUnavailableReason } from './automations-types'
 import type { ExecutionHostId } from './execution-host'
 import type { TaskProviderIdentity } from './task-provider-identity'
@@ -5,15 +7,22 @@ import type { TaskProvider } from './task-providers'
 
 /**
  * The `taskRecords` profile-state domain (design doc §8.3, development plan
- * §M2b). It stores the task entity and what a deleted workspace would otherwise
- * take with it: which worktrees ran it, the agent sessions those worktrees
- * reported, and the usage figure that was settled before the workspace stopped
- * being readable.
+ * §M2b). It stores the task entity and the **snapshot facts** an archived or
+ * deleted workspace would otherwise take with it: which worktrees ran it, the
+ * agent sessions those worktrees reported, the runs behind those sessions
+ * (issue #53), and the usage figure that was settled before the workspace
+ * stopped being readable. Every stored row carries the observation that produced
+ * it — `source` plus `recordedAt` (archive snapshot / removal snapshot /
+ * backfill) — so a reader can tell a fact measured at the irreversible moment
+ * from one reconstructed afterwards.
  *
- * What is deliberately absent: runtime state (needs you / working / done), agent
- * rows, message content and live token figures. Those stay derived from the one
- * authoritative store that owns them (design doc §8.4), so this domain can never
- * drift into a second opinion.
+ * What is deliberately absent: runtime state (needs you / working / done),
+ * `retainedAgentsByPaneKey` (the renderer's derived agent rows), message content
+ * and live token figures. Those stay derived from the one authoritative store
+ * that owns them (design doc §8.4), so this domain can never drift into a second
+ * opinion; persisting the agent rows would hand the hook server a second truth
+ * about who is running. What is stored instead is the frozen observation with
+ * `recordedAt`, which takes part in no live count.
  *
  * The key shape is `task:<repoId>:<itemType>:<number>`. It carries no host id
  * because an Orca repo id already names one registration on one host, so two
@@ -22,11 +31,20 @@ import type { TaskProvider } from './task-providers'
  * and PR #31 in one repository are two different tasks.
  */
 export const TASK_RECORDS_VERSION = 1
-export const TASK_RECORD_SCHEMA_VERSION = 1
+/** Bumped to 2 when `runs` (and the sessions' snapshot fields) arrived, so an
+ *  older build rejects the whole domain verbatim instead of rebuilding a record
+ *  without the rows it cannot read. The stored version is the record's own: a v1
+ *  record keeps `schemaVersion: 1` on load, and only a write that actually
+ *  stores a v2 fact raises it (see the writers in `task-records-updates.ts`). */
+export const TASK_RECORD_SCHEMA_VERSION = 2
 
 /** Bounds (development plan §M2b A). A refusal is an error, never a truncation. */
 export const TASK_RECORDS_MAX_BINDINGS_PER_RECORD = 64
 export const TASK_RECORDS_MAX_SESSIONS_PER_BINDING = 32
+/** 16 runs per binding (issue #53). Over the cap is a refusal, never a
+ *  truncation: a run row is a fact a reader uses to conclude "this workspace did
+ *  not run that agent", so a silently dropped row is a false negative. */
+export const TASK_RECORDS_MAX_RUNS_PER_BINDING = 16
 /** 32 KiB, not the 8 KiB in the plan's table: that number cannot hold the same
  *  table's 64-binding limit, because one binding (worktree id, repo id, host,
  *  path, timestamps) is 150–250 bytes before any session. 32 KiB keeps both rules
@@ -59,6 +77,75 @@ export type TaskRecordOrigin =
 /** Which evidence resolved a binding's locator (§M2b D). */
 export type TaskRecordResolvedVia = 'locator' | 'identity' | 'alias'
 
+/** How one observation reached the record (issue #53). `archive-snapshot` and
+ *  `removal-snapshot` are frozen at the irreversible moment by this build;
+ *  `backfill` is the explicit, repeatable reconstruction from local evidence
+ *  (agent session index + transcript). The value answers "how reliable is this
+ *  row", so it is never defaulted: a row is written by one of these paths or
+ *  not written at all. */
+export const TASK_RECORD_SNAPSHOT_SOURCES = [
+  'archive-snapshot',
+  'removal-snapshot',
+  'backfill'
+] as const
+export type TaskRecordSnapshotSource = (typeof TASK_RECORD_SNAPSHOT_SOURCES)[number]
+
+/** An absence the writer could see and could not resolve. It is stored instead
+ *  of an empty result, because "no agent ran here" and "nobody could tell which
+ *  agent ran here" read identically as zero rows and only the first is a fact.
+ *
+ *  There is deliberately no transcript-unreachable kind: reachability is checked
+ *  by the reader (a `stat` when the row is displayed), so a writer that recorded
+ *  one would claim a verification it never performed. */
+export const TASK_RECORD_GAP_KINDS = ['session_unattributable', 'ambiguous_match'] as const
+export type TaskRecordGapKind = (typeof TASK_RECORD_GAP_KINDS)[number]
+
+export type TaskRecordGap = {
+  kind: TaskRecordGapKind
+  /** How many candidates the observation saw. Absent when it did not count
+   *  them; `0` here is a measured "looked and found none", never an unknown, and
+   *  `ambiguous_match` always has at least two. */
+  candidateCount?: number
+  /** When the absence was observed (ms). */
+  observedAt: number
+  /** Why the observation refused to guess; the panel shows it as the reason. */
+  detail?: string
+}
+
+/** The `stat` vocabulary of the transcript check. `missing` is only ever written
+ *  when a local `stat` proved ENOENT: a host that could not look (remote, WSL
+ *  gated, EACCES, unknown) reports `unverifiable`, because "this host cannot see
+ *  the file" is not evidence that the trace is gone. */
+export const TASK_RECORD_TRANSCRIPT_PRESENCES = [
+  'present',
+  'missing',
+  'unverifiable'
+] as const
+export type TaskRecordTranscriptPresence = (typeof TASK_RECORD_TRANSCRIPT_PRESENCES)[number]
+
+/** One `stat` of the transcript file — the "check values" issue #53 stores so a
+ *  trace can be judged without storing any transcript content (privacy
+ *  constraint: paths and check values only).
+ *
+ *  Absent `transcriptCheck` on a row means "never checked" (the path may still be
+ *  stored); it is never a placeholder zero. The fields describe **one** stat of
+ *  one file, so the merge (see `task-records-runs-merge.ts`) replaces the whole
+ *  check with the newest one instead of mixing `size` from one stat with
+ *  `mtimeMs` of another. */
+export type TaskRecordTranscriptCheck = {
+  /** When the stat was taken (ms). Required: an undated measurement cannot be
+   *  weighed against a later one. */
+  checkedAt: number
+  presence: TaskRecordTranscriptPresence
+  /** Device / inode / mtime / size as the platform reported them. Absent when the
+   *  platform did not report one, or when the host could not look at the file at
+   *  all — unknown, never `0`. */
+  dev?: number
+  ino?: number
+  mtimeMs?: number
+  size?: number
+}
+
 /**
  * One agent session a workspace reported. `key` is the provider's own field name
  * (`session_id`, `conversation_id`, …) rather than a union, so a provider this
@@ -74,8 +161,97 @@ export type TaskRecordSession = {
   key: string
   id: string
   transcriptPath?: string
+  /** Snapshot facts (issue #53), every one optional: absent means "not
+   *  observed", never a placeholder — no `0` token figure, no epoch start, and
+   *  never the record's creation time standing in for a measured wall clock.
+   *  `agentType` is the shared agent vocabulary, not the four-value usage
+   *  provider enum: who ran is not the same question as whose tokens these are
+   *  (pi is a valid agent type and not a usage provider).
+   *
+   *  `agentType` is deliberately the **open** `AgentType` vocabulary (well-known
+   *  names plus any string, because agent types are not a fixed set), so the load
+   *  boundary accepts any non-empty string for it and a fabricated agent name is
+   *  not one of T4's dirty fields; `provider` and `outcome` are closed and are
+   *  validated. Do not "fix" this into an enum. */
+  agentType?: AgentType
+  title?: string
+  /** The provider CLI command that resumes this session in its checkout, taken
+   *  from the session index (`resume_command`). Absent when the observation had
+   *  none — the hook path never has one — and never a command this build
+   *  composed itself. */
+  resumeCommand?: string
+  startedAt?: number
+  endedAt?: number
+  messageCount?: number
+  /** Which observation supplied this row and when. Absent on a v1 row, which is
+   *  itself information: that row predates the snapshot writer. */
+  source?: TaskRecordSnapshotSource
+  recordedAt?: number
+  /** Check values of `transcriptPath` at the time of the observation. Absent =
+   *  never checked; the newest check wins on merge (see
+   *  `task-records-runs-merge.ts`). */
+  transcriptCheck?: TaskRecordTranscriptCheck
   firstSeenAt: number
   lastSeenAt: number
+}
+
+/** The provider claim a run is bound to, so a resume/`locate trace` action has
+ *  the same `key:id` the session row carries. */
+export type TaskRecordProviderSession = {
+  /** Absent when the agent is not one of the four usage providers (pi, for one).
+   *  The run still exists; only the token attribution is unknown. */
+  provider?: TaskRecordUsageProvider
+  key: string
+  id: string
+}
+
+/** One agent run inside one binding (issue #53): the facts a review, a resume
+ *  or a trace lookup needs, frozen with the observation that produced them.
+ *
+ *  Identity for merging is the claim `provider|key:id` (see
+ *  `taskRecordRunClaimKey`), so replaying a snapshot updates the row instead of
+ *  appending a duplicate. Every fact that may be unknown is optional and absent
+ *  means unknown, so the renderer's history row can be produced without
+ *  inventing a wall-clock edge, a title or a message count. */
+export type TaskRecordRun = {
+  /** Stable identity of the run inside its binding. Always the claim string
+   *  (`taskRecordRunClaimKey`), so the page has a stable row key; the merge keys
+   *  on the claim itself, so a caller that passes something else still cannot
+   *  turn one session into two rows. */
+  key: string
+  providerSession: TaskRecordProviderSession
+  title?: string
+  /** Same open vocabulary as `TaskRecordSession.agentType` (see there). */
+  agentType?: AgentType
+  /** The provider CLI command that resumes this run's session; absent when the
+   *  observation could not supply one (the hook path has none). */
+  resumeCommand?: string
+  startedAt?: number
+  endedAt?: number
+  messageCount?: number
+  /** The provider's own verdict; absent means unknown, never success. */
+  outcome?: AgentJournalTurnOutcome
+  transcriptPath?: string
+  /** Check values of `transcriptPath`, as on the session row: a measured fact, so
+   *  the newest `checkedAt` wins on merge and an equal timestamp keeps the stored
+   *  check. */
+  transcriptCheck?: TaskRecordTranscriptCheck
+  /** Which observation produced this row. Always known: a row exists only
+   *  because some observation stated it. */
+  source: TaskRecordSnapshotSource
+  recordedAt: number
+  /** Absences observed about *this* run. */
+  gaps?: TaskRecordGap[]
+  /** Observation window of the claim (min/max over every observation), not the
+   *  run's measured wall clock — that is `startedAt`/`endedAt`. */
+  firstSeenAt: number
+  lastSeenAt: number
+}
+
+/** The merge identity of one run: the provider claim, exactly as the session
+ *  row spells it (`sessionKey:sessionId`, provider omitted when unknown). */
+export function taskRecordRunClaimKey(providerSession: TaskRecordProviderSession): string {
+  return `${providerSession.provider ?? 'unknown'}|${providerSession.key}:${providerSession.id}`
 }
 
 export type TaskRecordUsageUnavailableReason = Extract<
@@ -136,6 +312,14 @@ export type TaskWorkspaceBinding = {
   lastVerifiedAt: number | null
   resolvedVia?: TaskRecordResolvedVia
   sessions: TaskRecordSession[]
+  /** v2. Absent on a v1 binding and that is not the same as `[]`: absent means
+   *  "no build recorded runs here yet", while an empty array means the snapshot
+   *  writer looked and stored none — which is where a `gaps` row explains why. */
+  runs?: TaskRecordRun[]
+  /** v2. Absences that belong to the binding rather than to one run
+   *  (`session_unattributable`, `ambiguous_match`): the writer had nothing it
+   *  could write a run for. */
+  gaps?: TaskRecordGap[]
   usageSettlement?: TaskUsageSettlement
 }
 
@@ -199,6 +383,45 @@ export function isTaskRecordUsageUnavailableReason(
 
 export function isTaskRecordResolvedVia(value: unknown): value is TaskRecordResolvedVia {
   return value === 'locator' || value === 'identity' || value === 'alias'
+}
+
+export function isTaskRecordSnapshotSource(value: unknown): value is TaskRecordSnapshotSource {
+  return TASK_RECORD_SNAPSHOT_SOURCES.some((source) => source === value)
+}
+
+export function isTaskRecordGapKind(value: unknown): value is TaskRecordGapKind {
+  return TASK_RECORD_GAP_KINDS.some((kind) => kind === value)
+}
+
+export function isTaskRecordTranscriptPresence(
+  value: unknown
+): value is TaskRecordTranscriptPresence {
+  return TASK_RECORD_TRANSCRIPT_PRESENCES.some((presence) => presence === value)
+}
+
+/** What the load boundary refused to keep from the observation rows, by kind.
+ *  Counted rather than swallowed: a payload that lost rows (a hand edit, a
+ *  downgrade, an over-cap array) must be reportable, and a reader that sees zero
+ *  rows has to be able to tell "nothing ran" from "nothing could be read". */
+export type TaskRecordsDiscardedFacts = {
+  /** Session rows dropped for a malformed shape. */
+  sessions: number
+  /** Run rows dropped for a malformed shape, or over the per-binding cap. */
+  runs: number
+  /** Gap rows dropped for a malformed shape. */
+  gaps: number
+  /** Provider values this build does not know, removed from a kept row. */
+  providers: number
+  /** Field values inside a kept row that this build cannot read, plus the names
+   *  of fields it does not know at all. */
+  fields: number
+  /** Transcript checks this build could not read (an illegal `presence`, or a
+   *  `checkedAt` it cannot weigh). The row is kept — only the check is dropped. */
+  transcriptChecks: number
+}
+
+export function emptyDiscardedFacts(): TaskRecordsDiscardedFacts {
+  return { sessions: 0, runs: 0, gaps: 0, providers: 0, fields: 0, transcriptChecks: 0 }
 }
 
 /**

@@ -11,6 +11,7 @@ import {
 } from './task-records'
 import {
   EMPTY_TASK_RECORDS,
+  TASK_RECORD_SCHEMA_VERSION,
   TASK_RECORDS_MAX_RECORD_BYTES,
   TASK_RECORDS_VERSION,
   type TaskRecord
@@ -185,7 +186,9 @@ describe('task records normalization', () => {
     const raw = {
       recordsVersion: TASK_RECORDS_VERSION,
       byId: {
-        'task:github:repo-1:issue:31': record({ schemaVersion: 2 })
+        'task:github:repo-1:issue:31': record({
+          schemaVersion: TASK_RECORD_SCHEMA_VERSION + 1
+        })
       }
     }
     const result = normalizeTaskRecords(raw)

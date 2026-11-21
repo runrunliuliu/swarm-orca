@@ -1,17 +1,15 @@
 import type { ExecutionHostId } from './execution-host'
-import {
-  recordBytes,
-  taskRecordExternalIndexKey,
-  taskRecordSessionClaimKey,
-  taskRecordsDomainBytes
-} from './task-records'
+import { recordBytes, taskRecordExternalIndexKey, taskRecordsDomainBytes } from './task-records'
+import { mergeRunRows, mergeSessionRows } from './task-records-runs-merge'
 import {
   TASK_RECORDS_MAX_BINDINGS_PER_RECORD,
   TASK_RECORDS_MAX_DOMAIN_BYTES,
   TASK_RECORDS_MAX_RECORD_BYTES,
-  TASK_RECORDS_MAX_SESSIONS_PER_BINDING,
+  TASK_RECORD_SCHEMA_VERSION,
   type TaskRecord,
+  type TaskRecordGap,
   type TaskRecordOrigin,
+  type TaskRecordRun,
   type TaskRecordSession,
   type TaskRecordsState,
   type TaskUsageSettlement,
@@ -36,6 +34,16 @@ export type TaskRecordsWriteResult =
       /** Sessions that did not fit the per-binding cap. Reported by the caller;
        *  never a silent truncation the reader cannot see. */
       dropped?: number
+      /** Present with `changed: false` when the call could not write anything for
+       *  a reason the caller must not read as "already correct" (N3/N4):
+       *  `missing_binding` — the record, or the `(worktreeId, hostId)` binding that
+       *  was addressed, is not in `state` (a selection made against an older
+       *  state); `settlement_downgrade` — the write would replace a measured
+       *  (`known`) settlement with `unavailable`, so the stored figure stands.
+       *  It lives on the success arm on purpose: `Extract<TaskRecordsWriteResult,
+       *  { ok: false }>` call sites exist in seats B/C, and a new failure reason
+       *  would break them for a signal that is not an error. */
+      skipped?: 'missing_binding' | 'settlement_downgrade'
     }
   | { ok: false; reason: 'limit' | 'external_index_conflict' }
 
@@ -84,7 +92,10 @@ export function upsertTaskRecordBinding(
       intent: {},
       createdAt: input.now,
       updatedAt: input.now,
-      schemaVersion: 1
+      // A record this build creates is a v2 record: it may hold runs, and a
+      // build that only knows v1 must reject the domain rather than rebuild the
+      // record without them.
+      schemaVersion: TASK_RECORD_SCHEMA_VERSION
     }
     return grown(state, record, indexKey, input.taskId)
   }
@@ -181,9 +192,15 @@ function taskRecordIndexKeyOf(input: UpsertBindingInput): string | null {
   })
 }
 
-/** Merge what the workspace reported: one entry per provider claim, newest
- *  observation wins. A claim seen under two providers stays two entries — that is
- *  the ambiguity the reader must be able to see, not a duplicate to collapse. */
+/** Merge what the workspace reported: one entry per provider claim. See
+ *  `task-records-runs-merge.ts` for the precedence rule (newest fact wins, an
+ *  absent fact never erases, provenance is first-writer-wins, the observation
+ *  window is the union), which is also what makes a replayed call a no-op. A
+ *  claim seen under two providers stays two entries — that is the ambiguity the
+ *  reader must be able to see, not a duplicate to collapse. A record or binding
+ *  that is not in `state` answers `{ ok: true, changed: false, skipped:
+ *  'missing_binding' }`: nothing written, and the caller can tell that apart from
+ *  "already holds this". */
 export function mergeTaskRecordBindingSessions(
   state: TaskRecordsState,
   args: {
@@ -200,45 +217,83 @@ export function mergeTaskRecordBindingSessions(
   const binding = record?.bindings.find(
     (entry) => entry.worktreeId === args.worktreeId && entry.hostId === args.hostId
   )
-  if (!record || !binding || args.sessions.length === 0) {
+  if (!record || !binding) {
+    return { ok: true, state, changed: false, skipped: 'missing_binding' }
+  }
+  if (args.sessions.length === 0) {
     return { ok: true, state, changed: false }
   }
-  let changed = false
-  let dropped = 0
-  const sessions = [...binding.sessions]
-  for (const incoming of args.sessions) {
-    const claim = `${incoming.provider ?? 'unknown'}|${taskRecordSessionClaimKey(incoming)}`
-    const index = sessions.findIndex(
-      (existing) =>
-        `${existing.provider ?? 'unknown'}|${taskRecordSessionClaimKey(existing)}` === claim
-    )
-    if (index === -1) {
-      if (sessions.length >= TASK_RECORDS_MAX_SESSIONS_PER_BINDING) {
-        // Counted, not silently skipped: the caller reports it, and the cap stays
-        // a bound rather than a lie about what was stored.
-        dropped += 1
-        continue
-      }
-      sessions.push(incoming)
-      changed = true
-      continue
+  const merged = mergeSessionRows(binding.sessions, args.sessions)
+  if (!merged.changed) {
+    return {
+      ok: true,
+      state,
+      changed: false,
+      ...(merged.dropped > 0 ? { dropped: merged.dropped } : {})
     }
-    const existing = sessions[index]
-    const transcriptPath = incoming.transcriptPath ?? existing.transcriptPath
-    if (existing.lastSeenAt >= incoming.lastSeenAt && existing.transcriptPath === transcriptPath) {
-      continue
-    }
-    sessions[index] = {
-      ...existing,
-      ...(transcriptPath ? { transcriptPath } : {}),
-      lastSeenAt: Math.max(existing.lastSeenAt, incoming.lastSeenAt)
-    }
-    changed = true
   }
-  if (!changed) {
-    return { ok: true, state, changed: false, ...(dropped > 0 ? { dropped } : {}) }
+  return replaceBinding(
+    state,
+    record,
+    { ...binding, sessions: merged.sessions },
+    args.now,
+    merged.dropped
+  )
+}
+
+/** Merge the runs (and the binding-level gaps) one observation produced, keyed
+ *  by the provider claim `provider|key:id`.
+ *
+ *  Over `TASK_RECORDS_MAX_RUNS_PER_BINDING` the whole call is refused
+ *  (`{ ok: false, reason: 'limit' }`) and the stored state is left alone: a run
+ *  row is used to conclude "this workspace did not run that agent", so dropping
+ *  one quietly would be a false negative. Growth still goes through
+ *  `replaceBinding`, so the record and domain byte bounds apply exactly as they
+ *  do for every other write. A missing record/binding answers `{ ok: true,
+ *  changed: false, skipped: 'missing_binding' }` (nothing written) rather than a
+ *  bare "no change". */
+export function mergeTaskRecordRuns(
+  state: TaskRecordsState,
+  args: {
+    taskId: string
+    worktreeId: string
+    hostId: ExecutionHostId
+    runs: readonly TaskRecordRun[]
+    /** Absences that belong to the binding, not to one run
+     *  (`session_unattributable`, `ambiguous_match`). */
+    gaps?: readonly TaskRecordGap[]
+    now: number
   }
-  return replaceBinding(state, record, { ...binding, sessions }, args.now, dropped)
+): TaskRecordsWriteResult {
+  const record = state.byId[args.taskId]
+  const binding = record?.bindings.find(
+    (entry) => entry.worktreeId === args.worktreeId && entry.hostId === args.hostId
+  )
+  if (!record || !binding) {
+    return { ok: true, state, changed: false, skipped: 'missing_binding' }
+  }
+  const merged = mergeRunRows({
+    existing: binding.runs ?? [],
+    existingGaps: binding.gaps,
+    runs: args.runs,
+    gaps: args.gaps
+  })
+  if (merged.kind === 'limit') {
+    return { ok: false, reason: 'limit' }
+  }
+  if (merged.kind === 'unchanged') {
+    return { ok: true, state, changed: false }
+  }
+  return replaceBinding(
+    state,
+    record,
+    {
+      ...binding,
+      runs: merged.runs,
+      ...(merged.gaps === undefined ? {} : { gaps: merged.gaps })
+    },
+    args.now
+  )
 }
 
 /** Write the settled usage figure. Idempotent on `(worktreeId, collectedAt)`: a
@@ -257,7 +312,7 @@ export function setTaskRecordBindingSettlement(
     (entry) => entry.worktreeId === args.worktreeId && entry.hostId === args.hostId
   )
   if (!record || !binding) {
-    return { ok: true, state, changed: false }
+    return { ok: true, state, changed: false, skipped: 'missing_binding' }
   }
   const previous = binding.usageSettlement
   if (
@@ -265,6 +320,15 @@ export function setTaskRecordBindingSettlement(
     previous.collectedAt === args.settlement.collectedAt
   ) {
     return { ok: true, state, changed: false }
+  }
+  // An `unavailable` snapshot never replaces a measured one: the same archive
+  // workspace re-snapshotted (or snapshotted from a host that can see less) only
+  // knows less, and "an absent fact never erases a stored one" is the rule
+  // everywhere else in this domain. The stored figure keeps its own
+  // `collectedAt`, so the row stays internally coherent, and `skipped` tells the
+  // caller that nothing was written rather than that it was already settled.
+  if (previous?.kind === 'known' && args.settlement.kind === 'unavailable') {
+    return { ok: true, state, changed: false, skipped: 'settlement_downgrade' }
   }
   return replaceBinding(
     state,
@@ -274,7 +338,7 @@ export function setTaskRecordBindingSettlement(
   )
 }
 
-/** Every in-place growth of one binding goes through here, so a session or
+/** Every in-place growth of one binding goes through here, so a session, run or
  *  settlement write cannot slip past the bounds `grown()` enforces. */
 function replaceBinding(
   state: TaskRecordsState,
@@ -288,14 +352,48 @@ function replaceBinding(
     {
       ...record,
       bindings: record.bindings.map((entry) =>
-        entry.worktreeId === binding.worktreeId && entry.hostId === binding.hostId
-          ? binding
-          : entry
+        entry.worktreeId === binding.worktreeId && entry.hostId === binding.hostId ? binding : entry
       ),
-      updatedAt: Math.max(record.updatedAt, now)
+      updatedAt: Math.max(record.updatedAt, now),
+      // A v1 record stays v1 until a write actually stores a v2 fact: raising the
+      // version on every unrelated refresh would make a downgrade lose the whole
+      // domain for nothing.
+      schemaVersion: carriesV2Facts(binding)
+        ? Math.max(record.schemaVersion, TASK_RECORD_SCHEMA_VERSION)
+        : record.schemaVersion
     },
     null,
     record.taskId,
     dropped
+  )
+}
+
+/** True when the binding now holds something a build that only knows v1 could
+ *  not read back. That is what `schemaVersion: 2` asserts, and it is why the
+ *  version is raised by the content of the write rather than by the call site.
+ *
+ *  Every v2 channel counts, and `runs !== undefined` counts **including `runs: []`**:
+ *  an empty array is the T2 statement "the snapshot writer looked and stored no
+ *  run, here is the gap that says why", which a v1 build cannot read as anything
+ *  but "unknown". Missing it let a T2 backfill store `runs`/`gaps` on a record
+ *  still labelled v1. */
+function carriesV2Facts(binding: TaskWorkspaceBinding): boolean {
+  if (binding.runs !== undefined) {
+    return true
+  }
+  if ((binding.gaps?.length ?? 0) > 0) {
+    return true
+  }
+  return binding.sessions.some(
+    (session) =>
+      session.agentType !== undefined ||
+      session.title !== undefined ||
+      session.resumeCommand !== undefined ||
+      session.startedAt !== undefined ||
+      session.endedAt !== undefined ||
+      session.messageCount !== undefined ||
+      session.source !== undefined ||
+      session.recordedAt !== undefined ||
+      session.transcriptCheck !== undefined
   )
 }
