@@ -25,6 +25,13 @@ import {
   type TaskRecordLink
 } from '../../../shared/task-records-worktree-links'
 import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
+import {
+  applyArchiveSnapshot,
+  archiveLookupPlan,
+  isArchiveTransition,
+  type ArchiveSnapshotFollowUp
+} from '../../task-records/task-records-archive-snapshot'
+import { completeArchiveSnapshot } from '../../task-records/task-records-archive-enrichment'
 import { migrateTaskRecordsFromRunHistory } from './task-records-legacy-migration'
 import { scheduleSave } from './write-scheduling'
 import type { WriteSchedulingOperations } from './write-scheduling'
@@ -64,13 +71,21 @@ const legacySeedDeferredStates = new WeakSet<object>()
 export function recordTaskRecordsForWorktreeMeta(
   runtime: TaskRecordsRuntime,
   worktreeId: string,
-  meta: Pick<WorktreeMeta, 'isArchived'> & Parameters<typeof taskRecordLinksForWorktree>[1]
+  meta: Pick<WorktreeMeta, 'isArchived'> & Parameters<typeof taskRecordLinksForWorktree>[1],
+  /** Needed only to persist the asynchronous half of the archive snapshot; a
+   *  caller that passes none still records the synchronous snapshot, it just cannot
+   *  follow it up (see `archiveLookupPlan`). */
+  scheduling?: WriteSchedulingOperations | null
 ): boolean {
   const stored = runtime.state.taskRecords
   if (!isReadableTaskRecords(stored)) {
     return false
   }
   const links = taskRecordLinksForWorktree(worktreeId, meta)
+  // One metadata write is one instant: the transition's `recordedAt` and the
+  // settlement's `collectedAt` must be the same moment as the flag they explain.
+  const now = Date.now()
+  const followUps: ArchiveSnapshotFollowUp[] = []
   let current = stored
   let changed = false
   if (current === undefined) {
@@ -94,27 +109,83 @@ export function recordTaskRecordsForWorktreeMeta(
     }
   }
   for (const link of links) {
+    const taskId = taskIdForLink(link)
+    // Read the stored binding *before* the upsert: the archive snapshot happens
+    // exactly when this write flips `isArchived` false → true (issue #53 A).
+    const previous = bindingOf(current, taskId, worktreeId, link.hostId)
     const result = upsertTaskRecordBinding(current, {
-      taskId: taskIdForLink(link),
+      taskId,
       hostId: link.hostId,
       repoId: link.repoId,
       worktreeId,
       path: link.path,
       isArchived: meta.isArchived,
       origin: link.origin,
-      now: Date.now()
+      now
     })
     if (!result.ok) {
       reportRefusal('record binding', worktreeId, result)
       continue
     }
+    const beforeSnapshot = result.state
     current = result.state
     changed = changed || result.changed
+    // A no-op refresh (`changed: false`) is an archive of an already-archived row:
+    // no state change happened, so there is no irreversible moment to freeze.
+    const archived = result.changed
+      ? bindingOf(current, taskId, worktreeId, link.hostId)
+      : undefined
+    if (!archived || !isArchiveTransition(previous, archived)) {
+      continue
+    }
+    const snapshot = applyArchiveSnapshot({
+      state: current,
+      taskId,
+      binding: archived,
+      usageSource: runtime.taskRecordsUsageSource ?? null,
+      lookup: archiveLookupPlan({
+        hostId: archived.hostId,
+        hasLookup: Boolean(runtime.taskRecordsUsageSource?.archiveSnapshot),
+        hasScheduling: scheduling != null
+      }),
+      now
+    })
+    if (snapshot.kind !== 'applied') {
+      continue
+    }
+    current = snapshot.state
+    changed = changed || current !== beforeSnapshot
+    if (snapshot.followUp) {
+      followUps.push(snapshot.followUp)
+    }
   }
   if (changed) {
     runtime.state.taskRecords = current
   }
+  // Fire-and-forget, and only after the synchronous write is in memory: the
+  // degraded source is asynchronous, and awaiting it here would make every
+  // metadata caller (`worktree.set`, `worktrees:updateMeta`) wait on a scan.
+  for (const followUp of followUps) {
+    void completeArchiveSnapshot({
+      followUp,
+      runtime,
+      scheduling: scheduling ?? null,
+      deps: runtime.taskRecordsUsageSource?.archiveSnapshot ?? null
+    })
+  }
   return changed
+}
+
+/** The owner-qualified binding of one task, if this domain already holds it. */
+function bindingOf(
+  state: TaskRecordsState,
+  taskId: string,
+  worktreeId: string,
+  hostId: ExecutionHostId
+): TaskWorkspaceBinding | undefined {
+  return state.byId[taskId]?.bindings.find(
+    (binding) => binding.worktreeId === worktreeId && binding.hostId === hostId
+  )
 }
 
 /**

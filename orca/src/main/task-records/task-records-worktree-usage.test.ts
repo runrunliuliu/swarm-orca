@@ -5,7 +5,9 @@ import type {
 } from './task-records-worktree-usage'
 import {
   buildTaskUsageSettlement,
-  createTaskRecordsUsageSource
+  createTaskRecordsUsageSource,
+  hookSessionFacts,
+  withHookSessionFacts
 } from './task-records-worktree-usage'
 
 const ID = 'repo-1::/repo/feature'
@@ -225,5 +227,180 @@ describe('task records usage source', () => {
       kind: 'unavailable',
       reason: 'no_matching_session'
     })
+  })
+})
+
+/**
+ * Issue #53 §4: the snapshot facts the hook status row states, and the
+ * capture-free archive entry of the source.
+ */
+describe('hook session facts', () => {
+  it('dates the two edges from the clock that actually states them', () => {
+    // A running row: `stateStartedAt` is when this working stretch began, so it is
+    // a start. The same value is never also the end.
+    expect(
+      hookSessionFacts({ paneKey: 'tab-1:leaf', state: 'working', stateStartedAt: 100 })
+    ).toEqual({ startedAt: 100 })
+    // A settled row: its `stateStartedAt` is when it became done — the end of the
+    // run, not its start (a zero-length run would be the lie).
+    expect(hookSessionFacts({ paneKey: 'tab-1:leaf', state: 'done', stateStartedAt: 200 })).toEqual(
+      { endedAt: 200 }
+    )
+    // `done` as a session boundary means "connected idle", not a completed run.
+    expect(
+      hookSessionFacts({
+        paneKey: 'tab-1:leaf',
+        state: 'done',
+        stateStartedAt: 200,
+        sessionBoundary: true
+      })
+    ).toEqual({})
+    // The hook server no longer holds the pane: nothing observed, nothing claimed.
+    expect(hookSessionFacts(undefined)).toEqual({})
+  })
+
+  it('carries the agent type through but never invents a provider', () => {
+    const [identity] = withHookSessionFacts(
+      [{ paneKey: 'tab-1:leaf', sessionId: 'abc', key: 'session_id', worktreeId: ID }],
+      [{ paneKey: 'tab-1:leaf', agentType: 'pi', state: 'done', stateStartedAt: 200 }]
+    )
+
+    // `pi` is a real agent type and not one of the four usage providers, which is
+    // the provider lookup's decision, not this join's.
+    expect(identity.agentType).toBe('pi')
+    expect(identity.endedAt).toBe(200)
+    expect(identity).not.toHaveProperty('startedAt')
+  })
+
+  it('takes the turn verdict the row stated and leaves a plain Stop unknown', () => {
+    // The provider's own ruling on the turn, read off the main agent's row.
+    expect(
+      hookSessionFacts({
+        paneKey: 'tab-1:leaf',
+        state: 'done',
+        stateStartedAt: 200,
+        mainAgent: { state: 'done', outcome: 'failure' }
+      })
+    ).toEqual({ endedAt: 200, outcome: 'failure' })
+    // The user's own interrupt, which the status row records as a cancellation.
+    expect(
+      hookSessionFacts({
+        paneKey: 'tab-1:leaf',
+        state: 'done',
+        stateStartedAt: 200,
+        interrupted: true
+      })
+    ).toEqual({ endedAt: 200, outcome: 'cancellation' })
+    // A plain Stop states no verdict. `success` here would turn every cancel by an
+    // older provider into a clean finish, so the field stays absent.
+    const plainStop = hookSessionFacts({
+      paneKey: 'tab-1:leaf',
+      state: 'done',
+      stateStartedAt: 200
+    })
+    expect(plainStop).not.toHaveProperty('outcome')
+    // The main agent still works, so its latest finished turn says nothing about
+    // the run that is open now.
+    expect(
+      hookSessionFacts({
+        paneKey: 'tab-1:leaf',
+        state: 'working',
+        stateStartedAt: 100,
+        mainAgent: { state: 'working' }
+      })
+    ).not.toHaveProperty('outcome')
+  })
+})
+
+describe('archive snapshot entry', () => {
+  const identities: TaskRecordSessionIdentity[] = [
+    {
+      paneKey: 'tab-1:leaf',
+      sessionId: 'abc',
+      key: 'session_id',
+      worktreeId: ID,
+      agentType: 'claude',
+      startedAt: 100,
+      endedAt: 200,
+      messageCount: 7,
+      title: 'Fix the snapshot'
+    }
+  ]
+
+  function sourceWithFacts() {
+    return createTaskRecordsUsageSource({
+      stores: stores({}),
+      sessionIdentities: () => identities,
+      providerForPaneKey: () => 'claude'
+    })
+  }
+
+  it('records the extended identity on the session row', () => {
+    const snapshot = sourceWithFacts().snapshotForArchive?.({
+      worktreeId: ID,
+      hostId: 'local',
+      now: 300
+    })
+
+    expect(snapshot?.sessions).toEqual([
+      {
+        provider: 'claude',
+        key: 'session_id',
+        id: 'abc',
+        agentType: 'claude',
+        startedAt: 100,
+        endedAt: 200,
+        messageCount: 7,
+        title: 'Fix the snapshot',
+        firstSeenAt: 300,
+        lastSeenAt: 300
+      }
+    ])
+  })
+
+  it('does not consume a capture taken for a removal that has not happened yet', () => {
+    const source = sourceWithFacts()
+    source.captureSessionsForRemoval(ID)
+    const live = identities.slice()
+
+    // An archive must read the live server: taking the capture here would leave the
+    // later removal to settle from a server whose panes are already gone.
+    expect(
+      source.snapshotForArchive?.({ worktreeId: ID, hostId: 'local', now: 300 }).sessions
+    ).toHaveLength(1)
+    expect(
+      source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: 400 }).sessions
+    ).toHaveLength(1)
+    expect(live).toHaveLength(1)
+  })
+
+  it('carries the verdict beside the session rows, keyed by the run claim', () => {
+    const source = createTaskRecordsUsageSource({
+      stores: stores({}),
+      sessionIdentities: () => [
+        { ...identities[0], outcome: 'cancellation' },
+        // A second pane whose row stated no verdict: absent, not a default.
+        {
+          paneKey: 'tab-2:leaf',
+          sessionId: 'def',
+          key: 'session_id',
+          worktreeId: ID
+        }
+      ],
+      providerForPaneKey: () => 'claude'
+    })
+
+    const snapshot = source.snapshotForArchive?.({ worktreeId: ID, hostId: 'local', now: 300 })
+
+    // The session row itself is unchanged (it has no field for a verdict), so the
+    // vote travels under the same claim the run row is keyed by.
+    expect(snapshot?.sessions).toHaveLength(2)
+    expect(snapshot?.sessions[0]).not.toHaveProperty('outcome')
+    expect([...(snapshot?.outcomes ?? new Map())]).toEqual([
+      ['claude|session_id:abc', 'cancellation']
+    ])
+    // Nothing stated → no entry at all: an empty map would be a claim that the
+    // verdict is "none", and the run row must be able to tell the difference.
+    expect(snapshot?.outcomes?.has('claude|session_id:def')).toBe(false)
   })
 })

@@ -1,11 +1,16 @@
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
-import type {
-  TaskRecordSession,
-  TaskRecordsRemovalSnapshot,
-  TaskRecordUsageProvider,
-  TaskUsageSettlement,
-  TaskUsageSettlementProvider
+import type { AgentStatusState, AgentType } from '../../shared/agent-status-types'
+import { agentMainAgentVerdict } from '../../shared/agent-main-agent-verdict'
+import type { AgentJournalTurnOutcome } from '../../shared/agent-turn-outcome'
+import {
+  taskRecordRunClaimKey,
+  type TaskRecordSession,
+  type TaskRecordsRemovalSnapshot,
+  type TaskRecordUsageProvider,
+  type TaskUsageSettlement,
+  type TaskUsageSettlementProvider
 } from '../../shared/task-records-types'
+import type { TaskRecordsArchiveSnapshotDeps } from './task-records-archive-snapshot'
 
 /**
  * The settlement figure written before a workspace stops being readable
@@ -54,6 +59,33 @@ export type TaskRecordsUsageStoreSet = {
   muse: TaskRecordsUsageRead<{ key: string; totalTokens: number }>
 }
 
+/** The snapshot facts a hook status row can state about one pane's agent (issue
+ *  #53 §4). Structural on purpose: this module must not import the hook server,
+ *  and a test can supply one row instead of the whole transport type. Everything
+ *  but `state` is optional because the source genuinely omits some — see
+ *  `hookSessionFacts`, which is the only place that decides which. `state` is
+ *  required because the verdict predicate reads it and every row of the status
+ *  feed states one.
+ *
+ *  Deliberately not here: `messageCount` and `title`. The hook status payload
+ *  carries neither (a terminal title is renderer state, a message count is a
+ *  transcript fact), so they stay absent on this path and are filled by the
+ *  session index (seat C's backfill) instead of being invented from a prompt.
+ */
+export type HookAgentStatusFacts = {
+  paneKey: string
+  agentType?: AgentType
+  state: AgentStatusState
+  stateStartedAt?: number
+  /** A `done` that only means "connected idle", not a completed turn. */
+  sessionBoundary?: boolean
+  /** The verdict-bearing fields, exactly as the same row carries them, so
+   *  `agentMainAgentVerdict` decides what a Stop means instead of this join
+   *  restating the rule. */
+  interrupted?: boolean
+  mainAgent?: { state: AgentStatusState; outcome?: AgentJournalTurnOutcome }
+}
+
 /** One provider session the hook server currently knows. `key` is absent when
  *  the reporting provider only gave an id. */
 export type TaskRecordSessionIdentity = {
@@ -62,6 +94,97 @@ export type TaskRecordSessionIdentity = {
   key?: string
   transcriptPath?: string
   worktreeId?: string
+  /** Snapshot facts, same source (`providerSession`'s hook status row). Absent
+   *  means the source has no such fact, never a placeholder value. */
+  agentType?: AgentType
+  startedAt?: number
+  endedAt?: number
+  messageCount?: number
+  title?: string
+  /** The turn verdict the *same* hook status row recorded, read through
+   *  `agentMainAgentVerdict`. Absent on a plain Stop, on a pane the server no
+   *  longer holds and on the index path: absent means unknown, never success. */
+  outcome?: AgentJournalTurnOutcome
+}
+
+/**
+ * The archive snapshot's session list plus the verdicts the same hook rows stated.
+ *
+ * `outcome` is a fact about a *run*, and the shared `TaskRecordSession` row has no
+ * field for it (a session can span several turns), so it travels beside the list
+ * keyed by the run claim (`taskRecordRunClaimKey`) instead of widening a frozen
+ * row shape. Only the pane-attributed path can state one: the index/backfill path
+ * reads a transcript, which records what was said, not the provider's verdict.
+ */
+export type TaskRecordsArchiveSnapshot = TaskRecordsRemovalSnapshot & {
+  /** Claim → the verdict the hook status row recorded. A claim absent here has no
+   *  verdict (a plain Stop, an unheld pane, a removal-fallback source), which is
+   *  unknown — never success. */
+  outcomes?: ReadonlyMap<string, AgentJournalTurnOutcome>
+}
+
+/**
+ * Attach the hook status facts to the provider-session identities.
+ *
+ * The identities come from `agentHookServer.getProviderSessionIdentities()`, which
+ * states *which* session a pane reports and nothing about the run; the facts come
+ * from the same server's status snapshot. Both are keyed by pane key, so this is a
+ * join, not a second source of truth.
+ *
+ * What a hook row can state, and what it cannot:
+ * - `agentType` — the row's own vocabulary (pi included; `provider` stays the
+ *   four-value usage enum and is unknown for anything else).
+ * - `startedAt` — only while the row is `working`: `stateStartedAt` is when the
+ *   *current* state began, which is a run's start only while the run is running.
+ * - `endedAt` — the same clock `agentEntryCompletionAt` uses: a non-boundary
+ *   `done`'s `stateStartedAt`. A settled row's `stateStartedAt` is its end, so the
+ *   two edges are never derived from one value.
+ * - `messageCount`, `title` — absent. Never the prompt: a user prompt is content,
+ *   not a title, and the issue forbids storing content.
+ * - `outcome` — only what the shared predicate reads off the row: a `done` main
+ *   agent's recorded verdict, or the user's own interrupt (`cancellation`). A plain
+ *   Stop states none, and none stays absent.
+ */
+export function withHookSessionFacts(
+  identities: readonly TaskRecordSessionIdentity[],
+  rows: readonly HookAgentStatusFacts[]
+): TaskRecordSessionIdentity[] {
+  const factsByPane = new Map<string, HookAgentStatusFacts>()
+  for (const row of rows) {
+    // The snapshot can list several representations of one pane; the first is the
+    // one the status feed was built from, so a later duplicate adds nothing.
+    if (!factsByPane.has(row.paneKey)) {
+      factsByPane.set(row.paneKey, row)
+    }
+  }
+  return identities.map((identity) => ({
+    ...identity,
+    ...hookSessionFacts(factsByPane.get(identity.paneKey))
+  }))
+}
+
+/** The facts one hook row states, or none when the server no longer holds the pane. */
+export function hookSessionFacts(
+  row: HookAgentStatusFacts | undefined
+): Pick<TaskRecordSessionIdentity, 'agentType' | 'startedAt' | 'endedAt' | 'outcome'> {
+  if (!row) {
+    return {}
+  }
+  const settled = row.state === 'done' && row.sessionBoundary !== true
+  const measured = (value: number | undefined): value is number =>
+    value !== undefined && Number.isFinite(value)
+  // Read through the shared predicate rather than restating what a Stop means: it
+  // answers null while the main agent still works, and for a turn nobody recorded a
+  // verdict on — so a plain Stop can never enter the record as a success.
+  const verdict = agentMainAgentVerdict(row)
+  return {
+    ...(row.agentType === undefined ? {} : { agentType: row.agentType }),
+    ...(row.state === 'working' && measured(row.stateStartedAt)
+      ? { startedAt: row.stateStartedAt }
+      : {}),
+    ...(settled && measured(row.stateStartedAt) ? { endedAt: row.stateStartedAt } : {}),
+    ...(verdict === null ? {} : { outcome: verdict })
+  }
 }
 
 export type TaskRecordsUsageSourceDeps = {
@@ -70,6 +193,10 @@ export type TaskRecordsUsageSourceDeps = {
   sessionIdentities: () => readonly TaskRecordSessionIdentity[]
   /** Which usage provider a pane's agent is, when the tab pins one. */
   providerForPaneKey: (paneKey: string) => TaskRecordUsageProvider | undefined
+  /** issue #53's asynchronous archive inputs. Bound here for the same reason the
+   *  four usage stores are: they exist only after the Store is constructed, and the
+   *  writers that need them receive the source through the runtime. */
+  archiveSnapshot?: TaskRecordsArchiveSnapshotDeps
 }
 
 export type TaskRecordsUsageSource = {
@@ -83,6 +210,19 @@ export type TaskRecordsUsageSource = {
    *  identity) as each PTY is killed, so reading it at settlement time — after
    *  teardown — would find nothing for exactly the workspaces being removed. */
   captureSessionsForRemoval(worktreeId: string): void
+  /** The archive transition (issue #53 A) is not destructive: same session list and
+   *  same settlement, but it must not consume a removal capture, so it reads the
+   *  live hook server directly. It is also the only entry that can carry the turn
+   *  verdicts its own hook rows stated (`outcomes`). Optional so a source written
+   *  before this issue (and every existing test double) keeps working; the archive
+   *  write then falls back to `snapshotForRemoval`. */
+  snapshotForArchive?(args: {
+    worktreeId: string
+    hostId: ExecutionHostId
+    now: number
+  }): TaskRecordsArchiveSnapshot
+  /** The asynchronous degraded source, absent when this build has no session index. */
+  archiveSnapshot?: TaskRecordsArchiveSnapshotDeps
 }
 
 /** A capture older than this was not consumed by a removal (the removal failed
@@ -105,13 +245,13 @@ export function createTaskRecordsUsageSource(
     }
     capturedSessions.set(worktreeId, {
       capturedAt: now,
-      sessions: collectWorktreeSessions(deps, worktreeId, now)
+      sessions: collectWorktreeSessions(deps, worktreeId, now).sessions
     })
   }
   const sessionsForRemoval = (worktreeId: string, now: number): TaskRecordSession[] => {
     const captured = capturedSessions.get(worktreeId)
     if (!captured) {
-      return collectWorktreeSessions(deps, worktreeId, now)
+      return collectWorktreeSessions(deps, worktreeId, now).sessions
     }
     // Consumed once: a second removal of a re-created locator must read the live
     // hook server again, not inherit a dead occupant's sessions.
@@ -119,22 +259,41 @@ export function createTaskRecordsUsageSource(
     // A capture that outlived its TTL was not consumed by the removal it was
     // taken for; it is not evidence for a later one, so read the live server.
     if (now - captured.capturedAt > REMOVAL_SESSION_CAPTURE_TTL_MS) {
-      return collectWorktreeSessions(deps, worktreeId, now)
+      return collectWorktreeSessions(deps, worktreeId, now).sessions
     }
     return captured.sessions
   }
+  const settlementAndSessions = (
+    worktreeId: string,
+    hostId: ExecutionHostId,
+    now: number,
+    sessions: TaskRecordSession[]
+  ): TaskRecordsRemovalSnapshot => ({
+    settlement: buildTaskUsageSettlement({
+      worktreeId,
+      hostId,
+      now,
+      providers: readProviderRows(deps.stores, worktreeId),
+      enabled: anyProviderEnabled(deps.stores)
+    }),
+    sessions
+  })
   return {
     captureSessionsForRemoval,
-    snapshotForRemoval: ({ worktreeId, hostId, now }) => ({
-      settlement: buildTaskUsageSettlement({
-        worktreeId,
-        hostId,
-        now,
-        providers: readProviderRows(deps.stores, worktreeId),
-        enabled: anyProviderEnabled(deps.stores)
-      }),
-      sessions: sessionsForRemoval(worktreeId, now)
-    })
+    snapshotForRemoval: ({ worktreeId, hostId, now }) =>
+      settlementAndSessions(worktreeId, hostId, now, sessionsForRemoval(worktreeId, now)),
+    // A capture belongs to a removal that has not happened yet; an archive must not
+    // take it, or that removal would settle from a live server instead of the
+    // frozen list it was taken for. Unlike a removal, the archive keeps the
+    // verdicts it just read: they are the run facts that make a snapshot a review.
+    snapshotForArchive: ({ worktreeId, hostId, now }) => {
+      const collected = collectWorktreeSessions(deps, worktreeId, now)
+      return {
+        ...settlementAndSessions(worktreeId, hostId, now, collected.sessions),
+        ...(collected.outcomes.size === 0 ? {} : { outcomes: collected.outcomes })
+      }
+    },
+    ...(deps.archiveSnapshot ? { archiveSnapshot: deps.archiveSnapshot } : {})
   }
 }
 
@@ -231,12 +390,20 @@ export function buildTaskUsageSettlement(args: {
   }
 }
 
+/** What one collection of the hook server yields: the session rows, and the verdicts
+ *  the *same* rows recorded, keyed by the run claim. Two row kinds, one identity. */
+type CollectedWorktreeSessions = {
+  sessions: TaskRecordSession[]
+  outcomes: Map<string, AgentJournalTurnOutcome>
+}
+
 function collectWorktreeSessions(
   deps: TaskRecordsUsageSourceDeps,
   worktreeId: string,
   now: number
-): TaskRecordSession[] {
+): CollectedWorktreeSessions {
   const sessions: TaskRecordSession[] = []
+  const outcomes = new Map<string, AgentJournalTurnOutcome>()
   for (const identity of deps.sessionIdentities()) {
     // No key means no way to say which field the id came from; a guess would be
     // indistinguishable from a reported value, so the session is not recorded.
@@ -244,14 +411,29 @@ function collectWorktreeSessions(
       continue
     }
     const provider = deps.providerForPaneKey(identity.paneKey)
-    sessions.push({
+    const providerSession = {
       ...(provider ? { provider } : {}),
       key: identity.key,
-      id: identity.sessionId,
+      id: identity.sessionId
+    }
+    // The run row's own claim function, so the two lists cannot disagree about who
+    // ran; a verdict the session cannot carry travels under that key instead.
+    if (identity.outcome !== undefined) {
+      outcomes.set(taskRecordRunClaimKey(providerSession), identity.outcome)
+    }
+    sessions.push({
+      ...providerSession,
       ...(identity.transcriptPath ? { transcriptPath: identity.transcriptPath } : {}),
+      // Snapshot facts the hook status row states (issue #53 §4). Absent stays
+      // absent: a stored `0` or an epoch start would be read as a measurement.
+      ...(identity.agentType === undefined ? {} : { agentType: identity.agentType }),
+      ...(identity.title === undefined ? {} : { title: identity.title }),
+      ...(identity.startedAt === undefined ? {} : { startedAt: identity.startedAt }),
+      ...(identity.endedAt === undefined ? {} : { endedAt: identity.endedAt }),
+      ...(identity.messageCount === undefined ? {} : { messageCount: identity.messageCount }),
       firstSeenAt: now,
       lastSeenAt: now
     })
   }
-  return sessions
+  return { sessions, outcomes }
 }

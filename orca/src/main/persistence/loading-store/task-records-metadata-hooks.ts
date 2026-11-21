@@ -41,7 +41,7 @@ export function recordTaskRecordsForWorktree(
   }
   persistTaskRecords(
     context.scheduling,
-    recordTaskRecordsForWorktreeMeta(context.runtime, worktreeId, resolved)
+    recordTaskRecordsForWorktreeMeta(context.runtime, worktreeId, resolved, context.scheduling)
   )
 }
 
