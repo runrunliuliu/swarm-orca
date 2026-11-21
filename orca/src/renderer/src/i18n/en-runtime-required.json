@@ -231,19 +231,36 @@
         "archivedMany": "{{value0}} archived workspaces; their content is still on this machine.",
         "archivedOne": "1 workspace archived; its content is still on this machine.",
         "collapse": "Collapse",
+        "copied": "Copied",
+        "copyFailed": "Couldn't copy",
         "copyResume": "Copy resume command",
         "details": "Details",
+        "factsFromRecord": "Facts from the record",
+        "factsFromRecordMixed": "Some facts from the record",
+        "gap": {
+          "ambiguousMatch": "The record could not decide which agent ran here.",
+          "candidates": "({{value0}} candidates)",
+          "provenance": {
+            "ambiguousMatch": "Recorded at archive time: the session match was ambiguous; these rows were attributed later.",
+            "sessionUnattributable": "Recorded at archive time: no pane attribution; these rows were attributed later."
+          },
+          "sessionUnattributable": "No agent could be attributed to this workspace."
+        },
         "heading": "Run history",
         "lastActivity": "last {{value0}}",
         "locateTrace": "Locate trace",
         "newBadge": "NEW",
         "notWired": "Not available in this version",
+        "resumeCommandMissing": "No resume command was recorded for this run.",
         "run": {
           "cancellation": "cancelled",
           "failure": "failed",
           "success": "delivered"
         },
         "runDone": "done",
+        "runMessages": "{{value0}} messages",
+        "runUnknownOutcome": "no verdict recorded",
+        "runsNone": "No run recorded.",
         "session": {
           "noResume": "Resume unavailable: its workspace was removed.",
           "noTranscript": "no transcript path recorded",
@@ -258,10 +275,16 @@
         "tokensUnknown": "tokens unknown",
         "totalScope": "Total: every run",
         "traceLost": "Workspace deleted; the recorded trace is out of reach.",
+        "traceMissing": "Trace unreachable: the recorded file is gone.",
+        "traceUnverifiable": "Trace unreachable: this host cannot check it.",
         "unverified": "not verified",
         "wallMeasured": "{{value0}} wall",
         "wallPartial": "{{value0}} wall (partial)",
-        "wallUnknown": "wall unknown"
+        "wallUnknown": "wall unknown",
+        "workspace": {
+          "hasSessions": "sessions recorded",
+          "noSessions": "no sessions recorded"
+        }
       },
       "TaskWorkbenchPanel": {
         "createWorkspace": "Create workspace",

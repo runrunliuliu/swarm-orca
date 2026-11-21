@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import type { DashboardCard } from '../../../../shared/dashboard-snapshot'
 import type { DeliveryEvidence } from '../../components/task-workbench/task-workbench-view'
-import { joinTaskWorkbench } from './task-workbench-join'
+import { joinTaskWorkbench, taskHistoryWallClock } from './task-workbench-join'
 import type {
   IdentityResolution,
   JoinAgentInput,
@@ -142,7 +142,8 @@ describe('joinTaskWorkbench — no workspace', () => {
         workspaces: [],
         sessions: [],
         trace: 'none',
-        runs: []
+        runs: [],
+        historySource: 'live'
       }
     })
     // `''` is a sentinel, not a worktree id: the panel must not open anything.
@@ -253,11 +254,7 @@ describe('joinTaskWorkbench — archived worktrees', () => {
       'pane-two',
       'pane-parked'
     ])
-    expect(result.agents.map((row) => row.archivedWorkspace === true)).toEqual([
-      false,
-      false,
-      true
-    ])
+    expect(result.agents.map((row) => row.archivedWorkspace === true)).toEqual([false, false, true])
     expect(result.counts).toEqual({
       agents: 3,
       activeAgents: 1,
@@ -412,9 +409,10 @@ describe('joinTaskWorkbench — default workspace', () => {
     const unknown = worktree('wt-unknown', 'feature/unknown')
     const known = worktree('wt-known', 'feature/known', { lastActivityAt: 5 })
 
-    expect(
-      joinTaskWorkbench(makeInput({ worktrees: [unknown, known] })).defaultWorkspace
-    ).toEqual({ workspaceId: 'wt-known', source: 'recent-activity' })
+    expect(joinTaskWorkbench(makeInput({ worktrees: [unknown, known] })).defaultWorkspace).toEqual({
+      workspaceId: 'wt-known',
+      source: 'recent-activity'
+    })
   })
 
   it('never names an archived workspace when nothing is live', () => {
@@ -532,5 +530,68 @@ describe('joinTaskWorkbench — row overlay pass-through', () => {
       attentionAgents: 0,
       historyAgents: 3
     })
+  })
+})
+
+describe('taskHistoryWallClock', () => {
+  it('is unknown with no row, measured with both edges everywhere, partial otherwise', () => {
+    expect(taskHistoryWallClock([])).toEqual({ kind: 'unknown' })
+    expect(
+      taskHistoryWallClock([
+        { startedAt: 1_000, endedAt: 5_000 },
+        { startedAt: 2_000, endedAt: 9_000 }
+      ])
+    ).toEqual({ kind: 'measured', startedAt: 1_000, endedAt: 9_000 })
+    // An absent edge stays absent: the known one is stated, nothing is filled in.
+    expect(taskHistoryWallClock([{ startedAt: 1_000 }, { endedAt: 9_000 }])).toEqual({
+      kind: 'partial',
+      startedAt: 1_000,
+      endedAt: 9_000
+    })
+    expect(taskHistoryWallClock([{}, {}])).toEqual({ kind: 'partial' })
+  })
+})
+
+describe('joinTaskWorkbench — the archived figure is not a live total (issue #53 S11)', () => {
+  const live = worktree('wt-live', 'feature/live')
+  const parked = worktree('wt-parked', 'feature/parked', { archived: true })
+
+  it("leaves an archived row's figure to the record's settlement", () => {
+    const result = joinTaskWorkbench(
+      makeInput({
+        worktrees: [live, parked],
+        agentsByWorktree: {
+          'wt-live': [
+            agent(live, 'pane-live', 'done', { tokens: { kind: 'ai-vault', tokens: 340 } })
+          ],
+          'wt-parked': [
+            agent(parked, 'pane-parked', 'done', { tokens: { kind: 'rollup', tokens: 5_000 } })
+          ]
+        }
+      })
+    )
+
+    // The archived row keeps its own figure (the Agents section prints it), but
+    // the task total is the live rows' only: the fold adds the workspace's
+    // settlement once, so counting this row here would add the same tokens twice.
+    expect(result.agents.at(-1)?.tokens).toEqual({ kind: 'rollup', tokens: 5_000 })
+    expect(result.history.tokens).toEqual({ kind: 'available', tokens: 340 })
+  })
+
+  it('has no live figure at all when only archived rows carry one', () => {
+    const result = joinTaskWorkbench(
+      makeInput({
+        worktrees: [live, parked],
+        agentsByWorktree: {
+          'wt-parked': [
+            agent(parked, 'pane-parked', 'done', { tokens: { kind: 'rollup', tokens: 5_000 } })
+          ]
+        }
+      })
+    )
+
+    // Not `0`: there is no active row to weigh, and the record's settlement (which
+    // `mergeTaskRecordHistory` folds in) is the only figure that can speak for it.
+    expect(result.history.tokens).toEqual({ kind: 'unavailable', reason: 'no_matching_session' })
   })
 })

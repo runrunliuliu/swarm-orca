@@ -17242,6 +17242,31 @@
         "closeIssueUnavailable": "Close the issue",
         "closeIssueUnavailableHint": "This page names no issue, so delivery will not close one."
       },
+      "TaskWorkbenchHistory": {
+        "traceMissing": "trace에 접근할 수 없음: 기록된 파일이 이 컴퓨터에 없습니다.",
+        "traceUnverifiable": "trace에 접근할 수 없음: 이 호스트에서는 해당 경로를 확인할 수 없습니다.",
+        "runMessages": "메시지 {{value0}}개",
+        "factsFromRecord": "기록에서 가져온 사실",
+        "runUnknownOutcome": "판정이 기록되지 않음",
+        "copied": "복사됨",
+        "copyFailed": "복사하지 못했습니다",
+        "resumeCommandMissing": "이 실행의 재개 명령이 기록되지 않았습니다.",
+        "gap": {
+          "sessionUnattributable": "이 워크스페이스를 어떤 agent 에도 귀속할 수 없습니다.",
+          "ambiguousMatch": "어떤 agent 가 실행했는지 기록으로 판단할 수 없습니다.",
+          "candidates": "(후보 {{value0}}개)",
+          "provenance": {
+            "sessionUnattributable": "보관 시점 기록: pane 에서는 귀속할 수 없었고, 이 행들은 나중에 귀속되었습니다.",
+            "ambiguousMatch": "보관 시점 기록: 당시 세션 매칭이 모호했고, 이 행들은 나중에 귀속되었습니다."
+          }
+        },
+        "runsNone": "기록된 실행이 없습니다.",
+        "workspace": {
+          "hasSessions": "세션 기록 있음",
+          "noSessions": "세션 기록 없음"
+        },
+        "factsFromRecordMixed": "일부 사실은 기록에서"
+      },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
         "noEvidence": "이 태스크의 전달 근거를 아직 읽지 않았습니다. 여기에는 전달되었다는 내용이 없습니다.",

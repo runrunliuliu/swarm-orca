@@ -4,6 +4,7 @@ import type {
   DashboardCardReview,
   DashboardWorkspace
 } from '../../../../shared/dashboard-snapshot'
+import type { TaskRecordGapKind } from '../../../../shared/task-records-types'
 import type { TaskProviderIdentity } from '../../../../shared/task-provider-identity'
 
 /**
@@ -82,15 +83,79 @@ export type AgentTokenView =
 /** A finished turn's verdict. `failure` and `cancellation` are never delivered. */
 export type AgentOutcome = 'success' | 'failure' | 'cancellation'
 
-/** One run the history strip can list without an Agents section (the deleted
- *  form, where there are no live or retained rows to read it from). */
+/** What the writer's own `stat` said about a recorded transcript path (issue
+ *  #53). `missing` is only ever a local `stat` that returned ENOENT;
+ *  `unverifiable` is a host that could not look at the path at all, so the row
+ *  may not call the file gone. Absent means no check was ever stored — which is
+ *  not `missing`, for the same reason an absent figure is not `0`. */
+export type TaskWorkbenchTraceState = {
+  presence: 'present' | 'missing' | 'unverifiable'
+  /** When the stored check was taken (ms), so a reader can tell how old an
+   *  `unreachable` verdict is. */
+  checkedAt: number
+}
+
+/** One absence the record observed about a workspace or a run (issue #53 T2).
+ *
+ *  The kind is the record's own word and stays untranslated as a value:
+ *  `session_unattributable` is "nobody could tell which agent ran here" and
+ *  `ambiguous_match` is "several candidates, none decided". This type exists so
+ *  the panel can say that instead of showing the empty run list, which reads
+ *  exactly like "nothing ever ran" — the false negative the issue is about.
+ *  `candidateCount` is absent when the observation did not count (a measured `0`
+ *  is "looked and found none"), and `detail` is the writer's own reason. */
+export type TaskWorkbenchGapView = {
+  kind: TaskRecordGapKind
+  candidateCount?: number
+  detail?: string
+  /** True when the workspace this gap belongs to has no run rows at all, so the
+   *  sentence is the whole state ("no agent could be attributed here"). False
+   *  when rows exist: the gap is then the archive moment's provenance note (no
+   *  pane attribution then; the rows were attributed later), and printing it as
+   *  "unattributable" over a full list would contradict the list. */
+  standalone: boolean
+}
+
+/** One run the history strip can list without an Agents section: the deleted
+ *  form, where no live or retained row is left to read it from, and the
+ *  record-sourced rows an archived workspace's record still states (issue #53).
+ *
+ * Every fact but `key` is optional because a frozen observation may not have
+ * measured it: an absent `startedAt` is unknown, never the epoch, and an absent
+ * `title` is a row that prints its claim instead of an invented name. */
 export type TaskWorkbenchHistoryRun = {
+  /** React list key. For a record-sourced row this IS the claim
+   *  (`provider|key:id`) the record merges on; a live row keeps its pane key,
+   *  which is runtime state and must never be stored or offered as identity. */
   key: string
-  title: string
+  title?: string
   agentType?: DashboardCard['agentType']
   startedAt?: number
   endedAt?: number
+  /** Turns the provider counted for the run; absent when nobody counted. */
+  messageCount?: number
   outcome?: AgentOutcome
+  /** The transcript the record kept for this run, and what its stored `stat`
+   *  said about it. A path with no check is a pointer, not a claim of presence. */
+  transcriptPath?: string
+  trace?: TaskWorkbenchTraceState
+  /** False when the checkout that ran this row is gone, so the panel states
+   *  that resume is unavailable instead of offering an action that cannot work.
+   *  Absent on a live row, where resume is the Agents section's business. */
+  resumable?: boolean
+  /** The provider's own resume command for this session, as the record stored it
+   *  (issue #53 A2). Absent means the observation had none — the hook path never
+   *  does — and the row then says so instead of offering an action; it is never a
+   *  command this build composed itself. */
+  resumeCommand?: string
+  /** The checkout the command has to run in (the binding's recorded `path`), so
+   *  "resumable" names a directory that really exists. Absent on a row whose
+   *  record never stored a path. */
+  checkoutPath?: string
+  /** True when the row is a frozen observation read from the persisted record,
+   *  not a projected live row. The panel renders these rows in the archive form
+   *  and says where they came from. */
+  fromRecord?: boolean
 }
 
 /** How much of the recorded wall clock is actually measured. `partial` carries
@@ -126,6 +191,10 @@ export type TaskWorkbenchHistorySession = {
   key: string
   provider?: string
   hasTranscriptPath: boolean
+  /** The recorded path itself (the `locate trace` target) and, when the record
+   *  stored one, what its `stat` said about it. */
+  transcriptPath?: string
+  trace?: TaskWorkbenchTraceState
   resumable: boolean
   worktreeId: string
 }
@@ -148,11 +217,25 @@ export type TaskWorkbenchHistory = {
   tokensSource: 'live' | 'settled'
   /** Archived and removed workspaces this record can still name. */
   workspaces: TaskWorkbenchHistoryWorkspace[]
-  /** Sessions of removed workspaces only: live sessions are the Agents section. */
+  /** Sessions of removed workspaces only: live sessions are the Agents section,
+   *  and an archived workspace keeps its own rows. */
   sessions: TaskWorkbenchHistorySession[]
   trace: TaskWorkbenchHistoryTrace
-  /** Only the deleted form renders this list; the archived form has agent rows. */
+  /** The deleted form renders this list as the whole record; the archived form
+   *  renders only the record-sourced rows (`fromRecord`), because its live rows
+   *  already appear in Agents. */
   runs: TaskWorkbenchHistoryRun[]
+  /** Where the run rows came from (issue #53). `record` means at least one row
+   *  is a frozen observation the persisted record supplied because no live row
+   *  could state it; absent means the live projection, which is what a view
+   *  built before this field existed carries. `mixed` means the list holds both
+   *  kinds, so no single badge may claim the whole list for the record (S7). */
+  historySource?: 'live' | 'record' | 'mixed'
+  /** Absences the record observed for this task's archived and removed
+   *  workspaces (or for one of their runs). Empty when the record observed none;
+   *  a reader must not read an empty list as "nothing ran", which is why the run
+   *  list says `no run recorded` separately. */
+  gaps?: TaskWorkbenchGapView[]
 }
 
 /** Renderer overlay on the untouched snapshot card (R18): the row component

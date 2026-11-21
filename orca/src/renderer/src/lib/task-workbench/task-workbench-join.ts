@@ -5,6 +5,7 @@ import type {
   DeliveryEvidence,
   SpendReason,
   TaskWorkbenchHistory,
+  TaskWorkbenchHistoryRun,
   TaskWorkbenchWorkspace
 } from '@/components/task-workbench/task-workbench-view'
 import type { JoinInput, JoinResult, JoinWorktree } from './task-workbench-selector-types'
@@ -169,30 +170,65 @@ function activityOf(worktree: JoinWorktree): number {
  * whoever holds that record (today: a rendered fixture; the persisted probe is
  * the S2 slice of #31).
  */
+/**
+ * The task's recorded window, read from the run rows the facts line is printed
+ * above. `measured` only when every row has both edges, `partial` with the edges
+ * that really exist, `unknown` when there is no row at all: an absent edge is
+ * never filled with the epoch or with "now" (see `TaskWorkbenchWallClock`).
+ * Exported because the history fold prints the same facts above a run list that
+ * came from the record (issue #53), and two computations of one rule would
+ * eventually disagree.
+ */
+export function taskHistoryWallClock(
+  runs: readonly Pick<TaskWorkbenchHistoryRun, 'startedAt' | 'endedAt'>[]
+): TaskWorkbenchHistory['wall'] {
+  let startedAt = Number.POSITIVE_INFINITY
+  let endedAt = Number.NEGATIVE_INFINITY
+  let everyStart = true
+  let everyEnd = true
+
+  for (const run of runs) {
+    if (run.startedAt === undefined) {
+      everyStart = false
+    } else {
+      startedAt = Math.min(startedAt, run.startedAt)
+    }
+    if (run.endedAt === undefined) {
+      everyEnd = false
+    } else {
+      endedAt = Math.max(endedAt, run.endedAt)
+    }
+  }
+
+  if (runs.length === 0) {
+    return { kind: 'unknown' }
+  }
+  if (everyStart && everyEnd) {
+    return { kind: 'measured', startedAt, endedAt }
+  }
+  return {
+    kind: 'partial',
+    ...(startedAt === Number.POSITIVE_INFINITY ? {} : { startedAt }),
+    ...(endedAt === Number.NEGATIVE_INFINITY ? {} : { endedAt })
+  }
+}
+
 function buildHistory(
   agents: readonly AgentRowView[],
   worktrees: readonly JoinWorktree[]
 ): TaskWorkbenchHistory {
   const archived = worktrees.filter((worktree) => worktree.isArchived)
+  // Archived rows are a *split* of the settlement the record froze for that
+  // workspace, so they are not part of the live figure: the history fold adds the
+  // settlement once (issue #53 S11). Counting them here too would either
+  // double count or — as it did — turn the whole total unknown as soon as one
+  // archived row could not be attributed, hiding a figure the record measured.
+  const tokenRows = agents.filter((agent) => agent.archivedWorkspace !== true)
 
-  let startedAt = Number.POSITIVE_INFINITY
-  let endedAt = Number.NEGATIVE_INFINITY
-  let everyStart = true
-  let everyEnd = true
   let tokenTotal = 0
   let tokenAbsence: SpendReason | null = null
 
-  for (const agent of agents) {
-    if (agent.base.startedAt > 0) {
-      startedAt = Math.min(startedAt, agent.base.startedAt)
-    } else {
-      everyStart = false
-    }
-    if (typeof agent.base.finishedAt === 'number') {
-      endedAt = Math.max(endedAt, agent.base.finishedAt)
-    } else {
-      everyEnd = false
-    }
+  for (const agent of tokenRows) {
     if (agent.tokens.kind === 'unavailable') {
       tokenAbsence ??= agent.tokens.reason
     } else {
@@ -200,18 +236,17 @@ function buildHistory(
     }
   }
 
-  const hasStart = startedAt !== Number.POSITIVE_INFINITY
-  const hasEnd = endedAt !== Number.NEGATIVE_INFINITY
-  const wall: TaskWorkbenchHistory['wall'] =
-    agents.length === 0
-      ? { kind: 'unknown' }
-      : everyStart && everyEnd
-        ? { kind: 'measured', startedAt, endedAt }
-        : {
-            kind: 'partial',
-            ...(hasStart ? { startedAt } : {}),
-            ...(hasEnd ? { endedAt } : {})
-          }
+  // The rows first, because the wall clock is read from them: one list, so the
+  // facts line and the list below it cannot state two different windows.
+  const runs: TaskWorkbenchHistoryRun[] = agents.map((agent) => ({
+    key: agent.base.paneKey,
+    title: agent.base.conversationName ?? agent.base.task ?? agent.base.worktreeName,
+    ...(agent.base.agentType ? { agentType: agent.base.agentType } : {}),
+    ...(agent.base.startedAt > 0 ? { startedAt: agent.base.startedAt } : {}),
+    ...(typeof agent.base.finishedAt === 'number' ? { endedAt: agent.base.finishedAt } : {}),
+    ...(agent.outcome ? { outcome: agent.outcome } : {})
+  }))
+  const wall = taskHistoryWallClock(runs)
 
   let lastActivityAt: number | undefined
   for (const worktree of worktrees) {
@@ -220,8 +255,10 @@ function buildHistory(
     }
     lastActivityAt = Math.max(lastActivityAt ?? Number.NEGATIVE_INFINITY, worktree.lastActivityAt)
   }
-  if (hasEnd) {
-    lastActivityAt = Math.max(lastActivityAt ?? Number.NEGATIVE_INFINITY, endedAt)
+  if (wall.kind === 'measured') {
+    lastActivityAt = Math.max(lastActivityAt ?? Number.NEGATIVE_INFINITY, wall.endedAt)
+  } else if (wall.kind === 'partial' && wall.endedAt !== undefined) {
+    lastActivityAt = Math.max(lastActivityAt ?? Number.NEGATIVE_INFINITY, wall.endedAt)
   }
 
   return {
@@ -229,7 +266,7 @@ function buildHistory(
     agents: agents.length === 0 ? null : agents.length,
     wall,
     tokens:
-      agents.length === 0
+      tokenRows.length === 0
         ? { kind: 'unavailable', reason: 'no_matching_session' }
         : tokenAbsence
           ? { kind: 'unavailable', reason: tokenAbsence }
@@ -243,14 +280,8 @@ function buildHistory(
     workspaces: [],
     sessions: [],
     trace: archived.length > 0 ? 'archived' : 'none',
-    runs: agents.map((agent) => ({
-      key: agent.base.paneKey,
-      title: agent.base.conversationName ?? agent.base.task ?? agent.base.worktreeName,
-      ...(agent.base.agentType ? { agentType: agent.base.agentType } : {}),
-      ...(agent.base.startedAt > 0 ? { startedAt: agent.base.startedAt } : {}),
-      ...(typeof agent.base.finishedAt === 'number' ? { endedAt: agent.base.finishedAt } : {}),
-      ...(agent.outcome ? { outcome: agent.outcome } : {})
-    }))
+    runs,
+    historySource: 'live'
   }
 }
 
