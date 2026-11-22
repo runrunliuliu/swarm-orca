@@ -4,6 +4,7 @@ import os from 'node:os'
 import { join } from 'node:path'
 import { maybeRedirectCliLaunch } from './cli-launch-redirect'
 import { runProfileStateRecoveryPreflight } from './profile-state-recovery-preflight'
+import { runHistoryBackfillPreflight } from './history-backfill-preflight'
 import { argvRequestsServeMode, normalizeServeModeArgv } from './serve-mode-argv'
 import {
   configureDevUserDataPath,
@@ -120,6 +121,12 @@ export function runMainProcessPreflight(options: MainProcessPreflightOptions): b
 
 function initializeMainProcessPreflight(options: MainProcessPreflightOptions): boolean {
   if (runProfileStateRecoveryPreflight()) {
+    return false
+  }
+  // Why: `history backfill` writes the profile state database under the maintenance
+  // lock from a process that never becomes the app, and it is the only place the
+  // agent session index is compiled. It exits before ordinary startup, like recovery.
+  if (runHistoryBackfillPreflight()) {
     return false
   }
   // Why: on Windows a CLI launch that lost ELECTRON_RUN_AS_NODE would boot the GUI and exit silently; redirect to node mode before the lock gate below.

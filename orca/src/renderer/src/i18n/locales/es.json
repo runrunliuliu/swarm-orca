@@ -14873,6 +14873,31 @@
         "closeIssueUnavailable": "Close the issue",
         "closeIssueUnavailableHint": "This page names no issue, so delivery will not close one."
       },
+      "TaskWorkbenchHistory": {
+        "traceMissing": "Rastro inaccesible: el archivo registrado ya no está en esta máquina.",
+        "traceUnverifiable": "Rastro inaccesible: este host no puede comprobar esa ruta.",
+        "runMessages": "{{value0}} mensajes",
+        "factsFromRecord": "Datos del registro",
+        "runUnknownOutcome": "sin veredicto registrado",
+        "copied": "Copiado",
+        "copyFailed": "No se pudo copiar",
+        "resumeCommandMissing": "No se registró ningún comando de reanudación para esta ejecución.",
+        "gap": {
+          "sessionUnattributable": "No se pudo atribuir ningún agente a este espacio de trabajo.",
+          "ambiguousMatch": "El registro no pudo decidir qué agente se ejecutó aquí.",
+          "candidates": "({{value0}} candidatos)",
+          "provenance": {
+            "sessionUnattributable": "Registrado al archivar: no se pudo atribuir desde el panel; estas filas se atribuyeron después.",
+            "ambiguousMatch": "Registrado al archivar: la coincidencia de sesión era ambigua; estas filas se atribuyeron después."
+          }
+        },
+        "runsNone": "No hay ninguna ejecución registrada.",
+        "workspace": {
+          "hasSessions": "sesiones registradas",
+          "noSessions": "sin sesiones registradas"
+        },
+        "factsFromRecordMixed": "Algunos datos vienen del registro"
+      },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
         "noEvidence": "No se han leído las pruebas de entrega de esta tarea. Nada aquí indica que se haya entregado.",

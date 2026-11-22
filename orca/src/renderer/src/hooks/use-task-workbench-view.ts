@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import { useAppStore } from '@/store'
-import type { AppState } from '@/store/types'
 import { isAgentJournalTurnOutcome } from '../../../shared/agent-turn-outcome'
 import type { DashboardCard, DashboardWorkspace } from '../../../shared/dashboard-snapshot'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
@@ -18,17 +17,16 @@ import { workspaceBranchName } from '@/lib/task-workbench/task-workbench-workspa
 import { deliveryEvidenceByWorktree } from '@/lib/task-workbench/task-workbench-delivery-evidence'
 import { joinTaskWorkbench } from '@/lib/task-workbench/task-workbench-join'
 import { mergeTaskRecordHistory } from '@/lib/task-workbench/task-workbench-history-merge'
+import { archivedRowTokens } from '@/lib/task-workbench/task-workbench-archived-settlement'
 import {
   sessionTokenTotals,
-  sessionTokensFor,
-  type SessionTokenClaim
+  sessionTokensFor
 } from '@/lib/task-workbench/task-workbench-session-totals'
 import {
-  worktreeUsageKey,
-  type JoinAgentInput,
-  type UsageBreakdownRow,
-  type UsageSelectorInput
-} from '@/lib/task-workbench/task-workbench-selector-types'
+  selectProviders,
+  sessionTokenClaims
+} from '@/lib/task-workbench/task-workbench-usage-providers'
+import type { JoinAgentInput } from '@/lib/task-workbench/task-workbench-selector-types'
 import { selectTaskWorkbenchUsage } from '@/lib/task-workbench/task-workbench-usage'
 
 /**
@@ -269,28 +267,16 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     // Per-agent attribution from retained sessions only. A miss — or a
     // `sessionId` two providers both claim — stays absent, and the usage
     // selector turns absence into `unattributed`, never into a fabricated share
-    // (README §7.5).
-    // Same session id under two providers is ambiguous, not additive; see
-    // `sessionTokenTotals`, which owns that rule and its test.
-    const claims: SessionTokenClaim[] = [
-      ...claudeSessions.map((session) => ({
-        sessionId: session.sessionId,
-        tokens: claudeSessionTokens(session)
-      })),
-      ...codexSessions.map((session) => ({
-        sessionId: session.sessionId,
-        tokens: session.totalTokens
-      })),
-      ...openCodeSessions.map((session) => ({
-        sessionId: session.sessionId,
-        tokens: session.totalTokens
-      })),
-      ...museSessions.map((session) => ({
-        sessionId: session.sessionId,
-        tokens: session.totalTokens
-      }))
-    ]
-    const sessionTotals = sessionTokenTotals(claims)
+    // (README §7.5). Same session id under two providers is ambiguous, not
+    // additive; see `sessionTokenTotals`, which owns that rule and its test.
+    const sessionTotals = sessionTokenTotals(
+      sessionTokenClaims({
+        claude: claudeSessions,
+        codex: codexSessions,
+        opencode: openCodeSessions,
+        muse: museSessions
+      })
+    )
     const agentUsage: AgentUsageEntry[] = []
     for (const worktreeId of activeIds) {
       for (const card of cards.get(worktreeId) ?? []) {
@@ -320,18 +306,24 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       attribution: null,
       agents: agentUsage
     })
+    // Archived rows are included so the History fold can state them; their token
+    // figure comes from the settlement the record froze for that workspace (issue
+    // #53), which an active row never needs. Keyed by `worktreeId|hostId` first,
+    // so two hosts for one worktree cannot overwrite each other.
+    const archivedTokens = archivedRowTokens({
+      archivedWorktreeIds: archivedIds,
+      cardsByWorktree: cards,
+      bindings: taskRecord.record?.bindings ?? []
+    })
     // Per-row facts a projected card cannot carry. `outcome` goes through
     // `isAgentJournalTurnOutcome` instead of a cast, so an absent or unexpected
-    // verdict stays unknown and a plain Stop is never read as success. Archived
-    // rows are included so the History fold can state them; their token figure
-    // stays absent (the usage selector only attributes active worktrees), which
-    // the join turns into `unattributed` rather than a fabricated share.
+    // verdict stays unknown and a plain Stop is never read as success.
     const agentsByWorktree: Record<string, JoinAgentInput[]> = {}
     for (const worktreeId of [...activeIds, ...archivedIds]) {
       agentsByWorktree[worktreeId] = (cards.get(worktreeId) ?? []).map((card) => {
         const entry = agentStatusByPaneKey[card.paneKey]
         const verdict = entry?.mainAgent?.outcome
-        const tokens = usage.agentTokens[card.paneKey]
+        const tokens = usage.agentTokens[card.paneKey] ?? archivedTokens.get(card.paneKey)
         return {
           card,
           ...(isAgentJournalTurnOutcome(verdict) ? { outcome: verdict } : {}),
@@ -358,13 +350,22 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     // workspace still exist", not "does it still belong to this task". An
     // unloaded list (undefined) is not evidence of anything, so the join's answer
     // stands rather than labelling every binding `Removed`.
+    // The `<key>:<id>` ids the join's own rows already speak for, so a record row
+    // for the same session is not printed twice (the live row wins: its clock and
+    // outcome are the current ones, the record is a frozen observation). A pane
+    // with no provider session has no id, so it dedupes nothing.
+    const liveRunSessionIds = join.agents.flatMap((agent) => {
+      const session = agentStatusByPaneKey[agent.base.paneKey]?.providerSession
+      return session ? [`${session.key}:${session.id}`] : []
+    })
     const history =
       worktrees === undefined
         ? join.history
         : mergeTaskRecordHistory({
             history: join.history,
             existingWorktreeIds: worktrees.map((worktree) => worktree.id),
-            record: taskRecord.record
+            record: taskRecord.record,
+            liveRunSessionIds
           })
 
     return {
@@ -402,70 +403,4 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     // Presence projection reads the repo's whole workspace list.
     worktrees
   ])
-}
-
-/** One provider's rows normalized to `UsageBreakdownRow`, keeping only keys that
- *  are one of the active `worktree:<id>` values — an exact match, never a
- *  substring and never a `repo:` sibling (README §7.6). Claude publishes four
- *  token fields and no total; the other three expose `totalTokens`; Muse
- *  publishes no cost at all, which stays `null` (unpriced), never `$0`. */
-function selectProviders(
-  activeWorktreeIds: readonly string[],
-  claude: AppState['claudeUsageProjectBreakdown'],
-  codex: AppState['codexUsageProjectBreakdown'],
-  opencode: AppState['openCodeUsageProjectBreakdown'],
-  muse: AppState['museUsageProjectBreakdown']
-): UsageSelectorInput['providers'] {
-  const keys = new Set(activeWorktreeIds.map((worktreeId) => worktreeUsageKey(worktreeId)))
-  const select = <T extends { key: string; label: string }>(
-    rows: readonly T[],
-    tokensOf: (row: T) => number,
-    costOf: (row: T) => number | null
-  ): UsageBreakdownRow[] =>
-    rows
-      .filter((row) => keys.has(row.key))
-      .map((row) => ({
-        key: row.key,
-        label: row.label,
-        tokens: tokensOf(row),
-        costUsd: costOf(row)
-      }))
-  return [
-    {
-      provider: 'claude',
-      rows: select(claude, claudeBreakdownTokens, (row) => row.estimatedCostUsd)
-    },
-    {
-      provider: 'codex',
-      rows: select(
-        codex,
-        (row) => row.totalTokens,
-        (row) => row.estimatedCostUsd
-      )
-    },
-    {
-      provider: 'opencode',
-      rows: select(
-        opencode,
-        (row) => row.totalTokens,
-        (row) => row.estimatedCostUsd
-      )
-    },
-    {
-      provider: 'muse',
-      rows: select(
-        muse,
-        (row) => row.totalTokens,
-        () => null
-      )
-    }
-  ]
-}
-
-function claudeBreakdownTokens(row: AppState['claudeUsageProjectBreakdown'][number]): number {
-  return row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheWriteTokens
-}
-
-function claudeSessionTokens(row: AppState['claudeUsageRecentSessions'][number]): number {
-  return row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheWriteTokens
 }

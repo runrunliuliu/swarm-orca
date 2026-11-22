@@ -17702,16 +17702,20 @@
         "archivedOne": "1 workspace archived; its content is still on this machine.",
         "archivedMany": "{{value0}} archived workspaces; their content is still on this machine.",
         "traceLost": "Workspace deleted; the recorded trace is out of reach.",
+        "traceMissing": "Trace unreachable: the recorded file is gone.",
+        "traceUnverifiable": "Trace unreachable: this host cannot check it.",
         "locateTrace": "Locate trace",
         "copyResume": "Copy resume command",
         "notWired": "Not available in this version",
         "runDone": "done",
+        "runMessages": "{{value0}} messages",
         "run": {
           "success": "delivered",
           "failure": "failed",
           "cancellation": "cancelled"
         },
         "settled": "settled",
+        "factsFromRecord": "Facts from the record",
         "state": {
           "removed": "Removed",
           "archived": "Archived"
@@ -17721,7 +17725,26 @@
           "transcript": "transcript path recorded",
           "noTranscript": "no transcript path recorded",
           "noResume": "Resume unavailable: its workspace was removed."
-        }
+        },
+        "runUnknownOutcome": "no verdict recorded",
+        "copied": "Copied",
+        "copyFailed": "Couldn't copy",
+        "resumeCommandMissing": "No resume command was recorded for this run.",
+        "gap": {
+          "sessionUnattributable": "No agent could be attributed to this workspace.",
+          "ambiguousMatch": "The record could not decide which agent ran here.",
+          "candidates": "({{value0}} candidates)",
+          "provenance": {
+            "sessionUnattributable": "Recorded at archive time: no pane attribution; these rows were attributed later.",
+            "ambiguousMatch": "Recorded at archive time: the session match was ambiguous; these rows were attributed later."
+          }
+        },
+        "runsNone": "No run recorded.",
+        "workspace": {
+          "hasSessions": "sessions recorded",
+          "noSessions": "no sessions recorded"
+        },
+        "factsFromRecordMixed": "Some facts from the record"
       },
       "TaskWorkbenchPanel": {
         "emptyTitle": "No workspace is linked to this task yet",

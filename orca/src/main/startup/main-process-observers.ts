@@ -19,7 +19,12 @@ import { CodexUsageStore } from '../codex-usage/store'
 import { OpenCodeUsageStore } from '../opencode-usage/store'
 import { MuseUsageStore } from '../muse-usage/store'
 import { installRepoMaintenanceIdleGate } from '../repo-maintenance-idle-gate'
-import { createTaskRecordsUsageSource } from '../task-records/task-records-worktree-usage'
+import {
+  createTaskRecordsUsageSource,
+  withHookSessionFacts
+} from '../task-records/task-records-worktree-usage'
+import { createAiVaultSessionIndexLookup } from '../task-records/task-records-session-index-lookup'
+import { createTranscriptCheckProbe } from '../task-records/task-records-transcript-check'
 import { usageProviderForPaneKey } from '../task-records/task-records-pane-provider'
 import { mainProcessState as state } from './main-process-state'
 
@@ -149,9 +154,23 @@ export function initializeMainProcessObservers(): void {
         opencode: state.openCodeUsage,
         muse: state.museUsage
       },
-      sessionIdentities: () => agentHookServer.getProviderSessionIdentities(),
+      // Two calls of the same hook server at the same moment: the identities say
+      // *which* session a pane reports, the status snapshot says what the row
+      // observed about the run. Joining them keeps one source of truth (issue #53).
+      sessionIdentities: () =>
+        withHookSessionFacts(
+          agentHookServer.getProviderSessionIdentities(),
+          agentHookServer.getStatusSnapshot()
+        ),
       providerForPaneKey: (paneKey) =>
-        usageProviderForPaneKey(store.getWorkspaceSessionPartitions(), paneKey)
+        usageProviderForPaneKey(store.getWorkspaceSessionPartitions(), paneKey),
+      // The archive snapshot's degraded source (issue #53 A). Bound here because
+      // the scan reads the filesystem and the transcript check needs the gated fs
+      // process: neither belongs on the synchronous metadata write path.
+      archiveSnapshot: {
+        sessionIndexLookup: createAiVaultSessionIndexLookup(),
+        transcriptCheck: createTranscriptCheckProbe()
+      }
     })
   )
 }

@@ -1,5 +1,6 @@
 import type { CommandHandler } from './dispatch'
 import { BROWSER_HANDLER_GROUPS } from './browser-handler-groups'
+import { OFFLINE_HANDLER_GROUPS } from './handler-groups-offline'
 
 export type HandlerGroup = {
   name: string
@@ -196,11 +197,7 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     keys: ['agent hooks prepare-codex', 'agent hooks status', 'agent hooks off', 'agent hooks on'],
     load: async () => (await import('./handlers/agent-hooks.js')).AGENT_HOOK_HANDLERS
   },
-  {
-    name: 'profile-state',
-    keys: ['profile state exports', 'profile state rollback'],
-    load: async () => (await import('./handlers/profile-state.js')).PROFILE_STATE_HANDLERS
-  },
+  ...OFFLINE_HANDLER_GROUPS,
   {
     name: 'diagnostics',
     keys: ['diagnostics memory'],

@@ -1,16 +1,20 @@
-import { taskUsageSettlementTokens } from '../../../../shared/task-records'
-import type {
-  TaskRecord,
-  TaskRecordSession,
-  TaskRecordUsageUnavailableReason,
-  TaskUsageSettlement
+import {
+  taskRecordRunClaimKey,
+  type TaskRecord,
+  type TaskRecordGap,
+  type TaskRecordRun,
+  type TaskRecordSession,
+  type TaskWorkspaceBinding
 } from '../../../../shared/task-records-types'
 import type {
-  SpendReason,
+  TaskWorkbenchGapView,
   TaskWorkbenchHistory,
+  TaskWorkbenchHistoryRun,
   TaskWorkbenchHistorySession,
   TaskWorkbenchHistoryWorkspace
 } from '@/components/task-workbench/task-workbench-view'
+import { taskHistoryWallClock } from './task-workbench-join'
+import { aggregateSettlement, settleTokens } from './task-workbench-history-settlement'
 
 /**
  * Fold the persisted task record into the join's history (issue #36).
@@ -26,7 +30,16 @@ import type {
  * - an absent settled figure stays absent (an unavailable reason), never `0`;
  * - a task with no live workspace but a record states the deleted form instead of
  *   falling back to "never started".
- */
+ *
+ * Since issue #53 the record also carries the runs behind those sessions, so an
+ * archived binding states its agent rows (agent type, wall clock, message count)
+ * and a deleted one still lists them. `historySource` says which rows a reader is
+ * looking at, because a frozen observation and a live projection are different
+ * evidence — the panel prints that difference instead of hiding it.
+ *
+ * A run list is not the whole record: `gaps` carries the absences the writer
+ * stored ("nobody could tell which agent ran here") so a workspace with no rows
+ * never renders as a workspace that never ran. */
 export function mergeTaskRecordHistory(args: {
   history: TaskWorkbenchHistory
   /** Every worktree id the store still has for this repository, archived ones
@@ -34,6 +47,11 @@ export function mergeTaskRecordHistory(args: {
    *  another task still exists, and calling it `Removed` would be a lie. */
   existingWorktreeIds: readonly string[]
   record: TaskRecord | null
+  /** The `<key>:<id>` ids of the sessions the live projection already prints. A
+   *  record run with one of those ids is the same session observed twice, so it
+   *  is not listed again — see `claimIdentityOf` for which side wins and why the
+   *  id alone is enough. */
+  liveRunSessionIds?: readonly string[]
 }): TaskWorkbenchHistory {
   const record = args.record
   if (!record) {
@@ -71,6 +89,18 @@ export function mergeTaskRecordHistory(args: {
       key: sessionKeyOf(session),
       ...(session.provider ? { provider: session.provider } : {}),
       hasTranscriptPath: session.transcriptPath !== undefined,
+      // The path is the `locate trace` target; the stored check is the only
+      // evidence about it, and an absent check stays absent (a pointer is not a
+      // claim that the file is there).
+      ...(session.transcriptPath === undefined ? {} : { transcriptPath: session.transcriptPath }),
+      ...(session.transcriptCheck === undefined
+        ? {}
+        : {
+            trace: {
+              presence: session.transcriptCheck.presence,
+              checkedAt: session.transcriptCheck.checkedAt
+            }
+          }),
       // Resume needs the checkout the session ran in; with the binding removed
       // there is nothing to resume into, so the panel must say so instead of
       // offering an action that cannot work.
@@ -78,65 +108,203 @@ export function mergeTaskRecordHistory(args: {
       worktreeId: binding.worktreeId
     }))
   )
-  const settled = aggregateSettlement(removedBindings.map((binding) => binding.usageSettlement))
+  const settled = aggregateSettlement(
+    // Archived and removed: a settlement is a *workspace* figure the record froze,
+    // so it belongs to the task total once, whether or not the checkout is still
+    // on this machine (S11). Counting the per-row rollups instead left an
+    // archive+restart task at "tokens unknown" although the record held a
+    // measured figure, and the row figures are only a split of this same total.
+    [...archivedBindings, ...removedBindings].map((binding) => binding.usageSettlement)
+  )
   const noLiveWorkspace = record.bindings.every((binding) => !live.has(binding.worktreeId))
   const tokens = settleTokens(args.history.tokens, settled, noLiveWorkspace)
+  // An archived workspace is still on this machine, so its recorded runs are
+  // resumable; a removed one is not, and the row must say so instead of offering
+  // an action that would fail (issue #53 A2).
+  const foldable = [...archivedBindings, ...removedBindings]
+  const recordedRuns = foldable.flatMap((binding) =>
+    recordRunsOf(binding, live.has(binding.worktreeId))
+  )
+  const claimed = new Set(args.liveRunSessionIds ?? [])
+  const fromRecord = recordedRuns.filter((run) => !claimed.has(claimIdentityOf(run.key)))
+  const runs = [...args.history.runs, ...fromRecord]
+  const gaps = recordGapsOf(foldable)
+  // `record` only when the whole list is the record's; a list holding both kinds
+  // says `mixed`, because one badge over live rows would claim they are frozen
+  // observations (S7).
+  const historySource =
+    fromRecord.length === 0
+      ? (args.history.historySource ?? 'live')
+      : args.history.runs.length === 0
+        ? 'record'
+        : 'mixed'
 
   const merged: TaskWorkbenchHistory = {
     ...args.history,
     tokens,
-    tokensSource: settled === null ? args.history.tokensSource : 'settled',
+    tokensSource: settled !== null ? 'settled' : args.history.tokensSource,
     archivedWorkspaces: archivedBindings.length,
     deletedWorkspaces: removedBindings.length,
     workspaces,
     sessions,
-    lastActivityAt: latestActivity(args.history.lastActivityAt, workspaces, sessions, record),
-    trace: removedBindings.length > 0 ? 'deleted' : args.history.trace
+    runs,
+    gaps,
+    historySource,
+    lastActivityAt: latestActivity(
+      args.history.lastActivityAt,
+      workspaces,
+      sessions.length + runs.length > 0,
+      record
+    ),
+    // A record row the live projection could not state is a row the count and
+    // the window must cover: a facts line that disagreed with the list under it
+    // would be a second answer to the same question.
+    ...(fromRecord.length === 0 ? {} : { agents: runs.length, wall: taskHistoryWallClock(runs) }),
+    // A removed binding outranks an archived one; an archived binding still has
+    // content on this machine, which is what the strip's archive form states.
+    trace:
+      removedBindings.length > 0
+        ? 'deleted'
+        : archivedBindings.length > 0
+          ? 'archived'
+          : args.history.trace
   }
   if (removedBindings.length === 0) {
     return merged
   }
-  // No workspace row is left to read the run facts from, so they stay unknown
-  // rather than being inherited from whatever the join happened to see.
-  return noLiveWorkspace ? { ...merged, agents: null, wall: { kind: 'unknown' }, runs: [] } : merged
+  // No workspace row is left to read the live facts from, so they stay unknown
+  // rather than being inherited from whatever the join happened to see. The
+  // recorded rows below are observations, not a live count.
+  return noLiveWorkspace ? { ...merged, agents: null, wall: { kind: 'unknown' } } : merged
 }
 
-/**
- * The task total for a record that spans live and removed workspaces.
+/** The `key:id` half of a claim. The live projection knows the id but not which
+ *  usage provider the pane belongs to (that lives in main's launch metadata), so
+ *  the duplicate check compares the half both sides can spell. The record still
+ *  keeps two providers' claims apart; this rule only decides which of two rows
+ *  describing one id is printed, and the live row wins. */
+function claimIdentityOf(claim: string): string {
+  const separator = claim.indexOf('|')
+  return separator === -1 ? claim : claim.slice(separator + 1)
+}
+
+/** One recorded run as the history strip renders it. Absent facts stay absent: a
+ *  row with no measured window prints `—` rather than the epoch, and a row with
+ *  no recorded name prints its claim rather than an invented title. */
+function historyRunOf(
+  run: TaskRecordRun,
+  resumable: boolean,
+  checkoutPath: string
+): TaskWorkbenchHistoryRun {
+  return {
+    key: run.key,
+    ...(run.title === undefined ? {} : { title: run.title }),
+    ...(run.agentType === undefined ? {} : { agentType: run.agentType }),
+    ...(run.startedAt === undefined ? {} : { startedAt: run.startedAt }),
+    ...(run.endedAt === undefined ? {} : { endedAt: run.endedAt }),
+    ...(run.messageCount === undefined ? {} : { messageCount: run.messageCount }),
+    ...(run.outcome === undefined ? {} : { outcome: run.outcome }),
+    ...(run.transcriptPath === undefined ? {} : { transcriptPath: run.transcriptPath }),
+    ...(run.transcriptCheck === undefined
+      ? {}
+      : {
+          trace: {
+            presence: run.transcriptCheck.presence,
+            checkedAt: run.transcriptCheck.checkedAt
+          }
+        }),
+    ...(run.resumeCommand === undefined ? {} : { resumeCommand: run.resumeCommand }),
+    resumable,
+    ...(checkoutPath === '' ? {} : { checkoutPath }),
+    fromRecord: true
+  }
+}
+
+/** A binding's rows: its recorded runs, or — when no build ever recorded runs —
+ *  rows derived from the sessions it does have (S6).
  *
- * The join's figure covers the live workspaces; each settlement covers one
- * removed workspace. Adding them is the whole total only when both are known. If
- * either is unknown the total is unknown with that reason — a number computed
- * from half the task would be printed under "Total: every run".
- */
-function settleTokens(
-  live: TaskWorkbenchHistory['tokens'],
-  settled: SettlementAggregate | null,
-  noLiveWorkspace: boolean
-): TaskWorkbenchHistory['tokens'] {
-  if (settled === null) {
-    return live
+ *  Absent `runs` is not `[]`: absent means a v1 binding (or a record written
+ *  before the run channel existed) that still reports sessions. Leaving those
+ *  out made a workspace that really ran render no agent row at all, which is the
+ *  "archived but silent" case the issue was filed for. The derived row states
+ *  what the session states and nothing more: a v1 session has no facts, so its
+ *  row prints the claim and an unknown wall clock. */
+function recordRunsOf(
+  binding: TaskWorkspaceBinding,
+  resumable: boolean
+): TaskWorkbenchHistoryRun[] {
+  if (binding.runs !== undefined) {
+    return binding.runs.map((run) => historyRunOf(run, resumable, binding.path))
   }
-  if (settled.kind === 'unavailable') {
-    return { kind: 'unavailable', reason: settled.reason }
-  }
-  if (noLiveWorkspace) {
-    return { kind: 'available', tokens: settled.tokens }
-  }
-  return live.kind === 'available'
-    ? { kind: 'available', tokens: live.tokens + settled.tokens }
-    : live
+  return binding.sessions.map((session) => ({
+    // The claim, spelled exactly as the merge identity spells it, so a live row
+    // for the same session dedupes against it.
+    key: taskRecordRunClaimKey(session),
+    ...(session.title === undefined ? {} : { title: session.title }),
+    ...(session.agentType === undefined ? {} : { agentType: session.agentType }),
+    ...(session.startedAt === undefined ? {} : { startedAt: session.startedAt }),
+    ...(session.endedAt === undefined ? {} : { endedAt: session.endedAt }),
+    ...(session.messageCount === undefined ? {} : { messageCount: session.messageCount }),
+    ...(session.transcriptPath === undefined ? {} : { transcriptPath: session.transcriptPath }),
+    ...(session.transcriptCheck === undefined
+      ? {}
+      : {
+          trace: {
+            presence: session.transcriptCheck.presence,
+            checkedAt: session.transcriptCheck.checkedAt
+          }
+        }),
+    ...(session.resumeCommand === undefined ? {} : { resumeCommand: session.resumeCommand }),
+    resumable,
+    ...(binding.path === '' ? {} : { checkoutPath: binding.path }),
+    fromRecord: true
+  }))
 }
 
-/** The settlement vocabulary is written in main's words (`usage_not_enabled`,
- *  `remote_usage_unavailable`); the panel speaks the spend vocabulary it already
- *  translates. One table, so the two can never drift into a badge with no word. */
-const SETTLEMENT_REASON: Record<TaskRecordUsageUnavailableReason, SpendReason> = {
-  usage_not_enabled: 'disabled',
-  remote_usage_unavailable: 'remote_host',
-  scan_failed: 'scan_failed',
-  no_matching_session: 'no_matching_session',
-  ambiguous_session: 'ambiguous_session'
+/** The absences of every workspace the fold covers, binding-level and per-run.
+ *
+ *  Two states must not read as one (coordinated with seat B's S5 fix): a gap on a
+ *  workspace that has **no** rows is the whole state — "no agent could be
+ *  attributed here", the sentence T2 asks for — while a gap on a workspace whose
+ *  rows arrived later is provenance: the archive moment could not attribute from
+ *  the pane side, and the session index supplied the rows afterwards. Both are
+ *  kept; `standalone` says which one the panel is printing.
+ *
+ *  Identity is `kind|detail|standalone` — the first two are the pair the record
+ *  unions gaps on, and the third keeps the two readings of one stored absence from
+ *  collapsing into each other. */
+function recordGapsOf(bindings: readonly TaskWorkspaceBinding[]): TaskWorkbenchGapView[] {
+  const gaps: TaskWorkbenchGapView[] = []
+  const seen = new Set<string>()
+  const add = (gap: TaskRecordGap, standalone: boolean): void => {
+    const identity = `${gap.kind}|${gap.detail ?? ''}|${standalone}`
+    if (seen.has(identity)) {
+      return
+    }
+    seen.add(identity)
+    gaps.push({
+      kind: gap.kind,
+      ...(gap.candidateCount === undefined ? {} : { candidateCount: gap.candidateCount }),
+      ...(gap.detail === undefined ? {} : { detail: gap.detail }),
+      standalone
+    })
+  }
+  for (const binding of bindings) {
+    // `runs: []` is a writer that looked and found none; absent `runs` falls back
+    // to the sessions, which is also what the rows are derived from.
+    const rowCount = (binding.runs ?? binding.sessions).length
+    for (const gap of binding.gaps ?? []) {
+      add(gap, rowCount === 0)
+    }
+    for (const run of binding.runs ?? []) {
+      // A run-level gap is a statement about a row that exists, so it is never
+      // the "nothing to attribute" state.
+      for (const gap of run.gaps ?? []) {
+        add(gap, false)
+      }
+    }
+  }
+  return gaps
 }
 
 /** Includes the provider: the record deliberately keeps both claims when two
@@ -145,43 +313,10 @@ function sessionKeyOf(session: TaskRecordSession): string {
   return `${session.provider ?? 'unknown'}|${session.key}:${session.id}`
 }
 
-type SettlementAggregate =
-  | { kind: 'known'; tokens: number }
-  | { kind: 'unavailable'; reason: SpendReason }
-
-/**
- * One figure for the removed workspaces. Every contributing settlement must be
- * known: a partial sum would report a task total that silently omits a workspace,
- * which reads as "this is all it spent". An unavailable settlement wins, and its
- * reason is preserved for the tooltip.
- */
-function aggregateSettlement(
-  settlements: readonly (TaskUsageSettlement | undefined)[]
-): SettlementAggregate | null {
-  if (settlements.length === 0) {
-    return null
-  }
-  let tokens = 0
-  for (const settlement of settlements) {
-    if (!settlement) {
-      return { kind: 'unavailable', reason: 'no_matching_session' }
-    }
-    if (settlement.kind === 'unavailable') {
-      return { kind: 'unavailable', reason: SETTLEMENT_REASON[settlement.reason] }
-    }
-    const settled = taskUsageSettlementTokens(settlement)
-    if (settled === null) {
-      return { kind: 'unavailable', reason: 'no_matching_session' }
-    }
-    tokens += settled
-  }
-  return { kind: 'known', tokens }
-}
-
 function latestActivity(
   current: number | undefined,
   workspaces: readonly TaskWorkbenchHistoryWorkspace[],
-  sessions: readonly TaskWorkbenchHistorySession[],
+  hasRows: boolean,
   record: TaskRecord
 ): number | undefined {
   let latest = current
@@ -191,7 +326,7 @@ function latestActivity(
     }
     latest = Math.max(latest ?? Number.NEGATIVE_INFINITY, workspace.lastVerifiedAt)
   }
-  if (sessions.length > 0) {
+  if (hasRows) {
     latest = Math.max(latest ?? Number.NEGATIVE_INFINITY, record.updatedAt)
   }
   return latest

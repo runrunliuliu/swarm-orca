@@ -284,3 +284,171 @@ describe('task records persistence', () => {
     expect(state.state.taskRecords).toEqual({ recordsVersion: 2, byId: {}, externalIndex: {} })
   })
 })
+
+/**
+ * Issue #53 A: the archive transition. These drive the same seam both metadata
+ * entry points reach (`worktrees:updateMeta` and RPC/CLI `worktree.set`), so what
+ * is asserted here is the one write they share, not a transport.
+ */
+describe('task records archive snapshot', () => {
+  /** Only `snapshotForRemoval`: this is also the compatibility path for a source
+   *  written before issue #53, which has no capture-free archive entry. */
+  const ARCHIVING: TaskRecordsUsageSource = {
+    captureSessionsForRemoval: () => {},
+    snapshotForRemoval: ({ now }) => ({
+      settlement: {
+        kind: 'known',
+        collectedAt: now,
+        scope: 'worktree-rollup',
+        worktreeId: ID,
+        providers: [{ provider: 'claude', tokens: 900, costUsd: 0.1 }],
+        estimatedCostUsd: 0.1
+      },
+      sessions: [
+        {
+          provider: 'claude',
+          key: 'session_id',
+          id: 'abc',
+          agentType: 'claude',
+          startedAt: 400,
+          endedAt: 450,
+          firstSeenAt: now,
+          lastSeenAt: now
+        }
+      ]
+    })
+  }
+
+  const UNATTRIBUTED: TaskRecordsUsageSource = {
+    captureSessionsForRemoval: () => {},
+    snapshotForRemoval: ({ now }) => ({
+      settlement: {
+        kind: 'unavailable',
+        collectedAt: now,
+        scope: 'worktree-rollup',
+        worktreeId: ID,
+        reason: 'no_matching_session'
+      },
+      sessions: []
+    })
+  }
+
+  function bindingsOf(state: TaskRecordsRuntime) {
+    return taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
+  }
+
+  it('writes sessions, a run and the settlement when the workspace is archived', () => {
+    const state = runtime(ARCHIVING)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+
+    expect(recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))).toBe(true)
+
+    const [binding] = bindingsOf(state)
+    expect(binding.isArchived).toBe(true)
+    expect(binding.sessions).toEqual([
+      expect.objectContaining({ id: 'abc', source: 'archive-snapshot', agentType: 'claude' })
+    ])
+    expect(binding.runs).toEqual([
+      expect.objectContaining({
+        key: 'claude|session_id:abc',
+        source: 'archive-snapshot',
+        startedAt: 400,
+        endedAt: 450
+      })
+    ])
+    expect(binding.usageSettlement).toMatchObject({ kind: 'known' })
+    expect(binding.gaps).toBeUndefined()
+  })
+
+  it('leaves a gap instead of an empty authoritative list when nothing is attributable (T2)', () => {
+    const state = runtime(UNATTRIBUTED)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))
+
+    const [binding] = bindingsOf(state)
+    // `runs: []` = the writer looked; the gap says why it found nothing. A reader
+    // must not turn that pair into "this workspace never ran an agent".
+    expect(binding.runs).toEqual([])
+    expect(binding.gaps).toEqual([
+      expect.objectContaining({ kind: 'session_unattributable', observedAt: expect.any(Number) })
+    ])
+    expect(binding.sessions).toEqual([])
+  })
+
+  it('binds and snapshots in one write when the worktree had no prior binding', () => {
+    const state = runtime(ARCHIVING)
+
+    // Nothing bound this workspace before it was archived (a legacy worktree, or an
+    // archive that arrives before its first metadata write).
+    expect(recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))).toBe(true)
+
+    const [binding] = bindingsOf(state)
+    expect(binding).toMatchObject({ worktreeId: ID, isArchived: true })
+    expect(binding.runs).toHaveLength(1)
+    expect(binding.sessions).toHaveLength(1)
+  })
+
+  it('does not snapshot an archive of an already-archived row', () => {
+    const state = runtime(ARCHIVING)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))
+    const [first] = bindingsOf(state)
+
+    // The row is already archived: no state change, so no second irreversible
+    // moment and no rewrite of the frozen rows.
+    expect(recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))).toBe(false)
+
+    expect(bindingsOf(state)[0]).toEqual(first)
+  })
+
+  it('snapshots again after an unarchive, upserting into the same claim keys', () => {
+    // A distinct clock per step: the four writes would otherwise land in one
+    // millisecond and the observation window could not move.
+    vi.useFakeTimers()
+    try {
+      const state = runtime(ARCHIVING)
+      vi.setSystemTime(1_000)
+      recordTaskRecordsForWorktreeMeta(state, ID, meta())
+      vi.setSystemTime(2_000)
+      recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))
+      const [first] = bindingsOf(state)
+      const frozen = {
+        recordedAt: first.runs?.[0].recordedAt,
+        firstSeenAt: first.runs?.[0].firstSeenAt
+      }
+
+      // Unarchive, then archive again: a second transition, so the snapshot runs
+      // again — as an *observation*, not a second row. Identity is the claim, so one
+      // session stays one session and one run stays one run; provenance is
+      // first-writer-wins, so the row still says it was frozen at the first archive.
+      vi.setSystemTime(3_000)
+      recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: false }))
+      vi.setSystemTime(4_000)
+      recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))
+
+      const [second] = bindingsOf(state)
+      expect(second.sessions).toHaveLength(1)
+      expect(second.runs).toHaveLength(1)
+      expect(second.runs?.[0].recordedAt).toBe(frozen.recordedAt)
+      expect(second.runs?.[0].firstSeenAt).toBe(frozen.firstSeenAt)
+      expect(second.runs?.[0].lastSeenAt).toBe(4_000)
+      expect(second.sessions[0].lastSeenAt).toBe(4_000)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('claims nothing when no usage source is bound yet (startup order, not a zero)', () => {
+    const state = runtime(null)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ isArchived: true }))
+
+    const [binding] = bindingsOf(state)
+    expect(binding.isArchived).toBe(true)
+    expect(binding.runs).toBeUndefined()
+    expect(binding.gaps).toBeUndefined()
+    expect(binding.usageSettlement).toBeUndefined()
+  })
+})

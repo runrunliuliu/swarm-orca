@@ -17242,6 +17242,31 @@
         "closeIssueUnavailable": "Close the issue",
         "closeIssueUnavailableHint": "This page names no issue, so delivery will not close one."
       },
+      "TaskWorkbenchHistory": {
+        "traceMissing": "trace に到達できません: 記録されたファイルがこのマシンにありません。",
+        "traceUnverifiable": "trace に到達できません: このホストではそのパスを確認できません。",
+        "runMessages": "{{value0}} 件のメッセージ",
+        "factsFromRecord": "記録から得た事実",
+        "runUnknownOutcome": "判定は記録されていません",
+        "copied": "コピーしました",
+        "copyFailed": "コピーできませんでした",
+        "resumeCommandMissing": "この実行の再開コマンドは記録されていません。",
+        "gap": {
+          "sessionUnattributable": "このワークスペースをどの agent にも帰属できませんでした。",
+          "ambiguousMatch": "どの agent が実行したかを記録から判断できませんでした。",
+          "candidates": "（候補 {{value0}} 件）",
+          "provenance": {
+            "sessionUnattributable": "アーカイブ時点の記録: pane からは帰属できず、これらの行は後から帰属されました。",
+            "ambiguousMatch": "アーカイブ時点の記録: 当時のセッション照合は曖昧で、これらの行は後から帰属されました。"
+          }
+        },
+        "runsNone": "実行は記録されていません。",
+        "workspace": {
+          "hasSessions": "セッションの記録あり",
+          "noSessions": "セッションの記録なし"
+        },
+        "factsFromRecordMixed": "一部の事実は記録から"
+      },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
         "noEvidence": "このタスクのデリバリー根拠はまだ読み取られていません。ここには納品されたことを示す内容はありません。",

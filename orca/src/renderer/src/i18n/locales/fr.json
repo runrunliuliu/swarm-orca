@@ -17341,6 +17341,31 @@
         "closeIssueUnavailable": "Close the issue",
         "closeIssueUnavailableHint": "This page names no issue, so delivery will not close one."
       },
+      "TaskWorkbenchHistory": {
+        "traceMissing": "Trace inaccessible : le fichier enregistré n'est plus sur cette machine.",
+        "traceUnverifiable": "Trace inaccessible : cet hôte ne peut pas vérifier ce chemin.",
+        "runMessages": "{{value0}} messages",
+        "factsFromRecord": "Faits issus de l'enregistrement",
+        "runUnknownOutcome": "aucun verdict enregistré",
+        "copied": "Copié",
+        "copyFailed": "Copie impossible",
+        "resumeCommandMissing": "Aucune commande de reprise enregistrée pour cette exécution.",
+        "gap": {
+          "sessionUnattributable": "Aucun agent n'a pu être attribué à cet espace de travail.",
+          "ambiguousMatch": "L'enregistrement n'a pas pu déterminer quel agent a tourné ici.",
+          "candidates": "({{value0}} candidats)",
+          "provenance": {
+            "sessionUnattributable": "Enregistré à l'archivage : aucune attribution depuis le panneau ; ces lignes ont été attribuées ensuite.",
+            "ambiguousMatch": "Enregistré à l'archivage : la correspondance de session était ambiguë ; ces lignes ont été attribuées ensuite."
+          }
+        },
+        "runsNone": "Aucune exécution enregistrée.",
+        "workspace": {
+          "hasSessions": "sessions enregistrées",
+          "noSessions": "aucune session enregistrée"
+        },
+        "factsFromRecordMixed": "Une partie des faits vient de l'enregistrement"
+      },
       "TaskWorkbenchDelivery": {
         "pullRequestNumber": "PR #{{value0}}",
         "noEvidence": "Les preuves de livraison n'ont pas été lues pour cette tâche. Rien ici n'indique qu'elle ait été livrée.",

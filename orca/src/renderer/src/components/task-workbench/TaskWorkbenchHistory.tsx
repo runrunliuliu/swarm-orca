@@ -5,17 +5,22 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
-import { formatTokens } from '@/components/stats/usage-formatters'
 import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
-import { USAGE_STATUS_WORD } from './task-workbench-usage-status'
+import {
+  HistoryGapList,
+  HistoryResumeAction,
+  pendingHistoryAction
+} from './task-workbench-history-actions'
+import { HistoryFactsLine } from './task-workbench-history-facts'
+import { formatClock } from './task-workbench-history-format'
 import type {
   AgentOutcome,
-  TaskWorkbenchHistory as HistoryFacts,
+  TaskWorkbenchHistoryRun,
   TaskWorkbenchHistorySession,
   TaskWorkbenchHistoryWorkspace,
   TaskWorkbenchLayout,
-  TaskWorkbenchView,
-  TaskWorkbenchWallClock
+  TaskWorkbenchTraceState,
+  TaskWorkbenchView
 } from './task-workbench-view'
 
 /**
@@ -39,139 +44,116 @@ function historyKeys(key: string): string {
   return `auto.components.TaskWorkbenchHistory.${key}`
 }
 
-const NOT_WIRED = 'Not available in this version'
-
 const OUTCOME_COPY: Record<AgentOutcome, string> = {
   success: 'delivered',
   failure: 'failed',
   cancellation: 'cancelled'
 }
 
-/** Wall-clock copy is unit-only, so it stays untranslated: `3h 14m` reads the
- *  same in every locale this build ships. The *source* of the number is the part
- *  a reader must not misread, and that is what the parenthetical says. */
-function formatWallClock(wall: TaskWorkbenchWallClock): string {
-  if (wall.kind === 'unknown' || wall.startedAt === undefined || wall.endedAt === undefined) {
-    return ''
-  }
-  const minutes = Math.max(0, Math.round((wall.endedAt - wall.startedAt) / 60_000))
-  if (minutes < 1) {
-    return '<1m'
-  }
-  const hours = Math.floor(minutes / 60)
-  const rest = minutes % 60
-  return hours > 0 ? `${hours}h${rest > 0 ? ` ${rest}m` : ''}` : `${rest}m`
-}
-
-function formatClock(timestamp: number): string {
-  return new Date(timestamp).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  })
-}
-
-function FactsLine({ history }: { history: HistoryFacts }): React.JSX.Element {
-  const wall = formatWallClock(history.wall)
-  const wallText =
-    history.wall.kind === 'measured'
-      ? translate(historyKeys('wallMeasured'), '{{value0}} wall', { value0: wall })
-      : history.wall.kind === 'partial' && wall !== ''
-        ? translate(historyKeys('wallPartial'), '{{value0}} wall (partial)', { value0: wall })
-        : translate(historyKeys('wallUnknown'), 'wall unknown')
-  const agentsText =
-    history.agents === null
-      ? translate(historyKeys('agentsUnknown'), 'agents unknown')
-      : translate(historyKeys('agentsKnown'), '{{value0}} agents', {
-          value0: String(history.agents)
-        })
-  const tokensText =
-    history.tokens.kind === 'available'
-      ? translate(historyKeys('tokensKnown'), '{{value0}} tokens', {
-          value0: formatTokens(history.tokens.tokens)
-        })
-      : translate(historyKeys('tokensUnknown'), 'tokens unknown')
-
-  return (
-    <div
-      data-testid="task-workbench-history-facts"
-      className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12.5px]"
-    >
-      <span className="tabular-nums">{agentsText}</span>
-      <span aria-hidden="true" className="text-muted-foreground/60">
-        ·
-      </span>
-      <span className="tabular-nums">{wallText}</span>
-      <span aria-hidden="true" className="text-muted-foreground/60">
-        ·
-      </span>
-      {/* An absent figure keeps its reason as the tooltip, never as a `0`. */}
-      <span
-        className="tabular-nums"
-        title={
-          history.tokens.kind === 'unavailable'
-            ? USAGE_STATUS_WORD[history.tokens.reason]
-            : undefined
-        }
-      >
-        {tokensText}
-      </span>
-      {history.tokensSource === 'settled' ? (
-        // A settled figure is a snapshot taken before a workspace became
-        // unreadable; calling it live would be a claim about a scan that no
-        // longer covers it.
-        <span
-          data-testid="task-workbench-history-tokens-settled"
-          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-        >
-          {translate(historyKeys('settled'), 'settled')}
-        </span>
-      ) : null}
-      {history.lastActivityAt === undefined ? null : (
-        <>
-          <span aria-hidden="true" className="text-muted-foreground/60">
-            ·
-          </span>
-          <span className="tabular-nums text-muted-foreground">
-            {translate(historyKeys('lastActivity'), 'last {{value0}}', {
-              value0: formatClock(history.lastActivityAt)
-            })}
-          </span>
-        </>
-      )}
-    </div>
-  )
-}
-
-function RunList({ history }: { history: HistoryFacts }): React.JSX.Element {
+function RunList({ runs }: { runs: readonly TaskWorkbenchHistoryRun[] }): React.JSX.Element {
   return (
     <ul
       data-testid="task-workbench-history-runs"
       className="flex flex-col divide-y divide-border/50 overflow-hidden rounded-lg ring-1 ring-inset ring-border/60"
     >
-      {history.runs.map((run) => (
-        <li
-          key={run.key}
-          data-testid="task-workbench-history-run"
-          className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 px-3 py-1.5 text-[12.5px]"
-        >
-          <span className="min-w-32 flex-1 truncate">{run.title}</span>
-          <span className="tabular-nums text-muted-foreground">
-            {run.startedAt === undefined ? '—' : formatClock(run.startedAt)}
-            <span aria-hidden="true" className="mx-1">
-              →
-            </span>
-            {run.endedAt === undefined ? '—' : formatClock(run.endedAt)}
-          </span>
-          <span className="tabular-nums text-muted-foreground">
-            {run.outcome === undefined
-              ? translate(historyKeys('runDone'), 'done')
-              : translate(historyKeys(`run.${run.outcome}`), OUTCOME_COPY[run.outcome])}
-          </span>
-        </li>
+      {runs.map((run) => (
+        <RunRow key={run.key} run={run} />
       ))}
     </ul>
+  )
+}
+
+/** `missing` and `unverifiable` both mean the reader cannot open the trace, but
+ *  only the first is a statement about the file: a host that could not look must
+ *  never be printed as "gone" (issue #53 A3). */
+function traceUnreachableCopy(trace: TaskWorkbenchTraceState): string {
+  return trace.presence === 'missing'
+    ? translate(historyKeys('traceMissing'), 'Trace unreachable: the recorded file is gone.')
+    : translate(historyKeys('traceUnverifiable'), 'Trace unreachable: this host cannot check it.')
+}
+
+/** The one sentence for "the checkout that ran this is gone". Shared by both row
+ *  kinds so they can never drift into two different statements. */
+function noResumeCopy(): string {
+  return translate(
+    historyKeys('session.noResume'),
+    'Resume unavailable: its workspace was removed.'
+  )
+}
+
+function RunRow({ run }: { run: TaskWorkbenchHistoryRun }): React.JSX.Element {
+  const traceUnreachable = run.trace !== undefined && run.trace.presence !== 'present'
+  return (
+    <li
+      data-testid="task-workbench-history-run"
+      data-run-source={run.fromRecord === true ? 'record' : 'live'}
+      className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 px-3 py-1.5 text-[12.5px]"
+    >
+      <span className="min-w-32 flex-1 truncate">{run.title ?? run.key}</span>
+      {run.agentType === undefined ? null : (
+        <span className="shrink-0 text-muted-foreground">{run.agentType}</span>
+      )}
+      <span className="tabular-nums text-muted-foreground">
+        {run.startedAt === undefined ? '—' : formatClock(run.startedAt)}
+        <span aria-hidden="true" className="mx-1">
+          →
+        </span>
+        {run.endedAt === undefined ? '—' : formatClock(run.endedAt)}
+      </span>
+      {run.messageCount === undefined ? null : (
+        <span className="shrink-0 tabular-nums text-muted-foreground">
+          {translate(historyKeys('runMessages'), '{{value0}} messages', {
+            value0: String(run.messageCount)
+          })}
+        </span>
+      )}
+      <span className="tabular-nums text-muted-foreground">
+        {run.outcome !== undefined
+          ? translate(historyKeys(`run.${run.outcome}`), OUTCOME_COPY[run.outcome])
+          : run.fromRecord === true
+            ? // A frozen observation with no verdict states that. `done` is the
+              // live arm's shorthand for "the pane settled", and a record row has
+              // no pane to have settled (issue #53 S2).
+              translate(historyKeys('runUnknownOutcome'), 'no verdict recorded')
+            : translate(historyKeys('runDone'), 'done')}
+      </span>
+      {run.transcriptPath === undefined || !traceUnreachable
+        ? null
+        : run.trace !== undefined && (
+            <span
+              data-testid="task-workbench-history-trace-unreachable"
+              className="w-full text-[11.5px] text-muted-foreground"
+            >
+              {traceUnreachableCopy(run.trace)}
+            </span>
+          )}
+      {run.transcriptPath === undefined || traceUnreachable
+        ? null
+        : pendingHistoryAction('locateTrace', 'Locate trace', 'task-workbench-history-run-locate')}
+      {run.resumable !== true ? null : run.resumeCommand === undefined ? (
+        // Resumable, but the record never saw a command (the hook path has none):
+        // say so with the same disabled treatment instead of offering a control
+        // that would copy nothing.
+        <TaskWorkbenchPendingAction
+          label={translate(historyKeys('copyResume'), 'Copy resume command')}
+          hint={translate(
+            historyKeys('resumeCommandMissing'),
+            'No resume command was recorded for this run.'
+          )}
+          testId="task-workbench-history-run-resume"
+        />
+      ) : (
+        <HistoryResumeAction command={run.resumeCommand} checkoutPath={run.checkoutPath} />
+      )}
+      {run.resumable !== false ? null : (
+        <span
+          data-testid="task-workbench-history-run-no-resume"
+          className="w-full text-[11.5px] text-muted-foreground"
+        >
+          {noResumeCopy()}
+        </span>
+      )}
+    </li>
   )
 }
 
@@ -202,6 +184,18 @@ function WorkspaceRow({
           ? translate(historyKeys('unverified'), 'not verified')
           : formatClock(workspace.lastVerifiedAt)}
       </span>
+      {/* Rendered, not merely computed: "this workspace reported sessions" is what
+          keeps an empty run list from reading as "nothing ever ran" (issue #53
+          T2). */}
+      <span
+        data-testid="task-workbench-history-workspace-sessions"
+        data-has-sessions={workspace.hasSessions ? 'true' : 'false'}
+        className="shrink-0 text-[11.5px] text-muted-foreground"
+      >
+        {workspace.hasSessions
+          ? translate(historyKeys('workspace.hasSessions'), 'sessions recorded')
+          : translate(historyKeys('workspace.noSessions'), 'no sessions recorded')}
+      </span>
     </li>
   )
 }
@@ -230,10 +224,16 @@ function SessionRow({ session }: { session: TaskWorkbenchHistorySession }): Reac
           data-testid="task-workbench-history-session-no-resume"
           className="w-full text-[11.5px] text-muted-foreground"
         >
-          {translate(
-            historyKeys('session.noResume'),
-            'Resume unavailable: its workspace was removed.'
-          )}
+          {noResumeCopy()}
+        </span>
+      )}
+      {session.trace === undefined || session.trace.presence === 'present' ? null : (
+        <span
+          data-testid="task-workbench-history-trace-unreachable"
+          data-trace-presence={session.trace.presence}
+          className="w-full text-[11.5px] text-muted-foreground"
+        >
+          {traceUnreachableCopy(session.trace)}
         </span>
       )}
     </li>
@@ -257,6 +257,13 @@ export function TaskWorkbenchHistory({
   // Narrow or short windows sacrifice history detail first (README §7.3.1).
   const compact = layout.columns === 'single' || layout.agentHistory === 'collapsed'
   const detailsOpen = !compact || expanded
+  // The archive form lists only the rows the record supplied (issue #53): its
+  // live rows are already the Agents section, and listing them twice would print
+  // one agent as two.
+  const recordRuns = history.runs.filter((run) => run.fromRecord === true)
+  // Absences the record stored. Absent on a view built before the fold carried
+  // them, which is not "no gaps" — but there is nothing to print either way.
+  const gaps = history.gaps ?? []
 
   return (
     <section
@@ -298,7 +305,7 @@ export function TaskWorkbenchHistory({
         ) : null}
       </div>
 
-      <FactsLine history={history} />
+      <HistoryFactsLine history={history} />
 
       {detailsOpen && history.workspaces.length > 0 ? (
         <ul
@@ -339,20 +346,30 @@ export function TaskWorkbenchHistory({
                   { value0: String(history.archivedWorkspaces) }
                 )}
           </p>
+          {/* Recorded absences come first, before the run list: a workspace the
+              record could not attribute has no rows to read, and without this
+              sentence its empty list is indistinguishable from "nothing ran"
+              (issue #53 T2 / B1). */}
+          {gaps.length === 0 ? null : <HistoryGapList gaps={gaps} />}
+          {recordRuns.length === 0 ? (
+            <p
+              data-testid="task-workbench-history-runs-none"
+              className="min-w-0 text-[12px] text-muted-foreground"
+            >
+              {translate(historyKeys('runsNone'), 'No run recorded.')}
+            </p>
+          ) : (
+            <RunList runs={recordRuns} />
+          )}
           <div
             data-testid="task-workbench-history-trace"
             className="flex flex-wrap items-center gap-1"
           >
-            <TaskWorkbenchPendingAction
-              label={translate(historyKeys('locateTrace'), 'Locate trace')}
-              hint={translate(historyKeys('notWired'), NOT_WIRED)}
-              testId="task-workbench-history-trace-locate"
-            />
-            <TaskWorkbenchPendingAction
-              label={translate(historyKeys('copyResume'), 'Copy resume command')}
-              hint={translate(historyKeys('notWired'), NOT_WIRED)}
-              testId="task-workbench-history-trace-resume"
-            />
+            {pendingHistoryAction(
+              'locateTrace',
+              'Locate trace',
+              'task-workbench-history-trace-locate'
+            )}
           </div>
         </>
       ) : null}
@@ -368,7 +385,8 @@ export function TaskWorkbenchHistory({
               'Workspace deleted; the recorded trace is out of reach.'
             )}
           </p>
-          <RunList history={history} />
+          {gaps.length === 0 ? null : <HistoryGapList gaps={gaps} />}
+          <RunList runs={history.runs} />
         </>
       ) : null}
     </section>
