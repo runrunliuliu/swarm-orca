@@ -31,6 +31,12 @@ import { aggregateSettlement, settleTokens } from './task-workbench-history-sett
  * - a task with no live workspace but a record states the deleted form instead of
  *   falling back to "never started".
  *
+ * A live workspace is not a row source of its own, with one exception: the run
+ * observations the record already holds (a `live-observation` written while the
+ * agent ran). A pane that was closed mid-task is no longer in the projection, so
+ * without that fold its row would vanish even though the task really ran it;
+ * every row the live projection does print wins, so nothing is listed twice.
+ *
  * Since issue #53 the record also carries the runs behind those sessions, so an
  * archived binding states its agent rows (agent type, wall clock, message count)
  * and a deleted one still lists them. `historySource` says which rows a reader is
@@ -62,10 +68,34 @@ export function mergeTaskRecordHistory(args: {
   const archivedBindings = record.bindings.filter(
     (binding) => live.has(binding.worktreeId) && binding.isArchived
   )
-  // Nothing left the store and nothing is put away: the join's answer is already
-  // complete, and returning the same object keeps the panel from re-rendering on
-  // every record read.
-  if (removedBindings.length === 0 && archivedBindings.length === 0) {
+  // A live workspace whose record already holds observations: an agent whose TUI
+  // was closed mid-task is no longer a pane, so the live projection cannot speak
+  // for it, but the observation written while it ran can (issue #53 follow-up).
+  // `runs` only, never the session fallback: a live binding's sessions are the
+  // removal reader's rows, and the pane projection already covers what is open.
+  const liveBindingsWithRuns = record.bindings.filter(
+    (binding) =>
+      live.has(binding.worktreeId) && !binding.isArchived && (binding.runs?.length ?? 0) > 0
+  )
+  const claimed = new Set(args.liveRunSessionIds ?? [])
+  const recordedRuns = [
+    // An archived workspace is still on this machine, so its recorded runs are
+    // resumable; a removed one is not, and the row must say so instead of
+    // offering an action that would fail (issue #53 A2).
+    ...[...archivedBindings, ...removedBindings].flatMap((binding) =>
+      recordRunsOf(binding, live.has(binding.worktreeId))
+    ),
+    ...liveBindingsWithRuns.flatMap((binding) => recordRunsOf(binding, true))
+  ]
+  // A run the live projection already prints is the same session observed twice,
+  // so only the rows the panes cannot speak for are added. This is also what lets
+  // the early return below stay honest: a record whose every row is already on
+  // screen changes nothing, and the panel must not re-render for it.
+  const fromRecord = recordedRuns.filter((run) => !claimed.has(claimIdentityOf(run.key)))
+  // Nothing left the store, nothing is put away, and no closed run to add: the
+  // join's answer is already complete, and returning the same object keeps the
+  // panel from re-rendering on every record read.
+  if (removedBindings.length === 0 && archivedBindings.length === 0 && fromRecord.length === 0) {
     return args.history
   }
   const workspaces: TaskWorkbenchHistoryWorkspace[] = [
@@ -118,15 +148,10 @@ export function mergeTaskRecordHistory(args: {
   )
   const noLiveWorkspace = record.bindings.every((binding) => !live.has(binding.worktreeId))
   const tokens = settleTokens(args.history.tokens, settled, noLiveWorkspace)
-  // An archived workspace is still on this machine, so its recorded runs are
-  // resumable; a removed one is not, and the row must say so instead of offering
-  // an action that would fail (issue #53 A2).
+  // Archived and removed rows carry their binding's gaps; a live binding has none
+  // to add (its own rows are on screen, and a gap is a statement about a workspace
+  // that stopped being readable).
   const foldable = [...archivedBindings, ...removedBindings]
-  const recordedRuns = foldable.flatMap((binding) =>
-    recordRunsOf(binding, live.has(binding.worktreeId))
-  )
-  const claimed = new Set(args.liveRunSessionIds ?? [])
-  const fromRecord = recordedRuns.filter((run) => !claimed.has(claimIdentityOf(run.key)))
   const runs = [...args.history.runs, ...fromRecord]
   const gaps = recordGapsOf(foldable)
   // `record` only when the whole list is the record's; a list holding both kinds

@@ -7,6 +7,7 @@ import {
 } from './task-records-updates'
 import {
   EMPTY_TASK_RECORDS,
+  TASK_RECORD_RUNS_SCHEMA_VERSION,
   TASK_RECORD_SCHEMA_VERSION,
   TASK_RECORDS_MAX_RUNS_PER_BINDING,
   taskRecordRunClaimKey,
@@ -91,7 +92,7 @@ describe('mergeTaskRecordRuns', () => {
     }
     expect(first.changed).toBe(true)
     expect(runsOf(first.state)).toEqual([run()])
-    expect(first.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+    expect(first.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_RUNS_SCHEMA_VERSION)
 
     const replay = merge(first.state, [run()])
     expect(replay.ok).toBe(true)
@@ -358,7 +359,6 @@ describe('transcript check (issue #53: paths and check values, never content)', 
   })
 })
 
-
 describe('resumeCommand and observation order (S1 / S8)', () => {
   it('stores the resume command as a measured fact and never erases it', () => {
     const command = 'claude --resume 0f3c -p /repo/feature'
@@ -529,7 +529,7 @@ describe('task records v2 load boundary', () => {
     expect(binding.gaps).toEqual([
       { kind: 'ambiguous_match', candidateCount: 2, observedAt: 2_100, detail: 'two sessions' }
     ])
-    expect(reread.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+    expect(reread.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_RUNS_SCHEMA_VERSION)
   })
 
   it('keeps a v1 record intact and does not upgrade its stored version on load', () => {
@@ -823,7 +823,7 @@ describe('schema version of a written record', () => {
     // record may not keep claiming v1.
     expect(binding.runs).toEqual([])
     expect(binding.gaps).toHaveLength(1)
-    expect(result.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+    expect(result.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_RUNS_SCHEMA_VERSION)
   })
 
   it('raises a v1 record to 2 when only a transcript check is stored (S3)', () => {
@@ -838,7 +838,7 @@ describe('schema version of a written record', () => {
     if (!result.ok) {
       return
     }
-    expect(result.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+    expect(result.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_RUNS_SCHEMA_VERSION)
   })
 
   it('raises a v1 record to 2 only when a v2 fact is actually stored', () => {
@@ -853,6 +853,41 @@ describe('schema version of a written record', () => {
     if (!withSource.ok) {
       return
     }
-    expect(withSource.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+    expect(withSource.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_RUNS_SCHEMA_VERSION)
+  })
+
+  it('raises a v1 record to 3 only when a live-observation row is stored', () => {
+    const live = mergeTaskRecordRuns(v1Record(), {
+      taskId: TASK_ID,
+      worktreeId: WORKTREE_ID,
+      hostId: 'local',
+      runs: [{ ...run(), source: 'live-observation' }],
+      now: 2_100
+    })
+    expect(live.ok).toBe(true)
+    if (!live.ok) {
+      return
+    }
+    // A v2 build can read `runs` but not this source value, and would rebuild the
+    // record without the row; the version is what makes it refuse the domain
+    // verbatim instead (issue #53 follow-up).
+    expect(live.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+  })
+
+  it('keeps a v2 record at 2 when it stores a v2 row after the v3 bump', () => {
+    const archived = mergeTaskRecordRuns(bound(), {
+      taskId: TASK_ID,
+      worktreeId: WORKTREE_ID,
+      hostId: 'local',
+      runs: [run()],
+      now: 2_100
+    })
+    expect(archived.ok).toBe(true)
+    if (!archived.ok) {
+      return
+    }
+    // Raising every write to 3 would make a downgrade lose the history of tasks
+    // that never used the live channel.
+    expect(archived.state.byId[TASK_ID].schemaVersion).toBe(TASK_RECORD_RUNS_SCHEMA_VERSION)
   })
 })

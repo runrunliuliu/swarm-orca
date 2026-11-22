@@ -35,6 +35,10 @@ import {
   installMetadataLineageOperationsContext
 } from './metadata-lineage-operations'
 import {
+  TaskRecordsLiveOperations,
+  installTaskRecordsLiveOperationsContext
+} from './task-records-live-operations'
+import {
   ProjectCollectionOperations,
   installProjectCollectionOperationsContext
 } from './project-collection-operations'
@@ -72,6 +76,7 @@ export type StoreDomainOperations = WriteSchedulingOperations &
   SparsePresetPersistence &
   AutomationPersistence &
   MetadataLineageOperations &
+  TaskRecordsLiveOperations &
   ProfilePreferences &
   SessionHostPartitionOperations &
   SessionSnapshotOperations &
@@ -95,6 +100,7 @@ export type StoreDomains = {
   sessions: SessionHostPartitionOperations
   sessionSnapshots: SessionSnapshotOperations
   metadata: MetadataLineageOperations
+  taskRecordsLive: TaskRecordsLiveOperations
   projects: ProjectCollectionOperations
   automations: AutomationPersistence
   mobileTabSelections: MobileTabSelectionPersistence
@@ -114,6 +120,7 @@ export const STORE_DOMAIN_OPERATION_CLASSES = [
   SparsePresetPersistence,
   AutomationPersistence,
   MetadataLineageOperations,
+  TaskRecordsLiveOperations,
   ProfilePreferences,
   SessionHostPartitionOperations,
   SessionSnapshotOperations,
@@ -133,6 +140,7 @@ export function installStoreDomainContexts(target: Store, domains: StoreDomains)
   installSparsePresetPersistenceContext(target, domains.sparsePresets)
   installAutomationPersistenceContext(target, domains.automations)
   installMetadataLineageOperationsContext(target, domains.metadata)
+  installTaskRecordsLiveOperationsContext(target, domains.taskRecordsLive)
   installProfilePreferencesContext(target, domains.preferences)
   installSessionHostPartitionOperationsContext(target, domains.sessions)
   installSessionSnapshotOperationsContext(target, domains.sessionSnapshots)
@@ -162,6 +170,7 @@ export function createStoreDomains(runtime: StoreRuntimeState): StoreDomains {
     scheduling
   )
   const metadata = new MetadataLineageOperations(runtime, scheduling, sessions)
+  const taskRecordsLive = new TaskRecordsLiveOperations(runtime, scheduling)
   const projects = new ProjectCollectionOperations(runtime, repos, scheduling, metadata)
   const automations = new AutomationPersistence(runtime, flushBarriers, preferences)
   const mobileTabSelections = new MobileTabSelectionPersistence(runtime, scheduling)
@@ -189,6 +198,7 @@ export function createStoreDomains(runtime: StoreRuntimeState): StoreDomains {
     sessions,
     sessionSnapshots,
     metadata,
+    taskRecordsLive,
     projects,
     automations,
     mobileTabSelections,

@@ -6,6 +6,7 @@ import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
 import { TaskWorkbenchAgentRow } from './TaskWorkbenchAgentRow'
+import { HistoryRunList } from './TaskWorkbenchHistory'
 import { TaskWorkbenchSectionHeading } from './task-workbench-section-heading'
 import {
   countRowBuckets,
@@ -128,6 +129,17 @@ export function TaskWorkbenchAgents({
   const activeRows = rowsIn('active')
   const attentionRows = rowsIn('attention')
   const historyRows = rowsIn('history')
+  // Runs the record kept that no pane on screen speaks for: an agent whose TUI
+  // was closed mid-task, or a process that exited without retaining a row. The
+  // history strip owns them once the workspace is archived/removed; while the
+  // task is still live this fold is where its history lives, so without this the
+  // agent would simply be missing (issue #53 follow-up).
+  const recordRuns =
+    view.history?.trace === 'none' ? view.history.runs.filter((run) => run.fromRecord === true) : []
+  // One answer for both the heading and the fold: two counts about one list would
+  // print "History 1" above a row no section claims.
+  const agentTotal = counts.agents + recordRuns.length
+  const historyTotal = counts.historyAgents + recordRuns.length
 
   // Contract §4.3: with more than one live workspace every row must name its own.
   const showWorkspaceLabel = view.workspaces.length > 1
@@ -138,7 +150,7 @@ export function TaskWorkbenchAgents({
   // `History · collapse` when there is history to fold, the bare count when the
   // answer is zero, so the line always says the same thing in the same place.
   const historyControl =
-    counts.historyAgents > 0 ? (
+    historyTotal > 0 ? (
       <Button
         type="button"
         variant="ghost"
@@ -157,7 +169,7 @@ export function TaskWorkbenchAgents({
           className="tabular-nums text-muted-foreground"
         >
           {translate(agentsKeys('historyCount'), '{{value0}}', {
-            value0: String(counts.historyAgents)
+            value0: String(historyTotal)
           })}
         </span>
         <span className="text-muted-foreground">
@@ -188,13 +200,13 @@ export function TaskWorkbenchAgents({
       <TaskWorkbenchSectionHeading
         label={translate(agentsKeys('heading'), 'Agents')}
         count={translate(agentsKeys('agentCount'), '{{value0}}', {
-          value0: String(counts.agents)
+          value0: String(agentTotal)
         })}
         action={historyControl}
       />
 
       {/* A fact, not an alert: no dashed box, no warning tone. */}
-      {counts.agents === 0 ? (
+      {agentTotal === 0 ? (
         <p data-testid="task-workbench-agents-empty" className="text-[12px] text-muted-foreground">
           {translate(agentsKeys('empty'), 'No agents on this task yet.')}
         </p>
@@ -226,17 +238,24 @@ export function TaskWorkbenchAgents({
       <Collapsible open={historyExpanded} onOpenChange={setOverride}>
         {/* Radix keeps this node mounted while collapsed; the records testid sits
             on the inner element so its presence still means rows on screen. */}
-        {counts.historyAgents > 0 ? (
+        {historyTotal > 0 ? (
           <CollapsibleContent id={HISTORY_BODY_ID}>
-            <div data-testid="task-workbench-agents-history-records" className="pt-0.5">
-              <RowGroup
-                label={translate(agentsKeys('historyHeading'), 'History')}
-                count={null}
-                rows={historyRows}
-                showWorkspaceLabel={showWorkspaceLabel}
-                tone="neutral"
-              />
-            </div>
+            {historyRows.length > 0 ? (
+              <div data-testid="task-workbench-agents-history-records" className="pt-0.5">
+                <RowGroup
+                  label={translate(agentsKeys('historyHeading'), 'History')}
+                  count={null}
+                  rows={historyRows}
+                  showWorkspaceLabel={showWorkspaceLabel}
+                  tone="neutral"
+                />
+              </div>
+            ) : null}
+            {recordRuns.length > 0 ? (
+              <div data-testid="task-workbench-agents-record-runs" className="pt-0.5">
+                <HistoryRunList runs={recordRuns} />
+              </div>
+            ) : null}
           </CollapsibleContent>
         ) : null}
       </Collapsible>

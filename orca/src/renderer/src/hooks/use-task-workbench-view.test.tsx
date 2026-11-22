@@ -38,7 +38,7 @@ vi.mock('@/components/dashboard/useLiveDashboardSnapshot', () => ({
 }))
 
 import { useAppStore } from '@/store'
-import { makeWorktree } from '@/store/slices/store-test-helpers'
+import { makeTab, makeWorktree } from '@/store/slices/store-test-helpers'
 import { useTaskWorkbenchView } from './use-task-workbench-view'
 
 const REPO_ID = 'repo-1'
@@ -435,7 +435,6 @@ describe('useTaskWorkbenchView — delivery target branch default', () => {
 
     expect(view({ number: 9 })?.targetBranchDefault).toBeUndefined()
   })
-
 })
 
 describe('useTaskWorkbenchView — delivery evidence (§7.12)', () => {
@@ -482,5 +481,127 @@ describe('useTaskWorkbenchView — delivery evidence (§7.12)', () => {
     seed([issueWorktree('wt-9', 9)])
 
     expect(view({ number: 9 })?.delivery).toBeUndefined()
+  })
+})
+
+describe('useTaskWorkbenchView — an agent whose TUI was closed', () => {
+  /** The page's record for a workspace that is still open, with one run the hook
+   *  server observed while it ran. */
+  function liveRecord(worktreeId: string): TaskRecord {
+    return {
+      taskId: 'task:github:repo-1:issue:9',
+      hostId: 'local',
+      origin: { kind: 'external', provider: 'github', itemType: 'issue', number: 9 },
+      bindings: [
+        {
+          worktreeId,
+          repoId: REPO_ID,
+          hostId: 'local',
+          path: '/tmp/wt-9',
+          isArchived: false,
+          boundAt: 1,
+          boundBy: 'created',
+          lastVerifiedAt: 2,
+          sessions: [],
+          runs: [
+            {
+              key: 'claude|session_id:run-1',
+              providerSession: { provider: 'claude', key: 'session_id', id: 'run-1' },
+              agentType: 'claude',
+              startedAt: 10,
+              endedAt: 20,
+              source: 'live-observation',
+              recordedAt: 20,
+              firstSeenAt: 10,
+              lastSeenAt: 20
+            }
+          ]
+        }
+      ],
+      intent: {},
+      createdAt: 1,
+      updatedAt: 2,
+      schemaVersion: 3
+    }
+  }
+
+  it('lists the run of a closed pane while the workspace is still open', async () => {
+    seed([issueWorktree('wt-9', 9)])
+    // The pane is gone (its TUI was closed), so the dashboard projects no card at
+    // all: before this fold the task page had nothing to show for that agent.
+    snapshotState.current = { generatedAt: 0, cards: [] }
+    useAppStore.setState({ agentStatusByPaneKey: {}, retainedAgentsByPaneKey: {} })
+    // No type assertion: the page only needs this one IPC method, and defining it
+    // directly keeps the test free of a cast the code-quality gate has to allow.
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { taskRecords: { get: async () => ({ record: liveRecord('wt-9') }) } }
+    })
+
+    const current = renderHook(() =>
+      useTaskWorkbenchView({
+        repoId: REPO_ID,
+        number: 9,
+        itemType: 'issue',
+        title: '#9',
+        taskSourceContext: GITHUB_WEB_APP
+      })
+    )
+
+    await waitFor(() => expect(current.result.current?.history?.runs).toHaveLength(1))
+    const run = current.result.current?.history?.runs[0]
+    expect(run).toMatchObject({
+      key: 'claude|session_id:run-1',
+      agentType: 'claude',
+      startedAt: 10,
+      endedAt: 20,
+      fromRecord: true,
+      // The checkout is right there, so the row may offer resume.
+      resumable: true,
+      checkoutPath: '/tmp/wt-9'
+    })
+    expect(current.result.current?.history?.historySource).toBe('record')
+  })
+
+  it('does not print a retained row and the recorded run of one session twice', async () => {
+    seed([issueWorktree('wt-9', 9)])
+    snapshotState.current = { generatedAt: 0, cards: [card('wt-9', 'pane-9')] }
+    // The process exited: the status map no longer holds the pane, and only the
+    // retained snapshot speaks for that run. The record kept the same claim, so
+    // the dedupe has to read the retained side too.
+    useAppStore.setState({
+      agentStatusByPaneKey: {},
+      retainedAgentsByPaneKey: {
+        'pane-9': {
+          entry: {
+            paneKey: 'pane-9',
+            state: 'done',
+            prompt: '',
+            updatedAt: 20,
+            stateStartedAt: 20,
+            stateHistory: [],
+            providerSession: { key: 'session_id', id: 'run-1' }
+          },
+          worktreeId: 'wt-9',
+          tab: makeTab({ id: 'tab-1', worktreeId: 'wt-9' }),
+          agentType: 'claude',
+          startedAt: 10
+        }
+      }
+    })
+
+    const current = renderHook(() =>
+      useTaskWorkbenchView({
+        repoId: REPO_ID,
+        number: 9,
+        itemType: 'issue',
+        title: '#9',
+        taskSourceContext: GITHUB_WEB_APP
+      })
+    )
+
+    await waitFor(() => expect(current.result.current?.history?.runs).toHaveLength(1))
+    expect(current.result.current?.history?.runs[0]?.fromRecord).not.toBe(true)
+    expect(current.result.current?.history?.historySource).toBe('live')
   })
 })

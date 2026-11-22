@@ -31,12 +31,21 @@ import type { TaskProvider } from './task-providers'
  * and PR #31 in one repository are two different tasks.
  */
 export const TASK_RECORDS_VERSION = 1
-/** Bumped to 2 when `runs` (and the sessions' snapshot fields) arrived, so an
- *  older build rejects the whole domain verbatim instead of rebuilding a record
- *  without the rows it cannot read. The stored version is the record's own: a v1
- *  record keeps `schemaVersion: 1` on load, and only a write that actually
- *  stores a v2 fact raises it (see the writers in `task-records-updates.ts`). */
-export const TASK_RECORD_SCHEMA_VERSION = 2
+/** Bumped to 2 when `runs` (and the sessions' snapshot fields) arrived, and to 3
+ *  when `runs` gained the `live-observation` source (a run written while it is
+ *  still running, so a closed TUI keeps its row). The bump exists so an older
+ *  build rejects the whole domain verbatim instead of rebuilding a record
+ *  without the rows it cannot read. The stored version is the record's own: an
+ *  older record keeps its version on load, and only a write that actually
+ *  stores a fact of that generation raises it (see the writers in
+ *  `task-records-updates.ts`). */
+export const TASK_RECORD_SCHEMA_VERSION = 3
+/** The generation that added `runs` / `gaps` and the sessions' snapshot fields.
+ *  Named separately because a record this build *creates* holds no run yet: it
+ *  starts at this version and is raised to `TASK_RECORD_SCHEMA_VERSION` only by
+ *  a write that stores a v3 fact. Creating every new record at v3 would make a
+ *  downgrade lose the history of tasks that never used the new channel. */
+export const TASK_RECORD_RUNS_SCHEMA_VERSION = 2
 
 /** Bounds (development plan §M2b A). A refusal is an error, never a truncation. */
 export const TASK_RECORDS_MAX_BINDINGS_PER_RECORD = 64
@@ -77,13 +86,15 @@ export type TaskRecordOrigin =
 /** Which evidence resolved a binding's locator (§M2b D). */
 export type TaskRecordResolvedVia = 'locator' | 'identity' | 'alias'
 
-/** How one observation reached the record (issue #53). `archive-snapshot` and
- *  `removal-snapshot` are frozen at the irreversible moment by this build;
- *  `backfill` is the explicit, repeatable reconstruction from local evidence
- *  (agent session index + transcript). The value answers "how reliable is this
- *  row", so it is never defaulted: a row is written by one of these paths or
- *  not written at all. */
+/** How one observation reached the record (issue #53). `live-observation` is the
+ *  hook status row while the agent runs (written continuously, so a TUI closed
+ *  mid-task keeps its row); `archive-snapshot` and `removal-snapshot` are frozen
+ *  at the irreversible moment by this build; `backfill` is the explicit,
+ *  repeatable reconstruction from local evidence (agent session index +
+ *  transcript). The value answers "how reliable is this row", so it is never
+ *  defaulted: a row is written by one of these paths or not written at all. */
 export const TASK_RECORD_SNAPSHOT_SOURCES = [
+  'live-observation',
   'archive-snapshot',
   'removal-snapshot',
   'backfill'
@@ -116,11 +127,7 @@ export type TaskRecordGap = {
  *  when a local `stat` proved ENOENT: a host that could not look (remote, WSL
  *  gated, EACCES, unknown) reports `unverifiable`, because "this host cannot see
  *  the file" is not evidence that the trace is gone. */
-export const TASK_RECORD_TRANSCRIPT_PRESENCES = [
-  'present',
-  'missing',
-  'unverifiable'
-] as const
+export const TASK_RECORD_TRANSCRIPT_PRESENCES = ['present', 'missing', 'unverifiable'] as const
 export type TaskRecordTranscriptPresence = (typeof TASK_RECORD_TRANSCRIPT_PRESENCES)[number]
 
 /** One `stat` of the transcript file — the "check values" issue #53 stores so a

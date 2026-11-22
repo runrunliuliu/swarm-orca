@@ -83,6 +83,11 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     repoId === null ? undefined : state.repos.find((candidate) => candidate.id === repoId)
   )
   const agentStatusByPaneKey = useAppStore((state) => state.agentStatusByPaneKey)
+  // A done row outlives its pane: once the agent process exits, the status map is
+  // cleaned up and only the retained snapshot still speaks for that run. The
+  // record dedupe below has to know about it, or the same session would print
+  // twice (the retained row and the observation the record kept).
+  const retainedAgentsByPaneKey = useAppStore((state) => state.retainedAgentsByPaneKey)
   // The four `*UsageProjectBreakdown` keys are `worktree:<worktreeId>`
   // (README §7.6); the four `*UsageRecentSessions` arrays are the only source of
   // a per-agent number, because a worktree rollup cannot be split per agent.
@@ -355,7 +360,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     // outcome are the current ones, the record is a frozen observation). A pane
     // with no provider session has no id, so it dedupes nothing.
     const liveRunSessionIds = join.agents.flatMap((agent) => {
-      const session = agentStatusByPaneKey[agent.base.paneKey]?.providerSession
+      const session =
+        agentStatusByPaneKey[agent.base.paneKey]?.providerSession ??
+        retainedAgentsByPaneKey[agent.base.paneKey]?.entry.providerSession
       return session ? [`${session.key}:${session.id}`] : []
     })
     const history =
@@ -388,6 +395,7 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     repo,
     snapshot,
     agentStatusByPaneKey,
+    retainedAgentsByPaneKey,
     usageEnabled,
     claudeBreakdown,
     codexBreakdown,
