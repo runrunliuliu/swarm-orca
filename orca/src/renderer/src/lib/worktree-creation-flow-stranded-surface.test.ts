@@ -63,7 +63,7 @@ vi.mock('@/store', () => ({
 }))
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn() }
+  toast: { error: vi.fn(), message: vi.fn() }
 }))
 
 vi.mock('@/lib/worktree-activation', () => ({
@@ -83,7 +83,7 @@ vi.mock('@/lib/workspace-activation-terminal-focus', () => ({
 }))
 
 vi.mock('@/lib/new-workspace', () => ({
-  ensureAgentStartupInTerminal: vi.fn()
+  ensureAgentStartupInTerminal: vi.fn().mockResolvedValue(undefined)
 }))
 
 vi.mock('@/lib/worktree-creation-agent-seeds', () => ({
@@ -163,6 +163,9 @@ function surfaceInput(activeView: TestActiveView): {
 beforeEach(() => {
   // resetAllMocks: implementations from prior tests (the injected throws) must not leak.
   vi.resetAllMocks()
+  // Why re-applied: resetAllMocks also clears the factory's resolved promise, and the
+  // production caller chains `.catch` on this result.
+  vi.mocked(ensureAgentStartupInTerminal).mockResolvedValue(undefined)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
   store.activeView = 'terminal'
   store.repos = [{ id: 'repo-1', connectionId: null }]

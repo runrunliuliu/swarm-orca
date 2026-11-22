@@ -33,36 +33,44 @@ export function getPiPrefillHandlerSourceLines(
   const envVar = PREFILL_ENV_VAR_BY_KIND[kind]
   const submitVar = PREFILL_SUBMIT_ENV_VAR_BY_KIND[kind]
   const register = wrapInStatusOwner && kind === 'omp' ? 'onStatus' : 'pi.on'
-  return [
-    `  ${register}('session_start', async (event, ctx) => {`,
-    '    if (!process.env.ORCA_PANE_KEY || ctx?.hasUI === false) return',
-    ...(kind === 'pi' ? ["    if (event.reason !== 'startup') return"] : []),
-    `    const prefill = process.env.${envVar}`,
-    '    if (!prefill) return',
-    ...(submitVar
-      ? [
-          `    if (process.env.${submitVar} === '1') {`,
-          `      delete process.env.${submitVar}`,
-          '      // Why: a submitted prompt (Swarm Coordinator brief) must start a turn, and',
-          '      // sendUserMessage always does — setEditorText would only seed the box, which',
-          '      // is the delivery that #54 showed never reaches pi at all.',
-          "      if (typeof pi.sendUserMessage === 'function') {",
-          `        delete process.env.${envVar}`,
-          '        try {',
-          '          pi.sendUserMessage(prefill)',
-          '        } catch {}',
-          '        return',
-          '      }',
-          '      // Why: an older pi without sendUserMessage keeps the editable seed instead of',
-          '      // dropping the brief; one keypress is better than a silent no-op.',
-          '    }'
-        ]
-      : []),
+  const lines = [`  ${register}('session_start', async (event, ctx) => {`]
+  if (submitVar) {
+    // Why: a submitted prompt has no renderer paste fallback, so every case where the turn
+    // cannot be started (resumed session, stripped pane key, old pi, a throwing send) still
+    // leaves the brief as an editable seed instead of dropping it.
+    lines.push(
+      `    const submit = process.env.${submitVar} === '1'`,
+      '    if (ctx?.hasUI === false) return',
+      '    if (!process.env.ORCA_PANE_KEY && !submit) return',
+      ...(kind === 'pi' ? ["    if (event.reason !== 'startup' && !submit) return"] : []),
+      `    const prefill = process.env.${envVar}`,
+      '    if (!prefill) return',
+      '    if (submit) {',
+      `      delete process.env.${submitVar}`,
+      "      if (event.reason === 'startup' && process.env.ORCA_PANE_KEY && typeof pi.sendUserMessage === 'function') {",
+      '        try {',
+      '          pi.sendUserMessage(prefill)',
+      `          delete process.env.${envVar}`,
+      '          return',
+      '        } catch {}',
+      '      }',
+      '    }'
+    )
+  } else {
+    lines.push(
+      '    if (!process.env.ORCA_PANE_KEY || ctx?.hasUI === false) return',
+      ...(kind === 'pi' ? ["    if (event.reason !== 'startup') return"] : []),
+      `    const prefill = process.env.${envVar}`,
+      '    if (!prefill) return'
+    )
+  }
+  lines.push(
     "    if (typeof ctx?.ui?.setEditorText !== 'function') return",
     `    delete process.env.${envVar}`,
     '    try {',
     '      ctx.ui.setEditorText(prefill)',
     '    } catch {}',
     '  })'
-  ]
+  )
+  return lines
 }

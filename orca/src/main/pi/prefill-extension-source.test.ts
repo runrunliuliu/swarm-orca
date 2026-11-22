@@ -25,6 +25,7 @@ function loadPrefillExtension(args: {
   kind: PrefillKind
   env: Record<string, string | undefined>
   withSendUserMessage?: boolean
+  sendUserMessageThrows?: boolean
 }): PrefillExtension {
   const env: Record<string, string | undefined> = { ...args.env }
   const output = ts.transpileModule(getPiPrefillExtensionSource(args.kind), {
@@ -49,6 +50,9 @@ function loadPrefillExtension(args: {
   }
   if (args.withSendUserMessage !== false) {
     pi.sendUserMessage = (content: string) => {
+      if (args.sendUserMessageThrows) {
+        throw new Error('send exploded')
+      }
       submitted.push(content)
     }
   }
@@ -156,7 +160,9 @@ describe('generated Pi prefill extension', () => {
     expect(extension.env.ORCA_PI_PREFILL).toBeUndefined()
   })
 
-  it('ignores the seeds outside a startup session or outside an Orca pane', async () => {
+  it('seeds a submitted brief instead of dropping it when the turn cannot start', async () => {
+    // Why: auto-submit leaves no renderer paste fallback, so a resumed session or a stripped
+    // pane key must still surface the brief — one keypress, not silence.
     const resumed = loadPrefillExtension({
       kind: 'pi',
       env: {
@@ -167,7 +173,9 @@ describe('generated Pi prefill extension', () => {
     })
     await resumed.sessionStart({ reason: 'resume' }, resumed.ctx)
     expect(resumed.submitted).toEqual([])
-    expect(resumed.env.ORCA_PI_PREFILL).toBe('Coordinator brief')
+    expect(resumed.editorSeeds).toEqual(['Coordinator brief'])
+    expect(resumed.env.ORCA_PI_PREFILL).toBeUndefined()
+    expect(resumed.env.ORCA_PI_PREFILL_SUBMIT).toBeUndefined()
 
     const ownerless = loadPrefillExtension({
       kind: 'pi',
@@ -175,6 +183,44 @@ describe('generated Pi prefill extension', () => {
     })
     await ownerless.sessionStart({ reason: 'startup' }, ownerless.ctx)
     expect(ownerless.submitted).toEqual([])
+    expect(ownerless.editorSeeds).toEqual(['Coordinator brief'])
+    expect(ownerless.env.ORCA_PI_PREFILL).toBeUndefined()
+  })
+
+  it('leaves a seed-only launch untouched outside a startup session or an Orca pane', async () => {
+    const resumed = loadPrefillExtension({
+      kind: 'pi',
+      env: { ORCA_PANE_KEY: 'pane-1', ORCA_PI_PREFILL: 'Coordinator brief' }
+    })
+    await resumed.sessionStart({ reason: 'resume' }, resumed.ctx)
+    expect(resumed.editorSeeds).toEqual([])
+    expect(resumed.env.ORCA_PI_PREFILL).toBe('Coordinator brief')
+
+    const ownerless = loadPrefillExtension({
+      kind: 'pi',
+      env: { ORCA_PI_PREFILL: 'Coordinator brief' }
+    })
+    await ownerless.sessionStart({ reason: 'startup' }, ownerless.ctx)
+    expect(ownerless.editorSeeds).toEqual([])
     expect(ownerless.env.ORCA_PI_PREFILL).toBe('Coordinator brief')
+  })
+
+  it('falls back to the editable seed when sendUserMessage throws', async () => {
+    const extension = loadPrefillExtension({
+      kind: 'pi',
+      sendUserMessageThrows: true,
+      env: {
+        ORCA_PANE_KEY: 'pane-1',
+        ORCA_PI_PREFILL: 'Coordinator brief',
+        ORCA_PI_PREFILL_SUBMIT: '1'
+      }
+    })
+
+    await extension.sessionStart({ reason: 'startup' }, extension.ctx)
+
+    expect(extension.submitted).toEqual([])
+    expect(extension.editorSeeds).toEqual(['Coordinator brief'])
+    expect(extension.env.ORCA_PI_PREFILL).toBeUndefined()
+    expect(extension.env.ORCA_PI_PREFILL_SUBMIT).toBeUndefined()
   })
 })

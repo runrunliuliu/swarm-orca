@@ -71,12 +71,15 @@ vi.mock('@/lib/workspace-activation-terminal-focus', () => ({
 }))
 
 vi.mock('@/lib/new-workspace', () => ({
-  ensureAgentStartupInTerminal: vi.fn()
+  // Why: the production caller chains `.catch` on the returned promise; a bare
+  // `vi.fn()` returns undefined and turns every flow case into a TypeError.
+  ensureAgentStartupInTerminal: vi.fn().mockResolvedValue(undefined)
 }))
 
 vi.mock('sonner', () => ({
   toast: {
-    error: vi.fn()
+    error: vi.fn(),
+    message: vi.fn()
   }
 }))
 

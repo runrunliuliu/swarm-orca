@@ -28,14 +28,13 @@ import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
  * submitted user message and answers it.
  *
  * Why the extension file is seeded here instead of left to Orca: managed Pi
- * extensions are installed by `buildPtyHostEnv`, which only runs for
- * daemon-host spawns. The E2E app spawns PTYs through the local provider, and a
- * run of this spec against an empty agent dir confirmed it — no `extensions/` was
- * created anywhere, so the only thing a launch could have delivered was the env
- * seed with nobody to consume it. The installer half is therefore *not* covered
- * here; seeding keeps this spec about the part that can silently regress without
- * an error (pi's own `sendUserMessage` contract, and the extension source the app
- * generates).
+ * extensions are installed during PTY host-env assembly (`buildPtyHostEnv`), but
+ * a run of this spec against an empty agent dir confirmed that no `extensions/`
+ * file appeared there, so the only thing a launch could have delivered was the
+ * env seed with nobody to consume it. The installer half is therefore *not*
+ * covered here; seeding keeps this spec about the part that can silently regress
+ * without an error (pi's own `sendUserMessage` contract, and the extension source
+ * the app generates).
  *
  * Opt-in, because it needs things CI does not have: a `pi` on PATH and a working
  * provider in `~/.pi/agent`. Gate:

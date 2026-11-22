@@ -20,6 +20,7 @@ import {
   TUI_AGENT_CONFIG,
   agentSupportsSubmittedPrefill
 } from '../../../../shared/tui-agent-config'
+import { isAgentStatusHooksEnabledForAgent } from '../../../../shared/agent-status-hooks-setting'
 
 export type QuickComposerStartupInput = {
   agent: TuiAgent | null
@@ -126,10 +127,14 @@ export function buildQuickComposerStartup(input: QuickComposerStartupInput): Qui
   // (pi) get it as an env seed instead, so delivery does not depend on paste-after-ready —
   // which #54 measured as not delivering at all. The paste branch stays as the fallback for
   // every other agent and for a launch the platform cannot carry inline.
+  // Why the hooks gate: the submit flag is only consumed by the managed extension, and that
+  // extension is not installed when status hooks (or the agent itself) are disabled. Picking
+  // auto-submit there would leave no paste fallback and reproduce #54's silent loss.
   const submittedPrefillPlan =
     agent !== null &&
     pasteAfterReadyPrompt &&
-    agentSupportsSubmittedPrefill(TUI_AGENT_CONFIG[agent])
+    agentSupportsSubmittedPrefill(TUI_AGENT_CONFIG[agent]) &&
+    isAgentStatusHooksEnabledForAgent(settings, agent)
       ? buildDraftPlan(pasteAfterReadyPrompt, true)
       : null
   let startupPlan: AgentStartupPlan | null = null

@@ -105,6 +105,7 @@ async function createSwarmWorkspace(page: Page, name: string): Promise<void> {
 test('Swarm Coordinator start hands the brief to pi as a submitted prefill, not a paste', async ({
   orcaPage
 }) => {
+  test.skip(process.platform === 'win32', 'the stub pi is a /bin/sh script')
   test.setTimeout(240_000)
   await waitForSessionReady(orcaPage)
   await waitForActiveWorktree(orcaPage)

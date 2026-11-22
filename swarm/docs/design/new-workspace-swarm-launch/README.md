@@ -210,9 +210,13 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
      变量；没有 `draftPromptSubmitEnvVar` 的 agent 返回 null，调用方仍走 paste。
    - `hooks/composer-state/quick-startup-plan.ts`：swarm 首条 prompt 先试 prefill 提交，成功则
      delivery 记为 `auto-submit`、`startupPlan.draftPrompt` 为空（没有留给 paste 的东西）；否则
-     保持原 `submit-after-ready` paste 路径。
-   **仍未验证**：真实 pi 会话里这一轮的端到端表现（需要一次 pi + Swarm 真实起步）；
-   这里只证明指令构造与生成扩展的行为。
+     保持原 `submit-after-ready` paste 路径。仅当 status hooks 与 pi 都启用时才走 prefill——
+     托管扩展不安装时提交标志无人消费，必须退回 paste。
+   **验证状态**：headless E2E（`tests/e2e/new-workspace-swarm-pi-brief.spec.ts`）已覆盖
+   「新建工作区 + Swarm Coordinator + pi」整链在 exec 边界的 env/argv；真实 pi 1.5.0 的
+   opt-in 用例（`new-workspace-swarm-pi-real-agent.spec.ts`，`ORCA_PI_REAL_AGENT=1`）证明
+   brief 以已提交 user 消息进入 session，并紧跟一条 assistant 记录。仍未端到端覆盖：
+   托管扩展由 `buildPtyHostEnv` 安装到 pi 会加载的位置（真实用例自行种入生成扩展）。
 2. **`max_workers` 是表单值（默认 4），不是"开工前问我"。** 模板里同时写值与语义
    （含审查、集成、嵌套与讨论用 agent），所以选完即开工，不需要多一轮问答；字段非 1–1000 整数时
    主按钮禁用。
@@ -266,8 +270,9 @@ A8 之后按审查意见把上限收到 1000：字段提示现为 `Enter a whole
 校验在 `lib/swarm-launch-prompt.ts`（`MAX_SWARM_MAX_WORKERS`）；本轮未重拍真实渲染。
 
 **没做**：pi（或其他 agent）在真实终端里 `submit-after-ready` 的成功率与就绪时序；任何 swarm
-Run 演练。因此上面的证据只证明"表单能给出正确的指令、并把它交给就绪后的 paste，UI 与设计稿
-一致"，不证明任何 Run 能跑起来。
+Run 演练。因此 §10.3 的证据只覆盖 M1 的形态层——"表单能给出正确的指令、并把它交给就绪后的
+paste，UI 与设计稿一致"——不证明任何 Run 能跑起来；#54 之后 pi 的首条 brief 已改走 prefill
+提交（见 §10.4），不再依赖这条 paste 路径。
 
 ### 10.4 issue #54 修复记录（pi 首条 brief 不再走 paste）
 
@@ -283,7 +288,8 @@ Run 演练。因此上面的证据只证明"表单能给出正确的指令、并
 
 - `src/main/pi/prefill-extension-source.test.ts`（新增：在沙箱里 transpile 并运行生成的
   `orca-prefill` 扩展——`SUBMIT=1` 时走 `pi.sendUserMessage`、否则 `setEditorText`、旧 pi 退回
-  留 draft、非 startup/no-pane 不消费）；
+  留 draft；提交模式下 send 抛错、非 startup 或 pane key 缺失时也退回可编辑 draft，而不是
+  丢掉 brief）；
 - `src/shared/tui-agent-startup.test.ts`（`submitDraft: true` 的 env/清理命令、无 submit 变时的
   null 退回）、`src/shared/telemetry-events.test.ts`（新错误类）；
 - `src/renderer/src/hooks/composer-state/quick-startup-plan.test.ts`（pi+swarm → prefill 提交；
@@ -292,13 +298,20 @@ Run 演练。因此上面的证据只证明"表单能给出正确的指令、并
   `src/renderer/src/lib/agent-startup-delayed-delivery.test.ts`、
   `src/renderer/src/lib/worktree-creation-completion.test.ts`（新增）、
   `src/renderer/src/lib/new-workspace.test.ts`、`src/renderer/src/lib/worktree-creation-flow.test.ts`；
+- `tests/e2e/new-workspace-swarm-pi-brief.spec.ts`（headless，随 CI 跑）：真实渲染进程点
+  「新建工作区 → Swarm Coordinator → Create」，用 PATH 上的假 pi 在 exec 边界断言
+  `ORCA_PI_PREFILL` + `ORCA_PI_PREFILL_SUBMIT=1` + 非空 `ORCA_PANE_KEY` 到齐、brief 不在
+  argv；`tests/e2e/new-workspace-swarm-pi-real-agent.spec.ts`（opt-in `ORCA_PI_REAL_AGENT=1`，
+  一次模型请求）用真实 pi 1.5.0 断言 session jsonl 里 brief 是已提交 user 消息、紧跟一条
+  assistant 记录、cwd 为新工作区；
 - `tsc -p config/tsconfig.node.json` / `tsconfig.web.json`、`oxlint`（改动文件）、
   `check-max-lines-ratchet.mjs`、`verify-localization-extraction.mjs`、
   `verify-localization-catalog.mjs` 均通过。
 
-**没做**：一次真实的 pi + Swarm 起步（本节验收的第一条），因此“TUI 里直接开跑”仍未实测；
-也没跑全量 vitest，`swarm/` 侧无 Python 改动。真实 pi 会话里 `sendUserMessage` 在
-`session_start` 的时序只由生成代码与 pi 文档支撑，未见 transcript。
+**没做**：托管扩展安装路径的端到端验证——扩展由 `buildPtyHostEnv` 的 host-env 装配安装，
+但真实 pi 用例在空 agent 目录里没有观察到 `extensions/` 文件，因此该用例自行把生成扩展种进
+agent 目录；「Orca 自己把文件写到 pi 会加载的位置」仍只有代码与单测。另未跑全量 vitest /
+全量 e2e；`swarm/` 侧无 Python 改动。
 
 已知与本改动无关的红点：`audit-localization-coverage.mjs --check` 在
 `components/right-sidebar/incidents/IncidentDetailDrawer.tsx:131`（`sha256:`）与
