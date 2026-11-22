@@ -1,11 +1,12 @@
 import type { ExecutionHostId } from './execution-host'
 import { recordBytes, taskRecordExternalIndexKey, taskRecordsDomainBytes } from './task-records'
 import { mergeRunRows, mergeSessionRows } from './task-records-runs-merge'
+import { taskRecordSchemaVersionForBinding } from './task-records-schema-version'
 import {
   TASK_RECORDS_MAX_BINDINGS_PER_RECORD,
   TASK_RECORDS_MAX_DOMAIN_BYTES,
   TASK_RECORDS_MAX_RECORD_BYTES,
-  TASK_RECORD_SCHEMA_VERSION,
+  TASK_RECORD_RUNS_SCHEMA_VERSION,
   type TaskRecord,
   type TaskRecordGap,
   type TaskRecordOrigin,
@@ -92,10 +93,11 @@ export function upsertTaskRecordBinding(
       intent: {},
       createdAt: input.now,
       updatedAt: input.now,
-      // A record this build creates is a v2 record: it may hold runs, and a
-      // build that only knows v1 must reject the domain rather than rebuild the
-      // record without them.
-      schemaVersion: TASK_RECORD_SCHEMA_VERSION
+      // A record this build creates holds a binding and no run yet, so it starts
+      // at the generation that introduced runs. Only a write that actually stores
+      // a newer fact raises it (see `replaceBinding`), which keeps a downgrade
+      // from losing the history of tasks that never used the newer channel.
+      schemaVersion: TASK_RECORD_RUNS_SCHEMA_VERSION
     }
     return grown(state, record, indexKey, input.taskId)
   }
@@ -355,45 +357,10 @@ function replaceBinding(
         entry.worktreeId === binding.worktreeId && entry.hostId === binding.hostId ? binding : entry
       ),
       updatedAt: Math.max(record.updatedAt, now),
-      // A v1 record stays v1 until a write actually stores a v2 fact: raising the
-      // version on every unrelated refresh would make a downgrade lose the whole
-      // domain for nothing.
-      schemaVersion: carriesV2Facts(binding)
-        ? Math.max(record.schemaVersion, TASK_RECORD_SCHEMA_VERSION)
-        : record.schemaVersion
+      schemaVersion: taskRecordSchemaVersionForBinding(binding, record.schemaVersion)
     },
     null,
     record.taskId,
     dropped
-  )
-}
-
-/** True when the binding now holds something a build that only knows v1 could
- *  not read back. That is what `schemaVersion: 2` asserts, and it is why the
- *  version is raised by the content of the write rather than by the call site.
- *
- *  Every v2 channel counts, and `runs !== undefined` counts **including `runs: []`**:
- *  an empty array is the T2 statement "the snapshot writer looked and stored no
- *  run, here is the gap that says why", which a v1 build cannot read as anything
- *  but "unknown". Missing it let a T2 backfill store `runs`/`gaps` on a record
- *  still labelled v1. */
-function carriesV2Facts(binding: TaskWorkspaceBinding): boolean {
-  if (binding.runs !== undefined) {
-    return true
-  }
-  if ((binding.gaps?.length ?? 0) > 0) {
-    return true
-  }
-  return binding.sessions.some(
-    (session) =>
-      session.agentType !== undefined ||
-      session.title !== undefined ||
-      session.resumeCommand !== undefined ||
-      session.startedAt !== undefined ||
-      session.endedAt !== undefined ||
-      session.messageCount !== undefined ||
-      session.source !== undefined ||
-      session.recordedAt !== undefined ||
-      session.transcriptCheck !== undefined
   )
 }

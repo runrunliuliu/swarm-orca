@@ -50,7 +50,14 @@ const OUTCOME_COPY: Record<AgentOutcome, string> = {
   cancellation: 'cancelled'
 }
 
-function RunList({ runs }: { runs: readonly TaskWorkbenchHistoryRun[] }): React.JSX.Element {
+/** The run rows, exported because the Agents section lists the same rows while
+ *  the workspace is still live: a closed pane's run lives in the record, and one
+ *  row renderer keeps the two surfaces from drifting (issue #53 follow-up). */
+export function HistoryRunList({
+  runs
+}: {
+  runs: readonly TaskWorkbenchHistoryRun[]
+}): React.JSX.Element {
   return (
     <ul
       data-testid="task-workbench-history-runs"
@@ -359,7 +366,7 @@ export function TaskWorkbenchHistory({
               {translate(historyKeys('runsNone'), 'No run recorded.')}
             </p>
           ) : (
-            <RunList runs={recordRuns} />
+            <HistoryRunList runs={recordRuns} />
           )}
           <div
             data-testid="task-workbench-history-trace"
@@ -386,7 +393,7 @@ export function TaskWorkbenchHistory({
             )}
           </p>
           {gaps.length === 0 ? null : <HistoryGapList gaps={gaps} />}
-          <RunList runs={history.runs} />
+          <HistoryRunList runs={history.runs} />
         </>
       ) : null}
     </section>

@@ -294,3 +294,64 @@ describe('task records profile round trip', () => {
     expect(store.getTaskRecordForTask(QUERY)?.schemaVersion).toBe(1)
   })
 })
+
+describe('task records live run ledger', () => {
+  it('keeps a run observed while it ran across save and reopen', () => {
+    const file = newDataFile()
+    const store = openStore(file)
+    // The metadata write that binds this live workspace to its issue is what
+    // gives the observation somewhere to land; before issue #36's ledger a live
+    // workspace had no record at all.
+    store.setWorktreeMeta(ID, { linkedIssue: 31 })
+    const run = {
+      key: 'claude|session_id:run-1',
+      providerSession: { provider: 'claude' as const, key: 'session_id', id: 'run-1' },
+      agentType: 'claude',
+      startedAt: 10,
+      endedAt: 20,
+      outcome: 'success' as const,
+      source: 'live-observation' as const,
+      recordedAt: 20,
+      firstSeenAt: 10,
+      lastSeenAt: 20
+    }
+
+    expect(store.recordTaskRecordLiveRun({ worktreeId: ID, run })).toBe(true)
+    // The same facts again are not a second write: the observer already filters
+    // them, and the transition must agree (no save, no change).
+    expect(store.recordTaskRecordLiveRun({ worktreeId: ID, run })).toBe(false)
+    store.flush()
+
+    const onDisk = JSON.parse(readPersistedStateJson(file))
+    const saved = onDisk.taskRecords.byId['task:github:repo-1:issue:31']
+    expect(saved.bindings[0].runs).toEqual([run])
+    // A v2 build cannot read this source value, so the record may not keep
+    // claiming v2 (it would rebuild it without the row).
+    expect(saved.schemaVersion).toBe(TASK_RECORD_SCHEMA_VERSION)
+
+    const reopened = openStore(file)
+    expect(reopened.getTaskRecordForTask(QUERY)?.bindings[0].runs).toEqual([run])
+  })
+
+  it('writes nothing for a workspace no task binds', () => {
+    const file = newDataFile()
+    const store = openStore(file)
+
+    expect(
+      store.recordTaskRecordLiveRun({
+        worktreeId: 'repo-1::/repo/unknown',
+        run: {
+          key: 'claude|session_id:run-1',
+          providerSession: { key: 'session_id', id: 'run-1' },
+          source: 'live-observation',
+          recordedAt: 20,
+          firstSeenAt: 10,
+          lastSeenAt: 20
+        }
+      })
+    ).toBe(false)
+    store.flush()
+
+    expect(JSON.parse(readPersistedStateJson(file)).taskRecords).toBeUndefined()
+  })
+})
