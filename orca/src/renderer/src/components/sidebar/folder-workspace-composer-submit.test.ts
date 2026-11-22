@@ -8,7 +8,8 @@ import type * as NewWorkspaceModule from '@/lib/new-workspace'
 
 const mocks = vi.hoisted(() => ({
   activateAndRevealFolderWorkspace: vi.fn(),
-  ensureAgentStartupInTerminal: vi.fn()
+  // Why: the production caller chains `.catch` on the result.
+  ensureAgentStartupInTerminal: vi.fn().mockResolvedValue(undefined)
 }))
 
 // Why: importOriginal keeps the real resolveStartupLaunchDraftText, so the
@@ -75,7 +76,8 @@ describe('submitFolderWorkspaceCreate', () => {
 
   afterEach(() => {
     mocks.activateAndRevealFolderWorkspace.mockReset()
-    mocks.ensureAgentStartupInTerminal.mockReset()
+    // Why resolved again: the production caller chains `.catch` on the result.
+    mocks.ensureAgentStartupInTerminal.mockReset().mockResolvedValue(undefined)
     vi.restoreAllMocks()
   })
 
@@ -695,7 +697,8 @@ describe('submitFolderWorkspaceCreate native-chat launch draft', () => {
 
   afterEach(() => {
     mocks.activateAndRevealFolderWorkspace.mockReset()
-    mocks.ensureAgentStartupInTerminal.mockReset()
+    // Why resolved again: the production caller chains `.catch` on the result.
+    mocks.ensureAgentStartupInTerminal.mockReset().mockResolvedValue(undefined)
     useAppStore.setState({ nativeChatLaunchDraftByTabId: {} })
     vi.restoreAllMocks()
   })
@@ -799,7 +802,8 @@ describe('folder-workspace draft: seeded set == chat-opening set', () => {
 
   afterEach(() => {
     mocks.activateAndRevealFolderWorkspace.mockReset()
-    mocks.ensureAgentStartupInTerminal.mockReset()
+    // Why resolved again: the production caller chains `.catch` on the result.
+    mocks.ensureAgentStartupInTerminal.mockReset().mockResolvedValue(undefined)
     useAppStore.setState({ nativeChatLaunchDraftByTabId: {} })
     vi.restoreAllMocks()
   })

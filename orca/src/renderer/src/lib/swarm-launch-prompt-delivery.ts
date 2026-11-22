@@ -4,6 +4,7 @@ import { track, tuiAgentToAgentKind } from '@/lib/telemetry'
 import { deliverLaunchPromptToAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { pasteDraftToAgentPtyWhenReady } from '@/lib/agent-paste-draft'
 import { showAutomationPromptNotSentToast } from '@/lib/agent-background-session-timeout-toast'
+import { reportAgentPromptDeliveryFailure } from '@/lib/agent-prompt-delivery-failure'
 import type { TuiAgent } from '../../../shared/tui-agent'
 
 /**
@@ -21,6 +22,22 @@ import type { TuiAgent } from '../../../shared/tui-agent'
  * it is kept and the user is asked for one keypress instead of pasting twice.
  */
 export async function deliverSubmittedLaunchPromptWhenReady(args: {
+  tabId: string
+  ptyId: string
+  agent: TuiAgent
+  content: string
+}): Promise<void> {
+  try {
+    await submitLaunchPromptInAgentComposer(args)
+  } catch (error) {
+    // Why: a rejected write (destroyed PTY, failed input RPC) previously escaped to nobody,
+    // so a lost Coordinator brief produced no turn, no toast and no event (#54).
+    console.warn('Coordinator prompt delivery failed', error)
+    reportAgentPromptDeliveryFailure(args.agent)
+  }
+}
+
+async function submitLaunchPromptInAgentComposer(args: {
   tabId: string
   ptyId: string
   agent: TuiAgent

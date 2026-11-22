@@ -264,6 +264,16 @@ describe('agent_error schema', () => {
     expect(parsed.success).toBe(true)
   })
 
+  it('accepts the delivery_write_failed class', () => {
+    // Why: the write into the agent's terminal can reject after the readiness check, and
+    // that failure has to be reportable instead of being swallowed (#54).
+    const parsed = eventSchemas.agent_error.safeParse({
+      error_class: 'delivery_write_failed',
+      agent_kind: 'pi'
+    })
+    expect(parsed.success).toBe(true)
+  })
+
   // Core invariant: `.strict()` rejects raw error strings. If this test ever
   // flips, the analytics lane is leaking UGC — revert the offending schema
   // change.

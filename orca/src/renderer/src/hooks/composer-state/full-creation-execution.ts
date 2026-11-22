@@ -32,6 +32,7 @@ import { translate } from '@/i18n/i18n'
 import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
 import { toFolderWorkspaceLinkedTask } from '@/components/sidebar/folder-workspace-composer-helpers'
 import { ensureAgentStartupInTerminal } from '@/lib/new-workspace'
+import { reportAgentPromptDeliveryFailure } from '@/lib/agent-prompt-delivery-failure'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { seedNativeChatAppliedSessionOptions } from '@/components/native-chat/native-chat-session-option-cache'
@@ -263,6 +264,10 @@ export function useFullCreationExecution(input: FullCreationExecutionInput) {
           worktreeId: worktree.id,
           primaryTabId: activation === false ? null : activation.primaryTabId,
           startup: startupPlan
+        }).catch((error: unknown) => {
+          // Why: the worktree already exists; a rejected paste would otherwise vanish (#54).
+          console.warn('Agent startup delivery failed after full creation', error)
+          reportAgentPromptDeliveryFailure(tuiAgent)
         })
       }
 

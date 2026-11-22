@@ -1,4 +1,5 @@
 import { ensureAgentStartupInTerminal, type LinkedWorkItemSummary } from '@/lib/new-workspace'
+import { reportAgentPromptDeliveryFailure } from '@/lib/agent-prompt-delivery-failure'
 import { seedNativeChatLaunchDraftForAgentTab } from '@/lib/agent-launch-prompt-delivery'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { buildAgentStartupPlan } from '@/lib/tui-agent-startup'
@@ -248,6 +249,10 @@ export async function submitFolderWorkspaceCreate({
         worktreeId: folderWorkspaceKey(workspace.id),
         primaryTabId: activation.primaryTabId,
         startup: startupPlan
+      }).catch((error: unknown) => {
+        // Why: the workspace already exists; a rejected paste would otherwise vanish (#54).
+        console.warn('Folder workspace agent startup delivery failed', error)
+        reportAgentPromptDeliveryFailure(quickAgent)
       })
     }
   } catch (error) {

@@ -735,6 +735,41 @@ describe('tui agent startup plans', () => {
     ).toBeNull()
   })
 
+  it('adds the submit flag when the caller needs the prefill to start a turn', () => {
+    // Why: #54 — pi's paste-after-ready never reached the composer, so a submitted prompt
+    // rides the same env seed plus a flag the orca-prefill extension answers with
+    // pi.sendUserMessage. Both seeds are cleared from the pane's shell afterwards.
+    const plan = buildAgentDraftLaunchPlan({
+      agent: 'pi',
+      draft: 'Coordinator brief',
+      submitDraft: true,
+      cmdOverrides: {},
+      platform: 'linux'
+    })
+
+    expect(plan?.env).toEqual({
+      ORCA_PI_PREFILL: 'Coordinator brief',
+      ORCA_PI_PREFILL_SUBMIT: '1'
+    })
+    expect(plan?.launchCommand).toContain('unset ORCA_PI_PREFILL ORCA_PI_PREFILL_SUBMIT')
+    // Why: a transient seed must not be frozen into the resume config.
+    expect(plan?.launchConfig.agentEnv).toEqual({})
+  })
+
+  it('declines to submit through the default draft channel when the agent has no submit flag', () => {
+    // Why: claude's --prefill only types the text, so a submit request must fall back to
+    // the paste path rather than returning a plan that silently stays unsubmitted.
+    expect(
+      buildAgentDraftLaunchPlan({
+        agent: 'claude',
+        draft: 'Coordinator brief',
+        submitDraft: true,
+        cmdOverrides: {},
+        platform: 'linux'
+      })
+    ).toBeNull()
+  })
+
   it('launches Devin with stdin-after-start prompt delivery', () => {
     const plan = buildAgentStartupPlan({
       agent: 'devin',

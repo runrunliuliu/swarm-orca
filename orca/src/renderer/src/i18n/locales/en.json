@@ -643,6 +643,13 @@
               "refreshCliRegistration": "Refresh CLI registration status and try again."
             }
           }
+        },
+        "prompt": {
+          "delivery": {
+            "failure": {
+              "d723fb5c38": "Orca couldn't hand the first prompt to the agent — open the workspace and paste it in."
+            }
+          }
         }
       },
       "remotePairingCopy": {

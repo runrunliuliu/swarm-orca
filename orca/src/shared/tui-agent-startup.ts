@@ -227,12 +227,23 @@ export function buildAgentDraftLaunchPlan(args: {
   sessionOptionsOverrideAgentArgs?: boolean
   /** Why: see buildAgentStartupPlan — remote launches use the plain `orca` shim. */
   isRemote?: boolean
+  /**
+   * Deliver the draft so the agent starts a turn from it instead of leaving it editable.
+   * Only the env-prefill channel can do that (the agent's own startup hook submits), so an
+   * agent without `draftPromptSubmitEnvVar` returns null and the caller falls back to paste.
+   */
+  submitDraft?: boolean
 }): AgentDraftLaunchPlan | null {
   const { agent, draft, cmdOverrides, platform } = args
   const shell = resolveStartupShell(platform, args.shell)
   const config = TUI_AGENT_CONFIG[agent]
   const trimmed = draft.trim()
   if (!trimmed) {
+    return null
+  }
+  // Why: an argv/flag draft is typed into the composer, never submitted, so a submit
+  // request cannot be satisfied there — the caller must keep the paste path instead.
+  if (args.submitDraft && !config.draftPromptSubmitEnvVar) {
     return null
   }
   const baseCommand = resolveAgentLaunchCommand({
@@ -269,7 +280,11 @@ export function buildAgentDraftLaunchPlan(args: {
       ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
     }
   } else if (config.draftPromptEnvVar) {
-    const clearVar = clearEnvCommand(config.draftPromptEnvVar, shell)
+    const submitEnvVar = args.submitDraft ? config.draftPromptSubmitEnvVar : undefined
+    const clearVar = clearEnvCommand(
+      submitEnvVar ? [config.draftPromptEnvVar, submitEnvVar] : config.draftPromptEnvVar,
+      shell
+    )
     plan = {
       agent,
       launchCommand:
@@ -279,7 +294,11 @@ export function buildAgentDraftLaunchPlan(args: {
       expectedProcess: config.expectedProcess,
       launchConfig,
       ...appliedSessionOptionProps(baseCommand.appliedSessionOptions),
-      env: { ...args.agentEnv, [config.draftPromptEnvVar]: trimmed }
+      env: {
+        ...args.agentEnv,
+        [config.draftPromptEnvVar]: trimmed,
+        ...(submitEnvVar ? { [submitEnvVar]: '1' } : {})
+      }
     }
   }
   if (
