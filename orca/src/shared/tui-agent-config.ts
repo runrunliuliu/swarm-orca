@@ -135,11 +135,15 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
     promptInjectionMode: 'argv',
     // Why: pi has no `--prefill` and paste-after-ready races its long startup; the orca-prefill extension seeds this env var instead.
     draftPromptEnvVar: 'ORCA_PI_PREFILL',
-    // Why: a submitted prompt (Swarm Coordinator start) cannot use that prefill — it has to be
-    // pasted and submitted once the TUI owns its composer. pi's startup is slower than the 8s
-    // default budget, and an expired budget pastes nothing at all. 20s is deliberately the same
-    // budget as opencode's measured composer wait (see opencode above), not a pi measurement:
-    // treat it as a hypothesis until a pi transcript backs it.
+    // Why: a prompt that must be *submitted* (Swarm Coordinator start) has no argv slot, and
+    // #54 showed the paste never lands: pi's startup outlives the readiness budget and an
+    // expired budget pastes nothing. The orca-prefill extension answers this flag with
+    // `pi.sendUserMessage`, so delivery no longer depends on the composer being ready.
+    draftPromptSubmitEnvVar: 'ORCA_PI_PREFILL_SUBMIT',
+    // Why: this budget now only applies to the paste fallback (an older pi without
+    // `sendUserMessage`, or a Windows env block too large for the prefill). 20s is deliberately
+    // the same budget as opencode's measured composer wait (see opencode above), not a pi
+    // measurement: it stays a hypothesis and must not be read as evidence that paste works.
     draftPasteReadyTimeoutMs: 20_000,
     // Why: Pi decodes CSI-u; Esc+CR submits after tool subprocesses reset live KKP state (#9703).
     windowsShiftEnterEncoding: 'csi-u'
@@ -360,6 +364,15 @@ export function isTuiAgent(value: unknown): value is TuiAgent {
 
 export function getTuiAgentDetectCommands(config: TuiAgentConfig): string[] {
   return [config.detectCmd, ...(config.detectCmdAliases ?? [])]
+}
+
+/**
+ * Whether this agent's launch can carry a prefill *and* start the turn from it, so
+ * a submitted prompt does not have to ride the paste-after-ready path (pi via the
+ * orca-prefill extension's submit flag).
+ */
+export function agentSupportsSubmittedPrefill(config: TuiAgentConfig): boolean {
+  return Boolean(config.draftPromptEnvVar && config.draftPromptSubmitEnvVar)
 }
 
 export function getTuiAgentLaunchCommand(

@@ -5,13 +5,15 @@ const {
   mockPasteDraftToAgentPtyWhenReady,
   mockShowAutomationPromptNotSentToast,
   mockToastMessage,
-  mockTrack
+  mockTrack,
+  mockReportAgentPromptDeliveryFailure
 } = vi.hoisted(() => ({
   mockDeliverLaunchPromptToAgentTab: vi.fn(),
   mockPasteDraftToAgentPtyWhenReady: vi.fn(),
   mockShowAutomationPromptNotSentToast: vi.fn(),
   mockToastMessage: vi.fn(),
-  mockTrack: vi.fn()
+  mockTrack: vi.fn(),
+  mockReportAgentPromptDeliveryFailure: vi.fn()
 }))
 
 vi.mock('@/lib/agent-launch-prompt-delivery', () => ({
@@ -24,6 +26,10 @@ vi.mock('@/lib/agent-paste-draft', () => ({
 
 vi.mock('@/lib/agent-background-session-timeout-toast', () => ({
   showAutomationPromptNotSentToast: mockShowAutomationPromptNotSentToast
+}))
+
+vi.mock('@/lib/agent-prompt-delivery-failure', () => ({
+  reportAgentPromptDeliveryFailure: mockReportAgentPromptDeliveryFailure
 }))
 
 vi.mock('sonner', () => ({ toast: { message: mockToastMessage } }))
@@ -79,6 +85,21 @@ describe('deliverSubmittedLaunchPromptWhenReady', () => {
       error_class: 'submit_not_verified',
       agent_kind: 'pi'
     })
+  })
+
+  it('reports a rejected write instead of letting the promise escape', async () => {
+    // Why: #54's silent failure mode — the write RPC rejects, nothing observes it, and the
+    // Coordinator brief disappears with no turn, no toast and no event.
+    mockDeliverLaunchPromptToAgentTab.mockRejectedValue(new Error('pty write failed'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await expect(deliverSubmittedLaunchPromptWhenReady(args)).resolves.toBeUndefined()
+
+    expect(mockReportAgentPromptDeliveryFailure).toHaveBeenCalledWith('pi')
+    // Why: the rejection is reported once, not re-toasted as a readiness verdict.
+    expect(mockToastMessage).not.toHaveBeenCalled()
+    expect(mockPasteDraftToAgentPtyWhenReady).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('keeps the brief as an unsubmitted draft when the readiness wait expires', async () => {

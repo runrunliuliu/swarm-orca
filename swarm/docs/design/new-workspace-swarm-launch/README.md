@@ -140,18 +140,20 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 | `max_workers` 为空/非 1–1000 整数 | 主按钮禁用，字段级提示；不发请求 |
 | 所选 agent 未被检测到 | 沿用现有 agent 选择逻辑禁用提交（不新增分支） |
 | 就绪等待超时（长启动 agent） | 保留 draft + 现有 toast 提示，不静默失败 |
-| pi 作为 Coordinator（选 Swarm 且 agent=pi） | 见 §7 风险 1：`submit-after-ready` 会 `forcePaste` 绕过 `ORCA_PI_PREFILL`，必须同时处理 |
+| pi 作为 Coordinator（选 Swarm 且 agent=pi） | 走 prefill 提交（`ORCA_PI_PREFILL` + `ORCA_PI_PREFILL_SUBMIT=1`），不经就绪 paste；见 §7 风险 1 |
 | 选择 Swarm 但没有 work item | 允许；模板写"开工前先问我目标"，不猜 issue |
 
 ## 7. 风险
 
-1. **pi 的提交可靠性（M1 的硬前置）**。`submit-after-ready` 带 `forcePaste`，会绕过
-   `shared/tui-agent-config.ts:133-140` 的 `ORCA_PI_PREFILL` 预填，改走终端就绪检测；
-   pi 没有 `draftPasteReadyTimeoutMs` 覆盖，吃默认 8s，而该配置的注释本身就写着
-   "paste-after-ready races its long startup"。超时分支是**完全不 paste**
-   （`renderer/src/lib/agent-paste-draft.ts:112-117`）。可选做法二选一：
-   (a) 保留 prefill，提交改由 pi 扩展在 `session_start` 后按开关发一次；
-   (b) 给 pi 补 `draftPasteReadyTimeoutMs`（参照 opencode 的 20s 与测量记录）并把超时降级为 draft。
+1. **pi 的提交可靠性（M1 的硬前置，已由 issue #54 收口）**。`submit-after-ready` 带
+   `forcePaste`，会绕过 `ORCA_PI_PREFILL` 预填，改走终端就绪检测；超时分支是**完全不 paste**
+   （`renderer/src/lib/agent-paste-draft.ts`）。M1 先按 "抬预算" 处理（给 pi 补
+   `draftPasteReadyTimeoutMs: 20_000` 并把超时降级为 draft），但 #54 的首次真实运行显示：
+   pi 的输入框为空、没有 turn、没有 toast —— 20s 预算不是解法。现在改走
+   (a)：`orca-prefill` 扩展在 `session_start`（`reason === 'startup'`）读到
+   `ORCA_PI_PREFILL_SUBMIT=1` 时调用 `pi.sendUserMessage(prefill)`，由 agent 自己起一轮；
+   `20_000` 预算保留为**兜底**（旧版 pi 没有 `sendUserMessage`、或 Windows 环境块放不下
+   prefill），不再被当成 pi 的测量依据。详见 §10.1。
 2. **模板归属**。模板是 renderer 常量，意味着它和仓库内 skill 路径耦合；skill 改名要同步改模板。
    缓解：模板只写一个路径 + 一句"按其执行"，不复制 skill 内容。
 3. **`max_workers` 的语义**。它是单 Run 并发上限且含审查/集成/嵌套/讨论 agent；
@@ -189,14 +191,28 @@ max_workers=<N>；含审查、集成、嵌套与讨论用 agent，不另开 Run 
 
 ### 10.1 需要先定的两件事：已定
 
-1. **pi 的提交走 (b)，不走 (a)。** (a) 要 pi 在 `session_start` 后自己发一次提交，而 pi 的扩展
-   API 里只有 `ctx.ui.setEditorText` 这类 fire-and-forget 方法，没有提交入口；照 (a) 做等于先
-   发明一个新 API。因此：`shared/tui-agent-config.ts` 给 pi 补
-   `draftPasteReadyTimeoutMs: 20_000`（与 opencode 相同的预算），并把超时降级为"至少留
-   draft"——`renderer/src/lib/swarm-launch-prompt-delivery.ts` 在就绪等待失败后以未提交方式
-   再 paste 一次，并明确提示"已在输入框、未发送"。
-   **这个 20s 是假设，不是 pi 的实测值**（opencode 的 20s 有测量记录，pi 还没有）；pi 上的
-   真实成功率仍未验证。
+1. **pi 的提交最先走 (b)，#54 之后改走 (a)，(b) 降级为兜底。** M1 当时的结论是
+   "(a) 不可行：pi 的扩展 API 里只有 `ctx.ui.setEditorText` 这类 fire-and-forget 方法，没有
+   提交入口"，于是给 pi 补 `draftPasteReadyTimeoutMs: 20_000` 并把超时降级为"至少留 draft"。
+   **那个前提是错的**：pi v1.5.0 的扩展 API 有 `pi.sendUserMessage(content, options?)`
+   （`dist/core/extensions/types.d.ts`，注释写明 "Always triggers a turn"；
+   `docs/extensions.md` 也把它的输入与"被提交"归为同一条路径），所以 (a) 不需要发明新 API。
+   而 #54 的真实运行也证明 (b) 走不通：输入框为空、没有 turn、没有 toast。
+   现在的实现（issue #54）：
+   - `shared/tui-agent-config.ts`：pi 增加 `draftPromptSubmitEnvVar:
+     'ORCA_PI_PREFILL_SUBMIT'`，与 `draftPromptEnvVar` 成对；`draftPasteReadyTimeoutMs:
+     20_000` 只描述 paste **兜底**，不再是提交路径的预算。
+   - `main/pi/prefill-extension-source.ts`：`session_start`（`reason === 'startup'`）读到
+     `ORCA_PI_PREFILL_SUBMIT=1` 时调 `pi.sendUserMessage(prefill)`；装了不支持该入口的旧 pi
+     则退回 `setEditorText`（留 draft，而不是丢掉）。
+   - `shared/tui-agent-startup.ts` 的 `buildAgentDraftLaunchPlan({ submitDraft: true })`：把
+     `ORCA_PI_PREFILL` + `ORCA_PI_PREFILL_SUBMIT=1` 一起放进启动 env，启动命令里同时清掉这两个
+     变量；没有 `draftPromptSubmitEnvVar` 的 agent 返回 null，调用方仍走 paste。
+   - `hooks/composer-state/quick-startup-plan.ts`：swarm 首条 prompt 先试 prefill 提交，成功则
+     delivery 记为 `auto-submit`、`startupPlan.draftPrompt` 为空（没有留给 paste 的东西）；否则
+     保持原 `submit-after-ready` paste 路径。
+   **仍未验证**：真实 pi 会话里这一轮的端到端表现（需要一次 pi + Swarm 真实起步）；
+   这里只证明指令构造与生成扩展的行为。
 2. **`max_workers` 是表单值（默认 4），不是"开工前问我"。** 模板里同时写值与语义
    （含审查、集成、嵌套与讨论用 agent），所以选完即开工，不需要多一轮问答；字段非 1–1000 整数时
    主按钮禁用。
@@ -252,6 +268,37 @@ A8 之后按审查意见把上限收到 1000：字段提示现为 `Enter a whole
 **没做**：pi（或其他 agent）在真实终端里 `submit-after-ready` 的成功率与就绪时序；任何 swarm
 Run 演练。因此上面的证据只证明"表单能给出正确的指令、并把它交给就绪后的 paste，UI 与设计稿
 一致"，不证明任何 Run 能跑起来。
+
+### 10.4 issue #54 修复记录（pi 首条 brief 不再走 paste）
+
+改动：见 §10.1 第 1 项。另补了失败面（原来只能 `console.warn` 或被 `void` 掉）：
+
+- `renderer/src/lib/agent-prompt-delivery-failure.ts`（新增）：统一 toast + `agent_error`
+  `delivery_write_failed`；
+- `swarm-launch-prompt-delivery.ts` 包一层 catch；`agent-startup-delayed-delivery.ts` 的队列
+  `deliver` 拒绝不再只 warn；`worktree-creation-completion.ts` 的 `void
+  ensureAgentStartupInTerminal(...)` 补 `.catch`。
+
+已执行的证据（`orca/`，`--maxWorkers=2`，仅本次受影响文件）：
+
+- `src/main/pi/prefill-extension-source.test.ts`（新增：在沙箱里 transpile 并运行生成的
+  `orca-prefill` 扩展——`SUBMIT=1` 时走 `pi.sendUserMessage`、否则 `setEditorText`、旧 pi 退回
+  留 draft、非 startup/no-pane 不消费）；
+- `src/shared/tui-agent-startup.test.ts`（`submitDraft: true` 的 env/清理命令、无 submit 变时的
+  null 退回）、`src/shared/telemetry-events.test.ts`（新错误类）；
+- `src/renderer/src/hooks/composer-state/quick-startup-plan.test.ts`（pi+swarm → prefill 提交；
+  codex+swarm 仍为 `submit-after-ready`；单 agent pi 仍 seed-only）、
+  `src/renderer/src/lib/swarm-launch-prompt-delivery.test.ts`（拒绝→上报）、
+  `src/renderer/src/lib/agent-startup-delayed-delivery.test.ts`、
+  `src/renderer/src/lib/worktree-creation-completion.test.ts`（新增）、
+  `src/renderer/src/lib/new-workspace.test.ts`、`src/renderer/src/lib/worktree-creation-flow.test.ts`；
+- `tsc -p config/tsconfig.node.json` / `tsconfig.web.json`、`oxlint`（改动文件）、
+  `check-max-lines-ratchet.mjs`、`verify-localization-extraction.mjs`、
+  `verify-localization-catalog.mjs` 均通过。
+
+**没做**：一次真实的 pi + Swarm 起步（本节验收的第一条），因此“TUI 里直接开跑”仍未实测；
+也没跑全量 vitest，`swarm/` 侧无 Python 改动。真实 pi 会话里 `sendUserMessage` 在
+`session_start` 的时序只由生成代码与 pi 文档支撑，未见 transcript。
 
 已知与本改动无关的红点：`audit-localization-coverage.mjs --check` 在
 `components/right-sidebar/incidents/IncidentDetailDrawer.tsx:131`（`sha256:`）与

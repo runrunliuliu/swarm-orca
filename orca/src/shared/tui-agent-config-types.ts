@@ -35,6 +35,12 @@ export type TuiAgentConfig = {
   draftPromptFlag?: string
   /** Startup env var that seeds the input without submitting, for agents with no `--prefill`-style flag (e.g. pi); avoids the paste-after-ready race. */
   draftPromptEnvVar?: string
+  /**
+   * Companion flag for `draftPromptEnvVar`: a launch that sets it to `1` asks the agent's own
+   * startup hook to submit the seeded prompt instead of leaving it editable. Only agents whose
+   * prefill hook can start a turn may declare it (see `agentSupportsSubmittedPrefill`).
+   */
+  draftPromptSubmitEnvVar?: string
   /** Claude Code follows pasted text only where the user's typed words ask, so dispatch briefs need a typed lead line. */
   pasteNeedsTypedRequest?: boolean
   /** Trust Orca pre-writes at PTY spawn (agent-workspace-trust.ts) so the agent's first-launch "trust this folder?" menu doesn't consume the bracketed paste. */

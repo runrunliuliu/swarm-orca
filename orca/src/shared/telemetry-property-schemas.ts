@@ -57,12 +57,13 @@ export const AGENT_KIND_VALUES = [
 export const agentKindSchema = z.enum(AGENT_KIND_VALUES)
 export type AgentKind = z.infer<typeof agentKindSchema>
 
-// Small set: only failures Orca's PTY-typed-command launch can observe (`binary_not_found` = shell ENOENT, `paste_readiness_timeout`, `submit_not_verified` = paste landed but the Enter verdict was not observed, `unknown`).
+// Small set: only failures Orca's PTY-typed-command launch can observe (`binary_not_found` = shell ENOENT, `paste_readiness_timeout`, `submit_not_verified` = paste landed but the Enter verdict was not observed, `delivery_write_failed` = the write into the agent's terminal rejected, `unknown`).
 // Provider-side errors (auth/rate-limit/network) happen inside the agent CLI subprocess and are invisible to Orca. See telemetry-plan.md §Defer per-incident error fields.
 export const errorClassSchema = z.enum([
   'binary_not_found',
   'paste_readiness_timeout',
   'submit_not_verified',
+  'delivery_write_failed',
   'unknown'
 ])
 export type ErrorClass = z.infer<typeof errorClassSchema>

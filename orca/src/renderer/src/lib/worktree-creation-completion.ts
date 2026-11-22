@@ -1,5 +1,6 @@
 import { useAppStore } from '@/store'
 import { ensureAgentStartupInTerminal } from '@/lib/new-workspace'
+import { reportAgentPromptDeliveryFailure } from '@/lib/agent-prompt-delivery-failure'
 import { queueWorkspaceActivationTerminalFocus } from '@/lib/workspace-activation-terminal-focus'
 import { seedAgentTabStateAfterWorktreeCreate } from '@/lib/worktree-creation-agent-seeds'
 import type { ActivateAndRevealResult } from '@/lib/worktree-activation'
@@ -36,6 +37,11 @@ export async function completeWorktreeCreation(args: {
       // Why: the composer decided delivery before the worktree existed; the paste must not
       // re-derive it, or a retry could submit a prompt the user chose to leave editable.
       submitDraft: request.promptDelivery === 'submit-after-ready'
+    }).catch((error: unknown) => {
+      // Why: this call is deliberately not awaited, so an unhandled rejection here is the
+      // quietest way to lose a launch prompt — surface it instead (#54).
+      console.warn('Agent startup delivery failed after worktree creation', error)
+      reportAgentPromptDeliveryFailure(request.agent)
     })
   }
   if (

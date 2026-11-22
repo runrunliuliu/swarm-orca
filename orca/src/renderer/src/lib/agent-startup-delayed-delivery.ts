@@ -1,4 +1,5 @@
 import { useAppStore } from '@/store'
+import { reportAgentPromptDeliveryFailure } from '@/lib/agent-prompt-delivery-failure'
 import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
 import {
@@ -201,7 +202,10 @@ function flushPendingAgentStartupDeliveries(): void {
     // duplicate a linked-work-item draft.
     if (beginAgentStartupDeliveryAttempt(delivery)) {
       void delivery.deliver(tabId, ptyId, delivery.startup).catch((error) => {
+        // Why: this queue outlives the create screen, so a warn-only drop was invisible to
+        // the user — the brief simply never arrived (#54).
         console.warn('Queued agent startup delivery failed', error)
+        reportAgentPromptDeliveryFailure(delivery.startup.agent)
       })
     }
   }
