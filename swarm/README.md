@@ -84,6 +84,7 @@ GitHub issue 草稿；默认 dry-run，不启动 Swarm、启用定时器或自�
 | Strict bootstrap 事件协议（**已归档、工具与读取器均已删除**） | [旧协议入口](strict-bootstrap-protocol.md) 只是归档说明：正文已移到部署方的私有归档，仓库内不再保留；`strict-bootstrap-state` 与 `bootstrap_events` 已删除，旧 attempt 不支持读取 |
 | 原生派发准备 | [预检](native-preflight.md)、[准备模板](coordinator-preparation.md)、[Worker 白名单](worker-model-candidates.md) / [固定参数](worker-model-profiles.json) |
 | 用量与会话证据 | [私有台账接入](configuration.md#部署政策与历史材料)、[宿主签名绑定](session-binding.md)、[runtime 文件绑定](runtime-session-binding.md)、[Worker 预释放用量快照](worker-usage-preserve.md)；不同证明口径不自动互相回退 |
+| 变更一览（发布说明） | [docs/release-notes/](docs/release-notes/README.md)：合并进 main 的 PR 按 git 区间由 `generate_release_notes.py` 生成，一条一个 PR，列出层与是否动了 `orca/` 非 renderer 路径；`--check` 在离线回归里防止漂移。**状态只有 `merged`**：`deployed <buildId>` 与验收结论留在部署方私有记录，不由本文件推断 |
 | 观察、安全与归档 | [只读 progress watch](progress-watch.md)、[启动与收尾保护](startup-safety.md)、[私有归档接入](configuration.md#部署政策与历史材料) |
 | 项目知识入口（模板） | [知识入口](field-guide/index.md)：部署后替换为远端可读路径，并在每个 Task 的 references 中明确提供。原“固定 DAG 角色与操作”一行随该 MVP 退役，`policies.md` 与 `coordinator-prompt.md` 已删除 |
 
