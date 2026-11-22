@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery fixtures (§7.11 testids and §7.12 delivered/archived states), the production delivery confirmation (its deliver scope), the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the delivery state signature and fact items, the six §7.11 delivery-entry states and their closed-popover semantics, the confirmation scope defaults without a dialog role, history facts/compact/trace-lost claims, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction (the confirmation is rendered directly) or locale switching.'
+  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery fixtures (§7.11 testids and §7.12 delivered/archived states), the production delivery confirmation (its deliver scope), the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the delivery state signature and fact items, the six §7.11 delivery-entry states and their closed-popover semantics, the confirmation scope defaults without a dialog role, history facts/compact/trace-lost claims plus the record-sourced archived rows with their per-row locate and resume actions, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction (the confirmation is rendered directly) or locale switching.'
 
 // Contract §4.2 plus the two §7.11 delivery-only fixture rows, copied by hand:
 // the fixture data is the other side of this pin, so a fixture edit that changes
@@ -266,7 +266,25 @@ export function derive(fixtureKey, width, height) {
   // The compact form starts collapsed; its notes, actions and run list mount only
   // after the Details toggle is used, which this screenshot pass never does.
   const historyDetailsOpen = !historyCompact
-  const historyRuns = hasHistory && deletedTrace && historyDetailsOpen ? history.runs.length : 0
+  // Since issue #53 the archived form lists only the rows the record supplied
+  // (fromRecord): its live rows are already the Agents section. The deleted form
+  // lists the recorded list as a whole. Deriving one number for both would flip a
+  // run-count assertion independently of what the panel is allowed to print.
+  const historyRecordRuns = hasHistory
+    ? deletedTrace
+      ? history.runs
+      : history.runs.filter((run) => run.fromRecord === true)
+    : []
+  const historyRows = historyDetailsOpen ? historyRecordRuns : []
+  const historyRuns = historyRows.length
+  // Both actions are per row, never strip-level: resume needs a resumable row, and
+  // locate needs a recorded transcript the reader could actually open.
+  const historyResumableRuns = historyRows.filter((run) => run.resumable === true).length
+  const historyLocateRuns = historyRows.filter(
+    (run) =>
+      run.transcriptPath !== undefined &&
+      !(run.trace !== undefined && run.trace.presence !== 'present')
+  ).length
   const spend = view.spend
   const delivery = view.delivery
   const deliverProjection = projectTaskWorkbenchDeliver(view)
@@ -292,10 +310,16 @@ export function derive(fixtureKey, width, height) {
       hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
     'task-workbench-history-trace-locate':
       hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
-    'task-workbench-history-trace-resume':
-      hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
-    'task-workbench-history-runs': hasHistory && deletedTrace && historyDetailsOpen ? 1 : 0,
+    // The archived list renders only when it has record rows; otherwise the strip
+    // states "No run recorded." instead (issue #53 T2, so an empty record never
+    // reads as a workspace that ran nothing).
+    'task-workbench-history-runs':
+      hasHistory && historyDetailsOpen && (deletedTrace || historyRuns > 0) ? 1 : 0,
+    'task-workbench-history-runs-none':
+      hasHistory && historyDetailsOpen && historyRuns === 0 && !deletedTrace ? 1 : 0,
     'task-workbench-history-run': historyRuns,
+    'task-workbench-history-run-resume': historyResumableRuns,
+    'task-workbench-history-run-locate': historyLocateRuns,
     'task-workbench-history-details': hasHistory && historyCompact ? 1 : 0,
     'task-workbench-agents': deletedTrace ? 0 : 1,
     'task-workbench-agents-empty': !deletedTrace && counts.agents === 0 ? 1 : 0,

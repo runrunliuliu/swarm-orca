@@ -99,7 +99,42 @@ export const TASK_WORKBENCH_FIXTURES = {
         tokens: { kind: 'available', tokens: 1_320_000 },
         lastActivityAt: FIXTURE_NOW,
         archivedWorkspaces: 1,
-        trace: 'archived'
+        trace: 'archived',
+        // Why record rows on an archived binding (issue #53): the archive form
+        // lists only the rows the record supplied — the live ones are the Agents
+        // section — so a fixture without them exercises the empty case instead
+        // ("No run recorded.") and proves nothing about the archived-with-history
+        // form this fixture exists for.
+        runs: [
+          {
+            key: 'sessionId:f2c-1',
+            title: 'Remove the legacy export',
+            agentType: 'claude',
+            startedAt: FIXTURE_NOW - 194 * 60_000,
+            endedAt: FIXTURE_NOW - 98 * 60_000,
+            messageCount: 41,
+            transcriptPath: '/fixtures/transcripts/f2c-1.jsonl',
+            trace: { presence: 'present', checkedAt: FIXTURE_NOW },
+            resumable: true,
+            resumeCommand: 'claude --resume f2c-1',
+            checkoutPath: '/fixtures/archived-workspace',
+            fromRecord: true
+          },
+          {
+            key: 'sessionId:f2c-2',
+            title: 'Verify the export is gone',
+            agentType: 'codex',
+            startedAt: FIXTURE_NOW - 92 * 60_000,
+            endedAt: FIXTURE_NOW,
+            messageCount: 12,
+            transcriptPath: '/fixtures/transcripts/f2c-2.jsonl',
+            trace: { presence: 'present', checkedAt: FIXTURE_NOW },
+            resumable: true,
+            resumeCommand: 'codex resume f2c-2',
+            checkoutPath: '/fixtures/archived-workspace',
+            fromRecord: true
+          }
+        ]
       })
     })
   },

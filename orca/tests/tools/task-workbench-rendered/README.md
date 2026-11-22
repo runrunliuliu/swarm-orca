@@ -26,9 +26,12 @@ Electron needs a display. On a headless Linux host, point `DISPLAY` at the exist
 - Degradation copy: an unavailable figure is `—` (never `0`/`$0`), Spend prints its reason token
   verbatim, no view prints `Delivered`, an archived-only task shows its card under the archived
   toggle, and a remote workspace shows the remote hint.
-- **The run-history strip (issue #31).** F2c renders the archived form: the strip exists, its facts
-  line contains `agents` / `wall` / `tokens`, the archived note and the two trace placeholders are
-  present, and the two archived agent rows sit in the History fold with the same count. F2d renders
+- **The run-history strip (issue #31, record rows from issue #53).** F2c renders the archived form:
+  the strip exists, its facts line contains `agents` / `wall` / `tokens`, the archived note and the
+  two trace placeholders are present, and the two archived agent rows sit in the History fold with
+  the same count. Its record list holds two `fromRecord` rows — the only kind the archived form may
+  list, because its live rows already are the Agents section — each with a `locate trace` action and
+  a per-row `resume`, which is why the strip has no strip-level resume left to assert. F2d renders
   the deleted form: no `task-workbench-empty-state`, no Agents / Workspaces section, exactly two run
   rows, the trace-lost sentence, and neither `0 tokens` nor `$0` anywhere. F2c at 900×700 asserts
   `data-compact="true"` plus the Details control, and no note/action is mounted until it is used.
