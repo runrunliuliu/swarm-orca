@@ -124,14 +124,21 @@ function formatWall(wall: HistoryTaskWall): string {
 }
 
 function formatTokens(tokens: HistoryTaskTokens): string {
+  if (tokens.kind === 'unknown') {
+    // Not `unknown (no_matching_session)` and not `0`: the record holds no
+    // measurement at all, so the line names that absence instead of a scan.
+    return 'not captured (this record holds no workspace settlement)'
+  }
   if (tokens.kind === 'unavailable') {
-    return `unknown (${tokens.reason})`
+    return `unavailable (${tokens.reason})`
   }
   const cost =
     tokens.estimatedCostUsd === null
       ? 'cost unknown'
       : `est. $${tokens.estimatedCostUsd.toFixed(2)}`
-  return `${tokens.tokens} tokens settled · ${cost}`
+  const partial =
+    tokens.kind === 'partial' ? ' (partial: at least one workspace was not captured)' : ''
+  return `${tokens.tokens} tokens settled${partial} · ${cost}`
 }
 
 function formatUsage(usage: HistoryTaskUsage): string {

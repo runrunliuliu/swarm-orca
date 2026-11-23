@@ -5,6 +5,7 @@ import type {
   TaskRecordRun,
   TaskRecordSession,
   TaskRecordTranscriptCheck,
+  TaskRecordUsageUnavailableReason,
   TaskWorkspaceBinding
 } from './task-records-types'
 
@@ -135,7 +136,15 @@ export type HistoryTaskWall =
 
 export type HistoryTaskTokens =
   | { kind: 'available'; tokens: number; estimatedCostUsd: number | null }
-  | { kind: 'unavailable'; reason: string }
+  /** A subtotal: at least one workspace this record holds was never captured, so
+   *  `tokens` is a lower bound and says so. */
+  | { kind: 'partial'; tokens: number; estimatedCostUsd: number | null }
+  /** A workspace was measured and its figure is missing: the settlement's own
+   *  reason, never a guess about what happened. */
+  | { kind: 'unavailable'; reason: TaskRecordUsageUnavailableReason }
+  /** Nothing was captured at all. Not `no_matching_session` (a scan that ran and
+   *  found nothing) and never `0`: this record holds no measurement. */
+  | { kind: 'unknown' }
 
 export type HistoryTaskUsage =
   | {
@@ -146,5 +155,10 @@ export type HistoryTaskUsage =
       worktreeId: string
       providers: { provider: string; tokens: number; costUsd: number | null }[]
     }
-  | { kind: 'unavailable'; reason: string; collectedAt: number; worktreeId: string }
+  | {
+      kind: 'unavailable'
+      reason: TaskRecordUsageUnavailableReason
+      collectedAt: number
+      worktreeId: string
+    }
   | { kind: 'unknown'; reason: 'unattributed' }

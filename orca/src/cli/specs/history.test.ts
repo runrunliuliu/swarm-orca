@@ -98,6 +98,10 @@ describe('history task discovery and positional parsing', () => {
     expect(notes).toContain('repo id')
     expect(notes).toContain('checkout path')
     expect(notes).toContain('never `0` or `$0`')
+    // Same four settlement states as the workbench: absence is not a reason token.
+    expect(notes).toContain('`unknown` when no settlement was recorded')
+    expect(notes).toContain('`partial` when only some workspaces settled a figure')
+    expect(notes).toContain('`unavailable` with the settlement’s own reason')
     expect(notes).toContain('trace` is one of `archived`, `deleted`, or `none`')
     expect(notes).toContain('transcript content is never read or printed')
     expect(notes).toContain('use `orca history backfill`')

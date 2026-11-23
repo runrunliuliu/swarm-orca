@@ -17775,6 +17775,7 @@
           "ambiguous_session": "More than one session matches this task, so usage cannot be attributed.",
           "no_matching_session": "No session matches this task yet, so there is nothing to total.",
           "remote_host": "This workspace runs on a remote host, where usage is not collected yet.",
+          "scan_failed": "The usage scan failed, so this figure could not be read.",
           "unattributed": "Some sessions could not be tied to this task."
         },
         "status": {

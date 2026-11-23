@@ -241,7 +241,9 @@ describe('unknown is never rendered as zero', () => {
     const result = exportOf(empty, [])
     expect(result.agents).toEqual({ kind: 'unknown', reason: 'no_run_recorded' })
     expect(result.wall).toEqual({ kind: 'unknown', reason: 'no_run_recorded' })
-    expect(result.tokens).toEqual({ kind: 'unavailable', reason: 'no_matching_session' })
+    // Not `no_matching_session`: nobody measured this task, so the export must not
+    // name a scan that never ran, and it must not print `0` either.
+    expect(result.tokens).toEqual({ kind: 'unknown' })
     expect(result.bindings[0]!.usage).toEqual({ kind: 'unknown', reason: 'unattributed' })
     expect(JSON.stringify(result)).not.toMatch(/"tokens":0|\$0/)
   })
@@ -250,9 +252,35 @@ describe('unknown is never rendered as zero', () => {
     const text = formatHistoryTaskExport(exportOf(empty, []))
     expect(text).toContain('agents: unknown (no_run_recorded)')
     expect(text).toContain('wall: unknown (no_run_recorded)')
-    expect(text).toContain('tokens: unknown (no_matching_session)')
+    expect(text).toContain('tokens: not captured')
     expect(text).toContain('usage: unknown (unattributed)')
     expect(text).not.toMatch(/\b0\b|\$0/)
+  })
+
+  it('states a subtotal as partial instead of printing it as the total', () => {
+    const result = exportOf(
+      record([
+        binding({
+          worktreeId: 'wt-settled',
+          isArchived: true,
+          usageSettlement: {
+            kind: 'known',
+            collectedAt: NOW,
+            scope: 'worktree-rollup',
+            worktreeId: 'wt-settled',
+            providers: [{ provider: 'claude', tokens: 1200, costUsd: 1.2 }],
+            estimatedCostUsd: 1.2
+          }
+        }),
+        binding({ worktreeId: 'wt-never-settled' })
+      ]),
+      ['wt-settled']
+    )
+
+    expect(result.tokens).toEqual({ kind: 'partial', tokens: 1200, estimatedCostUsd: 1.2 })
+    expect(formatHistoryTaskExport(result)).toContain(
+      'tokens: 1200 tokens settled (partial: at least one workspace was not captured) · est. $1.20'
+    )
   })
 })
 

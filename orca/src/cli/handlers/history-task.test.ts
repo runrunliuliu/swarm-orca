@@ -113,7 +113,7 @@ describe('history task handler', () => {
     expect(printed.result.historySource).toBe('record')
     expect(printed.result.agents).toEqual({ kind: 'unknown', reason: 'no_run_recorded' })
     expect(printed.result.wall).toEqual({ kind: 'unknown', reason: 'no_run_recorded' })
-    expect(printed.result.tokens).toEqual({ kind: 'unavailable', reason: 'no_matching_session' })
+    expect(printed.result.tokens).toEqual({ kind: 'unknown' })
     expect(printed.result.bindings[0]!.usage.kind).toBe('unknown')
   })
 

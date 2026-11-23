@@ -5,14 +5,16 @@ import type {
   TaskUsageSettlement
 } from '../../../../shared/task-records-types'
 import type { TaskWorkbenchHistory } from '@/components/task-workbench/task-workbench-view'
+import { aggregateTaskUsageSettlements } from '../../../../shared/task-usage-settlement-aggregate'
 import { mergeTaskRecordHistory } from './task-workbench-history-merge'
-import { aggregateSettlement, settleTokens } from './task-workbench-history-settlement'
+import { settleTokens } from './task-workbench-history-settlement'
 
 /**
  * The four states a closed workspace's usage figure can be in (issue #31 G3):
- * not captured, measured-but-missing, partial, known. The project puts them in
- * one union so neither the total nor its copy can turn two of them into one
- * sentence — and so none of them can become `0 tokens` / `$0`.
+ * not captured, measured-but-missing, partial, known. The fold that decides them
+ * lives in `shared/task-usage-settlement-aggregate.ts` (its own test covers the
+ * four arms); this file covers what the panel does with that answer — mapping it
+ * onto the task total and onto the spend vocabulary it displays.
  */
 
 function settlement(
@@ -39,94 +41,24 @@ function unavailable(
 
 const liveAvailable: TaskWorkbenchHistory['tokens'] = { kind: 'available', tokens: 1_200 }
 
-describe('aggregateSettlement — the four states of the closed workspaces', () => {
-  it('returns null when no closed workspace contributed (nothing to fold)', () => {
-    expect(aggregateSettlement([])).toBeNull()
-  })
-
-  it('is unknown when none of them was captured', () => {
-    // `undefined` is a binding whose settlement field the record never wrote.
-    expect(aggregateSettlement([undefined])).toEqual({ kind: 'unknown' })
-    expect(aggregateSettlement([undefined, undefined])).toEqual({ kind: 'unknown' })
-  })
-
-  it('is partial with the settled subtotal when only some of them were captured', () => {
-    // The 420 000 is real, but the second workspace is missing from it: the panel
-    // must neither print it as the total nor drop it.
-    expect(aggregateSettlement([settlement('a'), undefined])).toEqual({
-      kind: 'partial',
-      tokens: 420_000
-    })
-    expect(aggregateSettlement([undefined, settlement('a')])).toEqual({
-      kind: 'partial',
-      tokens: 420_000
-    })
-  })
-
-  it("quotes a settlement's own reason when measured figures are missing", () => {
-    // Measured and missing is a reason token, never `unknown`: a scan did run.
-    expect(aggregateSettlement([unavailable('a', 'scan_failed')])).toEqual({
-      kind: 'unavailable',
-      reason: 'scan_failed'
-    })
-    expect(aggregateSettlement([unavailable('a', 'remote_usage_unavailable')])).toEqual({
-      kind: 'unavailable',
-      reason: 'remote_host'
-    })
-    expect(aggregateSettlement([unavailable('a', 'usage_not_enabled')])).toEqual({
-      kind: 'unavailable',
-      reason: 'disabled'
-    })
-  })
-
-  it('prefers the measured reason over the absence when there is no known figure at all', () => {
-    // Not captured + measured-but-missing: the sentence that states a real scan
-    // is more useful than "this build did not capture", and both are absences.
-    expect(aggregateSettlement([undefined, unavailable('b', 'scan_failed')])).toEqual({
-      kind: 'unavailable',
-      reason: 'scan_failed'
-    })
-  })
-
-  it('is known when every one of them settled a number', () => {
-    expect(aggregateSettlement([settlement('a'), settlement('b', 80_000)])).toEqual({
-      kind: 'known',
-      tokens: 500_000
-    })
-  })
-
-  it('never turns a known row that holds no figure into a measured zero', () => {
-    // A `known` settlement with no provider rows is a rollup with nothing in it,
-    // not a workspace that spent 0: it becomes the measured "found nothing" state.
-    const empty: TaskUsageSettlement = {
-      kind: 'known',
-      collectedAt: 3_000,
-      scope: 'worktree-rollup',
-      worktreeId: 'a',
-      providers: [],
-      estimatedCostUsd: 0
-    }
-    expect(aggregateSettlement([empty])).toEqual({
-      kind: 'unavailable',
-      reason: 'no_matching_session'
-    })
-  })
-})
-
 describe('settleTokens — mapping those states onto the task total', () => {
   it('keeps the live figure when no closed workspace contributed', () => {
     expect(settleTokens(liveAvailable, null, false)).toEqual(liveAvailable)
   })
 
   it('adds a live figure to a fully known settlement', () => {
-    expect(settleTokens(liveAvailable, aggregateSettlement([settlement('a')]), false)).toEqual({
+    expect(
+      settleTokens(liveAvailable, aggregateTaskUsageSettlements([settlement('a')]), false)
+    ).toEqual({
       kind: 'available',
       tokens: 421_200
     })
   })
 
   it('states the settled number alone when there is no live workspace', () => {
-    expect(settleTokens(liveAvailable, aggregateSettlement([settlement('a')]), true)).toEqual({
+    expect(
+      settleTokens(liveAvailable, aggregateTaskUsageSettlements([settlement('a')]), true)
+    ).toEqual({
       kind: 'available',
       tokens: 420_000
     })
@@ -135,14 +67,18 @@ describe('settleTokens — mapping those states onto the task total', () => {
   it('does not add a live figure to a workspace nobody captured', () => {
     // "Total: every run" cannot be a number while one closed run was never
     // measured, however well the live rows were scanned — and it is not `0`.
-    expect(settleTokens(liveAvailable, aggregateSettlement([undefined]), false)).toEqual({
+    expect(settleTokens(liveAvailable, aggregateTaskUsageSettlements([undefined]), false)).toEqual({
       kind: 'unknown'
     })
   })
 
   it('adds the live figure to a partial subtotal and keeps the partial marker', () => {
     expect(
-      settleTokens(liveAvailable, aggregateSettlement([settlement('a'), undefined]), false)
+      settleTokens(
+        liveAvailable,
+        aggregateTaskUsageSettlements([settlement('a'), undefined]),
+        false
+      )
     ).toEqual({ kind: 'partial', tokens: 421_200 })
   })
 
@@ -152,7 +88,7 @@ describe('settleTokens — mapping those states onto the task total', () => {
     expect(
       settleTokens(
         { kind: 'unavailable', reason: 'unattributed' },
-        aggregateSettlement([settlement('a'), undefined]),
+        aggregateTaskUsageSettlements([settlement('a'), undefined]),
         false
       )
     ).toEqual({ kind: 'unavailable', reason: 'unattributed' })
@@ -164,7 +100,7 @@ describe('settleTokens — mapping those states onto the task total', () => {
     expect(
       settleTokens(
         { kind: 'unavailable', reason: 'no_matching_session' },
-        aggregateSettlement([settlement('a'), undefined]),
+        aggregateTaskUsageSettlements([settlement('a'), undefined]),
         false
       )
     ).toEqual({ kind: 'partial', tokens: 420_000 })
@@ -172,12 +108,35 @@ describe('settleTokens — mapping those states onto the task total', () => {
 
   it("passes an unavailable settlement's own reason through", () => {
     expect(
-      settleTokens(liveAvailable, aggregateSettlement([unavailable('a', 'scan_failed')]), false)
+      settleTokens(
+        liveAvailable,
+        aggregateTaskUsageSettlements([unavailable('a', 'scan_failed')]),
+        false
+      )
     ).toEqual({ kind: 'unavailable', reason: 'scan_failed' })
   })
 
+  it('maps the two record-only reasons onto the panel vocabulary', () => {
+    // The state is the shared fold's; only the word is the panel's, and this table
+    // is the single place the record's vocabulary becomes the display vocabulary.
+    expect(
+      settleTokens(
+        liveAvailable,
+        aggregateTaskUsageSettlements([unavailable('a', 'usage_not_enabled')]),
+        false
+      )
+    ).toEqual({ kind: 'unavailable', reason: 'disabled' })
+    expect(
+      settleTokens(
+        liveAvailable,
+        aggregateTaskUsageSettlements([unavailable('a', 'remote_usage_unavailable')]),
+        false
+      )
+    ).toEqual({ kind: 'unavailable', reason: 'remote_host' })
+  })
+
   it('never answers with a 0-token total for a workspace nobody captured', () => {
-    const total = settleTokens(liveAvailable, aggregateSettlement([undefined]), false)
+    const total = settleTokens(liveAvailable, aggregateTaskUsageSettlements([undefined]), false)
     expect(total).not.toEqual({ kind: 'available', tokens: 0 })
     expect(total).not.toEqual({ kind: 'partial', tokens: 0 })
   })

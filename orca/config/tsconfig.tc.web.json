@@ -18,6 +18,12 @@
     "../src/preload/runtime-environment-subscriptions.ts",
     "../src/preload/usage-provider-api.ts",
     "../src/shared/**/*",
+    // Why: the history-settlement parity test compares the panel's answer with the
+    // read-only `orca history task` export on one record. Both modules are pure
+    // leaves (they reach only `src/shared`), so the web project can typecheck the
+    // pair without pulling the CLI bundle into the renderer.
+    "../src/cli/history-task-export.ts",
+    "../src/cli/history-task-export-facts.ts",
     "../src/main/gitlab/mappers.ts",
     "../src/main/ipc/deferred-emoji-shortcode-dataset.ts",
     "../src/main/ipc/worktree-branch-name.ts",

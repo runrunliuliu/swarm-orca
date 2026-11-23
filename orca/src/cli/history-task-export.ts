@@ -45,7 +45,7 @@ export function buildHistoryTaskExport(args: {
     bindings,
     agents: agentsOf(rows),
     wall: wallOf(rows),
-    tokens: tokensOf(args.record.bindings, existing),
+    tokens: tokensOf(args.record.bindings),
     trace: traceOf(bindings),
     historySource: HISTORY_SOURCE,
     gaps: bindings.flatMap((binding) => binding.gaps)

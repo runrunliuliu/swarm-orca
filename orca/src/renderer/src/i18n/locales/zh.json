@@ -17567,6 +17567,7 @@
           "ambiguous_session": "有多个会话与此任务匹配，因此无法归属用量。",
           "no_matching_session": "尚无会话与此任务匹配，因此没有可汇总的数据。",
           "remote_host": "此工作区运行在远程主机上，该处尚未收集用量。",
+          "scan_failed": "用量扫描失败，因此无法读取该数字。",
           "unattributed": "有些会话无法关联到此任务。"
         },
         "status": {

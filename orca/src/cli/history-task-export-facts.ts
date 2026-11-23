@@ -1,4 +1,4 @@
-import { taskUsageSettlementTokens } from '../shared/task-records'
+import { aggregateTaskUsageSettlements } from '../shared/task-usage-settlement-aggregate'
 import type {
   HistoryTaskAgents,
   HistoryTaskBinding,
@@ -68,42 +68,30 @@ export function wallOf(
   }
 }
 
-export function tokensOf(
-  bindings: readonly TaskWorkspaceBinding[],
-  existing: ReadonlySet<string>
-): HistoryTaskTokens {
-  // A live workspace's usage lives in the running app's four usage stores, not in
-  // the record this command reads; its figure is unknown here, never zero.
-  if (bindings.some((binding) => bindingState(binding, existing) === 'live')) {
-    return { kind: 'unavailable', reason: 'no_matching_session' }
+/**
+ * The task total this record can state, folded by the same shared rule the
+ * workbench uses (`aggregateTaskUsageSettlements`), so one record never gets two
+ * answers. Two things this surface must not claim:
+ *
+ * - a live workspace's figure is not in the record at all (the running app owns
+ *   it), so it folds in as "not captured" like any other unrecorded workspace —
+ *   the export reads the record and says so, it does not guess;
+ * - an absent settlement is `unknown`, never `no_matching_session`: the record
+ *   holds no measurement, and a reason token would name a scan that never ran.
+ */
+export function tokensOf(bindings: readonly TaskWorkspaceBinding[]): HistoryTaskTokens {
+  const folded = aggregateTaskUsageSettlements(bindings.map((binding) => binding.usageSettlement))
+  if (folded === null || folded.kind === 'unknown') {
+    return { kind: 'unknown' }
   }
-  let tokens = 0
-  let costUsd = 0
-  let costKnown = true
-  let settled = false
-  for (const binding of bindings) {
-    const settlement = binding.usageSettlement
-    if (!settlement) {
-      return { kind: 'unavailable', reason: 'no_matching_session' }
-    }
-    settled = true
-    if (settlement.kind === 'unavailable') {
-      return { kind: 'unavailable', reason: settlement.reason }
-    }
-    const settledTokens = taskUsageSettlementTokens(settlement)
-    if (settledTokens === null) {
-      return { kind: 'unavailable', reason: 'no_matching_session' }
-    }
-    tokens += settledTokens
-    if (settlement.estimatedCostUsd === null) {
-      costKnown = false
-    } else {
-      costUsd += settlement.estimatedCostUsd
-    }
+  if (folded.kind === 'unavailable') {
+    return folded
   }
-  return settled
-    ? { kind: 'available', tokens, estimatedCostUsd: costKnown ? costUsd : null }
-    : { kind: 'unavailable', reason: 'no_matching_session' }
+  return {
+    kind: folded.kind === 'known' ? 'available' : 'partial',
+    tokens: folded.tokens,
+    estimatedCostUsd: folded.estimatedCostUsd
+  }
 }
 
 export function traceOf(bindings: readonly HistoryTaskBinding[]): HistoryTaskExport['trace'] {

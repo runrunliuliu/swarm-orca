@@ -6,6 +6,7 @@ import {
   type TaskRecordSession,
   type TaskWorkspaceBinding
 } from '../../../../shared/task-records-types'
+import { aggregateTaskUsageSettlements } from '../../../../shared/task-usage-settlement-aggregate'
 import type {
   TaskWorkbenchGapView,
   TaskWorkbenchHistory,
@@ -14,7 +15,7 @@ import type {
   TaskWorkbenchHistoryWorkspace
 } from '@/components/task-workbench/task-workbench-view'
 import { taskHistoryWallClock } from './task-workbench-join'
-import { aggregateSettlement, settleTokens } from './task-workbench-history-settlement'
+import { settleTokens } from './task-workbench-history-settlement'
 
 /**
  * Fold the persisted task record into the join's history (issue #36).
@@ -139,7 +140,7 @@ export function mergeTaskRecordHistory(args: {
       worktreeId: binding.worktreeId
     }))
   )
-  const settled = aggregateSettlement(
+  const settled = aggregateTaskUsageSettlements(
     // Archived and removed: a settlement is a *workspace* figure the record froze,
     // so it belongs to the task total once, whether or not the checkout is still
     // on this machine (S11). Counting the per-row rollups instead left an
