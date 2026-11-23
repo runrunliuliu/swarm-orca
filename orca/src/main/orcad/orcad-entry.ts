@@ -190,8 +190,15 @@ async function startOrcadRuntime(
   const { resolvePushGatewayOrigin } = await import('../runtime/push/push-gateway-origin')
 
   const runtimeUserDataPath = getAppEnvironment().getPath('userData')
+  // Why the hook server is handed to the Store seam and not bound here: the Store is
+  // bound with the `task-records` usage source before this returns (issue #31), so the
+  // first archive — which any client can send as soon as the transport binds — stores
+  // the sessions the hook server attributes instead of "this runtime could not look".
+  // The desktop's other argument (the four provider usage stores) cannot be bound on a
+  // Node host: each imports `app` from `electron` at module scope. See
+  // `orcad-task-records-usage-source.ts`.
   const { store: profileStore, authority: profileStateAuthority } =
-    await createOrcadProfileStateStartup(runtimeUserDataPath)
+    await createOrcadProfileStateStartup(runtimeUserDataPath, { hookServer: agentHookServer })
   const observedPaneIdentities = new AgentStatusObservedPaneIdentities()
   const observedStatusCapture = new AgentStatusObservedPaneIdentityCapture(observedPaneIdentities)
   // Why a real Store: without one every persistence-backed RPC throws `runtime_unavailable`
