@@ -157,9 +157,30 @@ orca worktree set --worktree <self> --workspace-status completed \
 - **被否**：新增持久 `deliverySession` 字段（与 D3 语义重复，且要扩 schema）。
 - **已知残余**：用户重命名交付 tab 仍会丢标记（bound 4），保留为已记录缺口，不在本次修。
 
-### D6 Trae 启动参数不属本方案
+### D6 启动命令归属：wrapper 与它的参数一起走（issue #60 已实现）
 
-`traecli -c` 是 `--config <key=value>`，位置参数才是 `[PROMPT]`。环境侧给 Trae agent 配的启动包装把整段 sh 脚本塞进 `-c`，于是包装里的占位 token 变成了 PROMPT、交付指令只能作为第二条消息补进去。修复在私有配置里，需单独授权，本文只记录"交付指令必须是会话的第一条消息"这条验收（§8 的 A5）。
+`traecli -c` 是 `--config <key=value>`，位置参数才是 `[PROMPT]`。环境侧给 Trae agent 配的启动包装把整段 sh 脚本塞进 `-c`，于是包装里的占位 token 变成了 PROMPT、交付指令只能作为第二条消息补进去。
+
+issue #60 把原因定位到**代码侧的命令/参数拆分**，而不是包装本身：host-authority 的 fresh-session 路径只把 `agentArgs` 送上 wire，命令由 host 用自己的 Settings 重建，于是客户端的「`sh` + 它的参数」变成 host 的「`traecli` + 客户端参数」，包装的 `$0` 标记落进 Trae 的位置参数，成为第一条 prompt。修法是一条归属契约，而不是替用户改配置：
+
+- `shared/agent-launch-command-ownership.ts`：启动前判定这份计划是 `host-owned`（本端没有替换可执行命令，host 可用自己的 Settings 重建整条命令，随行参数是普通 CLI 参数）还是 `client-prepared`（本端替换了该 agent 的命令，整条命令必须带着参数一起走）。判据读的是 `override || 默认命令` 的那份计划（含只含空格的 override），与 `resolveAgentLaunchCommand` 保持同一口径。
+- `launch-agent-in-new-tab` → `launch-agent-web-host-tab`：`client-prepared` 时改送完整 `command` + `launchConfig` + `preparedAgentCommand`，**不再单独送 `agentArgs`**；`host-owned` 保持原样（`agent` + 可搬运的参数，由 host 重建命令）。
+- `preparedAgentCommand` 在 create operation 里已经是「这条命令就是要跑的命令」的既有契约，因此这条路径不会被 host 重建，也没有新增客户端命令执行权限——它复用 after-wake 已有的 prepared 命令链路。
+- 兼容：没有 override 的普通启动 wire 形状不变；old host 仍走 legacy `session.tabs.createTerminal`，prepared 命令在该路径上原样执行。
+
+### D7 交付结果：终端启动 ≠ 输入写入 ≠ 目标 prompt 提交（issue #60 已实现）
+
+`launchTaskWorkbenchDeliver` 过去拿到 launch 对象就返回 `ok: true`，终端创建与指令送达没有被分开。现在返回值多一个 `settlement`（`ok: true` 仍只表示会话已启动）：
+
+| 状态 | 含义 | 界面 |
+| --- | --- | --- |
+| `submitted` | 写入之后 agent 自己的 hook 状态进入 `working`，且该 turn 的起始时间不早于写入 | 静默（会话里看得见） |
+| `written` | 已写入，状态没有给出方向（该 agent 不上报 turn 状态） | 静默 |
+| `unconfirmed` | 写入了但证据说这一轮没开始：写入时已在 working / idle→idle / 从未观测到 composer（盲写） | 既有 `components.agentSessionContinuation.deliveryUnconfirmed` 警示 + 复制指令 |
+| `not-delivered` | paste 没落地（准备超时、PTY 缺失、create 失败）；终端路由自己的提示已说过时不重复 | 既有 `...deliveryFailed` 错误 + 复制指令 |
+| `unreported` | 该路由不报告投递结果 | 静默，不臆断失败 |
+
+判据全落在纯函数 `lib/agent-prompt-submission.ts`（`readAgentTurnSnapshot` / `decidePromptSubmission` / `waitForAgentTurnStart`），调用点在 `lib/agent-launch-prompt-delivery.ts`：写入前读一次、写后在有意义时最多等 2s。**未知永远不升级成断言**，也**不以重发 Enter 代替确认**：`unconfirmed` 只报告，不重试、不新建 agent；重发 Enter 仍只由既有 per-agent `submitRetryDelayMs` 决定，且它不是证据。
 
 ## 4. 状态模型与数据流
 
@@ -282,6 +303,8 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 | A8 | G3 | 归档后交付行仍显示 `已交付`，入口消失 | 单测 + fixture 渲染 |
 | A9 | G2 | 完成后工作区状态为 `completed`（写入路径 = 既有 `worktree set`） | 单测（指令）+ 真机手工 |
 | A10 | D2 | 勾选归档时，归档是交付 agent 的最后一步；失败只在报告里说明，不重试、不判交付失败；未勾选时不归档 | 单测（issue #49） |
+| A11 | D6 / issue #60 | 本端有命令 override 时，远程启动送完整命令 + `preparedAgentCommand` 且不送 `agentArgs`；无 override 时仍由 host 重建并只送普通参数；prepared 启动不会走到 `terminal.createAgentSession`（即不会重建命令） | 单测（归属判据 + 三条启动路径 + create operation） |
+| A12 | D7 / issue #60 | 交付入口区分终端启动 / 输入写入 / prompt 提交：`unconfirmed` 给既有警示、`not-delivered` 给既有错误且已提示时不重复、`unreported` 静默；任何分支都不重发 Enter、不重开 agent | 单测（verdict + settlement + 交付入口） |
 
 ## 9. 风险与回退
 
@@ -292,7 +315,8 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 | 归档过早导致报告没看 | 归档是 agent 自己的最后一步（先报告、后归档），且 archive 不杀 PTY（§7.10）；`unarchive` 可恢复 |
 | 「已完成」被手工误用 | `已交付` 额外要求 `review.state === 'merged'`；单一 `completed` 不构成已交付 |
 | 交付会话中途停止，归档没执行 | 工作区保留原状，人可从工作区行一键归档；只是少了自动性 |
-| Trae 首条消息不是交付指令 | 本方案不修（D6）；A5 的验收在终端路由上先行，Trae 修复单独授权 |
+| Trae 首条消息不是交付指令 | 命令/参数归属契约已由 issue #60 落地（D6）：wrapper 与其参数一起走，不再被 host 的命令重建拆开；环境侧的 Trae 包装内容本身仍是私有配置，不在本仓库改 |
+| 「指令已送达」被说得比证据多 | 交付结果按 D7 分级；没有 agent 状态上报时最多到 `written`，`unconfirmed` 只提示不重发（issue #60） |
 
 **回退**：三个勾默认关掉即回到现有行为；完成事实是工作区状态，用户可改回；没有 schema 变更，
 不需要数据迁移或恢复步骤。
@@ -301,7 +325,7 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 
 1. 生产代码落地（`orca/` renderer + i18n）与测试；本文只有文档与三张设计稿。
 2. 部署、重启、发布；用户在真实仓库上验证一次合并 + 关闭 issue。
-3. 环境侧私有 Trae 启动参数的修复（D6）。
+3. 环境侧私有 Trae 启动包装的内容：D6 只落地了代码侧的归属契约，包装本身仍属单独授权。
 4. 其他 tracker 的关闭写回（GitLab/Linear/Jira）。
 5. checks / 评审结论 / 提交数的真实来源（M3 剩余部分）。
 
@@ -327,3 +351,43 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
   es/fr/ja/ko 的新文案是英文回退。
 - 实现补了四张 harness 渲染图（`ui/impl-20261120-delivered*.png`、`impl-20261120-deliver-confirm.png`，
   见 README §7.12.2）：它们是生产组件的 CDP 截图，不是设计稿，也仍不是真机截图。
+- issue #60 的提交确认依赖 agent 自己的 hook 状态。没有状态上报的 agent 只能得到 `written`；「Enter 被 TUI
+  丢弃」这一情形仍没有输入事件证据，本次证明的是「不会把未确认说成已送达、也不重发」（A11/A12），
+  不是「一定送达」。D6 的归属契约在真机上只验证到合成 wrapper 的命令生成层，没有一次真实远程交付演练。
+- A12 的端到端（`tests/e2e/task-workbench-deliver-prompt-submit.spec.ts`）走的是**送达分支**：交付 tab 的
+  agent 收到恰好一条提交（一次 bracketed paste、paste 之后恰好一个 Enter），内容就是交付指令，且 app 不记录
+  prompt 失败。它此前只能观察到空输入框，因为本机一个 agent 面板的 PTY 要约 10-13s 才出现（shell 面板 0.5s），
+  而 launch-time paste 用的是通用 8s spawn 判定——于是指令在 PTY 还在路上时被丢弃。修法见 D8。
+- 本机 agent 面板为何慢 10s+ 仍未定位（只读排查已排除 codex trust 20s / claude trust 1.5s / hook 注入 /
+  resume 探测；下一步是 `ORCA_PTY_SPAWN_TIMING=1` 的现有阶段日志）。这不影响 D8 的结论：预算是**有界**的，
+  失败会说话，取消也在。
+
+### D8 已准入的 spawn：交付 paste 等自己的 PTY（issue #60 后半）
+
+通用判定「8s 没等到 PTY 就当启动失败」对一个刚创建、启动命令已排队的 tab 是错的：它把「PTY 还在路上」当成
+「启动失败」，于是指令被丢掉，而 PTY 一秒钟后可能就到了。改动只有三处，且不改通用判定的语义：
+
+| 片 | 改动 | 位置 |
+| --- | --- | --- |
+| 预算 | `LAUNCH_PTY_SPAWN_TIMEOUT_MS = 30_000`；交付 paste 用它，其他调用仍是 8s（STA-3367 的语义不变） | `shared/draft-paste-ready-timeout.ts`、`lib/agent-paste-draft.ts`、`lib/agent-launch-prompt-delivery.ts` |
+| 取消 | 等待期间 tab 从 store 消失就立即结束（"先见过这个 tab"的守卫避免把未水合的 store 当成已关闭） | `lib/agent-paste-draft.ts` |
+| 不谎报 | 预算真的耗尽才报失败；报过失败就不再 paste；写入时刻在 PTY 输入事务内取（未取到只给 `written`） | `lib/agent-paste-draft.ts`、`lib/agent-prompt-submission.ts` |
+| 可修 | 「没发送」提示带上指令与「Copy prompt」，不再出现"先说话的那条没有动作、却抑制了有动作的那条" | `lib/launch-agent-paste-timeout-notice.ts` |
+
+**D8 的已知残余（只读评审 codex-ark 指出，本轮未修）**：
+
+- 取消只覆盖"PTY 绑上之前 tab 被关掉"。绑上之后（就绪等待或输入事务排队期间）关 tab 不会被检测；
+  tab 代际替换同理。要修需要把 tab/generation 生命周期穿进等待与写事务，不是几行的事。
+- `onWriteStart` 在拿到输入事务之后、内容预检之前触发；超大 prompt 的首个 chunk 写入前会 yield 一次，
+  理论上存在一个很窄的误归因窗口（一个 turn 恰好在这几毫秒内开始）。
+- 30s 是**有界缓解**，不是保证：真正超过 30s 的合规 spawn 仍会丢一次指令（但会说话，且不重发）。
+  只读评审同意"先留 30s，等 tab 代际/失败信号齐了再谈无界可取消"。
+
+**D6/D7 的已知残余（独立评审指出，本轮未修）**：
+
+- 归属判据目前只在 paired-host 启动路由上生效；SSH PTY 传输（`remote-runtime-pty-transport.ts`）仍只送
+  `agentArgs` 一半，带命令 override 的 SSH 启动仍会被 host 用自己的命令重建。归属模块的注释已按此收窄。
+- `client-prepared` 命令按客户端平台生成（`launch-agent-execution-context.ts` 的 `CLIENT_PLATFORM`），
+  客户端与 host 平台不同（如 Windows 客户端 + Linux host）时引号与路径规则不保证可执行。
+- verdict 用 host 上报的 `stateStartedAt` 与客户端的 `writeStartedAt` 比较先后，两者跨机器时钟未做偏移校正；
+  时钟漂移会让「turn 是否在写入之后开始」的判断偏保守或偏乐观。

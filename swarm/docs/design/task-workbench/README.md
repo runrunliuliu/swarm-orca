@@ -1192,7 +1192,7 @@ ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all 
 - `ui/design-deliver-20261120-*.png` 仍是 HTML/CSS 设计稿；本次新增的是 `ui/impl-20261120-*.png`（真实组件渲染）。
 - es/fr/ja/ko 本轮新增文案是英文回退，未做词级翻译。
 - oxlint 的 `max-lines` 在四个被本切片触及的文件上仍是红的（括号内为工作树 HEAD 上的实测值 → 现在）：
-  `hooks/use-task-workbench-view.ts`（330→331）、`lib/launch-agent-in-new-tab.ts`（317→319）、
+  `hooks/use-task-workbench-view.ts`（330→331）、`lib/launch-agent-in-new-tab.ts`（317→319，§7.12.4 后 331）、
   `runtime/web-runtime-terminal-create-operation.ts`（303→311）、
   `tests/tools/task-workbench-rendered/run.mjs`（888→1121，渲染驱动新增了交付行/确认面的断言）。
   它们在本切片前就超预算，本切片没有顺手拆文件；拆它们属于独立的重构。
@@ -1240,6 +1240,97 @@ sidebar 勾选透传缺回归用例（已补两条）；README 的 A4/A6 编号�
 
 **仍未证明**：没有一次“勾选归档 → agent 真的执行 → 行消失 → Restore 恢复”的真机演练；
 归档现在依赖交付会话按指令走到第 8 步，agent 中途停止或被 kill 时工作区仍保留（可人工归档，与之前一致）。
+
+
+#### 7.12.4 启动命令归属与交付结果（issue #60，2026-11-22）
+
+issue #60 报的现象是「远程 worktree 里的 Trae 已经跑起来，但首轮执行的不是交付指令，而是启动包装的
+一个标记字符串；真正的交付指令还停在输入框」。定位结论有两个，写进代码时各占一处契约：
+
+1. **命令与配套参数被拆开送。** host-authority 的 fresh-session 路径只把 `agentArgs` 送上 wire，命令由
+   host 用自己的 Settings 重建。客户端配置是 `sh -c 'exec traecli "$@"' wrapper-dispatch --yolo`（override
+   `trae=sh`），于是 host 拿自己的 `traecli` 拼上这串参数，`wrapper-dispatch` 落进 Trae 的位置参数，
+   成了第一条 prompt。修法见 plan §3 D6：`shared/agent-launch-command-ownership.ts` 判定这份计划是
+   `host-owned` 还是 `client-prepared`，后者改送完整 `command` + `launchConfig` + `preparedAgentCommand`，
+   不再单独送 `agentArgs`。
+2. **「终端起来了」被当成「指令送到了」。** 交付入口拿到 launch 对象就返回 `ok: true`；
+   `promptDelivery` 的布尔只表示 paste 写进了 PTY，不表示它成了一条用户消息。修法见 plan §3 D7：
+   交付入口多一个 `settlement`，按 agent 自己的 hook 状态区分 `submitted` / `written` / `unconfirmed` /
+   `not-delivered` / `unreported`，`unconfirmed` 与 `not-delivered` 复用既有的
+   `components.agentSessionContinuation.*` 两句话（不新增文案），且任何分支都不重发 Enter、不重开 agent。
+
+| 片 | 改动 | 位置 |
+| --- | --- | --- |
+| 归属判据 | `resolveAgentLaunchCommandOwnership` / `agentLaunchNeedsPreparedCommand`；判据读 `override || 默认命令` 的那份计划，与 `resolveAgentLaunchCommand` 同口径 | `shared/agent-launch-command-ownership.ts`（新） |
+| 启动 wire | `client-prepared` 时送完整命令并置 `preparedAgentCommand`，不送 `agentArgs`；`host-owned` 形状不变 | `lib/launch-agent-in-new-tab.ts`、`lib/launch-agent-web-host-tab.ts` |
+| 提交判据 | `readAgentTurnSnapshot` / `decidePromptSubmission` / `waitForAgentTurnStart` / `begin·finishAgentSubmitObservation`；写入前读一次、写后最多等 2s，未知不升级为断言 | `lib/agent-prompt-submission.ts`（新） |
+| 判据接入 | 只在提交路径开观察（草稿、native prefill 不开）、`onUnconfirmedDelivery` 由观察对象包装转发、成对路由（本地终端与 host）都拿到同一份 verdict | `lib/agent-launch-prompt-delivery.ts`、`runtime/web-runtime-terminal-creation.ts` |
+| 交付入口 | `settleTaskWorkbenchDeliverSettlement` + `reportTaskWorkbenchDeliverSettlement`；`ok: true` 仍只表示会话已启动，结果里多一个永不 reject 的 `settlement` | `lib/task-workbench/task-workbench-deliver-launch.ts` |
+| 文案复用 | 「未确认」「未送达」沿用既有两句与「Copy prompt」动作，`copyPromptToastAction` 抽到独立模块供两处共用（不新增 i18n 键） | `lib/copy-prompt-toast-action.ts`（新）、`lib/launch-agent-session-continuation.ts` |
+| 提示归属 | 终端路由自己的"没发送"提示只有**真的弹出来**才算已告知：读者关掉了 tab 或切走了工作区时它保持沉默，此时 `failureNotified` 为 false，交付入口仍需给出可读的失败面（否则一次没落地的交付会完全无声） | `lib/launch-agent-paste-timeout-notice.ts`、`task-workbench-deliver-launch.ts` |
+
+**已执行**（`cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts … --maxWorkers=2`；
+依赖树借用同一基线工作树，未在本工作树安装）：
+
+- 归属与提交判据、三条启动路径、交付入口与两个宿主：
+  `src/renderer/src/lib/launch-agent-*`、`src/renderer/src/lib/agent-launch-*`、`src/renderer/src/lib/agent-paste-*`、
+  `agent-prompt-submission.test.ts`、`src/renderer/src/lib/task-workbench`、`src/renderer/src/components/task-workbench`、
+  `WorktreeContextMenu.deliver-order.test.tsx`、`runSourceControlAgentActionStart.test.ts`、
+  `runtime/web-runtime-session-terminal-host-authority.test.ts`（26 文件 / 535 用例，全绿）。
+- web 会话创建与旧路由兼容：`web-runtime-session-terminal-legacy-create`、`-workspace-routing`、
+  `launch-agent-in-new-tab{,.host-resolution,-windows-quoting}`、`launch-agent-structured-chat-guard`、
+  `launch-agent-web-host-tab.marker`、`use-terminal-create-actions`、`cmd-j-create-actions`、
+  `floating-workspace-terminal-actions`、`launch-ai-vault-session`（11 文件 / 137 用例，全绿）。
+- `tsc --noEmit -p config/tsconfig.tc.web.json` 与 `-p config/tsconfig.node.json` 均退出 0（即 `pnpm tc:web` / `tc:node` 的入口）。
+- 红/绿已对照：把 `launch-agent-in-new-tab.ts`、`launch-agent-web-host-tab.ts` 回到改动前（`git stash` 两个文件，
+  本工作树内），新增的三条 wrapper 用例失败；恢复后全绿。
+
+**端到端（本次新增，`tests/e2e/task-workbench-deliver-prompt-submit.spec.ts`）**：
+
+真 Electron + 真 PTY + 真 spawn，走 sidebar「交付…」→ 确认面 → 提交的真 UI；agent 是
+`tests/e2e/fixtures/golden-stub-agent` 的 opt-in 模式（开 bracketed paste、把 paste 里的换行当
+composer 文本、把 app 写入的每个字节与每次提交落盘），设置里配的是**shell 包装 + 它的参数**
+（issue #60 的形状）。断言的是不变量，而不是一条 happy path：
+
+- 只有**一个** agent 进程启动，且它执行的命令就是包装加参数（`wrapper.log` 与 stub 的 `argv` 都是
+  `--fake-agent`）——即命令与参数没有被拆给两个可执行文件；
+- 交付要么把指令作为**恰好一条**提交送达（一次 paste、paste 之后一次 Enter），要么由 app 记下
+  「这条 prompt 没落地」（`nativeChatLaunchPromptByTabId[…].failed`），**不会声称成功**；
+- 交付 tab 带 `DELIVER` 标记，观察窗口内没有第二次启动、没有第二次提交。
+
+**这次 e2e 顺带修掉的一个真实缺口（issue #60 的「没落地」那一半）**：
+
+跑它时发现：交付 tab 的 PTY 在本机要 ~10-13s 才出现（同一台机器上一个 shell 面板 0.5s），而
+launch-time paste 用的是通用的 8s spawn 判定（"8s 没有 PTY 就当启动失败"，STA-3367 的语义）。
+于是**指令在 PTY 还在路上时被丢弃**，app 只记下一个失败标记。修法（都不改通用判定）：
+
+| 片 | 改动 | 位置 |
+| --- | --- | --- |
+| 已准入的 spawn 预算 | 新增 `LAUNCH_PTY_SPAWN_TIMEOUT_MS = 30_000`：交付 paste 属于"启动命令已排队"的 tab，它的 spawn 是预期内的，30s 内有界等待；通用 8s 判定对非启动调用保持原样 | `shared/draft-paste-ready-timeout.ts`、`lib/agent-paste-draft.ts`、`lib/agent-launch-prompt-delivery.ts` |
+| 取消 | 等待期间 tab 从 store 消失 → 立即结束（不再等到预算耗尽），且用"先见过这个 tab"的守卫，避免把尚未水合的 store 当成已关闭 | `lib/agent-paste-draft.ts` |
+| 写入时刻 | `onWriteStart` 改在 PTY 输入事务内、第一次写入之前触发（事务可能被别的输入占住），未取到写入观测就只给 `written`，不给 `submitted` | `lib/agent-paste-draft.ts`、`lib/agent-prompt-submission.ts` |
+| 提示可修 | 终端路由自己的"没发送"提示现在带上指令文本与「Copy prompt」动作——它常常是读者唯一看到的那条，而它此前又会抑制交付入口那条带动作的提示 | `lib/launch-agent-paste-timeout-notice.ts`、`lib/launch-agent-in-new-tab.ts` |
+| write 原语拆分 | paste + Enter(+重试) 的单一事务写到独立模块，`agent-paste-draft` 回到行数预算内 | `lib/agent-bracketed-paste-write.ts`（新） |
+
+修完后同一条 e2e 走的是**送达分支**：交付 tab 的 agent 收到**恰好一条**提交（一次 bracketed paste、paste
+之后恰好一个 Enter），内容就是交付指令，且 app 不再记录 prompt 失败。此前同一 spec 只能观察到空输入框。
+
+**D8 的已知残余**（只读评审指出、本轮未修）：取消只覆盖"PTY 绑上之前 tab 被关掉"；绑上之后的关闭/代际替换
+不会被检测。`onWriteStart` 在内容预检之前触发，超大 prompt 首个 chunk 前的 yield 留了一个很窄的误归因窗口。
+30s 是有界缓解而非保证（超时的合规 spawn 仍会丢一次，但会说话、不重发）。
+
+**这条 e2e 仍未覆盖的**：paired-host 的命令归属（本 spec 单 app，见下）；"agent 根本起不来"时的提示路径
+由单测（notice + settlement）钉住，没有单独的 e2e；本机 PTY 为何对 agent 面板慢 10s+ 仍未定位
+（codex-ark 的只读排查排除了 codex trust 20s / claude trust 1.5s / hook 注入 / resume 探测，
+建议用 `ORCA_PTY_SPAWN_TIMING=1` 的现有阶段日志再定位；这不影响结论：预算是**有界**的，且失败会说话）。
+
+**仍未证明**：
+
+- 归属契约只验证到「命令生成 + wire 形状 + create operation 不重建」这一层；没有一次真实远程交付演练，
+  也没有取得事发时的客户端 settings 快照。
+- 提交确认依赖 agent 自己的 hook 状态：不上报状态的 agent 只能到 `written`；「Enter 被 TUI 吞掉」仍无输入
+  事件证据，本次证明的是「不会把未确认说成已送达，也不会重发 Enter」。
+- 环境侧的 Trae 启动包装内容仍属私有配置（plan §10.3），本仓库只保证它不会被拆开送。
 
 ---
 

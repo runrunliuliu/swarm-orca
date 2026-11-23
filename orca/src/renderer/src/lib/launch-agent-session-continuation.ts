@@ -8,6 +8,7 @@ import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { translate } from '@/i18n/i18n'
+import { copyPromptToastAction } from '@/lib/copy-prompt-toast-action'
 
 type LaunchAgentSessionContinuationArgs = {
   agent: TuiAgent
@@ -159,17 +160,4 @@ function notifyDeliveryUnconfirmed(agentLabel: string, prompt: string): void {
     ),
     copyPromptToastAction(prompt)
   )
-}
-
-function copyPromptToastAction(prompt: string): {
-  action: { label: string; onClick: () => void }
-} {
-  return {
-    action: {
-      label: translate('components.agentSessionContinuation.copyPrompt', 'Copy prompt'),
-      onClick: () => {
-        void window.api.ui.writeClipboardText(prompt)
-      }
-    }
-  }
 }

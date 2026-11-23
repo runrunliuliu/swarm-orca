@@ -1,9 +1,15 @@
 import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
+import { getAgentLabel } from '@/lib/agent-catalog'
 import { resolveDefaultAgentForNewTab } from '@/lib/agent-tab-shortcuts'
 import { getConnectionId } from '@/lib/connection-context'
+import { copyPromptToastAction } from '@/lib/copy-prompt-toast-action'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
+import type { AgentPromptSubmissionVerdict } from '@/lib/agent-prompt-submission'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import { translate } from '@/i18n/i18n'
+import { toast } from 'sonner'
 import { useAppStore } from '@/store'
+import type { TuiAgent } from '../../../../shared/tui-agent'
 import {
   TASK_WORKBENCH_DELIVER_SESSION_LABEL,
   isTaskWorkbenchDeliverSessionName
@@ -52,8 +58,35 @@ export type TaskWorkbenchDeliverInput = {
 }
 
 export type TaskWorkbenchDeliverLaunchResult =
-  | { ok: true; tabId: string }
+  | {
+      ok: true
+      tabId: string
+      /**
+       * How far this delivery actually got (issue #60).
+       *
+       * Why it is part of the result and not a toast inside the launcher: creating the tab, writing
+       * the instruction, and the agent turning it into a turn are three different facts, and the
+       * delivery entry is the only place that may state them. The promise never rejects; it is
+       * already reported by {@link reportTaskWorkbenchDeliverSettlement}, so a host that ignores it
+       * still gets the existing behaviour plus one honest notice when the write was not confirmed.
+       */
+      settlement: Promise<TaskWorkbenchDeliverSettlement>
+    }
   | { ok: false; reason: 'no-agent' | 'already-delivering' }
+
+/**
+ * What one delivery launch can say about its own instruction.
+ *
+ * Reading order: the launch result (`ok`) says the session started; `written` says the instruction
+ * reached the agent's input; only `submitted` claims a turn began, and it is emitted solely from
+ * the agent's own status moving into `working` after the write (issue #60).
+ */
+export type TaskWorkbenchDeliverSettlement =
+  | { state: 'submitted' }
+  | { state: 'written' }
+  | { state: 'unconfirmed' }
+  | { state: 'not-delivered'; alreadyNotified: boolean }
+  | { state: 'unreported' }
 
 /**
  * The frozen no-agent notice (§7.11.3 rule 6: reuse the existing terminal line,
@@ -286,13 +319,18 @@ export function launchTaskWorkbenchDeliver(
   // Why activate first: same reason as the repo-checkout entry — the new tab is
   // created in this worktree's tab list, which may not be the active workspace.
   activateAndRevealWorktree(input.worktreeId)
+  const instruction = buildTaskWorkbenchDeliverInstruction(input)
+  let submitVerdict: AgentPromptSubmissionVerdict | null = null
   const launched = launchAgentInNewTab({
     agent,
     worktreeId: input.worktreeId,
-    prompt: buildTaskWorkbenchDeliverInstruction(input),
+    prompt: instruction,
     promptDelivery: 'submit-after-ready',
     quickCommandLabel: TASK_WORKBENCH_DELIVER_SESSION_LABEL,
-    launchSource: input.source
+    launchSource: input.source,
+    onPromptSubmitVerdict: (verdict) => {
+      submitVerdict = verdict
+    }
   })
   if (!launched) {
     // No startup plan means no session was started; the entry shows the same
@@ -304,9 +342,103 @@ export function launchTaskWorkbenchDeliver(
   if (launched.surface.kind === 'host-published') {
     inFlightHostLaunches.set(input.worktreeId, Date.now())
   }
+  const settlement = settleTaskWorkbenchDeliverSettlement({
+    ...(launched.promptDeliveryResult ? { promptDeliveryResult: launched.promptDeliveryResult } : {}),
+    readVerdict: () => submitVerdict
+  }).then((settled) => {
+    try {
+      reportTaskWorkbenchDeliverSettlement({ settlement: settled, agent, prompt: instruction })
+    } catch {
+      // The settlement is the result; a failed toast must not turn it into a rejection.
+    }
+    return settled
+  })
   // A paired host owns the tab; this client has no local id to reveal.
   return {
     ok: true,
-    tabId: launched.surface.kind === 'host-published' ? '' : launched.surface.tabId
+    tabId: launched.surface.kind === 'host-published' ? '' : launched.surface.tabId,
+    settlement
+  }
+}
+
+/**
+ * Turn a launch's delivery report into the one statement it is allowed to make.
+ *
+ * Why a separate function: both the local terminal route and the host-published route answer with
+ * a boolean (`delivered`) that only ever meant "the paste was issued". The verdict says what the
+ * agent published about the turn, and `idle`-before/`idle`-after is the case issue #60 was silent
+ * about: the instruction sat in the input box while a turn that had already started kept running.
+ */
+export async function settleTaskWorkbenchDeliverSettlement(args: {
+  promptDeliveryResult?: Promise<{ delivered: boolean; failureNotified: boolean }>
+  readVerdict: () => AgentPromptSubmissionVerdict | null
+}): Promise<TaskWorkbenchDeliverSettlement> {
+  if (!args.promptDeliveryResult) {
+    // Why not a failure: this route reports nothing about the prompt, so delivery cannot claim it
+    // either way. Saying "failed" here would invent evidence (the same rule the projection follows).
+    return { state: 'unreported' }
+  }
+  let delivered: boolean
+  let failureNotified: boolean
+  try {
+    const result = await args.promptDeliveryResult
+    delivered = result.delivered
+    failureNotified = result.failureNotified
+  } catch {
+    return { state: 'unreported' }
+  }
+  if (!delivered) {
+    return { state: 'not-delivered', alreadyNotified: failureNotified }
+  }
+  switch (args.readVerdict()) {
+    case 'submitted':
+      return { state: 'submitted' }
+    case 'unconfirmed':
+      return { state: 'unconfirmed' }
+    case 'not-written':
+      // The route wrote and then lost its own write; treat it as the failed-delivery case.
+      return { state: 'not-delivered', alreadyNotified: failureNotified }
+    case 'written':
+    case null:
+      return { state: 'written' }
+  }
+}
+
+/**
+ * Surface a delivery that could not be confirmed, and stay silent otherwise.
+ *
+ * Why these two strings and no new ones: they are the existing session-continuation lines for
+ * exactly these two facts, and both delivery hosts already render the frozen `TaskWorkbenchDeliver.*`
+ * copy for the launch itself. A success sentence would be new interface copy for a state the
+ * reader can already see in the new session.
+ */
+export function reportTaskWorkbenchDeliverSettlement(args: {
+  settlement: TaskWorkbenchDeliverSettlement
+  agent: TuiAgent
+  prompt: string
+}): void {
+  const agentLabel = getAgentLabel(args.agent)
+  if (args.settlement.state === 'unconfirmed') {
+    toast.warning(
+      translate(
+        'components.agentSessionContinuation.deliveryUnconfirmed',
+        'Orca could not confirm {{agent}} received the session context. Check the new session, and paste it yourself if its input is empty.',
+        { agent: agentLabel }
+      ),
+      copyPromptToastAction(args.prompt)
+    )
+    return
+  }
+  if (args.settlement.state === 'not-delivered' && !args.settlement.alreadyNotified) {
+    // Why suppressed when already notified: the terminal route's own readiness notice has spoken,
+    // and two toasts for one failed paste read as two failures (F6: one sentence, one surface).
+    toast.error(
+      translate(
+        'components.agentSessionContinuation.deliveryFailed',
+        'The new {{agent}} session started, but its context could not be sent.',
+        { agent: agentLabel }
+      ),
+      copyPromptToastAction(args.prompt)
+    )
   }
 }

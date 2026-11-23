@@ -141,6 +141,24 @@ describe('launchAgentSessionContinuation', () => {
     )
   })
 
+  it('does not repeat a delivery failure the launch route already reported', async () => {
+    launchAgentInNewTab.mockReturnValue({
+      surface: { kind: 'local-terminal', tabId: 'tab-new' },
+      promptDeliveryResult: Promise.resolve({ delivered: false, failureNotified: true })
+    })
+    const { launchAgentSessionContinuation } = await import('./launch-agent-session-continuation')
+
+    await launchAgentSessionContinuation({
+      agent: 'codex',
+      prompt: 'continue',
+      worktreeId: 'wt-1',
+      launchSource: 'sidebar'
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
   it('hedges instead of claiming success when the paste went out unconfirmed', async () => {
     // Regression (#22479): on Windows the composer-ready signal can never fire, so the paste
     // is written blind. Reporting that as a delivered handoff hid a prompt that never arrived.

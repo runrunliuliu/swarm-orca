@@ -817,11 +817,12 @@ describe('launchAgentInNewTab', () => {
       failureNotified: true
     })
     expect(mockToastMessage).toHaveBeenCalledWith(
-      "Your prompt wasn't sent — paste it once the agent is ready."
+      "Your prompt wasn't sent — paste it once the agent is ready.",
+      expect.objectContaining({ action: expect.objectContaining({ onClick: expect.any(Function) }) })
     )
   })
 
-  it('marks a cancelled submit-after-ready launch notified when the user closed the tab', async () => {
+  it('leaves a cancelled submit-after-ready launch unnotified when the user closed the tab', async () => {
     mockPasteDraftWhenAgentReady.mockImplementation(({ onTimeout }) => {
       onTimeout?.()
       return Promise.resolve(false)
@@ -837,13 +838,16 @@ describe('launchAgentInNewTab', () => {
       promptDelivery: 'submit-after-ready'
     })
 
+    // Why false: the notice stayed silent, so the deferred caller still owes the reader a
+    // statement that the text did not arrive (issue #60).
     await expect(result?.promptDeliveryResult).resolves.toEqual({
       delivered: false,
-      failureNotified: true
+      failureNotified: false
     })
+    expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
-  it('marks a cancelled submit-after-ready launch notified when the user switched worktrees', async () => {
+  it('leaves a cancelled submit-after-ready launch unnotified when the user switched worktrees', async () => {
     mockPasteDraftWhenAgentReady.mockImplementation(({ onTimeout }) => {
       onTimeout?.()
       return Promise.resolve(false)
@@ -861,8 +865,9 @@ describe('launchAgentInNewTab', () => {
 
     await expect(result?.promptDeliveryResult).resolves.toEqual({
       delivered: false,
-      failureNotified: true
+      failureNotified: false
     })
+    expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
   it('leaves a genuine launch failure unnotified so the caller surfaces it', async () => {

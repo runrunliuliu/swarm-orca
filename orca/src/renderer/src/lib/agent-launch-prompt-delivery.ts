@@ -1,8 +1,16 @@
 import { agentDeliversDraftViaNativePrefill } from '@/lib/agent-native-draft-prefill'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
+import {
+  beginAgentSubmitObservation,
+  finishAgentSubmitObservation,
+  readAgentTurnSnapshot,
+  type AgentPromptSubmissionVerdict,
+  type AgentTurnSnapshot
+} from '@/lib/agent-prompt-submission'
 import { canMirrorLaunchDraftToNativeChat } from '@/lib/native-chat-launch-draft-mirrorability'
 import { isNativeChatSupportedAgent } from '@/lib/native-chat-supported-agent'
 import { useAppStore } from '@/store'
+import { LAUNCH_PTY_SPAWN_TIMEOUT_MS } from '../../../shared/draft-paste-ready-timeout'
 import type { TuiAgent } from '../../../shared/tui-agent'
 
 /** Seed the chat-composer copy of launch context that reaches only the TUI
@@ -33,11 +41,25 @@ export function deliverLaunchPromptToAgentTab(args: {
   forcePaste: boolean
   timeoutMs?: number
   onTimeout?: () => void
+  /** Overrides the admitted-spawn budget for this delivery (see `LAUNCH_PTY_SPAWN_TIMEOUT_MS`). */
+  spawnTimeoutMs?: number
   /** The paste was written without ever observing the agent's composer. */
   onUnconfirmedDelivery?: () => void
+  /** What this delivery may claim about the prompt becoming a turn (issue #60). */
+  onSubmitVerdict?: (verdict: AgentPromptSubmissionVerdict) => void
 }): Promise<boolean> {
-  const { tabId, agent, content, submit, forcePaste, timeoutMs, onTimeout, onUnconfirmedDelivery } =
-    args
+  const {
+    tabId,
+    agent,
+    content,
+    submit,
+    forcePaste,
+    timeoutMs,
+    onTimeout,
+    spawnTimeoutMs,
+    onUnconfirmedDelivery,
+    onSubmitVerdict
+  } = args
   const shouldSeed =
     submit === true && content.trim().length > 0 && isNativeChatSupportedAgent(agent)
 
@@ -58,6 +80,15 @@ export function deliverLaunchPromptToAgentTab(args: {
   // so pasteDraftWhenAgentReady returns false without pasting. That is a successful
   // native delivery, not a failure — don't flag the seeded bubble in that case.
   const deliversViaNativePrefill = agentDeliversDraftViaNativePrefill(agent, forcePaste)
+  // Why an observation and not two readings: the verdict is the difference between "what the pane
+  // was doing" and "what it published after the write" (#60). It is opened unarmed and takes both
+  // facts at the write itself, because the paste waits for the PTY and then the composer — a
+  // timestamp from before those waits would misattribute a turn that began in between. A launch
+  // that never writes (native prefill, a draft) opens no observation and publishes no verdict.
+  const observation =
+    submit === true && !deliversViaNativePrefill
+      ? beginAgentSubmitObservation({ onUnconfirmedDelivery })
+      : null
 
   return pasteDraftWhenAgentReady({
     tabId,
@@ -67,11 +98,32 @@ export function deliverLaunchPromptToAgentTab(args: {
     forcePaste,
     timeoutMs,
     onTimeout,
-    onUnconfirmedDelivery
+    // Why the launch budget here: this paste belongs to a tab whose startup command was already
+    // queued, so its spawn is expected and may legitimately outlast the generic 8s verdict (#60).
+    spawnTimeoutMs: spawnTimeoutMs ?? LAUNCH_PTY_SPAWN_TIMEOUT_MS,
+    ...(observation
+      ? {
+          onUnconfirmedDelivery: observation.markComposerUnobserved,
+          onWriteStart: () =>
+            observation.markWriteStart(() => readAgentTurnSnapshotForTab(tabId).state)
+        }
+      : onUnconfirmedDelivery
+        ? { onUnconfirmedDelivery }
+        : {})
   }).then(
-    (delivered) => {
+    async (delivered) => {
       if (shouldSeed && !delivered && !deliversViaNativePrefill) {
         useAppStore.getState().markNativeChatLaunchPromptFailed(tabId)
+      }
+      if (observation && onSubmitVerdict) {
+        onSubmitVerdict(
+          await finishAgentSubmitObservation({
+            observation,
+            tabId,
+            written: delivered,
+            read: readAgentTurnSnapshotForTab
+          })
+        )
       }
       return delivered || deliversViaNativePrefill
     },
@@ -82,4 +134,14 @@ export function deliverLaunchPromptToAgentTab(args: {
       throw error
     }
   )
+}
+
+/**
+ * The live hook status rows that describe one tab's turns.
+ *
+ * Why the store and not the PTY: whether a written message became a turn is reported by the agent
+ * through its hooks, per pane, and that is the only evidence a client has (issue #60).
+ */
+function readAgentTurnSnapshotForTab(tabId: string): AgentTurnSnapshot {
+  return readAgentTurnSnapshot(useAppStore.getState().agentStatusByPaneKey, tabId)
 }
