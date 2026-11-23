@@ -144,7 +144,8 @@ cd orca && node node_modules/vitest/vitest.mjs run --config config/vitest.config
 
 - Run vitest in small batches: a few directories/files per command, always `--maxWorkers=2`, and
   keep each batch around ≤250 test files. Never launch the whole suite from one command; see
-  [orca test runs](swarm/docs/testing/orca-test-runs.md).
+  [orca test runs](swarm/docs/testing/orca-test-runs.md) and, for what an E2E run must hand back,
+  [e2e evidence](swarm/docs/testing/e2e-evidence.md).
 - Never install dependencies into `orca/` as a side effect of a code change; reuse a prepared tree
   or report the gap.
 - Put regression tests next to the source they cover. Where practical, demonstrate a bug test
