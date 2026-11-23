@@ -14,6 +14,7 @@ import {
   submitPromptToAgentPty
 } from './agent-paste-draft'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
+import { runTerminalPtyInputTransaction } from '@/components/terminal-pane/terminal-pty-input-transaction'
 
 const testState = vi.hoisted(() => ({
   appState: {
@@ -502,6 +503,145 @@ describe('pasteDraftWhenAgentReady', () => {
     expect(onTimeout).toHaveBeenCalledTimes(1)
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  // Issue #60: a launch pastes into a tab whose startup command it just queued, so the spawned
+  // agent pane is expected — and measured agent panes take ~10-13s on a busy host while a shell
+  // pane spawns in 0.5s. The generic 8s verdict must not throw that instruction away.
+  it('holds an admitted launch until its PTY appears well past the generic spawn verdict', async () => {
+    testState.appState.ptyIdsByTabId = {}
+    const onTimeout = vi.fn()
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      submit: true,
+      forcePaste: true,
+      spawnTimeoutMs: 30_000,
+      onTimeout
+    })
+
+    // The generic verdict (8s) passes with no PTY, and nothing is reported or written.
+    await vi.advanceTimersByTimeAsync(8000)
+    await flushMicrotasks(5)
+    expect(onTimeout).not.toHaveBeenCalled()
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+
+    // The PTY lands at 13s — the shape the e2e measures (a shell pane spawns in 0.5s).
+    await vi.advanceTimersByTimeAsync(5000)
+    testState.appState.ptyIdsByTabId = { 'tab-1': ['pty-1'] }
+    for (const subscriber of testState.storeSubscribers) {
+      subscriber(testState.appState)
+    }
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await vi.advanceTimersByTimeAsync(1500)
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
+    await flushMicrotasks()
+
+    await expect(promise).resolves.toBe(true)
+    expect(onTimeout).not.toHaveBeenCalled()
+    // One paste and one Enter: a late spawn must not turn into a second delivery.
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledTimes(2)
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(
+      1,
+      {},
+      'pty-1',
+      PASTED_ISSUE_URL
+    )
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(2, {}, 'pty-1', '\r')
+  })
+
+  it('stops waiting for an admitted spawn once the tab is closed', async () => {
+    testState.appState.ptyIdsByTabId = {}
+    testState.appState.tabsByWorktree = { wt: [{ id: 'tab-1' }] }
+    const onTimeout = vi.fn()
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      submit: true,
+      forcePaste: true,
+      spawnTimeoutMs: 30_000,
+      onTimeout
+    })
+    await flushMicrotasks()
+
+    // The reader closes the tab long before the admitted-spawn budget expires.
+    testState.appState.tabsByWorktree = { wt: [] }
+    for (const subscriber of testState.storeSubscribers) {
+      subscriber(testState.appState)
+    }
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await expect(promise).resolves.toBe(false)
+    expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+  })
+
+  it('does not timestamp the write while another input transaction holds the PTY', async () => {
+    // Why: the paste is queued behind whatever else is writing to this PTY, and a timestamp taken
+    // before that queue would let a turn that began while waiting count as this write's turn.
+    let releaseBlocker!: () => void
+    const blocker = runTerminalPtyInputTransaction(
+      'pty-1',
+      () => new Promise<void>((resolve) => {
+        releaseBlocker = resolve
+      })
+    )
+    const onWriteStart = vi.fn()
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      submit: true,
+      forcePaste: true,
+      onWriteStart
+    })
+
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushMicrotasks()
+    // Readiness resolved, but the queued transaction means nothing may be written or timestamped.
+    expect(onWriteStart).not.toHaveBeenCalled()
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+
+    releaseBlocker()
+    await blocker
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
+    await flushMicrotasks()
+
+    await expect(promise).resolves.toBe(true)
+    expect(onWriteStart).toHaveBeenCalledTimes(1)
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledTimes(2)
+  })
+
+  it('timestamps the write inside the input transaction, immediately before the first write', async () => {
+    // Why the ordering matters: another operation on this PTY can hold the input transaction, and a
+    // timestamp from before that wait would let a turn that began in between count as this write's.
+    const order: string[] = []
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      submit: true,
+      forcePaste: true,
+      onWriteStart: () => order.push('write-start')
+    })
+    testState.sendRuntimePtyInputVerified.mockImplementation(
+      async (_settings: unknown, _ptyId: string, data: string) => {
+        order.push(data === '\r' ? 'enter' : 'paste')
+        return true
+      }
+    )
+
+    await flushMicrotasks()
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await vi.advanceTimersByTimeAsync(1500)
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
+    await flushMicrotasks()
+
+    await expect(promise).resolves.toBe(true)
+    expect(order).toEqual(['write-start', 'paste', 'enter'])
   })
 
   it('starts the composer budget once the PTY exists, so a slow spawn does not shorten it', async () => {

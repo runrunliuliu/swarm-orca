@@ -275,6 +275,65 @@ describe('createWebRuntimeSessionTerminal', () => {
     }
   )
 
+  // Issue #60: the host once rebuilt the command from its own Settings while taking this client's
+  // arguments, so a wrapper's `$0` marker became the agent's first prompt. A launch this client
+  // prepared travels as one command and must never be rebuilt on the host.
+  it('runs a client-owned command as it stands instead of rebuilding it on the host', async () => {
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'status.get') {
+        return {
+          id: 'status',
+          ok: true,
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: ['agent-session.host-authority.v1']
+          }
+        }
+      }
+      if (request.method === 'session.tabs.createTerminal') {
+        return {
+          id: 'legacy-create',
+          ok: true,
+          result: { tab: { id: 'host-tab-trae', leafId: FOCUS_LEAF_ID } }
+        }
+      }
+      return { id: 'list', ok: true, result: makeSnapshot() }
+    })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: runtimeCall } }
+    })
+
+    await expect(
+      createWebRuntimeSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        launchAgent: 'trae',
+        preparedAgentCommand: true,
+        command: `sh '-c' 'exec traecli "$@"' 'wrapper-dispatch' '--yolo'`,
+        launchConfig: {
+          agentArgs: `-c 'exec traecli "$@"' wrapper-dispatch --yolo`,
+          agentEnv: {}
+        }
+      })
+    ).resolves.toEqual({ status: 'created' })
+
+    const methods = runtimeCall.mock.calls.map(([request]) => request.method)
+    // Why: `terminal.createAgentSession` is exactly the method that rebuilds the launch from the
+    // host's Settings, so reaching it would re-create the mixed command from the incident.
+    expect(methods).not.toContain('terminal.createAgentSession')
+    const legacy = runtimeCall.mock.calls.find(
+      ([request]) => request.method === 'session.tabs.createTerminal'
+    )?.[0] as unknown as { params: Record<string, unknown> }
+    expect(legacy.params).toMatchObject({
+      command: `sh '-c' 'exec traecli "$@"' 'wrapper-dispatch' '--yolo'`,
+      launchAgent: 'trae'
+    })
+    // The arguments are inside the command; sending them beside it is the mix being prevented.
+    expect(legacy.params).not.toHaveProperty('agentArgs')
+  })
+
   it('creates paired web agents through host authority so activation is mirrored', async () => {
     const snapshot = {
       ...makeSnapshot(),

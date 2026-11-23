@@ -1,21 +1,16 @@
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../shared/tui-agent'
-import type { TerminalInputKind } from '../../../shared/terminal-input-kind'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { resolveDraftPasteReadyTimeoutMs } from '../../../shared/draft-paste-ready-timeout'
 import { useAppStore } from '@/store'
-import {
-  inspectRuntimeTerminalProcess,
-  sendRuntimePtyInputVerified
-} from '@/runtime/runtime-terminal-inspection'
+import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START
 } from '@/components/terminal-pane/terminal-bracketed-paste'
-import { runTerminalPtyInputTransaction } from '@/components/terminal-pane/terminal-pty-input-transaction'
 import { waitForAgentReady } from './agent-ready-wait'
 import { getSettingsForWorktreeRuntimeOwner } from './worktree-runtime-owner'
-import { sendAgentDraftPasteContentNow } from './agent-draft-paste-content'
+import { sendBracketedPasteToAgent } from './agent-bracketed-paste-write'
 import { agentDeliversDraftViaNativePrefill } from './agent-native-draft-prefill'
 import { waitForAgentDraftInputReady } from './agent-draft-readiness'
 import { isExpectedAgentProcess } from '../../../shared/agent-process-recognition'
@@ -34,7 +29,7 @@ export {
 // line-edit shortcuts. Callers choose whether to append Enter after the paste.
 export const BRACKETED_PASTE_BEGIN = BRACKETED_PASTE_START
 export { BRACKETED_PASTE_END }
-export const POST_PASTE_SUBMIT_DELAY_MS = 50
+export { POST_PASTE_SUBMIT_DELAY_MS } from './agent-bracketed-paste-write'
 
 // Why: "the tab has a PTY" and "the agent's composer accepts input" are separate
 // states with separate failure modes, so they get separate budgets. A PTY that
@@ -83,9 +78,21 @@ export async function pasteDraftWhenAgentReady(args: {
   timeoutMs?: number
   onTimeout?: () => void
   onUnconfirmedDelivery?: () => void
+  /** Called immediately before the bytes are written, so a caller can timestamp the write itself. */
+  onWriteStart?: () => void
+  /** Overrides the generic spawn verdict for callers that just created the tab (see the budget). */
+  spawnTimeoutMs?: number
 }): Promise<boolean> {
-  const { tabId, content, agent, submit, forcePaste, timeoutMs, onTimeout, onUnconfirmedDelivery } =
-    args
+  const {
+    tabId,
+    content,
+    agent,
+    submit,
+    forcePaste,
+    timeoutMs,
+    onTimeout,
+    onUnconfirmedDelivery
+  } = args
 
   const agentConfig = agent ? TUI_AGENT_CONFIG[agent] : null
 
@@ -103,7 +110,7 @@ export async function pasteDraftWhenAgentReady(args: {
   const readinessTimeoutMs = resolveDraftPasteReadyTimeoutMs(agent, timeoutMs)
   const readiness = await waitForAgentDraftInputReadyOnTab({
     tabId,
-    spawnTimeoutMs: PTY_SPAWN_TIMEOUT_MS,
+    spawnTimeoutMs: args.spawnTimeoutMs ?? PTY_SPAWN_TIMEOUT_MS,
     readinessTimeoutMs,
     readySignal,
     settings
@@ -139,7 +146,8 @@ export async function pasteDraftWhenAgentReady(args: {
     submit: submit === true,
     agent,
     // Why launch: this delivers the prompt or draft an agent is started with.
-    inputKind: 'launch'
+    inputKind: 'launch',
+    onWriteStart: args.onWriteStart
   })
 }
 
@@ -218,50 +226,6 @@ export async function sendBracketedPasteToRunningAgent(args: {
   return await sendBracketedPasteToAgent({ ...args, submit: true, inputKind: 'driving' })
 }
 
-async function sendBracketedPasteToAgent(args: {
-  settings?: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null
-  ptyId: string
-  content: string
-  submit: boolean
-  agent?: TuiAgent
-  inputKind: TerminalInputKind
-}): Promise<boolean> {
-  const { settings = useAppStore.getState().settings, ptyId, content, submit, agent } = args
-  const { inputKind } = args
-  const submitRetryDelayMs = agent ? TUI_AGENT_CONFIG[agent]?.submitRetryDelayMs : undefined
-  try {
-    // Why: paste + Enter (+ retry Enter) must be one transaction, or a concurrent
-    // paste on this PTY can slip between them and submit a half-written prompt.
-    return await runTerminalPtyInputTransaction(ptyId, async () => {
-      const pasted = await sendAgentDraftPasteContentNow(settings, ptyId, content, inputKind)
-      if (!pasted || !submit) {
-        return pasted
-      }
-
-      // Why: Claude Code can leave a prompt as editable text when paste-end and
-      // Enter arrive in the same PTY write. Split the submit into the next turn so
-      // the TUI processes bracketed-paste termination before handling Enter.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, POST_PASTE_SUBMIT_DELAY_MS))
-      const submitted = await sendRuntimePtyInputVerified(settings, ptyId, '\r', inputKind)
-
-      if (submitRetryDelayMs !== undefined) {
-        // Why: agents that render their composer before Enter is live silently eat
-        // the first Enter; the retry is best-effort and never downgrades `submitted`.
-        await new Promise<void>((resolve) => window.setTimeout(resolve, submitRetryDelayMs))
-        try {
-          await sendRuntimePtyInputVerified(settings, ptyId, '\r', inputKind)
-        } catch {
-          // Why: a rejected retry leaves the first Enter's verdict untouched.
-        }
-      }
-
-      return submitted
-    })
-  } catch {
-    return false
-  }
-}
-
 function waitForAgentDraftInputReadyOnTab(args: {
   tabId: string
   spawnTimeoutMs: number
@@ -274,6 +238,9 @@ function waitForAgentDraftInputReadyOnTab(args: {
     let settled = false
     let spawnTimer: number | null = null
     let unsubscribeStore: (() => void) | null = null
+    // Why track that the tab was seen at all: store shapes in tests and during hydration may not
+    // carry the row yet, and "not present yet" is not "closed".
+    let sawTab = false
 
     const finish = (result: { ptyId: string; ready: boolean } | null): void => {
       if (settled) {
@@ -306,8 +273,24 @@ function waitForAgentDraftInputReadyOnTab(args: {
     }
     const bindFromState = (state: ReturnType<typeof useAppStore.getState>): void => {
       const ptyId = state.ptyIdsByTabId[args.tabId]?.[0]
-      if (ptyId) {
+      const tabStillExists = Object.values(state.tabsByWorktree ?? {}).some((tabs) =>
+        tabs?.some((tab) => tab.id === args.tabId)
+      )
+      // Why the tab check first: a closed tab can leave its PTY id behind for a moment, and pasting
+      // into it would be a delivery nobody can read (issue #60).
+      if (ptyId && (tabStillExists || !sawTab)) {
         bindPty(ptyId)
+        return
+      }
+      // Why cancel on a closed tab: an admitted-spawn budget is long enough that the reader can give
+      // up first. Waiting out the rest would only delay the notice, and pasting into a tab that no
+      // longer exists is not a delivery (issue #60). The scan is bounded by the paste's own life.
+      if (tabStillExists) {
+        sawTab = true
+        return
+      }
+      if (sawTab) {
+        finish(null)
       }
     }
 

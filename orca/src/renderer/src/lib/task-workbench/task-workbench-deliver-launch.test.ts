@@ -15,6 +15,7 @@ import {
   launchTaskWorkbenchDeliver,
   resetTaskWorkbenchDeliverInFlight,
   revealTaskWorkbenchDeliverTab,
+  settleTaskWorkbenchDeliverSettlement,
   type TaskWorkbenchDeliverInput
 } from './task-workbench-deliver-launch'
 
@@ -38,9 +39,17 @@ const mocks = vi.hoisted(() => {
     activateAndRevealWorktree: vi.fn(),
     activateTabAndFocusPane: vi.fn(),
     getConnectionId: vi.fn(),
-    launchAgentInNewTab: vi.fn()
+    launchAgentInNewTab: vi.fn(),
+    toastWarning: vi.fn(),
+    toastError: vi.fn()
   }
 })
+
+vi.mock('sonner', () => ({
+  toast: { warning: mocks.toastWarning, error: mocks.toastError }
+}))
+
+vi.mock('@/lib/agent-catalog', () => ({ getAgentLabel: (agent: string) => agent }))
 
 vi.mock('@/store', () => ({
   useAppStore: {
@@ -92,6 +101,8 @@ beforeEach(() => {
   mocks.store.tabsByWorktree = {}
   mocks.getConnectionId.mockReturnValue(null)
   mocks.activateAndRevealWorktree.mockReturnValue(true)
+  mocks.toastWarning.mockClear()
+  mocks.toastError.mockClear()
   mocks.launchAgentInNewTab.mockReturnValue({
     surface: { kind: 'local-terminal', tabId: 'tab-new' }
   })
@@ -290,7 +301,9 @@ describe('launchTaskWorkbenchDeliver', () => {
     mocks.store.detectedAgentIds = ['claude']
     const result = launchTaskWorkbenchDeliver(deliverInput({ source: 'sidebar' }))
 
-    expect(result).toEqual({ ok: true, tabId: 'tab-new' })
+    // `settlement` carries how far the instruction's delivery got (issue #60); the launch
+    // result itself still answers only "a session started".
+    expect(result).toMatchObject({ ok: true, tabId: 'tab-new' })
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith(WORKTREE_ID)
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
     const args = mocks.launchAgentInNewTab.mock.calls[0][0]
@@ -299,6 +312,9 @@ describe('launchTaskWorkbenchDeliver', () => {
     expect(args.quickCommandLabel).toBe(TASK_WORKBENCH_DELIVER_SESSION_LABEL)
     expect(args.promptDelivery).toBe('submit-after-ready')
     expect(args.launchSource).toBe('sidebar')
+    // Why: the delivery entry is the only host that reports what the agent did with the
+    // instruction, so it must be the one that hears the verdict (issue #60).
+    expect(typeof args.onPromptSubmitVerdict).toBe('function')
     expect(args.prompt).toContain('Target branch: main')
     // No launch into any other workspace.
     for (const [call] of mocks.launchAgentInNewTab.mock.calls) {
@@ -362,7 +378,7 @@ describe('launchTaskWorkbenchDeliver', () => {
     const first = launchTaskWorkbenchDeliver(deliverInput())
     const second = launchTaskWorkbenchDeliver(deliverInput())
 
-    expect(first).toEqual({ ok: true, tabId: 'tab-new' })
+    expect(first).toMatchObject({ ok: true, tabId: 'tab-new' })
     expect(second).toEqual({ ok: false, reason: 'already-delivering' })
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
   })
@@ -377,7 +393,7 @@ describe('launchTaskWorkbenchDeliver', () => {
     const first = launchTaskWorkbenchDeliver(deliverInput())
     const second = launchTaskWorkbenchDeliver(deliverInput())
 
-    expect(first).toEqual({ ok: true, tabId: '' })
+    expect(first).toMatchObject({ ok: true, tabId: '' })
     expect(second).toEqual({ ok: false, reason: 'already-delivering' })
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
   })
@@ -391,7 +407,7 @@ describe('launchTaskWorkbenchDeliver', () => {
       return { surface: { kind: 'local-terminal', tabId: 'tab-new' } }
     })
 
-    expect(launchTaskWorkbenchDeliver(deliverInput())).toEqual({
+    expect(launchTaskWorkbenchDeliver(deliverInput())).toMatchObject({
       ok: true,
       tabId: 'tab-new'
     })
@@ -412,6 +428,161 @@ describe('launchTaskWorkbenchDeliver', () => {
       ok: false,
       reason: 'already-delivering'
     })
+  })
+})
+
+// Issue #60: creating the tab, writing the instruction, and the agent turning it into a turn are
+// three different facts. These cases pin what the delivery entry is allowed to say about each.
+describe('delivery settlement (issue #60)', () => {
+  const accepted = {
+    delivered: true,
+    failureNotified: false
+  }
+
+  function launchWithDelivery(args: {
+    verdict?: 'submitted' | 'written' | 'unconfirmed' | 'not-written'
+    delivery?: { delivered: boolean; failureNotified: boolean }
+    omitDeliveryResult?: boolean
+  }): ReturnType<typeof launchTaskWorkbenchDeliver> {
+    mocks.store.detectedAgentIds = ['claude']
+    mocks.launchAgentInNewTab.mockImplementation((launchArgs: { onPromptSubmitVerdict?: (v: never) => void }) => {
+      if (args.verdict) {
+        launchArgs.onPromptSubmitVerdict?.(args.verdict as never)
+      }
+      return {
+        surface: { kind: 'local-terminal', tabId: 'tab-new' },
+        ...(args.omitDeliveryResult
+          ? {}
+          : { promptDeliveryResult: Promise.resolve(args.delivery ?? accepted) })
+      }
+    })
+    return launchTaskWorkbenchDeliver(deliverInput())
+  }
+
+  async function settled(result: ReturnType<typeof launchTaskWorkbenchDeliver>) {
+    if (!result.ok) {
+      throw new Error('expected a launch')
+    }
+    return await result.settlement
+  }
+
+  it('claims a submission only when the agent published the turn the write started', async () => {
+    const result = launchWithDelivery({ verdict: 'submitted' })
+
+    await expect(settled(result)).resolves.toEqual({ state: 'submitted' })
+    // No interface copy for a state the reader can see in the new session.
+    expect(mocks.toastWarning).not.toHaveBeenCalled()
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('keeps "written" as the claim when status says nothing either way', async () => {
+    await expect(settled(launchWithDelivery({ verdict: 'written' }))).resolves.toEqual({
+      state: 'written'
+    })
+    expect(mocks.toastWarning).not.toHaveBeenCalled()
+  })
+
+  // The field shape of the issue: the instruction sat in the input box while a turn that had
+  // already started kept running. The entry says so instead of treating the paste as delivery.
+  it('warns with the existing copy when the turn could not be confirmed', async () => {
+    const result = launchWithDelivery({ verdict: 'unconfirmed' })
+
+    await expect(settled(result)).resolves.toEqual({ state: 'unconfirmed' })
+    expect(mocks.toastWarning).toHaveBeenCalledTimes(1)
+    const [message, options] = mocks.toastWarning.mock.calls[0] as [
+      string,
+      { action: { label: string } }
+    ]
+    expect(message).toContain('could not confirm')
+    expect(options.action.label).toBe('Copy prompt')
+    // Recovery must not duplicate the launch or resubmit: one launch, one paste attempt.
+    expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('reports a failed paste once, and not again when the terminal notice already spoke', async () => {
+    const first = launchWithDelivery({
+      delivery: { delivered: false, failureNotified: false }
+    })
+    await expect(settled(first)).resolves.toEqual({
+      state: 'not-delivered',
+      alreadyNotified: false
+    })
+    expect(mocks.toastError).toHaveBeenCalledTimes(1)
+    expect((mocks.toastError.mock.calls[0] as [string])[0]).toContain('could not be sent')
+
+    mocks.launchAgentInNewTab.mockClear()
+    mocks.toastError.mockClear()
+    const second = launchWithDelivery({
+      delivery: { delivered: false, failureNotified: true }
+    })
+    await expect(settled(second)).resolves.toEqual({
+      state: 'not-delivered',
+      alreadyNotified: true
+    })
+    // F6: one sentence, one surface — the readiness toast already said it.
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('treats a route that reports nothing as unreported rather than as a failure', async () => {
+    await expect(settled(launchWithDelivery({ omitDeliveryResult: true }))).resolves.toEqual({
+      state: 'unreported'
+    })
+    expect(mocks.toastWarning).not.toHaveBeenCalled()
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('never rejects, so a host that ignores the promise cannot raise an unhandled failure', async () => {
+    const launched = launchWithDelivery({ verdict: 'written' })
+    if (!launched.ok) {
+      throw new Error('expected a launch')
+    }
+    await expect(launched.settlement).resolves.toBeDefined()
+  })
+
+  it('settles a rejected delivery promise as unreported', async () => {
+    mocks.store.detectedAgentIds = ['claude']
+    mocks.launchAgentInNewTab.mockReturnValue({
+      surface: { kind: 'local-terminal', tabId: 'tab-new' },
+      promptDeliveryResult: Promise.reject(new Error('boom'))
+    })
+    await expect(settled(launchTaskWorkbenchDeliver(deliverInput()))).resolves.toEqual({
+      state: 'unreported'
+    })
+  })
+})
+
+describe('settleTaskWorkbenchDeliverSettlement', () => {
+  const delivered = Promise.resolve({ delivered: true, failureNotified: false })
+
+  it('maps a route without a delivery result to unreported', async () => {
+    await expect(
+      settleTaskWorkbenchDeliverSettlement({ readVerdict: () => 'submitted' })
+    ).resolves.toEqual({ state: 'unreported' })
+  })
+
+  it('reads the verdict only for a written instruction', async () => {
+    const readVerdict = vi.fn(() => 'submitted' as const)
+    await settleTaskWorkbenchDeliverSettlement({
+      promptDeliveryResult: Promise.resolve({ delivered: false, failureNotified: false }),
+      readVerdict
+    })
+    expect(readVerdict).not.toHaveBeenCalled()
+  })
+
+  it('treats a written-then-lost write as the failed delivery case', async () => {
+    await expect(
+      settleTaskWorkbenchDeliverSettlement({
+        promptDeliveryResult: Promise.resolve({ delivered: false, failureNotified: true }),
+        readVerdict: () => 'not-written'
+      })
+    ).resolves.toEqual({ state: 'not-delivered', alreadyNotified: true })
+  })
+
+  it('keeps a reported write when the route published no verdict', async () => {
+    await expect(
+      settleTaskWorkbenchDeliverSettlement({ promptDeliveryResult: delivered, readVerdict: () => null })
+    ).resolves.toEqual({ state: 'written' })
   })
 })
 

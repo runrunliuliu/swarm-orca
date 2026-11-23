@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   createTab: vi.fn(),
   closeTab: vi.fn(),
   createWebRuntimeSessionTerminal: vi.fn(),
+  createWebRuntimeAgentSessionTerminal: vi.fn(),
   setActiveTabType: vi.fn()
 }))
 
@@ -58,6 +59,7 @@ vi.mock('@/lib/telemetry', () => ({
 }))
 vi.mock('@/runtime/web-runtime-session', () => ({
   createWebRuntimeSessionTerminal: mocks.createWebRuntimeSessionTerminal,
+  createWebRuntimeAgentSessionTerminal: mocks.createWebRuntimeAgentSessionTerminal,
   isWebRuntimeSessionActive: vi.fn(() => true),
   isWebTerminalSurfaceTabId: vi.fn(() => false)
 }))
@@ -173,6 +175,83 @@ describe('launchAgentInNewTab paired web runtime', () => {
       viewMode: 'terminal'
     })
     expect(mocks.createTab).not.toHaveBeenCalled()
+  })
+
+  // Issue #60: with a command override configured, this client's arguments belong to *that*
+  // command (`sh -c 'exec traecli "$@"' wrapper-dispatch`). Sending them alone let the host append
+  // the wrapper's marker to its own executable, where Trae read it as the first prompt.
+  it('sends a client-owned wrapper as one prepared command, never as bare arguments', async () => {
+    store.settings.agentCmdOverrides = { claude: 'sh' }
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      agentArgs: `-c 'exec claude "$@"' wrapper-dispatch --yolo`
+    })
+
+    const request = mocks.createWebRuntimeSessionTerminal.mock.calls[0][0]
+    expect(request).toEqual(
+      expect.objectContaining({
+        launchAgent: 'claude',
+        command: `sh '-c' 'exec claude "$@"' 'wrapper-dispatch' '--yolo'`,
+        preparedAgentCommand: true
+      })
+    )
+    // The arguments are inside the command; a second copy beside it is the mix being prevented.
+    expect(request).not.toHaveProperty('agentArgs')
+    expect(request).not.toHaveProperty('agent')
+  })
+
+  // The delivery route is the launch shape the incident used: an empty launch, then the instruction
+  // pasted and submitted. The wrapper must still arrive as the whole command.
+  it('keeps the wrapper intact for a submit-after-ready delivery launch', async () => {
+    store.settings.agentCmdOverrides = { claude: 'sh' }
+    mocks.createWebRuntimeAgentSessionTerminal.mockResolvedValue({
+      outcome: { status: 'created' },
+      promptDelivered: true
+    })
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    const result = launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      agentArgs: `-c 'exec claude "$@"' wrapper-dispatch --yolo`,
+      prompt: 'Run the delivery flow.',
+      promptDelivery: 'submit-after-ready',
+      quickCommandLabel: 'DELIVER'
+    })
+
+    const request = mocks.createWebRuntimeAgentSessionTerminal.mock.calls[0][0]
+    expect(request).toEqual(
+      expect.objectContaining({
+        launchAgent: 'claude',
+        command: `sh '-c' 'exec claude "$@"' 'wrapper-dispatch' '--yolo'`,
+        preparedAgentCommand: true,
+        promptAfterReady: 'Run the delivery flow.',
+        submitPrompt: true
+      })
+    )
+    expect(request).not.toHaveProperty('agentArgs')
+    expect(request).not.toHaveProperty('prompt')
+    expect(result?.promptDeliveryResult).toBeDefined()
+  })
+
+  it('still leaves an unwrapped launch to the host and forwards ordinary arguments', async () => {
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      agentArgs: '--model opus'
+    })
+
+    const request = mocks.createWebRuntimeSessionTerminal.mock.calls[0][0]
+    expect(request).toEqual(
+      expect.objectContaining({ agent: 'claude', agentArgs: '--model opus' })
+    )
+    expect(request).not.toHaveProperty('preparedAgentCommand')
+    expect(request).not.toHaveProperty('launchAgent')
   })
 
   it('shows an actionable message instead of the raw selector code when the host cannot resolve the worktree', async () => {

@@ -33,6 +33,11 @@ import { launchAgentInStructuredNewTab } from '@/lib/launch-agent-in-new-tab-str
 import type { StructuredAgentLaunchSettlement } from '@/lib/structured-agent-launch-settlement'
 import { workspaceKindForWorktreeId } from '@/lib/agent-launch-route-input'
 import {
+  agentLaunchNeedsPreparedCommand,
+  resolveAgentLaunchCommandOwnership
+} from '../../../shared/agent-launch-command-ownership'
+import type { AgentPromptSubmissionVerdict } from '@/lib/agent-prompt-submission'
+import {
   planAgentSessionLaunch,
   withAgentSessionLaunchPrompt,
   type AgentSessionLaunchPlan
@@ -66,6 +71,15 @@ export type LaunchAgentInNewTabArgs = {
    * terminal route, whose readiness signal the client watches itself.
    */
   onPromptDeliveryUnconfirmed?: () => void
+  /**
+   * What this launch may claim once the prompt and its Enter were written out (issue #60).
+   *
+   * Why separate from `onPromptDelivered`: that reports the write. `submitted` is only said when
+   * the agent published a turn that began after the write; `unconfirmed` is the honest answer for
+   * a blind write, a between-turns agent that stayed between turns, or an agent that was already
+   * running a turn the write cannot be attributed to.
+   */
+  onPromptSubmitVerdict?: (verdict: AgentPromptSubmissionVerdict) => void
   /** Keeps a preflighted route authoritative across workspace creation. */
   agentSessionLaunchPlan?: AgentSessionLaunchPlan
   /** The launch seeds a workspace being opened, so its PTY spawn must not reshuffle Recent. */
@@ -124,6 +138,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     launchPlatform,
     onPromptDelivered,
     onPromptDeliveryUnconfirmed,
+    onPromptSubmitVerdict,
     agentSessionLaunchPlan,
     pendingActivationSpawn,
     beforeSurfaceOpen
@@ -135,6 +150,10 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       ...(launchPlatform ? { launchPlatform } : {})
     })
   const cmdOverrides = store.settings?.agentCmdOverrides ?? {}
+  // Why the ownership question is answered here and not at send time: this is where the launch plan
+  // is built from this client's Settings, so this is the only place that knows whether the plan's
+  // command was this client's executable choice (issue #60).
+  const launchCommandOwnership = resolveAgentLaunchCommandOwnership({ agent, cmdOverrides })
   const effectiveAgentArgs =
     agentArgs !== undefined
       ? agentArgs
@@ -217,12 +236,15 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       pastePromptAfterReady: pasteDraftAfterLaunch,
       submitPastedPrompt,
       agentArgs,
+      preparedAgentCommand: agentLaunchNeedsPreparedCommand(launchCommandOwnership),
       spawnedFromPaneKey,
       // Why: omission means terminal locally, but would let a paired host apply
       // its own default; send the client's resolved terminal choice explicitly.
       viewMode: initialViewModeProps.viewMode ?? 'terminal',
       ...(quickCommandLabel ? { quickCommandLabel } : {}),
-      onPromptDelivered
+      onPromptDelivered,
+      ...(onPromptDeliveryUnconfirmed ? { onPromptDeliveryUnconfirmed } : {}),
+      ...(onPromptSubmitVerdict ? { onPromptSubmitVerdict } : {})
     })
     return {
       surface: { kind: 'host-published' },
@@ -342,7 +364,10 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       worktreeId,
       tabId: tab.id,
       agent,
-      submitted: submitPastedPrompt
+      submitted: submitPastedPrompt,
+      // Why the text: the notice is sometimes the only surface the reader sees, and a prompt they
+      // cannot copy is a delivery they have to retype (#60).
+      prompt: pasteDraftAfterLaunch
     })
     const deliveryPromise = deliverLaunchPromptToAgentTab({
       tabId: tab.id,
@@ -351,7 +376,8 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       submit: submitPastedPrompt,
       forcePaste: true,
       onTimeout: timeoutNotice.onTimeout,
-      ...(onPromptDeliveryUnconfirmed ? { onUnconfirmedDelivery: onPromptDeliveryUnconfirmed } : {})
+      ...(onPromptDeliveryUnconfirmed ? { onUnconfirmedDelivery: onPromptDeliveryUnconfirmed } : {}),
+      ...(onPromptSubmitVerdict ? { onSubmitVerdict: onPromptSubmitVerdict } : {})
     }).then((delivered) => {
       if (delivered) {
         if (agent === 'command-code' && submitPastedPrompt) {

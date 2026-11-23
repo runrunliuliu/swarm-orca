@@ -13,6 +13,7 @@ import type { AgentPromptDelivery } from '../../../shared/agent-session-host-aut
 import { translate } from '@/i18n/i18n'
 import { replaceWorktreeSelectorNotFoundCode } from '@/lib/worktree-selector-not-found-notice'
 import { toAgentLaunchPreferences } from '../../../shared/agent-launch-preferences'
+import type { AgentPromptSubmissionVerdict } from '@/lib/agent-prompt-submission'
 
 function removeStaleLocalAgentTabsForWebHostLaunch(worktreeId: string): void {
   const state = useAppStore.getState()
@@ -45,12 +46,26 @@ export function launchAgentInWebHostTab(args: {
   pastePromptAfterReady: string | null
   submitPastedPrompt: boolean
   agentArgs?: string | null
+  /**
+   * The complete command already encodes this launch, so the host must run it as it stands.
+   *
+   * Why it is not just an optimisation: a client whose Settings replaced this agent's command
+   * wrote its arguments for *that* command (`sh -c 'exec traecli "$@"' wrapper-dispatch`). Sending
+   * only the arguments lets the host append them to its own executable, which turned the wrapper's
+   * marker into Trae's first prompt (issue #60). When this is set the command travels instead of
+   * the arguments, and the create operation takes the legacy path for exactly that reason.
+   */
+  preparedAgentCommand?: boolean
   spawnedFromPaneKey?: string
   viewMode?: Tab['viewMode']
   /** Marks the mirrored local tab so a second delivery click reveals it instead
    *  of starting another agent (§7.11.6 bound 2, §7.12 S5). */
   quickCommandLabel?: string | null
   onPromptDelivered?: () => void
+  /** The paste was written without ever observing the agent's composer. */
+  onPromptDeliveryUnconfirmed?: () => void
+  /** What this launch may claim about the instruction becoming a turn (issue #60). */
+  onPromptSubmitVerdict?: (verdict: AgentPromptSubmissionVerdict) => void
 }): Promise<{ delivered: boolean; failureNotified: boolean }> {
   const {
     agent,
@@ -64,16 +79,23 @@ export function launchAgentInWebHostTab(args: {
     pastePromptAfterReady,
     submitPastedPrompt,
     agentArgs,
+    preparedAgentCommand = false,
     spawnedFromPaneKey,
     viewMode,
     quickCommandLabel,
-    onPromptDelivered
+    onPromptDelivered,
+    onPromptDeliveryUnconfirmed,
+    onPromptSubmitVerdict
   } = args
   const hasPrompt = prompt.length > 0
   const launchPreferences = toAgentLaunchPreferences(startupPlan.sessionOptions)
   const structuredPromptDelivery: AgentPromptDelivery =
     promptDelivery === 'draft' ? 'draft' : 'auto-submit'
   removeStaleLocalAgentTabsForWebHostLaunch(worktreeId)
+  // Why two shapes instead of one: the wire answers "who owns the command line". A prepared launch
+  // sends the whole command with its arguments inside it and never `agentArgs`; a host-owned launch
+  // sends the agent (plus transportable arguments) and lets the host build the command from its own
+  // Settings. Mixing the halves is issue #60.
   const launch = {
     worktreeId,
     environmentId,
@@ -82,7 +104,7 @@ export function launchAgentInWebHostTab(args: {
     ...(cwd?.trim() ? { cwd } : {}),
     ...(viewMode ? { viewMode } : {}),
     agentSessionKind: 'fresh',
-    ...(hasPrompt
+    ...(preparedAgentCommand
       ? {
           launchAgent: agent,
           command: startupPlan.launchCommand,
@@ -90,14 +112,29 @@ export function launchAgentInWebHostTab(args: {
           launchConfig: startupPlan.launchConfig,
           ...(startupPlan.startupCommandDelivery
             ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
-            : {})
+            : {}),
+          preparedAgentCommand: true
         }
-      : { agent }),
-    ...(hasPrompt && pastePromptAfterReady === null ? { prompt } : {}),
-    ...(hasPrompt && pastePromptAfterReady === null
-      ? { promptDelivery: structuredPromptDelivery }
-      : {}),
-    ...(agentArgs !== undefined ? { agentArgs } : {}),
+      : {
+          ...(hasPrompt
+            ? {
+                launchAgent: agent,
+                // Why still sent: an older host without host authority runs this command itself, and
+                // it is the only thing carrying the prompt on that path.
+                command: startupPlan.launchCommand,
+                ...(startupPlan.env ? { env: startupPlan.env } : {}),
+                launchConfig: startupPlan.launchConfig,
+                ...(startupPlan.startupCommandDelivery
+                  ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
+                  : {})
+              }
+            : { agent }),
+          ...(hasPrompt && pastePromptAfterReady === null ? { prompt } : {}),
+          ...(hasPrompt && pastePromptAfterReady === null
+            ? { promptDelivery: structuredPromptDelivery }
+            : {}),
+          ...(agentArgs !== undefined ? { agentArgs } : {})
+        }),
     ...(spawnedFromPaneKey ? { spawnedFromPaneKey } : {}),
     ...(launchPreferences ? { launchPreferences } : {}),
     ...(quickCommandLabel ? { quickCommandLabel } : {})
@@ -139,7 +176,9 @@ export function launchAgentInWebHostTab(args: {
       agent,
       promptAfterReady: pastePromptAfterReady,
       submitPrompt: submitPastedPrompt,
-      forcePromptPaste: true
+      forcePromptPaste: true,
+      ...(onPromptDeliveryUnconfirmed ? { onUnconfirmedDelivery: onPromptDeliveryUnconfirmed } : {}),
+      ...(onPromptSubmitVerdict ? { onSubmitVerdict: onPromptSubmitVerdict } : {})
     }).then(handleCreation)
   }
   if (hasPrompt && promptDelivery === 'draft') {
