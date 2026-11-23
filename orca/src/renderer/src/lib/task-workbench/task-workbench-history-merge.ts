@@ -27,7 +27,8 @@ import { aggregateSettlement, settleTokens } from './task-workbench-history-sett
  * - a binding the store still knows is *not* history; presence is decided by the
  *   caller's workspace list, never by the record, so a live workspace cannot be
  *   mislabelled `Removed`;
- * - an absent settled figure stays absent (an unavailable reason), never `0`;
+ * - an absent settled figure stays absent (a distinct `unknown` state, never a
+ *   reason for a measurement that did not happen), never `0`;
  * - a task with no live workspace but a record states the deleted form instead of
  *   falling back to "never started".
  *

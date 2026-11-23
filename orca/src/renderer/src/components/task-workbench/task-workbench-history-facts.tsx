@@ -1,7 +1,7 @@
 import React from 'react'
 import { formatTokens } from '@/components/stats/usage-formatters'
 import { translate } from '@/i18n/i18n'
-import { USAGE_STATUS_WORD } from './task-workbench-usage-status'
+import { REASON_COPY, USAGE_STATUS_WORD, usageReasonCopyKey } from './task-workbench-usage-status'
 import type { TaskWorkbenchHistory as HistoryFacts } from './task-workbench-view'
 import { formatClock, formatWallClock } from './task-workbench-history-format'
 
@@ -29,6 +29,47 @@ const FACT_DOT = (
   </span>
 )
 
+/** What the token fact says, and (when there is no figure) the sentence that
+ *  names the state. Four states, four answers: a number, a partial subtotal, an
+ *  absent measurement with its reason, and "this build did not capture it" —
+ *  which is not a reason token and never `0`. */
+function tokensFact(tokens: HistoryFacts['tokens']): { text: string; detail: string | null } {
+  if (tokens.kind === 'available') {
+    return {
+      text: translate(historyKeys('tokensKnown'), '{{value0}} tokens', {
+        value0: formatTokens(tokens.tokens)
+      }),
+      detail: null
+    }
+  }
+  if (tokens.kind === 'partial') {
+    // A subtotal keeps its marker: printing it as the total would claim the
+    // workspaces nobody captured spent nothing.
+    return {
+      text: translate(historyKeys('tokensPartial'), '{{value0}} tokens (partial)', {
+        value0: formatTokens(tokens.tokens)
+      }),
+      detail: null
+    }
+  }
+  if (tokens.kind === 'unknown') {
+    // A settlement the record never froze. Every enum reason would state a
+    // measurement that did not happen ("no session matches" / "tracking off"),
+    // so the sentence names the absence itself.
+    return {
+      text: translate(historyKeys('tokensUnknown'), 'tokens unknown'),
+      detail: translate(
+        historyKeys('tokensNotCaptured'),
+        'This build did not capture usage for a closed workspace, so there is no total.'
+      )
+    }
+  }
+  return {
+    text: translate(historyKeys('tokensUnknown'), 'tokens unknown'),
+    detail: translate(usageReasonCopyKey(tokens.reason), REASON_COPY[tokens.reason])
+  }
+}
+
 export function HistoryFactsLine({ history }: { history: HistoryFacts }): React.JSX.Element {
   const wall = formatWallClock(history.wall)
   const wallText =
@@ -43,68 +84,76 @@ export function HistoryFactsLine({ history }: { history: HistoryFacts }): React.
       : translate(historyKeys('agentsKnown'), '{{value0}} agents', {
           value0: String(history.agents)
         })
-  const tokensText =
-    history.tokens.kind === 'available'
-      ? translate(historyKeys('tokensKnown'), '{{value0}} tokens', {
-          value0: formatTokens(history.tokens.tokens)
-        })
-      : translate(historyKeys('tokensUnknown'), 'tokens unknown')
+  const tokens = tokensFact(history.tokens)
 
   return (
-    <div
-      data-testid="task-workbench-history-facts"
-      className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12.5px]"
-    >
-      <span className="tabular-nums">{agentsText}</span>
-      {FACT_DOT}
-      <span className="tabular-nums">{wallText}</span>
-      {FACT_DOT}
-      {/* An absent figure keeps its reason as the tooltip, never as a `0`. */}
-      <span
-        className="tabular-nums"
-        title={
-          history.tokens.kind === 'unavailable'
-            ? USAGE_STATUS_WORD[history.tokens.reason]
-            : undefined
-        }
+    <>
+      <div
+        data-testid="task-workbench-history-facts"
+        className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12.5px]"
       >
-        {tokensText}
-      </span>
-      {history.tokensSource === 'settled' ? (
-        // A settled figure is a snapshot taken before a workspace became
-        // unreadable; calling it live would be a claim about a scan that no
-        // longer covers it.
+        <span className="tabular-nums">{agentsText}</span>
+        {FACT_DOT}
+        <span className="tabular-nums">{wallText}</span>
+        {FACT_DOT}
+        {/* An absent figure keeps its reason as the tooltip, never as a `0`. */}
         <span
-          data-testid="task-workbench-history-tokens-settled"
-          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+          className="tabular-nums"
+          title={
+            history.tokens.kind === 'unavailable'
+              ? USAGE_STATUS_WORD[history.tokens.reason]
+              : undefined
+          }
         >
-          {translate(historyKeys('settled'), 'settled')}
+          {tokens.text}
         </span>
-      ) : null}
-      {history.historySource !== 'record' && history.historySource !== 'mixed' ? null : (
-        // Where these facts came from (issue #53 A1): a frozen observation the
-        // record kept, not a live reading of a pane that may be long gone. A list
-        // holding both kinds says so — one badge over live rows would claim they
-        // are record facts (S7).
-        <span
-          data-testid="task-workbench-history-record-source"
-          className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-        >
-          {history.historySource === 'mixed'
-            ? translate(historyKeys('factsFromRecordMixed'), 'Some facts from the record')
-            : translate(historyKeys('factsFromRecord'), 'Facts from the record')}
-        </span>
-      )}
-      {history.lastActivityAt === undefined ? null : (
-        <>
-          {FACT_DOT}
-          <span className="tabular-nums text-muted-foreground">
-            {translate(historyKeys('lastActivity'), 'last {{value0}}', {
-              value0: formatClock(history.lastActivityAt)
-            })}
+        {history.tokensSource === 'settled' ? (
+          // A settled figure is a snapshot taken before a workspace became
+          // unreadable; calling it live would be a claim about a scan that no
+          // longer covers it.
+          <span
+            data-testid="task-workbench-history-tokens-settled"
+            className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+          >
+            {translate(historyKeys('settled'), 'settled')}
           </span>
-        </>
+        ) : null}
+        {history.historySource !== 'record' && history.historySource !== 'mixed' ? null : (
+          // Where these facts came from (issue #53 A1): a frozen observation the
+          // record kept, not a live reading of a pane that may be long gone. A list
+          // holding both kinds says so — one badge over live rows would claim they
+          // are record facts (S7).
+          <span
+            data-testid="task-workbench-history-record-source"
+            className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+          >
+            {history.historySource === 'mixed'
+              ? translate(historyKeys('factsFromRecordMixed'), 'Some facts from the record')
+              : translate(historyKeys('factsFromRecord'), 'Facts from the record')}
+          </span>
+        )}
+        {history.lastActivityAt === undefined ? null : (
+          <>
+            {FACT_DOT}
+            <span className="tabular-nums text-muted-foreground">
+              {translate(historyKeys('lastActivity'), 'last {{value0}}', {
+                value0: formatClock(history.lastActivityAt)
+              })}
+            </span>
+          </>
+        )}
+      </div>
+      {/* The sentence for an absence the figure cannot carry. It sits beside the
+        facts line rather than in it: the three fact fields stay one row, and a
+        reader who only has the strip still learns why there is no number. */}
+      {tokens.detail === null ? null : (
+        <p
+          data-testid="task-workbench-history-tokens-detail"
+          className="min-w-0 text-[12px] text-muted-foreground"
+        >
+          {tokens.detail}
+        </p>
       )}
-    </div>
+    </>
   )
 }

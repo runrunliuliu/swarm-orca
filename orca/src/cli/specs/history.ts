@@ -2,10 +2,10 @@ import type { CommandSpec } from '../args'
 import { GLOBAL_FLAGS } from '../args'
 
 /**
- * The `history` family (issue #53 B). One command, and it is deliberately the only
- * one: the backfill is an explicit repair step for records written before the
- * snapshot existed, not a read surface (reading the task history is the workbench's
- * job, and `orca history task` belongs to issue #31).
+ * The `history` family (issue #53 B, issue #31 S3). Two commands with one grammar:
+ * `backfill` is the explicit repair step for records written before the snapshot
+ * existed, and `task` is the read-only export of a task the record already holds.
+ * Neither is a background scan, and `task` writes nothing at all.
  */
 export const HISTORY_COMMAND_SPECS: CommandSpec[] = [
   {
@@ -28,5 +28,23 @@ export const HISTORY_COMMAND_SPECS: CommandSpec[] = [
       'orca history backfill --task repo-1#53 --json',
       'orca history backfill --task path:/repos/app#31'
     ]
+  },
+  {
+    path: ['history', 'task'],
+    group: 'maintenance',
+    summary: 'Export one task’s recorded history (read-only)',
+    usage: 'orca history task <repo>#<number> [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'task'],
+    positionalArgs: ['task'],
+    notes: [
+      'Read-only export of the `taskRecords` domain in this machine’s active Orca profile: it writes nothing, opens the database read-only, and needs no runtime RPC. It can run while Orca is running.',
+      '<repo> is a registered repo id (`repo-1`) or its checkout path (`/repos/app`); `id:<repoId>` and `path:<checkout>` name one explicitly. <number> is the tracker number; the last `#` separates them.',
+      'Unknown facts stay unknown, never `0` or `$0`: `agents` and `wall` carry a kind and an unknown reason, and `tokens` is `unavailable` with a reason when no settlement was recorded.',
+      '`trace` is one of `archived`, `deleted`, or `none`; a removed workspace wins over an archived one, matching the workbench history rule. No fourth state is invented.',
+      '`--json` has a stable shape: task identity, bindings, runs, the three facts (`agents`/`wall`/`tokens`) with their kind and reason, `trace`, `historySource`, and `gaps`.',
+      'Transcript evidence is its path and the stored reachability check only; transcript content is never read or printed.',
+      'Only records already persisted by a bound workspace are exported. This command does not reconstruct or backfill anything; use `orca history backfill` for that.'
+    ],
+    examples: ['orca history task repo-1#53 --json', 'orca history task path:/repos/app#31']
   }
 ]

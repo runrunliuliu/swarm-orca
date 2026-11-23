@@ -23,11 +23,11 @@ import {
 import type { ProfileStateOfflineLocation } from '../persistence/profile-state/profile-state-offline-settings'
 import { classifyProfileStateStorage } from '../persistence/profile-state/profile-state-storage-classification'
 import {
-  planTaskRecordBackfill,
-  resolveBackfillRepoId,
-  resolveBackfillTaskRecord,
-  type RegisteredRepo
-} from './task-records-backfill'
+  registeredRepos,
+  resolveTaskRecordByNumber as resolveBackfillTaskRecord,
+  resolveTaskRecordRepoId as resolveBackfillRepoId
+} from '../../shared/task-records-lookup'
+import { planTaskRecordBackfill } from './task-records-backfill'
 import type { TaskRecordsSessionIndexLookup } from './task-records-session-index-lookup'
 import type { TranscriptCheckProbe } from './task-records-transcript-check'
 
@@ -206,22 +206,6 @@ function writeBackfillState(
     }
     throw error
   }
-}
-
-function registeredRepos(value: unknown): RegisteredRepo[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value.flatMap((entry) => {
-    if (typeof entry !== 'object' || entry === null) {
-      return []
-    }
-    const { id, path } = entry as { id?: unknown; path?: unknown }
-    if (typeof id !== 'string' || id.length === 0) {
-      return []
-    }
-    return [{ id, path: typeof path === 'string' ? path : '' }]
-  })
 }
 
 function externalOriginOf(record: TaskRecord): Extract<TaskRecord['origin'], { kind: 'external' }> {

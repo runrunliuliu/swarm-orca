@@ -308,16 +308,22 @@ export function settleTaskRecordsBeforeRemoval(
       } else {
         reportRefusal('record sessions', worktreeId, withSessions)
       }
-      const withSettlement = setTaskRecordBindingSettlement(current, {
-        taskId: record.taskId,
-        worktreeId,
-        hostId: binding.hostId,
-        settlement: snapshot.settlement
-      })
-      if (withSettlement.ok) {
-        current = withSettlement.state
-      } else {
-        reportRefusal('record settlement', worktreeId, withSettlement)
+      // Same rule as the archive write: a `null` settlement means this build never
+      // measured, so nothing is stored — an absent figure is not `unavailable` and
+      // never erases a figure an earlier observation stored. The frozen sessions
+      // above are still written; only this one field is skipped.
+      if (snapshot.settlement !== null) {
+        const withSettlement = setTaskRecordBindingSettlement(current, {
+          taskId: record.taskId,
+          worktreeId,
+          hostId: binding.hostId,
+          settlement: snapshot.settlement
+        })
+        if (withSettlement.ok) {
+          current = withSettlement.state
+        } else {
+          reportRefusal('record settlement', worktreeId, withSettlement)
+        }
       }
     }
   } catch (error) {

@@ -207,8 +207,18 @@ export type TaskWorkbenchHistory = {
   agents: number | null
   wall: TaskWorkbenchWallClock
   /** Same "unknown is not zero" rule as a row, but a task-level total rather
-   *  than one agent's: only `available` carries a number. */
-  tokens: { kind: 'available'; tokens: number } | { kind: 'unavailable'; reason: SpendReason }
+   *  than one agent's: only `available` carries a whole number. The four states
+   *  are the settlement's own (see `aggregateSettlement`): `available` = every
+   *  contributing figure was measured; `partial` = some closed workspaces settled
+   *  a number and at least one did not, so `tokens` is a subtotal and the copy
+   *  says so; `unavailable` = a workspace was measured and the figure is missing;
+   *  `unknown` = no closed workspace was captured at all (this build did not
+   *  measure), which is not a reason for a missing figure and never `0`. */
+  tokens:
+    | { kind: 'available'; tokens: number }
+    | { kind: 'partial'; tokens: number }
+    | { kind: 'unavailable'; reason: SpendReason }
+    | { kind: 'unknown' }
   lastActivityAt?: number
   archivedWorkspaces: number
   deletedWorkspaces: number

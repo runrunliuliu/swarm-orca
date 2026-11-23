@@ -272,6 +272,8 @@
           "removed": "Removed"
         },
         "tokensKnown": "{{value0}} tokens",
+        "tokensNotCaptured": "This build did not capture usage for a closed workspace, so there is no total.",
+        "tokensPartial": "{{value0}} tokens (partial)",
         "tokensUnknown": "tokens unknown",
         "totalScope": "Total: every run",
         "traceLost": "Workspace deleted; the recorded trace is out of reach.",

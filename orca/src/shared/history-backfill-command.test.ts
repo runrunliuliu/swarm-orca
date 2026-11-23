@@ -6,7 +6,8 @@ import {
   historyBackfillRequestSchema,
   historyBackfillResponseSchema,
   isHistoryBackfillCommandError,
-  parseHistoryBackfillTaskArgument
+  parseHistoryBackfillTaskArgument,
+  parseHistoryTaskArgument
 } from './history-backfill-command'
 
 describe('history backfill --task parsing', () => {
@@ -145,4 +146,31 @@ describe('history backfill wire contract', () => {
     expect(HISTORY_BACKFILL_FLAG).toBe('--history-backfill')
     expect(HISTORY_BACKFILL_RESULT_PREFIX).toBe('[history-backfill] ')
   })
+})
+
+describe('history task positional parsing', () => {
+  it.each([
+    { raw: 'repo-1#53', repo: { kind: 'auto', value: 'repo-1' }, number: 53 },
+    { raw: 'id:repo-1#7', repo: { kind: 'id', value: 'repo-1' }, number: 7 },
+    { raw: 'path:/repos/app#31', repo: { kind: 'path', value: '/repos/app' }, number: 31 },
+    { raw: '/repos/a#b#9', repo: { kind: 'auto', value: '/repos/a#b' }, number: 9 }
+  ])('parses $raw with the same repo grammar as backfill', ({ raw, repo, number }) => {
+    expect(parseHistoryTaskArgument(raw)).toEqual({ repo, number })
+  })
+
+  it.each(['repo-1', '#53', 'repo-1#', 'repo-1#0', 'repo-1#01', 'repo-1#abc', '  #53', ''])(
+    'rejects %s instead of guessing',
+    (raw) => {
+      try {
+        parseHistoryTaskArgument(raw)
+        throw new Error('expected a refusal')
+      } catch (error) {
+        expect(error).toBeInstanceOf(HistoryBackfillCommandError)
+        if (isHistoryBackfillCommandError(error)) {
+          expect(error.code).toBe('invalid_argument')
+          expect(error.message).toContain('history task expects <repo>#<number>')
+        }
+      }
+    }
+  )
 })

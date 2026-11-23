@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { WorktreeMeta } from '../../../shared/worktree/meta-types'
+import { normalizeTaskRecords } from '../../../shared/task-records-normalize'
 import { TASK_RECORDS_MAX_RECORD_BYTES } from '../../../shared/task-records-types'
 import type { TaskRecordsRuntime } from './task-records-persistence'
 import type { TaskRecordsUsageSource } from '../../task-records/task-records-worktree-usage'
@@ -96,6 +97,76 @@ describe('task records persistence', () => {
     ).toBeUndefined()
   })
 
+  /** A source whose store set is the headless `orcad` one: it sees sessions but
+   *  measured no usage, so its removal snapshot carries `settlement: null`. */
+  const UNMEASURED: TaskRecordsUsageSource = {
+    captureSessionsForRemoval: () => {},
+    snapshotForRemoval: ({ now }) => ({
+      settlement: null,
+      sessions: [
+        {
+          provider: 'claude',
+          key: 'session_id',
+          id: 'abc',
+          firstSeenAt: now,
+          lastSeenAt: now
+        }
+      ]
+    })
+  }
+
+  it('stores no settlement when the removal captured none, and still freezes the sessions', () => {
+    const state = runtime(UNMEASURED)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+
+    expect(settleTaskRecordsBeforeRemoval(state, null, ID, 500)).toBe(true)
+
+    const binding = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings[0]
+    // The frozen session list is the removal contract's other field and it is
+    // unchanged: only the figure is absent.
+    expect(binding?.sessions).toEqual([expect.objectContaining({ id: 'abc', key: 'session_id' })])
+    // Absent, not `unavailable/usage_not_enabled`: that reason would name a
+    // setting this build does not have (G4).
+    expect(binding?.usageSettlement).toBeUndefined()
+  })
+
+  it('never erases a settlement an earlier observation stored', () => {
+    const state = runtime(SOURCE)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+    settleTaskRecordsBeforeRemoval(state, null, ID, 500)
+    const stored = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings[0].usageSettlement
+    expect(stored).toMatchObject({ kind: 'known' })
+
+    // A later observation that measured nothing keeps the stored figure rather
+    // than replacing it with an absence ("an absent fact never erases a stored
+    // one" is the rule everywhere else in this domain).
+    state.taskRecordsUsageSource = UNMEASURED
+    settleTaskRecordsBeforeRemoval(state, null, ID, 600)
+
+    expect(taskRecordForTask(state.state.taskRecords, QUERY)?.bindings[0].usageSettlement).toEqual(
+      stored
+    )
+  })
+
+  it('round-trips a settlement the removal wrote through the load boundary', () => {
+    const state = runtime(SOURCE)
+    recordTaskRecordsForWorktreeMeta(state, ID, meta())
+    settleTaskRecordsBeforeRemoval(state, null, ID, 500)
+
+    const loaded = normalizeTaskRecords(JSON.parse(JSON.stringify(state.state.taskRecords)))
+
+    expect(loaded.readable).toBe(true)
+    expect(taskRecordForTask(loaded.state, QUERY)?.bindings[0]?.usageSettlement).toEqual(
+      expect.objectContaining({
+        kind: 'known',
+        collectedAt: 500,
+        scope: 'worktree-rollup',
+        providers: [{ provider: 'claude', tokens: 900, costUsd: 0.1 }],
+        estimatedCostUsd: 0.1
+      })
+    )
+  })
+
   it('never throws when the usage source fails, so a removal is not blocked', () => {
     const failing: TaskRecordsUsageSource = {
       captureSessionsForRemoval: () => {},
@@ -142,12 +213,10 @@ describe('task records persistence', () => {
     expect(calls).toEqual([{ worktreeId: ID, hostId: 'ssh:remote-a' }])
     const bindings = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
     expect(bindings).toHaveLength(2)
-    expect(bindings.find((binding) => binding.hostId === 'ssh:remote-a')?.usageSettlement).toMatchObject(
-      { kind: 'known', collectedAt: 600 }
-    )
     expect(
-      bindings.find((binding) => binding.hostId === 'local')?.usageSettlement
-    ).toBeUndefined()
+      bindings.find((binding) => binding.hostId === 'ssh:remote-a')?.usageSettlement
+    ).toMatchObject({ kind: 'known', collectedAt: 600 })
+    expect(bindings.find((binding) => binding.hostId === 'local')?.usageSettlement).toBeUndefined()
   })
 
   it('settles every same-locator binding on a full removal', () => {
@@ -187,11 +256,7 @@ describe('task records persistence', () => {
     // legacy projection and recorded that owner's task under the second host.
     const state = runtime()
     recordTaskRecordsForWorktreeMeta(state, ID, meta({ linkedIssue: 31 }))
-    recordTaskRecordsForWorktreeMeta(
-      state,
-      ID,
-      meta({ hostId: 'ssh:remote-a', linkedIssue: 32 })
-    )
+    recordTaskRecordsForWorktreeMeta(state, ID, meta({ hostId: 'ssh:remote-a', linkedIssue: 32 }))
 
     const local = taskRecordForTask(state.state.taskRecords, QUERY)?.bindings ?? []
     const remote =

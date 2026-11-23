@@ -116,21 +116,7 @@ export type TaskRecordSessionIdentity = {
  * row shape. Only the pane-attributed path can state one: the index/backfill path
  * reads a transcript, which records what was said, not the provider's verdict.
  */
-export type TaskRecordsArchiveSnapshot = Omit<TaskRecordsRemovalSnapshot, 'settlement'> & {
-  /** The settlement this runtime measured, or `null` when it has no provider usage
-   *  store at all (the headless `orcad` root: the four stores import `app` from
-   *  `electron` at module scope and are not in that bundle).
-   *
-   *  `null` is "this build did not measure", and it is deliberately **not** the
-   *  `unavailable` arm: every existing reason there states something that never
-   *  happened in such a runtime — `usage_not_enabled` names a user setting the build
-   *  does not have, and `no_matching_session` would be a measured zero. The archive
-   *  write stores no settlement at all for `null` (`applyArchiveSnapshot` already has
-   *  that arm), so a reader keeps three states apart: field absent = not measured by
-   *  this build; `unavailable` + reason = measured, figure missing; `known` = a
-   *  number. The removal contract stays non-nullable: a removal settles a workspace
-   *  that is going away, where an absent field is not readable the same way. */
-  settlement: TaskUsageSettlement | null
+export type TaskRecordsArchiveSnapshot = TaskRecordsRemovalSnapshot & {
   /** Claim → the verdict the hook status row recorded. A claim absent here has no
    *  verdict (a plain Stop, an unheld pane, a removal-fallback source), which is
    *  unknown — never success. */
@@ -206,11 +192,10 @@ export type TaskRecordsUsageSourceDeps = {
    *  have none at all: the headless `orcad` root cannot load them (each imports
    *  `app` from `electron` at module scope, and the orcad bundle refuses any
    *  Electron importer), so it binds the session half through this same factory
-   *  instead of a second, partial implementation. Absent is not "zero": the archive
+   *  instead of a second, partial implementation. Absent is not "zero": every
    *  snapshot then carries `settlement: null` — no settlement is written at all —
-   *  because no existing `unavailable` reason is true of a build that never measured
-   *  (see `TaskRecordsArchiveSnapshot.settlement`). A removal still settles with the
-   *  factory's own arm, since its contract has no absent case. */
+   *  because no existing `unavailable` reason is true of a build that never
+   *  measured (see `TaskRecordsRemovalSnapshot.settlement`). */
   stores?: TaskRecordsUsageStoreSet
   /** Hook-server snapshot; a session the server no longer knows cannot be listed. */
   sessionIdentities: () => readonly TaskRecordSessionIdentity[]
@@ -255,10 +240,7 @@ const REMOVAL_SESSION_CAPTURE_TTL_MS = 10 * 60 * 1000
 export function createTaskRecordsUsageSource(
   deps: TaskRecordsUsageSourceDeps
 ): TaskRecordsUsageSource {
-  const capturedSessions = new Map<
-    string,
-    { capturedAt: number; sessions: TaskRecordSession[] }
-  >()
+  const capturedSessions = new Map<string, { capturedAt: number; sessions: TaskRecordSession[] }>()
   const captureSessionsForRemoval = (worktreeId: string): void => {
     const now = Date.now()
     for (const [key, entry] of capturedSessions) {
@@ -286,18 +268,23 @@ export function createTaskRecordsUsageSource(
     }
     return captured.sessions
   }
-  const settlementFor = (worktreeId: string, hostId: ExecutionHostId, now: number) =>
-    // Same judgement as the desktop, with the store set it actually has: no stores
-    // is `enabled: false` and no provider rows, so `buildTaskUsageSettlement`
-    // returns its existing `unavailable`/`usage_not_enabled` arm. Deliberately not
-    // a second branch here: one settlement rule, one place to change it.
-    buildTaskUsageSettlement({
-      worktreeId,
-      hostId,
-      now,
-      providers: deps.stores ? readProviderRows(deps.stores, worktreeId) : [],
-      enabled: deps.stores ? anyProviderEnabled(deps.stores) : false
-    })
+  const settlementFor = (
+    worktreeId: string,
+    hostId: ExecutionHostId,
+    now: number
+  ): TaskUsageSettlement | null =>
+    // No store set ⇒ nothing was measured, and an absent figure is the only true
+    // statement; with stores, the desktop's own rule decides the arm. Deliberately
+    // not a second branch: one settlement rule, one place to change it.
+    deps.stores
+      ? buildTaskUsageSettlement({
+          worktreeId,
+          hostId,
+          now,
+          providers: readProviderRows(deps.stores, worktreeId),
+          enabled: anyProviderEnabled(deps.stores)
+        })
+      : null
   const settlementAndSessions = (
     worktreeId: string,
     hostId: ExecutionHostId,
@@ -321,7 +308,7 @@ export function createTaskRecordsUsageSource(
         // No store set ⇒ nothing was measured, and an absent figure is the only true
         // statement. The archive write then stores no settlement rather than a reason
         // for a measurement that never happened.
-        settlement: deps.stores ? settlementFor(worktreeId, hostId, now) : null,
+        settlement: settlementFor(worktreeId, hostId, now),
         sessions: collected.sessions,
         ...(collected.outcomes.size === 0 ? {} : { outcomes: collected.outcomes })
       }

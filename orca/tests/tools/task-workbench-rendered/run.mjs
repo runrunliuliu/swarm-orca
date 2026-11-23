@@ -304,6 +304,15 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-empty-state': hasWorkspaces || hasHistory ? 0 : 1,
     'task-workbench-history': hasHistory ? 1 : 0,
     'task-workbench-history-facts': hasHistory ? 1 : 0,
+    // A figure with no number states its reason in a sentence beside the facts
+    // line (issue #31 G3: not captured / measured-but-missing). A number — whole
+    // or a partial subtotal — needs no sentence.
+    'task-workbench-history-tokens-detail':
+      hasHistory &&
+      history.tokens.kind !== 'available' &&
+      history.tokens.kind !== 'partial'
+        ? 1
+        : 0,
     'task-workbench-history-archived-note':
       hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
     'task-workbench-history-trace-lost':

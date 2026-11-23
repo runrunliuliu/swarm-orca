@@ -186,9 +186,9 @@ describe('task records usage source', () => {
     expect(
       source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: 100 }).sessions
     ).toEqual([expect.objectContaining({ id: 'abc' })])
-    expect(source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: 101 }).sessions).toEqual(
-      []
-    )
+    expect(
+      source.snapshotForRemoval({ worktreeId: ID, hostId: 'local', now: 101 }).sessions
+    ).toEqual([])
   })
 
   it('ignores a capture older than its TTL and reads the live hook server', () => {
@@ -226,6 +226,73 @@ describe('task records usage source', () => {
     expect(snapshot.settlement).toMatchObject({
       kind: 'unavailable',
       reason: 'no_matching_session'
+    })
+  })
+
+  /**
+   * The four states one snapshot can be in, kept apart at the source:
+   * not captured (`null`), measured-but-missing (`unavailable` + reason),
+   * measured with an incomplete price (`known` + `estimatedCostUsd: null`), and
+   * a measured number. A source with no store set used to answer
+   * `usage_not_enabled`, which stated a setting the build does not have (G4).
+   */
+  describe('the four settlement states', () => {
+    const deps = { sessionIdentities: () => [], providerForPaneKey: () => undefined }
+    const at = { worktreeId: ID, hostId: 'local' as const, now: 100 }
+
+    it('states no settlement at all when this build has no usage store', () => {
+      const source = createTaskRecordsUsageSource(deps)
+
+      // `null`, not `unavailable` + a reason: no enum reason is true of a build
+      // that never measured, and the writer stores nothing for it.
+      expect(source.snapshotForRemoval(at).settlement).toBeNull()
+      expect(source.snapshotForArchive?.(at).settlement).toBeNull()
+    })
+
+    it('states the measured reason when the scan found nothing', () => {
+      const source = createTaskRecordsUsageSource({ ...deps, stores: stores({}) })
+
+      expect(source.snapshotForRemoval(at).settlement).toMatchObject({
+        kind: 'unavailable',
+        reason: 'no_matching_session'
+      })
+    })
+
+    it('keeps a measured total whose price is missing distinct from a priced one', () => {
+      const source = createTaskRecordsUsageSource({
+        ...deps,
+        // A priced provider plus an unpriced one: tokens are measured, the amount
+        // is not, so the total is `known` with `estimatedCostUsd: null` — neither
+        // an absence nor a partial sum.
+        stores: stores({
+          claude: { enabled: true, rows: [claudeRow(900, 0.1)] },
+          codex: { enabled: true, rows: [codexRow(100, null)] }
+        })
+      })
+
+      expect(source.snapshotForRemoval(at).settlement).toMatchObject({
+        kind: 'known',
+        providers: [
+          { provider: 'claude', tokens: 900 },
+          { provider: 'codex', tokens: 100 }
+        ],
+        estimatedCostUsd: null
+      })
+    })
+
+    it('states the measured number when every contributing row is priced', () => {
+      const source = createTaskRecordsUsageSource({
+        ...deps,
+        stores: stores({
+          claude: { enabled: true, rows: [claudeRow(900, 0.1)] },
+          codex: { enabled: true, rows: [codexRow(100, 0.05)] }
+        })
+      })
+
+      expect(source.snapshotForRemoval(at).settlement).toMatchObject({
+        kind: 'known',
+        estimatedCostUsd: 0.15000000000000002
+      })
     })
   })
 })

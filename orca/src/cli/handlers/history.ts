@@ -1,9 +1,13 @@
 import {
   parseHistoryBackfillTaskArgument,
-  type HistoryBackfillResult
+  parseHistoryTaskArgument,
+  type HistoryBackfillResult,
+  type HistoryBackfillTask
 } from '../../shared/history-backfill-command'
 import type { CommandHandler } from '../dispatch'
 import { printResult } from '../format'
+import { formatHistoryTaskExport } from '../history-task-format'
+import type { HistoryTaskExport } from '../history-task-export'
 import { rejectRemoteSelectionFlags } from '../remote-selection-flag-rejection'
 import {
   RuntimeClient,
@@ -114,7 +118,44 @@ function formatBackfill(report: HistoryBackfillResult): string {
   ].join('\n')
 }
 
+function requireHistoryTaskArgument(flags: ReadonlyMap<string, string | boolean>): string {
+  const value = flags.get('task')
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new RuntimeClientError(
+      'invalid_argument',
+      'history task requires <repo>#<number>, where <repo> is a registered repo id or its checkout path.'
+    )
+  }
+  return value.trim()
+}
+
 export const HISTORY_HANDLERS: Record<string, CommandHandler> = {
+  'history task': async ({ flags, json }) => {
+    rejectRemoteSelectionFlags(
+      flags,
+      "history task; it reads this machine's profile state and writes nothing."
+    )
+    let task: HistoryBackfillTask
+    try {
+      task = parseHistoryTaskArgument(requireHistoryTaskArgument(flags))
+    } catch (error) {
+      if (error instanceof RuntimeClientError) {
+        throw error
+      }
+      throw new RuntimeClientError(
+        'invalid_argument',
+        error instanceof Error ? error.message : String(error)
+      )
+    }
+    // Loaded on demand: `history backfill` must stay a launcher and never pull the
+    // SQLite/profile-state graph into its process.
+    const { readHistoryTaskExport } = await import('../history-task-state.js')
+    const result: HistoryTaskExport = readHistoryTaskExport({
+      userDataPath: getDefaultUserDataPath(),
+      task
+    })
+    printResult(localSuccess(result), json, formatHistoryTaskExport)
+  },
   'history backfill': async ({ flags, json }) => {
     rejectRemoteSelectionFlags(
       flags,

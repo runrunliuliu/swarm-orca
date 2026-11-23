@@ -350,9 +350,7 @@ describe('TaskWorkbenchHistory — the deleted form', () => {
     expect(screen.getByTestId('task-workbench-history-trace-lost')).toHaveTextContent(
       'Workspace deleted; the recorded trace is out of reach.'
     )
-    expect(
-      screen.queryByTestId('task-workbench-history-archived-note')
-    ).not.toBeInTheDocument()
+    expect(screen.queryByTestId('task-workbench-history-archived-note')).not.toBeInTheDocument()
     // Only the strip-level sentence is task-wide: the archived checkout still has
     // its own row.
     expect(screen.getByText('/fixtures/archived')).toBeInTheDocument()
@@ -460,5 +458,58 @@ describe('TaskWorkbenchHistory — recorded absences (T2 / B1)', () => {
     expect(screen.getByTestId('task-workbench-history-workspace-sessions')).toHaveTextContent(
       'no sessions recorded'
     )
+  })
+})
+
+/**
+ * G3: the task total states which of the four settlement states it is in. Each
+ * one renders its own sentence, and no absence path renders `0 tokens` / `$0`
+ * (README §7.5's fake zero).
+ */
+describe('TaskWorkbenchHistory — the four settlement states', () => {
+  function factsText(): string {
+    return screen.getByTestId('task-workbench-history-facts').textContent ?? ''
+  }
+
+  it('prints the measured figure when every contributing settlement is known', () => {
+    renderHistory(history({ tokens: { kind: 'available', tokens: 420_000 } }))
+
+    expect(factsText()).toContain('420.0k tokens')
+    expect(screen.queryByTestId('task-workbench-history-tokens-detail')).not.toBeInTheDocument()
+  })
+
+  it('marks a subtotal partial instead of printing it as the whole total', () => {
+    renderHistory(history({ tokens: { kind: 'partial', tokens: 500_000 } }))
+
+    expect(factsText()).toContain('500.0k tokens (partial)')
+    // A partial figure still carries a number, so it must not read as unknown —
+    // and it is not 0 either.
+    expect(factsText()).not.toContain('0 tokens')
+    expect(screen.queryByTestId('task-workbench-history-tokens-detail')).not.toBeInTheDocument()
+  })
+
+  it('says this build captured no usage when the record froze no settlement', () => {
+    renderHistory(history({ tokens: { kind: 'unknown' } }))
+
+    expect(factsText()).toContain('tokens unknown')
+    // Not the `no_matching_session` sentence: no scan ran, so nothing was found.
+    expect(screen.getByTestId('task-workbench-history-tokens-detail')).toHaveTextContent(
+      'This build did not capture usage for a closed workspace, so there is no total.'
+    )
+    expect(factsText()).not.toContain('0 tokens')
+    expect(factsText()).not.toContain('$0')
+  })
+
+  it('states the measured reason when a workspace was measured and its figure is missing', () => {
+    renderHistory(history({ tokens: { kind: 'unavailable', reason: 'scan_failed' } }))
+
+    expect(factsText()).toContain('tokens unknown')
+    expect(screen.getByTestId('task-workbench-history-tokens-detail')).toHaveTextContent(
+      'The usage scan failed, so this figure could not be read.'
+    )
+    // The verbatim token stays one hover away (README §7.4.3).
+    expect(screen.getByTitle('Scan failed')).toBeInTheDocument()
+    expect(factsText()).not.toContain('0 tokens')
+    expect(factsText()).not.toContain('$0')
   })
 })

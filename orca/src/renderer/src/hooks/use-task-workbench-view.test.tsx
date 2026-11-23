@@ -249,11 +249,13 @@ describe('useTaskWorkbenchView — item scope', () => {
     expect(current.result.current?.history).toMatchObject({
       trace: 'deleted',
       deletedWorkspaces: 1,
-      // The record stores the mapping and the settled figures, not the runs:
-      // unknown, never 0.
+      // The record stores the mapping and whatever it settled, not the runs:
+      // unknown, never 0. No usage figure was frozen for this binding, so the
+      // state says the build captured none — it must not claim a scan ran and
+      // found nothing (`no_matching_session`).
       agents: null,
       wall: { kind: 'unknown' },
-      tokens: { kind: 'unavailable', reason: 'no_matching_session' }
+      tokens: { kind: 'unknown' }
     })
     expect(current.result.current?.spend).toMatchObject({ kind: 'unavailable' })
   })

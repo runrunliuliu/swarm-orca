@@ -6,14 +6,21 @@ import { formatTokens } from '@/components/stats/usage-formatters'
 import { translate } from '@/i18n/i18n'
 import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import {
+  REASON_COPY,
   USAGE_STATUS_WORD,
   spendStatus,
+  usageReasonCopyKey,
   usageStatusIsUnavailable,
   usageStatusLabelKey,
   usageStatusWordKey,
   type UsageStatus
 } from './task-workbench-usage-status'
-import type { SpendReason, SpendView, TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
+import type {
+  SpendReason,
+  SpendView,
+  TaskWorkbenchLayout,
+  TaskWorkbenchView
+} from './task-workbench-view'
 
 /**
  * Task-level usage, as one fact row of the facts strip (README §7.4.2):
@@ -49,16 +56,8 @@ const STATUS_COPY: Record<UsageStatus, string> = {
 }
 
 /** One sentence per absence, saying what the reader can do or why no number
- *  exists. Exhaustive by type, so a new `SpendReason` cannot render silently. */
-const REASON_COPY: Record<SpendReason, string> = {
-  disabled: 'Usage tracking is off. No spend is recorded for this task.',
-  unpriced: 'Some models in this task have no price, so the total is unknown.',
-  ambiguous_session: 'More than one session matches this task, so usage cannot be attributed.',
-  no_matching_session: 'No session matches this task yet, so there is nothing to total.',
-  remote_host: 'This workspace runs on a remote host, where usage is not collected yet.',
-  scan_failed: 'The usage scan failed, so this figure could not be read.',
-  unattributed: 'Some sessions could not be tied to this task.'
-}
+ *  exists. Re-exported from the shared vocabulary module: the history strip states
+ *  the same reasons for a task total, and one table keeps the two from drifting. */
 
 /** P1b owns the Settings hop; the control stays visible but disabled until then
  *  (README §7.4.2 取舍 3). */
@@ -104,7 +103,13 @@ function EstimatedCost({ costUsd }: { costUsd: number | null }): React.JSX.Eleme
 /** The absence: the reader's word, then the sentence that explains it. The word
  *  carries the verbatim token as its tooltip, so the exact state is still one
  *  hover away without being part of the interface. */
-function Absence({ status, reason }: { status: UsageStatus; reason: SpendReason | null }): React.JSX.Element {
+function Absence({
+  status,
+  reason
+}: {
+  status: UsageStatus
+  reason: SpendReason | null
+}): React.JSX.Element {
   return (
     <>
       <span
@@ -116,7 +121,7 @@ function Absence({ status, reason }: { status: UsageStatus; reason: SpendReason 
       </span>
       {reason === null ? null : (
         <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
-          {translate(spendKeys(`reason.${reason}`), REASON_COPY[reason])}
+          {translate(usageReasonCopyKey(reason), REASON_COPY[reason])}
         </span>
       )}
     </>

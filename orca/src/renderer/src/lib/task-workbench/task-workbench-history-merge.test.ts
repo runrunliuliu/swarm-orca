@@ -456,10 +456,10 @@ describe('mergeTaskRecordHistory — record-sourced runs (issue #53)', () => {
       record: record([binding('wt-gone', { isArchived: true, runs: [RUN] })])
     })
 
-    // The removed branch keeps its existing settlement rule: a removed binding
-    // with no settled figure states the reason it has (`no_matching_session`),
-    // and the strip marks the figure settled because it is a record fact now.
-    expect(merged.tokens).toEqual({ kind: 'unavailable', reason: 'no_matching_session' })
+    // A removed binding with no settled figure is `unknown` — the build that wrote
+    // it captured no usage — and the strip still marks the figure settled because
+    // it is a record fact now. Never `0`, never a claimed `no_matching_session`.
+    expect(merged.tokens).toEqual({ kind: 'unknown' })
     expect(merged.tokensSource).toBe('settled')
   })
 })
