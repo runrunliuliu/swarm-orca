@@ -165,6 +165,17 @@ describe('mergeTaskRecordHistory', () => {
     expect(merged.deletedWorkspaces).toBe(1)
   })
 
+  it('states the deleted form when a removed binding outranks a live archived one', () => {
+    // `trace` is task-level: one removed binding wins even with an archived one.
+    const merged = mergeTaskRecordHistory({
+      history: HISTORY,
+      existingWorktreeIds: ['wt-feature'],
+      record: record([binding('wt-feature', { isArchived: true }), binding('wt-gone')])
+    })
+
+    expect(merged.trace).toBe('deleted')
+  })
+
   it('uses the settled figures for removed workspaces and marks the source', () => {
     const merged = mergeTaskRecordHistory({
       history: {

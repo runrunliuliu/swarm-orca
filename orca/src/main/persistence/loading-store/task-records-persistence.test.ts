@@ -439,7 +439,7 @@ describe('task records archive snapshot', () => {
     }
   })
 
-  it('claims nothing when no usage source is bound yet (startup order, not a zero)', () => {
+  it('records a recoverable gap, not an empty authoritative list, when no source is bound', () => {
     const state = runtime(null)
     recordTaskRecordsForWorktreeMeta(state, ID, meta())
 
@@ -447,8 +447,17 @@ describe('task records archive snapshot', () => {
 
     const [binding] = bindingsOf(state)
     expect(binding.isArchived).toBe(true)
-    expect(binding.runs).toBeUndefined()
-    expect(binding.gaps).toBeUndefined()
+    // The archive write ran without a source (the headless composition root): the
+    // record says so instead of leaving `sessions: []` as its only statement, and
+    // the gap names how to finish it. Nothing measured stays absent, never a zero.
+    expect(binding.sessions).toEqual([])
+    expect(binding.runs).toEqual([])
+    expect(binding.gaps).toEqual([
+      expect.objectContaining({
+        kind: 'session_unattributable',
+        detail: expect.stringContaining('orca history backfill')
+      })
+    ])
     expect(binding.usageSettlement).toBeUndefined()
   })
 })

@@ -307,10 +307,55 @@ describe('TaskWorkbenchHistory — the deleted form', () => {
     expect(facts).toHaveTextContent('tokens unknown')
     expect(facts).not.toHaveTextContent('0 tokens')
     expect(facts).not.toHaveTextContent('$0')
+    // The strip-level sentence this form owns, not only the per-session verdict
+    // below: the deleted form always says the recorded trace is out of reach.
+    expect(screen.getByTestId('task-workbench-history-trace-lost')).toHaveTextContent(
+      'Workspace deleted; the recorded trace is out of reach.'
+    )
     // The session row states the path and its own verdict.
     const session = screen.getByTestId('task-workbench-history-session')
     expect(session).toHaveTextContent('transcript path recorded')
     expect(session).toHaveTextContent('Trace unreachable: this host cannot check it.')
+  })
+
+  it('prints only the deleted note when a removed binding outranks an archived one', () => {
+    // `trace` is task-level and `removed` outranks `archived` in
+    // task-workbench-history-merge.ts, so a task holding both kinds prints the
+    // deleted sentence and no archive note. Pinned as-is, not redesigned: a
+    // per-workspace note would be an owner decision.
+    renderHistory(
+      history({
+        trace: 'deleted',
+        archivedWorkspaces: 1,
+        deletedWorkspaces: 1,
+        workspaces: [
+          {
+            worktreeId: 'wt-archived',
+            path: '/fixtures/archived',
+            state: 'archived',
+            lastVerifiedAt: null,
+            hasSessions: true
+          },
+          {
+            worktreeId: 'wt-gone',
+            path: '/fixtures/gone',
+            state: 'removed',
+            lastVerifiedAt: null,
+            hasSessions: true
+          }
+        ]
+      })
+    )
+
+    expect(screen.getByTestId('task-workbench-history-trace-lost')).toHaveTextContent(
+      'Workspace deleted; the recorded trace is out of reach.'
+    )
+    expect(
+      screen.queryByTestId('task-workbench-history-archived-note')
+    ).not.toBeInTheDocument()
+    // Only the strip-level sentence is task-wide: the archived checkout still has
+    // its own row.
+    expect(screen.getByText('/fixtures/archived')).toBeInTheDocument()
   })
 })
 

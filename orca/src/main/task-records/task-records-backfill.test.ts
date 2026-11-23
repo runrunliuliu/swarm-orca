@@ -25,6 +25,7 @@ import {
   type TaskWorkspaceBinding
 } from '../../shared/task-records-types'
 import { resolveBackfillRepoId, resolveBackfillTaskRecord } from './task-records-backfill'
+import { hasUnresolvedArchiveSnapshot, unattributableGap } from './task-records-archive-snapshot'
 import { backfillTaskRecords } from './task-records-backfill-profile-state'
 import { createTranscriptCheckProbe } from './task-records-transcript-check'
 import type { TaskRecordsSessionIndexLookup } from './task-records-session-index-lookup'
@@ -285,6 +286,51 @@ describe('history backfill repository and task resolution', () => {
 })
 
 describe('history backfill (T1, the headline regression)', () => {
+  /** Issue #31's stored shape after the writer fix: the archive ran in a runtime
+   *  with no session source, so the binding states `runs: []` plus the marker gap
+   *  instead of an empty, unexplained list. */
+  function stateWithUnobservedArchive(): TaskRecordsState {
+    const state = stateWithBinding()
+    const record = state.byId[TASK_ID]
+    const binding = bindingOf(record)
+    return {
+      ...state,
+      byId: {
+        ...state.byId,
+        [TASK_ID]: {
+          ...record,
+          bindings: [
+            {
+              ...binding,
+              runs: [],
+              gaps: [unattributableGap(BOUND_AT, 'source_unavailable')]
+            }
+          ]
+        }
+      }
+    }
+  }
+
+  it('resolves a marker an archive wrote with no session source (issue #31)', async () => {
+    const state = stateWithUnobservedArchive()
+    expect(hasUnresolvedArchiveSnapshot(bindingOf(state.byId[TASK_ID]))).toBe(true)
+    const fixture = profileFixture(state)
+
+    const { report } = await run(fixture, {
+      sessions: [indexSession({ filePath: fixture.transcriptPath })]
+    })
+
+    // The command's selection is "archived and holds no sessions", which is
+    // exactly the marker's state: no new selector, no new RPC, no schema change.
+    expect(report).toMatchObject({ examined: 1, resolved: 1, rowsWritten: { sessions: 1, runs: 1 } })
+    const binding = bindingOf(storedRecord(fixture))
+    expect(binding.sessions).toHaveLength(1)
+    expect(hasUnresolvedArchiveSnapshot(binding)).toBe(false)
+    // The gap is kept as provenance: the archive moment really could not see, and
+    // the row it lists was attributed later.
+    expect(binding.gaps).toEqual([unattributableGap(BOUND_AT, 'source_unavailable')])
+  })
+
   it('reconstructs one run for an archived workspace with an empty session list', async () => {
     const fixture = profileFixture()
     const { report } = await run(fixture, {

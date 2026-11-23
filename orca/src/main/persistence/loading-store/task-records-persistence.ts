@@ -28,6 +28,7 @@ import type { TaskRecordsUsageSource } from '../../task-records/task-records-wor
 import {
   applyArchiveSnapshot,
   archiveLookupPlan,
+  hasUnresolvedArchiveSnapshot,
   isArchiveTransition,
   type ArchiveSnapshotFollowUp
 } from '../../task-records/task-records-archive-snapshot'
@@ -48,6 +49,10 @@ import type { WriteSchedulingOperations } from './write-scheduling'
  * - **no blocked workspace work**: nothing here throws into a metadata write or
  *   a removal. A refusal is reported and the stored state is left alone, because
  *   a task ledger must not be able to break the workspace list.
+ *
+ * It also owns the one recoverable seam of an archive this runtime could not
+ * observe: a later metadata touch of that binding is the moment the archive
+ * snapshot can be finished (issue #31), never a startup scan.
  */
 
 /** Only what these functions need, so a test can supply a plain state object
@@ -68,6 +73,20 @@ export type TaskRecordsRuntime = {
  *  repeat the warning on every metadata write. */
 const legacySeedDeferredStates = new WeakSet<object>()
 
+/**
+ * One binding → one retry, per process. A metadata touch is an operator action,
+ * so it is an allowed moment to finish an archive this runtime could not observe
+ * (a startup scan is not — and none is added). Without this guard every later
+ * touch of the same archived workspace (unread, pin, comment, sort order) would
+ * start a session scan for a fact that a scan already failed to produce in this
+ * process.
+ */
+const snapshotRetriesStarted = new Set<string>()
+
+function snapshotRetryKey(taskId: string, worktreeId: string, hostId: ExecutionHostId): string {
+  return `${taskId}\u0000${worktreeId}\u0000${hostId}`
+}
+
 export function recordTaskRecordsForWorktreeMeta(
   runtime: TaskRecordsRuntime,
   worktreeId: string,
@@ -86,6 +105,9 @@ export function recordTaskRecordsForWorktreeMeta(
   // settlement's `collectedAt` must be the same moment as the flag they explain.
   const now = Date.now()
   const followUps: ArchiveSnapshotFollowUp[] = []
+  /** Bindings whose follow-up this same call already scheduled; the retry below
+   *  must not ask a second time for the archive transition it just handled. */
+  const scheduled = new Set<string>()
   let current = stored
   let changed = false
   if (current === undefined) {
@@ -136,6 +158,35 @@ export function recordTaskRecordsForWorktreeMeta(
       ? bindingOf(current, taskId, worktreeId, link.hostId)
       : undefined
     if (!archived || !isArchiveTransition(previous, archived)) {
+      // Not the archive moment — but it may be the **next metadata touch** of an
+      // archive a runtime with no session source could not observe. That marker is
+      // the recoverable half of the fix (issue #31): the binding keeps an explicit
+      // `source_unavailable` gap and no sessions, and this call can finish it now
+      // that a source exists. Read-only when there is nothing to resolve, so an
+      // ordinary metadata write still costs nothing.
+      const unresolved = bindingOf(current, taskId, worktreeId, link.hostId)
+      if (unresolved && hasUnresolvedArchiveSnapshot(unresolved)) {
+        const retry = snapshotRetryKey(taskId, worktreeId, link.hostId)
+        if (
+          !scheduled.has(retry) &&
+          !snapshotRetriesStarted.has(retry) &&
+          runtime.taskRecordsUsageSource?.archiveSnapshot &&
+          scheduling != null
+        ) {
+          snapshotRetriesStarted.add(retry)
+          scheduled.add(retry)
+          followUps.push({
+            taskId,
+            worktreeId,
+            hostId: link.hostId,
+            path: unresolved.path,
+            recordedAt: now,
+            windowStart: unresolved.boundAt,
+            lookup: true,
+            check: false
+          })
+        }
+      }
       continue
     }
     const snapshot = applyArchiveSnapshot({
@@ -157,6 +208,7 @@ export function recordTaskRecordsForWorktreeMeta(
     changed = changed || current !== beforeSnapshot
     if (snapshot.followUp) {
       followUps.push(snapshot.followUp)
+      scheduled.add(snapshotRetryKey(taskId, worktreeId, link.hostId))
     }
   }
   if (changed) {
