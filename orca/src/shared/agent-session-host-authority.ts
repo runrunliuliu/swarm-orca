@@ -144,7 +144,14 @@ export type RuntimeCreateAgentSessionRequest = {
 export type RuntimeCreateAgentSessionResult = {
   terminal: RuntimeTerminalCreate
   disposition: 'created' | 'replayed'
+  /** Optional on the wire: a host predating the capability omits it, and the client fails closed. */
+  promptDelivery?: RuntimeAgentLaunchPromptDelivery
 }
+
+export type RuntimeAgentLaunchPromptDelivery =
+  | { state: 'not-requested' }
+  | { state: 'launch-bound'; transport: 'argv' | 'env-hook' }
+  | { state: 'unknown' }
 
 export type RuntimeAgentSessionRpcCaller = {
   clientId?: string

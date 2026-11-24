@@ -3,6 +3,7 @@ import { isExpectedAgentProcess } from '../../../shared/agent-process-recognitio
 import { isShellProcess } from './tui-agent-startup'
 import { useAppStore } from '@/store'
 import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
+import { withDeadline } from '../../../shared/promise-deadline'
 
 // Why: agent CLIs vary widely in how they signal readiness. Title-based
 // detection (OSC titles parsed by detectAgentStatusFromTitle) is the tightest
@@ -77,7 +78,11 @@ export async function waitForAgentReady(
 
   while (Date.now() < deadline) {
     if (attempt > 0) {
-      await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS))
+      const delayMs = Math.min(POLL_INTERVAL_MS, Math.max(0, deadline - Date.now()))
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs))
+      if (Date.now() >= deadline) {
+        break
+      }
     }
     attempt += 1
 
@@ -91,7 +96,13 @@ export async function waitForAgentReady(
     }
 
     try {
-      const process = await inspectRuntimeTerminalProcess(useAppStore.getState().settings, ptyId)
+      const process = await withDeadline(
+        inspectRuntimeTerminalProcess(useAppStore.getState().settings, ptyId),
+        Math.max(0, deadline - Date.now())
+      )
+      if (!process) {
+        break
+      }
       const foreground = process.foregroundProcess?.toLowerCase() ?? ''
       if (isExpectedAgentProcess(foreground, expectedProcess)) {
         return { ready: true, reason: 'foreground-match' }

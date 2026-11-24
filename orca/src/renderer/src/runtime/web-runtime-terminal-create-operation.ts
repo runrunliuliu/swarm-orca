@@ -2,6 +2,7 @@ import { buildDefaultTerminalOptions } from '@/lib/pane-manager/pane-terminal-op
 import { createAgentSessionKeyboardOptions } from './agent-session-keyboard-capability'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import type { RuntimeMobileSessionCreateTerminalResult } from '../../../shared/runtime-types'
+import type { RuntimeAgentLaunchPromptDelivery } from '../../../shared/agent-session-host-authority'
 import { toRuntimeExecutionHostId } from '../../../shared/execution-host'
 import { translate } from '../i18n/i18n'
 import { useAppStore } from '../store'
@@ -81,6 +82,7 @@ export async function createWebRuntimeSessionTerminalResult(
   let hostCreated = false
   let createdTabId: string | undefined
   let createdLeafId: string | undefined
+  let createdPromptDelivery: RuntimeAgentLaunchPromptDelivery | undefined
   try {
     const agent = args.launchAgent ?? args.agent
     const agentArgsOverride =
@@ -129,45 +131,54 @@ export async function createWebRuntimeSessionTerminalResult(
                   )
                 )
             : undefined
-          : async () =>
-              await createAgentSessionCreateOperation().run(async (clientOperationId) =>
-                readCreatedAgentTerminalIdentity(
-                  unwrapRuntimeRpcResult(
-                    await callEnvironment({
-                      method: 'terminal.createAgentSession',
-                      params: withAgentSessionCreateOperationId(
-                        {
-                          ...(await keyboardOptions(environmentId)),
-                          worktree: toRuntimeWorktreeSelector(args.worktreeId),
-                          agent,
-                          ...(args.prompt ? { prompt: args.prompt } : {}),
-                          ...(args.promptDelivery ? { promptDelivery: args.promptDelivery } : {}),
-                          ...(agentArgsOverride !== undefined
-                            ? { agentArgs: agentArgsOverride }
-                            : {}),
-                          ...(args.launchPreferences
-                            ? { launchPreferences: args.launchPreferences }
-                            : {}),
-                          ...(args.cwd ? { startupCwd: args.cwd } : {}),
-                          ...(args.viewMode ? { viewMode: args.viewMode } : {}),
-                          presentation: 'background'
-                        },
-                        clientOperationId
-                      ),
-                      timeoutMs: 15_000
-                    })
+          : async () => {
+              const created = await createAgentSessionCreateOperation().run(
+                async (clientOperationId) =>
+                  readCreatedAgentTerminalIdentity(
+                    unwrapRuntimeRpcResult(
+                      await callEnvironment({
+                        method: 'terminal.createAgentSession',
+                        params: withAgentSessionCreateOperationId(
+                          {
+                            ...(await keyboardOptions(environmentId)),
+                            worktree: toRuntimeWorktreeSelector(args.worktreeId),
+                            agent,
+                            ...(args.prompt ? { prompt: args.prompt } : {}),
+                            ...(args.promptDelivery ? { promptDelivery: args.promptDelivery } : {}),
+                            ...(agentArgsOverride !== undefined
+                              ? { agentArgs: agentArgsOverride }
+                              : {}),
+                            ...(args.launchPreferences
+                              ? { launchPreferences: args.launchPreferences }
+                              : {}),
+                            ...(args.cwd ? { startupCwd: args.cwd } : {}),
+                            ...(args.viewMode ? { viewMode: args.viewMode } : {}),
+                            presentation: 'background'
+                          },
+                          clientOperationId
+                        ),
+                        timeoutMs: 15_000
+                      })
+                    )
                   )
-                )
               )
+              // A host that advertised ownership but omitted the settlement may already have
+              // consumed the prompt. Preserve the created identity and fail closed instead of
+              // writing the same prompt through its mirrored tab.
+              return args.hostAuthorityCapability && !created.promptDelivery
+                ? { ...created, promptDelivery: { state: 'unknown' as const } }
+                : created
+            }
       const resumeHostAuthorityCapability =
         args.agentSessionKind === 'resume' ? agentResumeHostAuthorityCapability(agent) : undefined
       const created = await runRemoteAgentSessionLaunch<{
         terminal: CreatedAgentTerminalIdentity
+        promptDelivery?: RuntimeAgentLaunchPromptDelivery
       }>({
         environmentId,
         ...(hostAuthority ? { hostAuthority } : {}),
-        ...(resumeHostAuthorityCapability
-          ? { hostAuthorityCapability: resumeHostAuthorityCapability }
+        ...(args.hostAuthorityCapability || resumeHostAuthorityCapability
+          ? { hostAuthorityCapability: args.hostAuthorityCapability ?? resumeHostAuthorityCapability }
           : {}),
         legacy: async () => {
           const response = await callEnvironment({
@@ -208,6 +219,7 @@ export async function createWebRuntimeSessionTerminalResult(
       })
       hostCreated = true
       createdTabId = created.terminal.tabId
+      createdPromptDelivery = created.promptDelivery
       createdLeafId = legacyAlreadyPlacedInGroup
         ? created.terminal.leafId
         : createdTerminalLeafId(created.terminal)
@@ -302,7 +314,8 @@ export async function createWebRuntimeSessionTerminalResult(
     }
     return {
       outcome: { status: 'created' },
-      ...(createdTabId ? { hostTabId: createdTabId } : {})
+      ...(createdTabId ? { hostTabId: createdTabId } : {}),
+      ...(createdPromptDelivery ? { promptDelivery: createdPromptDelivery } : {})
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -327,7 +340,8 @@ export async function createWebRuntimeSessionTerminalResult(
     // to retry with a new operation ID and can duplicate a fresh agent.
     return {
       outcome: hostCreated ? { status: 'created' } : { status: 'failed', message },
-      ...(createdTabId ? { hostTabId: createdTabId } : {})
+      ...(createdTabId ? { hostTabId: createdTabId } : {}),
+      ...(createdPromptDelivery ? { promptDelivery: createdPromptDelivery } : {})
     }
   }
 }

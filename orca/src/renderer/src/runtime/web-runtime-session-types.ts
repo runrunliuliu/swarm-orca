@@ -4,10 +4,12 @@ import type {
 } from '../../../shared/agent-session-resume'
 import type {
   AgentLaunchPreferences,
-  AgentPromptDelivery
+  AgentPromptDelivery,
+  RuntimeAgentLaunchPromptDelivery
 } from '../../../shared/agent-session-host-authority'
 import type { StartupCommandDelivery } from '../../../shared/codex-startup-delivery'
 import type { RuntimeTerminalCreate } from '../../../shared/runtime-types'
+import type { RuntimeCapability } from '../../../shared/protocol-version'
 import type { TuiAgent } from '../../../shared/tui-agent'
 
 export type WebRuntimeTerminalCreateOutcome =
@@ -46,11 +48,14 @@ export type CreateWebRuntimeSessionTerminalArgs = {
   viewMode?: 'terminal' | 'chat'
   activate?: boolean
   selectWorktree?: boolean
+  /** Require a host whose structured create owns this launch's prompt delivery. */
+  hostAuthorityCapability?: RuntimeCapability
 }
 
 export type CreatedWebRuntimeSessionTerminal = {
   outcome: WebRuntimeTerminalCreateOutcome
   hostTabId?: string
+  promptDelivery?: RuntimeAgentLaunchPromptDelivery
 }
 
 export type CreatedAgentTerminalIdentity = Pick<RuntimeTerminalCreate, 'tabId' | 'paneKey'> & {

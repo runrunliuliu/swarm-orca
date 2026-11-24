@@ -23,3 +23,22 @@ it.each([
 ])('rejects malformed host coordinates: %j', (value) => {
   expect(() => readCreatedAgentTerminalIdentity(value)).toThrow('Host returned')
 })
+
+it('accepts only known launch prompt delivery settlements', () => {
+  const terminal = { tabId: 'tab-1', paneKey: 'tab-1:leaf-1' }
+  expect(
+    readCreatedAgentTerminalIdentity({
+      terminal,
+      promptDelivery: { state: 'launch-bound', transport: 'env-hook' }
+    })
+  ).toMatchObject({ promptDelivery: { state: 'launch-bound', transport: 'env-hook' } })
+  expect(() =>
+    readCreatedAgentTerminalIdentity({
+      terminal,
+      promptDelivery: { state: 'launch-bound', transport: 'stdin' }
+    })
+  ).toThrow('invalid launch prompt delivery')
+  expect(() =>
+    readCreatedAgentTerminalIdentity({ terminal, promptDelivery: { state: 'launch-bound' } })
+  ).toThrow('invalid launch prompt delivery')
+})

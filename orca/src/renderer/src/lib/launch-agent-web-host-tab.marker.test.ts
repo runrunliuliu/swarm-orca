@@ -55,6 +55,16 @@ function startupPlan(): AgentStartupPlan {
   }
 }
 
+function followupStartupPlan(agent: 'trae' | 'pi'): AgentStartupPlan {
+  return {
+    agent,
+    launchCommand: agent === 'trae' ? 'traecli --yolo' : 'pi',
+    expectedProcess: agent === 'trae' ? 'traecli' : 'pi',
+    followupPrompt: 'deliver the task',
+    launchConfig: { agentArgs: '--yolo', agentEnv: {} }
+  }
+}
+
 function launch(quickCommandLabel?: string): Promise<unknown> {
   return launchAgentInWebHostTab({
     agent: 'claude',
@@ -73,6 +83,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.store.tabsByWorktree = {}
   mocks.createTerminal.mockResolvedValue({ status: 'created' })
+  mocks.createAgentTerminal.mockResolvedValue({
+    outcome: { status: 'created' },
+    promptDelivered: true
+  })
 })
 
 describe('launchAgentInWebHostTab — the delivery marker', () => {
@@ -90,5 +104,78 @@ describe('launchAgentInWebHostTab — the delivery marker', () => {
     await launch()
 
     expect(mocks.createTerminal.mock.calls[0][0]).not.toHaveProperty('quickCommandLabel')
+  })
+
+  it.each(['trae', 'pi'] as const)(
+    'delegates an unprepared %s prompt to a capable host create operation',
+    async (agent) => {
+      await launchAgentInWebHostTab({
+        agent,
+        worktreeId: WORKTREE_ID,
+        environmentId: 'env-1',
+        startupPlan: followupStartupPlan(agent),
+        prompt: 'deliver the task',
+        promptDelivery: 'submit-after-ready',
+        pastePromptAfterReady: 'deliver the task',
+        submitPastedPrompt: true
+      })
+
+      expect(mocks.createAgentTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agent,
+          prompt: 'deliver the task',
+          promptDelivery: 'auto-submit',
+          hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1'
+        })
+      )
+    }
+  )
+
+  it.each([
+    ['draft fallback', 'keep this draft editable'],
+    ['linked-issue block', 'injected context that must not submit']
+  ])('keeps a %s paste on the client instead of binding it to the host', async (_case, text) => {
+    await launchAgentInWebHostTab({
+      agent: 'trae',
+      worktreeId: WORKTREE_ID,
+      environmentId: 'env-1',
+      startupPlan: followupStartupPlan('trae'),
+      prompt: text,
+      promptDelivery: 'draft',
+      pastePromptAfterReady: text,
+      submitPastedPrompt: false
+    })
+
+    const request = mocks.createAgentTerminal.mock.calls[0][0]
+    expect(request).toMatchObject({
+      agent: 'trae',
+      promptAfterReady: text,
+      submitPrompt: false
+    })
+    expect(request).not.toHaveProperty('prompt')
+    expect(request).not.toHaveProperty('promptDelivery')
+    expect(request).not.toHaveProperty('hostAuthorityCapability')
+  })
+
+  it('keeps a prepared Trae command on the legacy route without host prompt ownership', async () => {
+    await launchAgentInWebHostTab({
+      agent: 'trae',
+      worktreeId: WORKTREE_ID,
+      environmentId: 'env-1',
+      startupPlan: followupStartupPlan('trae'),
+      prompt: 'deliver the task',
+      promptDelivery: 'submit-after-ready',
+      pastePromptAfterReady: 'deliver the task',
+      submitPastedPrompt: true,
+      preparedAgentCommand: true
+    })
+
+    const request = mocks.createAgentTerminal.mock.calls[0][0]
+    expect(request).toMatchObject({
+      preparedAgentCommand: true,
+      command: 'traecli --yolo'
+    })
+    expect(request).not.toHaveProperty('hostAuthorityCapability')
+    expect(request).not.toHaveProperty('prompt')
   })
 })

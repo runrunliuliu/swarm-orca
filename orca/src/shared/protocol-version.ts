@@ -172,6 +172,11 @@ export const AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY =
 export { REMOTE_SERVER_UPDATE_CAPABILITY } from './remote-server-update'
 export const AGENT_SESSION_HOST_AUTHORITY_RUNTIME_CAPABILITY =
   'agent-session.host-authority.v1' as const
+// Why: host-authority.v1 may create an agent while silently discarding the separately carried
+// prompt. Only this capability says createAgentSession either binds the prompt to a host-selected
+// launch adapter (argv/env hook) or refuses before spawn so the client can use its legacy adapter.
+export const AGENT_SESSION_LAUNCH_PROMPT_DELIVERY_RUNTIME_CAPABILITY =
+  'agent-session.launch-prompt-delivery.v1' as const
 // Older launch schemas reject unknown fields; advertise before clients send keyboard support.
 export const AGENT_SESSION_KEYBOARD_RUNTIME_CAPABILITY = 'agent-session.keyboard.v1' as const
 export const AGENT_SESSION_OMP_RESUME_PATH_RUNTIME_CAPABILITY =
@@ -408,6 +413,7 @@ export const RUNTIME_CAPABILITIES = [
   AGENT_SESSION_BOUNDARY_RUNTIME_CAPABILITY,
   REMOTE_SERVER_UPDATE_CAPABILITY,
   AGENT_SESSION_HOST_AUTHORITY_RUNTIME_CAPABILITY,
+  AGENT_SESSION_LAUNCH_PROMPT_DELIVERY_RUNTIME_CAPABILITY,
   AGENT_SESSION_OMP_RESUME_PATH_RUNTIME_CAPABILITY,
   AGENT_SESSION_KEYBOARD_RUNTIME_CAPABILITY,
   STRUCTURED_AGENT_SESSION_RUNTIME_CAPABILITY,

@@ -1,7 +1,8 @@
 import type { TuiAgent } from '../../../shared/tui-agent'
 import {
   deliverLaunchPromptToAgentTab,
-  seedNativeChatLaunchDraftForAgentTab
+  seedNativeChatLaunchDraftForAgentTab,
+  seedNativeChatSubmittedLaunchPromptForAgentTab
 } from '../lib/agent-launch-prompt-delivery'
 import type { AgentPromptSubmissionVerdict } from '../lib/agent-prompt-submission'
 import { createWebRuntimeSessionTerminalResult } from './web-runtime-terminal-create-operation'
@@ -35,6 +36,23 @@ export async function createWebRuntimeAgentSessionTerminal(
   const created = await createWebRuntimeSessionTerminalResult(args)
   if (created.outcome.status === 'failed' || !created.hostTabId) {
     return { outcome: created.outcome, promptDelivered: false }
+  }
+
+  // Why `not-requested` still pastes: the host settled that it bound no submitted prompt, which
+  // is not evidence the prompt was delivered. Only `launch-bound` and `unknown` are host verdicts.
+  if (created.promptDelivery && created.promptDelivery.state !== 'not-requested') {
+    const delivered = created.promptDelivery.state === 'launch-bound'
+    if (delivered) {
+      // The host submitted the prompt through the launch command, so no paste seeds the
+      // chat-composer copy that the native-chat view renders.
+      seedNativeChatSubmittedLaunchPromptForAgentTab({
+        tabId: toWebTerminalSurfaceTabId(created.hostTabId),
+        agent: args.agent,
+        text: args.promptAfterReady
+      })
+    }
+    args.onSubmitVerdict?.(delivered ? 'written' : 'unconfirmed')
+    return { outcome: created.outcome, promptDelivered: delivered }
   }
 
   const promptDelivered = await deliverLaunchPromptToAgentTab({
