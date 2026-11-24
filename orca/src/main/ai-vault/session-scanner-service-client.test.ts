@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AiVaultScannerServiceClient } from './session-scanner-service-client'
-import { AI_VAULT_SERVICE_READY_TIMEOUT_MS } from './session-scanner-service-client-state'
+import {
+  AI_VAULT_SERVICE_READY_TIMEOUT_MS,
+  requeueOrRejectAiVaultServiceStart,
+  type AiVaultServicePendingCall
+} from './session-scanner-service-client-state'
+import {
+  AI_VAULT_SCAN_UNAVAILABLE_CODE,
+  createAiVaultServiceEntryMissingError
+} from '../../shared/ai-vault-scan-unavailable'
 import type { AiVaultSessionSearchInit } from './session-scanner-service-protocol'
 import {
   AiVaultServiceTestChild,
@@ -148,6 +156,59 @@ describe('AiVaultScannerServiceClient', () => {
 
     expect(child.killed).toBe(false)
     client.dispose()
+  })
+
+  it('rejects a missing service entry immediately instead of spending a respawn', async () => {
+    vi.useFakeTimers()
+    const factory = vi.fn(() => {
+      throw createAiVaultServiceEntryMissingError(
+        '/install/out/main/session-scanner-service-entry.js'
+      )
+    })
+    const client = new AiVaultScannerServiceClient({
+      processFactory: factory,
+      init: () => ({ sessionParseCache: null, sessionSearch: null })
+    })
+
+    const titles = client.request({ type: 'request', operation: 'titles', requests: [] })
+    await expect(titles).rejects.toMatchObject({
+      code: AI_VAULT_SCAN_UNAVAILABLE_CODE,
+      entryPath: '/install/out/main/session-scanner-service-entry.js'
+    })
+
+    // No restart gets scheduled at all: before this, the call was requeued behind an
+    // unref'd 250 ms timer, which is what a headless process drained past (exit 0).
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(factory).toHaveBeenCalledTimes(1)
+    client.dispose()
+  })
+
+  it('never requeues a deterministic start refusal, even behind a pending respawn', () => {
+    const reject = vi.fn()
+    const call: AiVaultServicePendingCall = {
+      request: { type: 'request', operation: 'titles', requests: [], id: 1 },
+      lane: 'interactive',
+      resolve: vi.fn(),
+      reject,
+      timer: null,
+      onAbort: null,
+      cancelled: false,
+      sent: false,
+      startRetried: false
+    }
+    const queue: AiVaultServicePendingCall[] = []
+
+    requeueOrRejectAiVaultServiceStart(
+      call,
+      queue,
+      createAiVaultServiceEntryMissingError('/install/out/main/session-scanner-service-entry.js'),
+      true
+    )
+
+    // `true` says a respawn is coming, which used to be enough to requeue. A respawn
+    // cannot install the entry, so the caller must get the answer now.
+    expect(queue).toEqual([])
+    expect(reject).toHaveBeenCalledOnce()
   })
 
   it('retries once when the first cold start misses the ready deadline', async () => {

@@ -10,8 +10,35 @@ import {
 import { getActiveProfileStateLocation } from '../persistence/profile-state/profile-state-active-location'
 import { acquireProfileStateMaintenance } from '../persistence/profile-state/profile-state-access'
 import { backfillTaskRecords } from '../task-records/task-records-backfill-profile-state'
-import { createAiVaultSessionIndexLookup } from '../task-records/task-records-session-index-lookup'
+import {
+  createAiVaultSessionIndexLookup,
+  type TaskRecordsSessionIndexLookup
+} from '../task-records/task-records-session-index-lookup'
 import { createTranscriptCheckProbe } from '../task-records/task-records-transcript-check'
+
+/**
+ * The upper bound on one preflight, in milliseconds.
+ *
+ * An **upper bound**, not a progress budget: a run that reaches it is refused and never
+ * reported as success. 180 s sits above the scanner's own two bounds — a 5 s ready wait
+ * (`AI_VAULT_SERVICE_READY_TIMEOUT_MS`) plus a 130 s scan deadline
+ * (`AI_VAULT_SERVICE_SCAN_TIMEOUT_MS`) — with room for the domain read and the one
+ * write, so this process cannot refuse a scan the scanner itself still considers in
+ * progress. `history-backfill-preflight-run.test.ts` pins that relationship, so raising
+ * either scanner bound forces this number to be revisited instead of silently shrunk.
+ */
+export const HISTORY_BACKFILL_PREFLIGHT_DEADLINE_MS = 180_000
+
+/** What a caller (or a test) may vary without touching the launch contract. */
+export type HistoryBackfillPreflightOptions = {
+  /**
+   * The scan to consult. Defaults to the real AI Vault session index. A test supplies one
+   * so the refusal and the write can be exercised without forking the scanner child.
+   */
+  sessionIndexLookup?: TaskRecordsSessionIndexLookup
+  /** Overrides the deadline above. Tests only; production hosts take the constant. */
+  deadlineMs?: number
+}
 
 /**
  * The process-independent half of the `orca history backfill` preflight.
@@ -28,6 +55,13 @@ import { createTranscriptCheckProbe } from '../task-records/task-records-transcr
  * occurrence, only with `--serve`, followed by the JSON request; one prefixed result
  * line on stdout; exit code 0 only for a completed run. Never fall through into
  * ordinary startup (the caller returns out of its preflight when this returns true).
+ *
+ * Settlement is guaranteed: the asynchronous scan is armed with a ref'd deadline timer
+ * (`HISTORY_BACKFILL_PREFLIGHT_DEADLINE_MS`, an upper bound) and `finish` acts once. A
+ * scan that never answers therefore still produces one prefixed refusal and a non-zero
+ * exit, instead of letting a pending promise drain the event loop into exit 0 with no
+ * output — the F3 defect on a server-only host, where every handle the scan itself
+ * holds (the forked child, its channel, the client's timers) is deliberately unref'd.
  */
 export type HistoryBackfillPreflightHost = {
   /**
@@ -50,7 +84,8 @@ export type HistoryBackfillPreflightHost = {
 
 export function runHistoryBackfillPreflightOnHost(
   argv: readonly string[],
-  host: HistoryBackfillPreflightHost
+  host: HistoryBackfillPreflightHost,
+  options: HistoryBackfillPreflightOptions = {}
 ): boolean {
   const index = argv.indexOf(HISTORY_BACKFILL_FLAG)
   if (index === -1) {
@@ -59,7 +94,22 @@ export function runHistoryBackfillPreflightOnHost(
   process.env.ORCA_BACKGROUND_LAUNCH = '1'
   host.applyBackgroundActivationPolicy?.()
   const launchValid = argv.includes('--serve') && argv.lastIndexOf(HISTORY_BACKFILL_FLAG) === index
+  const deadlineMs = options.deadlineMs ?? HISTORY_BACKFILL_PREFLIGHT_DEADLINE_MS
+  const sessionIndexLookup = options.sessionIndexLookup ?? createAiVaultSessionIndexLookup()
+  let settled = false
+  let deadline: NodeJS.Timeout | null = null
   const finish = (response: HistoryBackfillResponse): void => {
+    // Why guard: the deadline and the settled scan can both call this. Acting twice would
+    // write two result lines and exit twice, and the second line would be a "refusal"
+    // for a run that had already reported its answer.
+    if (settled) {
+      return
+    }
+    settled = true
+    if (deadline !== null) {
+      clearTimeout(deadline)
+      deadline = null
+    }
     let exitCode = response.ok ? 0 : 1
     try {
       writeFileSync(1, `${HISTORY_BACKFILL_RESULT_PREFIX}${JSON.stringify(response)}\n`)
@@ -73,22 +123,33 @@ export function runHistoryBackfillPreflightOnHost(
     finish(invalidLaunch())
     return true
   }
+  // Why a ref'd timer and not `unref()`: on the server-only host every handle the scan
+  // uses is unref'd on purpose, so an unanswered scan would let Node drain the event loop
+  // and exit 0 with no result line — a success report for a write that never happened.
+  // This is the one handle that keeps the process alive long enough to refuse. Its number
+  // is an upper bound (see the constant), and it can only fire while the run is awaiting
+  // the scan: the single domain write and the result line are synchronous, so no timer
+  // callback can run between them.
+  deadline = setTimeout(() => finish(deadlineExceeded(deadlineMs)), deadlineMs)
   // The scan is asynchronous, so the exit happens when it settles rather than on
   // return. Nothing below may throw past `finish`; a launch that dies silently would
   // look to the CLI like a crash, not like a refused command.
-  void runBackfillRequest(argv[index + 1], host).then(finish, (error: unknown) =>
-    finish({
-      ok: false,
-      code: 'runtime_error',
-      message: error instanceof Error ? error.message : String(error)
-    })
+  void runBackfillRequest(argv[index + 1], host, sessionIndexLookup).then(
+    finish,
+    (error: unknown) =>
+      finish({
+        ok: false,
+        code: 'runtime_error',
+        message: error instanceof Error ? error.message : String(error)
+      })
   )
   return true
 }
 
 async function runBackfillRequest(
   payload: string | undefined,
-  host: HistoryBackfillPreflightHost
+  host: HistoryBackfillPreflightHost,
+  sessionIndexLookup: TaskRecordsSessionIndexLookup
 ): Promise<HistoryBackfillResponse> {
   try {
     let raw: unknown
@@ -133,7 +194,7 @@ async function runBackfillRequest(
           now: Date.now(),
           // The same two observations the archive snapshot is wired with; passing
           // them here is what keeps one resolver rule for both writers.
-          sessionIndexLookup: createAiVaultSessionIndexLookup(),
+          sessionIndexLookup,
           transcriptCheck: createTranscriptCheckProbe()
         })
       }
@@ -154,5 +215,15 @@ function invalidLaunch(): HistoryBackfillResponse {
     ok: false,
     code: 'invalid_argument',
     message: 'Invalid history backfill launch. Run `orca history backfill --task <repo>#<number>`.'
+  }
+}
+
+/** The refusal the deadline arm reports. It states the bound it hit and that the write,
+ *  which always follows the scan, had not started. */
+function deadlineExceeded(deadlineMs: number): HistoryBackfillResponse {
+  return {
+    ok: false,
+    code: 'runtime_error',
+    message: `history backfill did not finish within ${deadlineMs} ms, its upper bound for one bounded session scan and its write, so it was refused. Nothing was written: the run was still waiting for the session scan, which happens before the one profile-state write. Retry when the host is less busy; if it keeps happening, inspect this host's session scanner.`
   }
 }

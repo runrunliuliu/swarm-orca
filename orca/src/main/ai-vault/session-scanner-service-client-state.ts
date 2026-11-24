@@ -1,6 +1,7 @@
 import type { SessionSearchScanRoots } from '../ai-vault-search/session-search-scan-roots'
 import type { ChildProcess } from 'node:child_process'
 import { createAiVaultScanCancelledError } from './ai-vault-scan-cancellation'
+import { isAiVaultScanUnavailableError } from '../../shared/ai-vault-scan-unavailable'
 import {
   AI_VAULT_SERVICE_PROTOCOL_VERSION,
   type AiVaultServiceInit,
@@ -199,7 +200,10 @@ export function attachAiVaultServiceChild(
 
 /**
  * A cold start that faults before the request reached the child self-heals on
- * the scheduled respawn. Requeue once; anything else is the caller's error.
+ * the scheduled respawn. Requeue once; anything else is the caller's error — and a
+ * deterministic unavailability is anything else even while a respawn is pending: the
+ * respawn re-runs the same `stat`, so requeuing only strands the caller behind a
+ * restart timer that cannot change the answer.
  */
 export function requeueOrRejectAiVaultServiceStart(
   call: AiVaultServicePendingCall,
@@ -207,7 +211,13 @@ export function requeueOrRejectAiVaultServiceStart(
   error: Error,
   respawning: boolean
 ): void {
-  if (!respawning || call.sent || call.cancelled || call.startRetried) {
+  if (
+    !respawning ||
+    call.sent ||
+    call.cancelled ||
+    call.startRetried ||
+    isAiVaultScanUnavailableError(error)
+  ) {
     rejectAiVaultServiceCall(call, error)
     return
   }

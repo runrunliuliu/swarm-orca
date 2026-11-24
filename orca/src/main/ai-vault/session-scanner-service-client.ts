@@ -200,8 +200,7 @@ export class AiVaultScannerServiceClient {
     try {
       child = this.options.processFactory()
     } catch (error) {
-      this.restartPolicy.recordFault(() => this.pump())
-      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+      return Promise.reject(this.restartPolicy.recordStartFailure(error, () => this.pump()))
     }
     this.child = child
     const waiter = createAiVaultServiceReadyWaiter(AI_VAULT_SERVICE_READY_TIMEOUT_MS, () =>

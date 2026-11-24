@@ -22,6 +22,7 @@ import { getSessionParseCachePersistenceOptions } from './session-parse-cache-pe
 import { buildAiVaultServiceEnv } from './session-scanner-service-env'
 import { AiVaultScannerServiceClient } from './session-scanner-service-client'
 import { getAiVaultServiceEntryPath } from './session-scanner-service-entry-path'
+import { createAiVaultServiceEntryMissingError } from '../../shared/ai-vault-scan-unavailable'
 import { lowerAiVaultServicePriority } from './session-scanner-service-priority'
 import type {
   AiVaultServiceSubagentRequest,
@@ -32,7 +33,10 @@ import type { AiVaultWorkerScanOptions } from './session-scanner-worker-protocol
 export function spawnAiVaultServiceProcess(): ChildProcess {
   const entryPath = getAiVaultServiceEntryPath()
   if (!existsSync(entryPath)) {
-    throw new Error(`AI Vault service entry not found: ${entryPath}`)
+    // Typed, not plain: a missing entry is a fact about this install, so the client
+    // must reject with it instead of scheduling a respawn that cannot succeed, and the
+    // history backfill must refuse instead of reporting a scan it never ran.
+    throw createAiVaultServiceEntryMissingError(entryPath)
   }
   const child = fork(entryPath, [], {
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],

@@ -153,7 +153,10 @@ function appLaunch(executable: string, requestJson: string, userDataPath: string
       ORCA_USER_DATA_PATH: userDataPath
     },
     // The backfill scans the session index once and then writes; a deadline here would
-    // report a timeout while the lock owner may still be writing.
+    // report a timeout while the lock owner may still be writing. The preflight owns that
+    // bound instead (`HISTORY_BACKFILL_PREFLIGHT_DEADLINE_MS`, an upper bound), so this
+    // wait ends when the child refuses with its own result line — including when the
+    // scan never answers — rather than hanging or reading a silent exit as an answer.
     timeoutMs: null
   }
 }

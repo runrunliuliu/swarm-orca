@@ -1,5 +1,12 @@
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../shared/execution-host'
-import type { HistoryBackfillBinding } from '../../shared/history-backfill-command'
+import {
+  HistoryBackfillCommandError,
+  type HistoryBackfillBinding
+} from '../../shared/history-backfill-command'
+import {
+  isAiVaultScanUnavailableError,
+  type AiVaultScanUnavailableError
+} from '../../shared/ai-vault-scan-unavailable'
 import {
   resolveTaskRecordByNumber as resolveBackfillTaskRecord,
   resolveTaskRecordRepoId as resolveBackfillRepoId,
@@ -243,6 +250,13 @@ async function observeBinding(args: {
       windowEnd: now
     })
   } catch (error) {
+    // A scan this host cannot run is not evidence about this workspace, and it is not
+    // transient: every selected binding would get the same unproven gap while the run
+    // reported success over a scan that never happened. Refuse instead, before any
+    // write (the plan is in memory until every binding is resolved).
+    if (isAiVaultScanUnavailableError(error)) {
+      throw scanUnavailableRefusal(error)
+    }
     // A failure to look is not a proof of absence, and it must not abort the other
     // bindings of the same task.
     console.error('[task-records] backfill session index lookup failed', binding.worktreeId, error)
@@ -294,6 +308,20 @@ function lookupFailedGap(observedAt: number): TaskRecordGap {
     observedAt,
     detail: `the session index lookup failed${boundedScanNote()}`
   }
+}
+
+/**
+ * The refusal for a scan the host cannot perform. It reuses the command's existing
+ * `runtime_error` vocabulary rather than minting a wire code: the response schema is a
+ * three-process contract (`history-backfill-command.ts`) and a new enum value would
+ * change it for one condition. The sentence carries the specificity the code cannot —
+ * which entry is missing, and that this run wrote nothing.
+ */
+function scanUnavailableRefusal(error: AiVaultScanUnavailableError): HistoryBackfillCommandError {
+  return new HistoryBackfillCommandError(
+    'runtime_error',
+    `Nothing was written: this host cannot scan the agent session index (${error.message}). A backfill must not record "no session" from a scan that never ran. Install a build that ships the AI Vault scan service, or run the command on the host where the Orca app is installed, then retry.`
+  )
 }
 
 /** The check values travel with the path they were taken on. A probe that throws

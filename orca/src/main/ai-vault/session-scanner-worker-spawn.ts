@@ -8,6 +8,7 @@ import type {
 } from '../../shared/ai-vault-session-title'
 import { withSpan } from '../observability/tracer'
 import { getSessionParseCachePersistenceOptions } from './session-parse-cache-persistence'
+import { createAiVaultWorkerEntryMissingError } from '../../shared/ai-vault-scan-unavailable'
 import { AiVaultScannerWorkerClient } from './session-scanner-worker-client'
 import type { AiVaultWorkerData, AiVaultWorkerScanOptions } from './session-scanner-worker-protocol'
 
@@ -16,7 +17,8 @@ const WORKER_ENTRY_FILENAME = 'session-scanner-worker-entry.js'
 function defaultWorkerFactory(): Worker {
   const workerPath = join(__dirname, WORKER_ENTRY_FILENAME)
   if (!existsSync(workerPath)) {
-    throw new Error(`AI Vault scanner worker entry not found: ${workerPath}`)
+    // Same typed refusal as the forked service: this host has no scanner to run.
+    throw createAiVaultWorkerEntryMissingError(workerPath)
   }
   return new Worker(workerPath, {
     workerData: {

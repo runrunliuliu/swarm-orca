@@ -5,6 +5,10 @@ import type {
   AiVaultSessionTitlesResult
 } from '../../shared/ai-vault-session-title'
 import { createAiVaultScanCancelledError } from './ai-vault-scan-cancellation'
+import {
+  isAiVaultScanUnavailableError,
+  type AiVaultScanUnavailableError
+} from '../../shared/ai-vault-scan-unavailable'
 import type {
   AiVaultWorkerRequest,
   AiVaultWorkerResponse,
@@ -38,6 +42,8 @@ export class AiVaultScannerWorkerClient {
   private queue: PendingCall[] = []
   private nextId = 1
   private readonly workerFactory: AiVaultWorkerFactory
+  /** A deterministic start refusal the factory raised, handed to `pump`'s caller answer. */
+  private startUnavailable: AiVaultScanUnavailableError | null = null
 
   constructor(options: { workerFactory: AiVaultWorkerFactory }) {
     this.workerFactory = options.workerFactory
@@ -110,7 +116,12 @@ export class AiVaultScannerWorkerClient {
     }
     const worker = this.ensureWorker()
     if (!worker) {
-      this.failQueue(new Error('AI Vault background scanner could not start.'))
+      // The typed refusal travels with the failure: a host with no scanner entry is not
+      // the same answer as "the scanner kept crashing", and the history backfill has to
+      // be able to tell them apart (see ai-vault-scan-unavailable.ts).
+      const unavailable = this.startUnavailable
+      this.startUnavailable = null
+      this.failQueue(unavailable ?? new Error('AI Vault background scanner could not start.'))
       return
     }
     const call = this.queue.shift()
@@ -143,7 +154,11 @@ export class AiVaultScannerWorkerClient {
       worker.unref?.()
       this.worker = worker
       return worker
-    } catch {
+    } catch (error) {
+      // Held for `pump` rather than thrown: a start failure is answered by rejecting the
+      // queued calls, and throwing out of an event-loop callback would be an uncaught
+      // exception instead of an answer.
+      this.startUnavailable = isAiVaultScanUnavailableError(error) ? error : null
       return null
     }
   }
