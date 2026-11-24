@@ -12,6 +12,7 @@ import {
   pendingHistoryAction
 } from './task-workbench-history-actions'
 import { HistoryFactsLine } from './task-workbench-history-facts'
+import { RecordSourceNotice } from './task-workbench-record-source-notice'
 import { formatClock } from './task-workbench-history-format'
 import type {
   AgentOutcome,
@@ -313,6 +314,14 @@ export function TaskWorkbenchHistory({
       </div>
 
       <HistoryFactsLine history={history} />
+
+      {/* Where the record was read from, and what could not be read (issue #31).
+          Rendered in compact mode too: an environment the client could not reach
+          is a fact about the history's completeness, and folding it away with the
+          details would leave the shorter view claiming a whole picture. */}
+      {history.recordSource === undefined ? null : (
+        <RecordSourceNotice source={history.recordSource} />
+      )}
 
       {detailsOpen && history.workspaces.length > 0 ? (
         <ul

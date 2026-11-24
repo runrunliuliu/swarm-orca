@@ -14928,6 +14928,17 @@
         "emptyBody": "Crea un espacio de trabajo para iniciar un agente en esta tarea.",
         "createWorkspace": "Crear espacio de trabajo"
       },
+      "TaskWorkbenchRecordSourceNotice": {
+        "conflict": "Dos perfiles describen el espacio de trabajo {{value0}} de forma distinta ({{value1}}); se muestra {{value2}}.",
+        "forbidden": "No se pudo leer el historial de {{value0}}: esta aplicación no tiene permiso para leer ese entorno. Se muestra lo que tiene este equipo.",
+        "included": "El historial también incluye lo que registraron {{value0}} entorno(s).",
+        "keptLocal": "este equipo",
+        "pending": "Aún leyendo {{value0}} entorno(s); puede llegar más historial.",
+        "repoUnknown": "No se pudo leer el historial de {{value0}}: ese entorno no tiene registrado este repositorio, así que no puede contener esta tarea. Se muestra lo que tiene este equipo.",
+        "unreachable": "No se pudo leer el historial de {{value0}}: no respondió (tiempo de espera agotado o conexión perdida). Se muestra lo que tiene este equipo; se puede reintentar.",
+        "unsupported": "No se pudo leer el historial de {{value0}}: ese entorno ejecuta un Orca más antiguo sin el método de historial de tareas. Se muestra lo que tiene este equipo; reintenta cuando se actualice.",
+        "unsupportedWithVersion": "No se pudo leer el historial de {{value0}}: ejecuta Orca {{value1}}, que no tiene el método de historial de tareas. Se muestra lo que tiene este equipo; reintenta cuando se actualice."
+      },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} tokens",
         "estimatedCost": "aprox. ${{value0}}",
