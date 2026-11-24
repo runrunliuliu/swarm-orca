@@ -110,6 +110,107 @@ async function fenceRemoteAgentSessionSpawn(runtime: OrcaRuntimeService) {
 }
 
 describe('agent-session create operation ledger', () => {
+  it('binds a Trae prompt to the host-built launch and replays its settlement once', async () => {
+    const runtime = createRuntime()
+    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+    const id = operationId()
+    await expect(
+      runtime.createAgentSession(request(id, { agent: 'trae', promptDelivery: 'auto-submit' }))
+    ).resolves.toMatchObject({
+      disposition: 'created',
+      promptDelivery: { state: 'launch-bound', transport: 'argv' }
+    })
+    await expect(
+      runtime.createAgentSession(request(id, { agent: 'trae', promptDelivery: 'auto-submit' }))
+    ).resolves.toMatchObject({
+      disposition: 'replayed',
+      promptDelivery: { state: 'launch-bound', transport: 'argv' }
+    })
+    expect(createTerminal).toHaveBeenCalledOnce()
+    expect(createTerminal).toHaveBeenCalledWith(
+      'id:worktree-1',
+      expect.objectContaining({ command: expect.stringContaining("-- 'do the thing'") })
+    )
+  })
+
+  it('binds a Pi prompt to the submitted prefill hook and replays its settlement once', async () => {
+    const runtime = createRuntime()
+    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+    const id = operationId()
+    await expect(
+      runtime.createAgentSession(request(id, { agent: 'pi', promptDelivery: 'auto-submit' }))
+    ).resolves.toMatchObject({
+      disposition: 'created',
+      promptDelivery: { state: 'launch-bound', transport: 'env-hook' }
+    })
+    await expect(
+      runtime.createAgentSession(request(id, { agent: 'pi', promptDelivery: 'auto-submit' }))
+    ).resolves.toMatchObject({
+      disposition: 'replayed',
+      promptDelivery: { state: 'launch-bound', transport: 'env-hook' }
+    })
+    expect(createTerminal).toHaveBeenCalledOnce()
+    expect(createTerminal).toHaveBeenCalledWith(
+      'id:worktree-1',
+      expect.objectContaining({
+        command: expect.stringContaining('ORCA_PI_PREFILL_SUBMIT'),
+        env: expect.objectContaining({
+          ORCA_PI_PREFILL: 'do the thing',
+          ORCA_PI_PREFILL_SUBMIT: '1'
+        })
+      })
+    )
+  })
+
+  it('selects renderer delivery for a stdin-after-start agent before spawning', async () => {
+    const runtime = createRuntime()
+    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+
+    await expect(
+      runtime.createAgentSession(
+        request(operationId(), { agent: 'zcode', promptDelivery: 'auto-submit' })
+      )
+    ).rejects.toThrow('agent_session_legacy_required')
+
+    expect(createTerminal).not.toHaveBeenCalled()
+  })
+
+  it('reports a bound draft as not-requested, never as a submitted turn', async () => {
+    const runtime = createRuntime()
+    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+
+    await expect(
+      runtime.createAgentSession(
+        request(operationId(), { agent: 'claude', promptDelivery: 'draft' })
+      )
+    ).resolves.toMatchObject({
+      disposition: 'created',
+      promptDelivery: { state: 'not-requested' }
+    })
+    expect(createTerminal).toHaveBeenCalledWith(
+      'id:worktree-1',
+      expect.objectContaining({ command: expect.stringContaining("--prefill 'do the thing'") })
+    )
+  })
+
+  it('refuses an argv-bound prompt that exceeds the Windows inline limit', async () => {
+    const runtime = createRuntime()
+    Object.assign(runtime, { getAgentLaunchPlatformForWorkspace: () => 'win32' })
+    const createTerminal = vi.spyOn(runtime, 'createTerminal').mockResolvedValue(terminal())
+
+    await expect(
+      runtime.createAgentSession(
+        request(operationId(), {
+          agent: 'trae',
+          prompt: 'x'.repeat(25_000),
+          promptDelivery: 'auto-submit'
+        })
+      )
+    ).rejects.toThrow('agent_session_legacy_required')
+
+    expect(createTerminal).not.toHaveBeenCalled()
+  })
+
   it.each([true, false, undefined])(
     'forwards renderer keyboard support on create and resume: %s',
     async (terminalKittyKeyboardProtocol) => {
@@ -417,7 +518,9 @@ describe('agent-session create operation ledger', () => {
       runtime.createAgentSession(request(id), { clientId: 'device-a' })
     ).resolves.toMatchObject({
       disposition: 'replayed',
-      terminal: { handle: orphanHandle, ptyId: 'ssh-1:pty2:e:1', worktreeId: 'worktree-1' }
+      terminal: { handle: orphanHandle, ptyId: 'ssh-1:pty2:e:1', worktreeId: 'worktree-1' },
+      // The lost reply means the host cannot prove delivery; the client must not paste again.
+      promptDelivery: { state: 'unknown' }
     })
     expect(listProcesses).toHaveBeenCalledWith('ssh-1')
     expect(createTerminal).toHaveBeenCalledOnce()

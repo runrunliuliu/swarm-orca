@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   trackTerminalPaneSplit: vi.fn(),
   deliverLaunchPromptToAgentTab: vi.fn(),
   seedNativeChatLaunchDraftForAgentTab: vi.fn(),
+  seedNativeChatSubmittedLaunchPromptForAgentTab: vi.fn(),
   getRuntimeEnvironmentIdForWorktree: vi.fn(),
   hasMaterializedWebRuntimeBrowserPage: vi.fn()
 }))
@@ -69,7 +70,9 @@ vi.mock('@/lib/worktree-runtime-owner', () => ({
 
 vi.mock('@/lib/agent-launch-prompt-delivery', () => ({
   deliverLaunchPromptToAgentTab: mocks.deliverLaunchPromptToAgentTab,
-  seedNativeChatLaunchDraftForAgentTab: mocks.seedNativeChatLaunchDraftForAgentTab
+  seedNativeChatLaunchDraftForAgentTab: mocks.seedNativeChatLaunchDraftForAgentTab,
+  seedNativeChatSubmittedLaunchPromptForAgentTab:
+    mocks.seedNativeChatSubmittedLaunchPromptForAgentTab
 }))
 
 vi.mock('./web-runtime-browser-materialization', () => ({
@@ -641,6 +644,321 @@ describe('createWebRuntimeSessionTerminal', () => {
       tabId: 'web-terminal-host-tab-2',
       content: 'continue the unfinished task',
       agent: 'claude',
+      submit: true,
+      forcePaste: true
+    })
+  })
+
+  it.each([
+    ['trae', 'argv'],
+    ['pi', 'env-hook']
+  ] as const)(
+    'accepts host-settled %s delivery without writing through the mirrored tab',
+    async (agent, transport) => {
+      const verdict = vi.fn()
+      const runtimeCall = vi.fn(async (request: { method: string; params?: unknown }) => {
+        if (request.method === 'status.get') {
+          return {
+            id: 'status',
+            ok: true,
+            result: {
+              runtimeId: 'runtime-1',
+              graphStatus: 'ready',
+              runtimeProtocolVersion: 3,
+              minCompatibleRuntimeClientVersion: 2,
+              capabilities: ['agent-session.launch-prompt-delivery.v1']
+            }
+          }
+        }
+        if (request.method === 'terminal.createAgentSession') {
+          return {
+            id: 'create',
+            ok: true,
+            result: {
+              terminal: {
+                handle: 'term_created',
+                worktreeId: WORKTREE_ID,
+                tabId: 'host-tab-2',
+                paneKey: `host-tab-2:${FOCUS_LEAF_ID}`
+              },
+              disposition: 'created',
+              promptDelivery: { state: 'launch-bound', transport }
+            }
+          }
+        }
+        return { id: 'list', ok: true, result: makeSnapshot() }
+      })
+      vi.stubGlobal('window', {
+        api: { runtimeEnvironments: { call: runtimeCall } }
+      })
+
+      await expect(
+        createWebRuntimeAgentSessionTerminal({
+          worktreeId: WORKTREE_ID,
+          agentSessionKind: 'fresh',
+          agent,
+          command: agent === 'trae' ? 'traecli --yolo' : 'pi',
+          prompt: 'deliver the task',
+          promptDelivery: 'auto-submit',
+          hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1',
+          promptAfterReady: 'deliver the task',
+          submitPrompt: true,
+          forcePromptPaste: true,
+          onSubmitVerdict: verdict
+        })
+      ).resolves.toEqual({ outcome: { status: 'created' }, promptDelivered: true })
+
+      expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+      expect(verdict).toHaveBeenCalledWith('written')
+      expect(
+        runtimeCall.mock.calls.find(([request]) => request.method === 'terminal.createAgentSession')
+          ?.[0]
+      ).toMatchObject({
+        params: { agent, prompt: 'deliver the task', promptDelivery: 'auto-submit' }
+      })
+      expect(mocks.seedNativeChatSubmittedLaunchPromptForAgentTab).toHaveBeenCalledWith({
+        tabId: 'web-terminal-host-tab-2',
+        agent,
+        text: 'deliver the task'
+      })
+    }
+  )
+
+  it('fails closed when a capable host omits the launch delivery settlement', async () => {
+    const verdict = vi.fn()
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'status.get') {
+        return {
+          id: 'status',
+          ok: true,
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: ['agent-session.launch-prompt-delivery.v1']
+          }
+        }
+      }
+      if (request.method === 'terminal.createAgentSession') {
+        return {
+          id: 'create',
+          ok: true,
+          result: {
+            terminal: {
+              handle: 'term_created',
+              worktreeId: WORKTREE_ID,
+              tabId: 'host-tab-2',
+              paneKey: `host-tab-2:${FOCUS_LEAF_ID}`
+            },
+            disposition: 'created'
+          }
+        }
+      }
+      return { id: 'list', ok: true, result: makeSnapshot() }
+    })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: runtimeCall } }
+    })
+
+    await expect(
+      createWebRuntimeAgentSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        agentSessionKind: 'fresh',
+        agent: 'trae',
+        prompt: 'deliver the task',
+        promptDelivery: 'auto-submit',
+        hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1',
+        promptAfterReady: 'deliver the task',
+        submitPrompt: true,
+        forcePromptPaste: true,
+        onSubmitVerdict: verdict
+      })
+    ).resolves.toEqual({ outcome: { status: 'created' }, promptDelivered: false })
+
+    expect(mocks.deliverLaunchPromptToAgentTab).not.toHaveBeenCalled()
+    expect(verdict).toHaveBeenCalledWith('unconfirmed')
+    expect(runtimeCall.mock.calls.map(([request]) => request.method)).not.toContain(
+      'session.tabs.createTerminal'
+    )
+  })
+
+  it('pastes when a capable host reports it bound no submitted prompt', async () => {
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'status.get') {
+        return {
+          id: 'status',
+          ok: true,
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: ['agent-session.launch-prompt-delivery.v1']
+          }
+        }
+      }
+      if (request.method === 'terminal.createAgentSession') {
+        return {
+          id: 'create',
+          ok: true,
+          result: {
+            terminal: {
+              handle: 'term_created',
+              worktreeId: WORKTREE_ID,
+              tabId: 'host-tab-2',
+              paneKey: `host-tab-2:${FOCUS_LEAF_ID}`
+            },
+            disposition: 'created',
+            promptDelivery: { state: 'not-requested' }
+          }
+        }
+      }
+      return { id: 'list', ok: true, result: makeSnapshot() }
+    })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: runtimeCall } }
+    })
+
+    await expect(
+      createWebRuntimeAgentSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        agentSessionKind: 'fresh',
+        agent: 'claude',
+        prompt: 'keep this draft editable',
+        promptDelivery: 'auto-submit',
+        hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1',
+        promptAfterReady: 'keep this draft editable',
+        submitPrompt: false,
+        forcePromptPaste: true
+      })
+    ).resolves.toEqual({ outcome: { status: 'created' }, promptDelivered: true })
+
+    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledWith({
+      tabId: 'web-terminal-host-tab-2',
+      content: 'keep this draft editable',
+      agent: 'claude',
+      submit: false,
+      forcePaste: true
+    })
+    expect(mocks.seedNativeChatSubmittedLaunchPromptForAgentTab).not.toHaveBeenCalled()
+  })
+
+  it('keeps prompt paste on the legacy path for a host without the new capability', async () => {
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'status.get') {
+        return {
+          id: 'status',
+          ok: true,
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: ['agent-session.host-authority.v1']
+          }
+        }
+      }
+      if (request.method === 'session.tabs.createTerminal') {
+        return {
+          id: 'legacy-create',
+          ok: true,
+          result: { tab: { id: 'host-tab-trae', leafId: FOCUS_LEAF_ID } }
+        }
+      }
+      return { id: 'list', ok: true, result: makeSnapshot() }
+    })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: runtimeCall } }
+    })
+
+    await expect(
+      createWebRuntimeAgentSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        agentSessionKind: 'fresh',
+        agent: 'trae',
+        command: 'traecli --yolo',
+        prompt: 'deliver the task',
+        promptDelivery: 'auto-submit',
+        hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1',
+        promptAfterReady: 'deliver the task',
+        submitPrompt: true,
+        forcePromptPaste: true
+      })
+    ).resolves.toEqual({ outcome: { status: 'created' }, promptDelivered: true })
+
+    const methods = runtimeCall.mock.calls.map(([request]) => request.method)
+    expect(methods).not.toContain('terminal.createAgentSession')
+    expect(methods).toContain('session.tabs.createTerminal')
+    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledWith({
+      tabId: 'web-terminal-host-tab-trae',
+      content: 'deliver the task',
+      agent: 'trae',
+      submit: true,
+      forcePaste: true
+    })
+  })
+
+  it('falls back to one legacy create when the host rejects a live-PTY adapter before spawn', async () => {
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'status.get') {
+        return {
+          id: 'status',
+          ok: true,
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: ['agent-session.launch-prompt-delivery.v1']
+          }
+        }
+      }
+      if (request.method === 'terminal.createAgentSession') {
+        return {
+          id: 'structured-create',
+          ok: false,
+          error: {
+            code: 'agent_session_legacy_required',
+            message: 'live PTY delivery remains client-owned'
+          }
+        }
+      }
+      if (request.method === 'session.tabs.createTerminal') {
+        return {
+          id: 'legacy-create',
+          ok: true,
+          result: { tab: { id: 'host-tab-zcode', leafId: FOCUS_LEAF_ID } }
+        }
+      }
+      return { id: 'list', ok: true, result: makeSnapshot() }
+    })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: runtimeCall } }
+    })
+
+    await expect(
+      createWebRuntimeAgentSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        agentSessionKind: 'fresh',
+        agent: 'zcode',
+        command: 'zcode',
+        prompt: 'deliver the task',
+        promptDelivery: 'auto-submit',
+        hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1',
+        promptAfterReady: 'deliver the task',
+        submitPrompt: true,
+        forcePromptPaste: true
+      })
+    ).resolves.toEqual({ outcome: { status: 'created' }, promptDelivered: true })
+
+    const methods = runtimeCall.mock.calls.map(([request]) => request.method)
+    expect(methods.filter((method) => method === 'terminal.createAgentSession')).toHaveLength(1)
+    expect(methods.filter((method) => method === 'session.tabs.createTerminal')).toHaveLength(1)
+    expect(mocks.deliverLaunchPromptToAgentTab).toHaveBeenCalledWith({
+      tabId: 'web-terminal-host-tab-zcode',
+      content: 'deliver the task',
+      agent: 'zcode',
       submit: true,
       forcePaste: true
     })

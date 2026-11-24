@@ -16,3 +16,11 @@ export function inlineAgentDraftFitsPlatform(args: {
   // generated drafts should use the existing post-ready paste fallback.
   return args.command.length + envChars <= WIN32_INLINE_DRAFT_LIMIT_CHARS
 }
+
+/** The same ceiling, asked of a built startup plan before it is spawned. */
+export function agentStartupPlanFitsPlatform(
+  plan: { launchCommand: string; env?: Record<string, string> },
+  platform: NodeJS.Platform
+): boolean {
+  return inlineAgentDraftFitsPlatform({ command: plan.launchCommand, env: plan.env, platform })
+}

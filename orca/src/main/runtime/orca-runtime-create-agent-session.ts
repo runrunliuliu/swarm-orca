@@ -2,6 +2,7 @@
 import { OrcaRuntimeWithGetAgentSessionExecutionNamespace } from './orca-runtime-get-agent-session-execution-namespace'
 import { assertTaskWorkspaceLaunchableFor } from '../ipc/sparse-task-start-gate'
 import type {
+  RuntimeAgentLaunchPromptDelivery,
   RuntimeAgentSessionRpcCaller,
   RuntimeCreateAgentSessionRequest,
   RuntimeCreateAgentSessionResult
@@ -17,8 +18,15 @@ import {
   AGENT_SESSION_OPERATION_PER_CLIENT_LIMIT
 } from './orca-runtime-core'
 import { isTuiAgentEnabled } from '../../shared/tui-agent-selection'
+import { TUI_AGENT_CONFIG, agentSupportsSubmittedPrefill } from '../../shared/tui-agent-config'
 import { resolveAgentStartupPlanInputs } from '../../shared/agent-startup-plan-inputs'
-import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '../../shared/tui-agent-startup'
+import {
+  buildAgentDraftLaunchPlan,
+  buildAgentStartupPlan,
+  type AgentDraftLaunchPlan,
+  type AgentStartupPlan
+} from '../../shared/tui-agent-startup'
+import { agentStartupPlanFitsPlatform } from '../../shared/agent-draft-platform-limit'
 import type { RuntimeTerminalCreate } from '../../shared/runtime-types'
 import type {
   AgentSessionCreateOperation,
@@ -82,7 +90,13 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
         if (!reclaimed) {
           throw error
         }
-        return { terminal: reclaimed, disposition: 'replayed' }
+        return {
+          terminal: reclaimed,
+          disposition: 'replayed',
+          // The original create reply was lost before this host could prove prompt delivery.
+          // Fail closed: a client must not paste again into a possibly-started session.
+          promptDelivery: { state: 'unknown' }
+        }
       }
       return { ...replayed, disposition: 'replayed' }
     }
@@ -162,14 +176,53 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
         ...(request.agentArgs !== undefined ? { agentArgs: request.agentArgs } : {}),
         sessionOptions: this.toAgentSessionOptions(request.launchPreferences)
       })
-      const startup =
-        request.promptDelivery === 'draft'
-          ? buildAgentDraftLaunchPlan({ ...startupArgs, draft: request.prompt ?? '' })
-          : buildAgentStartupPlan({
-              ...startupArgs,
-              prompt: request.prompt ?? '',
-              allowEmptyPromptLaunch: true
-            })
+      const requestedPrompt = request.prompt ?? ''
+      const autoSubmitPrompt =
+        request.promptDelivery === 'auto-submit' && Boolean(requestedPrompt.trim())
+      let promptDelivery: RuntimeAgentLaunchPromptDelivery = { state: 'not-requested' }
+      let startup: AgentDraftLaunchPlan | AgentStartupPlan | null
+      if (request.promptDelivery === 'draft') {
+        // A bound draft is never submitted, so the settlement stays `not-requested`: it means
+        // "this host bound no submitted prompt", not "nothing reached the agent".
+        startup = buildAgentDraftLaunchPlan({ ...startupArgs, draft: requestedPrompt })
+      } else if (
+        autoSubmitPrompt &&
+        agentSupportsSubmittedPrefill(TUI_AGENT_CONFIG[request.agent])
+      ) {
+        // The managed agent hook consumes and submits this prefill during startup, before any
+        // mirrored tab or renderer-side readiness signal is needed (Pi today).
+        startup = buildAgentDraftLaunchPlan({
+          ...startupArgs,
+          draft: requestedPrompt,
+          submitDraft: true
+        })
+        if (!startup) {
+          // This also covers a platform command/env size limit. Refuse before spawn so the
+          // renderer can retain its bounded paste fallback without creating a duplicate agent.
+          throw new Error('agent_session_legacy_required')
+        }
+        promptDelivery = { state: 'launch-bound', transport: 'env-hook' }
+      } else {
+        startup = buildAgentStartupPlan({
+          ...startupArgs,
+          prompt: requestedPrompt,
+          allowEmptyPromptLaunch: true
+        })
+        if (autoSubmitPrompt && (!startup || startup.followupPrompt !== null)) {
+          // This agent needs a live PTY/composer adapter, or its command could not be built.
+          // Host authority does not own that write yet, so hand off before spawn to the existing
+          // renderer readiness/paste implementation.
+          throw new Error('agent_session_legacy_required')
+        }
+        if (autoSubmitPrompt && startup) {
+          // Why: a submit-after-ready prompt is usually too large for argv — the client chose the
+          // paste route to stay under the platform ceiling. Refuse before spawn so it can.
+          if (!agentStartupPlanFitsPlatform(startup, startupArgs.platform)) {
+            throw new Error('agent_session_legacy_required')
+          }
+          promptDelivery = { state: 'launch-bound', transport: 'argv' }
+        }
+      }
       if (!startup) {
         throw new Error('agent_session_identity_required')
       }
@@ -224,7 +277,7 @@ export class OrcaRuntimeWithCreateAgentSession extends OrcaRuntimeWithGetAgentSe
         }
         throw error
       }
-      return { terminal, disposition: 'created' }
+      return { terminal, disposition: 'created', promptDelivery }
     })()
     this.agentSessionCreateOperations.set(operationKey, {
       fingerprint: requestFingerprint,

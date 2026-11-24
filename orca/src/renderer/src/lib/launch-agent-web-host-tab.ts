@@ -14,6 +14,7 @@ import { translate } from '@/i18n/i18n'
 import { replaceWorktreeSelectorNotFoundCode } from '@/lib/worktree-selector-not-found-notice'
 import { toAgentLaunchPreferences } from '../../../shared/agent-launch-preferences'
 import type { AgentPromptSubmissionVerdict } from '@/lib/agent-prompt-submission'
+import { AGENT_SESSION_LAUNCH_PROMPT_DELIVERY_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 
 function removeStaleLocalAgentTabsForWebHostLaunch(worktreeId: string): void {
   const state = useAppStore.getState()
@@ -174,6 +175,17 @@ export function launchAgentInWebHostTab(args: {
     return createWebRuntimeAgentSessionTerminal({
       ...launch,
       agent,
+      // Why `submitPastedPrompt`: the same paste branch also carries drafts (a linked-issue block,
+      // or an agent with no draft flag). Those must stay editable, so only a submit request may
+      // hand the prompt to host authority.
+      ...(!preparedAgentCommand && submitPastedPrompt
+        ? {
+            prompt: pastePromptAfterReady,
+            promptDelivery: 'auto-submit' as const,
+            hostAuthorityCapability:
+              AGENT_SESSION_LAUNCH_PROMPT_DELIVERY_RUNTIME_CAPABILITY
+          }
+        : {}),
       promptAfterReady: pastePromptAfterReady,
       submitPrompt: submitPastedPrompt,
       forcePromptPaste: true,
