@@ -17761,6 +17761,17 @@
         "createWorkspace": "Create workspace",
         "notWired": "Not available in this version"
       },
+      "TaskWorkbenchRecordSourceNotice": {
+        "conflict": "Two profiles describe workspace {{value0}} differently ({{value1}}); showing {{value2}}.",
+        "forbidden": "Could not read history from {{value0}}: this app is not allowed to read that environment. Showing what this computer has.",
+        "included": "History also includes what {{value0}} environment(s) recorded.",
+        "keptLocal": "this computer",
+        "pending": "Still reading {{value0}} environment(s); more history may arrive.",
+        "repoUnknown": "Could not read history from {{value0}}: that environment has no workspace registered for this repository, so it cannot hold this task. Showing what this computer has.",
+        "unreachable": "Could not read history from {{value0}}: it did not answer (timeout or lost connection). Showing what this computer has; this is retryable.",
+        "unsupported": "Could not read history from {{value0}}: that environment runs an older Orca without the task-history method. Showing what this computer has; retry after it updates.",
+        "unsupportedWithVersion": "Could not read history from {{value0}}: it runs Orca {{value1}}, which has no task-history method. Showing what this computer has; retry after that environment updates."
+      },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} tokens",
         "estimatedCost": "est. ${{value0}}",

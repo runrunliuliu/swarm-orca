@@ -1,6 +1,9 @@
-export type TaskProvider = 'github' | 'gitlab' | 'linear' | 'jira'
+// Why `as const` and not a `readonly TaskProvider[]` annotation: the RPC params
+// schema derives its enum from this tuple, so a provider added here is validated
+// on the wire without a second list to forget (see `task-records-remote.ts`).
+export const TASK_PROVIDERS = ['github', 'gitlab', 'linear', 'jira'] as const
 
-export const TASK_PROVIDERS: readonly TaskProvider[] = ['github', 'gitlab', 'linear', 'jira']
+export type TaskProvider = (typeof TASK_PROVIDERS)[number]
 
 const TASK_PROVIDER_SET = new Set<TaskProvider>(TASK_PROVIDERS)
 

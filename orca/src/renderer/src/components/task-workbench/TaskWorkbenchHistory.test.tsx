@@ -488,6 +488,39 @@ describe('TaskWorkbenchHistory — the four settlement states', () => {
     expect(screen.queryByTestId('task-workbench-history-tokens-detail')).not.toBeInTheDocument()
   })
 
+  it('renders where the record came from, and what could not be read, inside the strip (issue #31)', () => {
+    renderHistory(
+      history({
+        recordSource: {
+          environmentIds: ['env-a'],
+          answered: [],
+          unavailable: [
+            {
+              environmentId: 'env-a',
+              failure: 'unsupported',
+              label: 'Build box',
+              appVersion: '0.1.0+9d05e51df904'
+            }
+          ],
+          conflicts: [],
+          pending: false
+        }
+      })
+    )
+
+    // The notice lives in the history section, next to the facts it qualifies —
+    // not in a tooltip and not behind the compact fold.
+    const strip = screen.getByTestId('task-workbench-history')
+    expect(within(strip).getByTestId('task-workbench-history-record-sources')).toBeInTheDocument()
+    expect(
+      within(strip).getByTestId('task-workbench-history-source-unavailable')
+    ).toHaveTextContent('Build box')
+    // The history itself is still on screen: a degradation is not an emptiness.
+    expect(screen.getByTestId('task-workbench-history-run')).toHaveTextContent(
+      'Wire the history fold'
+    )
+  })
+
   it('says this build captured no usage when the record froze no settlement', () => {
     renderHistory(history({ tokens: { kind: 'unknown' } }))
 

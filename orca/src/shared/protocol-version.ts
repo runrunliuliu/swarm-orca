@@ -39,6 +39,12 @@ export const MIN_COMPATIBLE_RUNTIME_SERVER_VERSION = 2
 
 export const PROJECT_HOST_SETUP_RUNTIME_CAPABILITY = 'project-host-setup.v1' as const
 export const TASK_SOURCE_CONTEXT_RUNTIME_CAPABILITY = 'task-source-context.v1' as const
+// Why: `taskRecords.get` is additive to a protocol that already shipped, so a
+// host this client pairs with may answer `method_not_found`. Advertising the
+// capability is how the client learns that during negotiation instead of by
+// reading a refusal it cannot tell from "this task has no history" — the
+// failure this gate exists to keep out of the Orca tab (issue #31).
+export const TASK_RECORDS_RUNTIME_CAPABILITY = 'taskRecords.v1' as const
 export const WORKSPACE_RUN_CONTEXT_RUNTIME_CAPABILITY = 'workspace-run-context.v1' as const
 export const WORKTREE_LINKED_WORK_ITEM_CONTEXT_RUNTIME_CAPABILITY =
   'worktree.linked-work-item-context.v1' as const
@@ -376,6 +382,7 @@ export const RUNTIME_CAPABILITIES = [
   'mobile.tasks.v1',
   PROJECT_HOST_SETUP_RUNTIME_CAPABILITY,
   TASK_SOURCE_CONTEXT_RUNTIME_CAPABILITY,
+  TASK_RECORDS_RUNTIME_CAPABILITY,
   WORKSPACE_RUN_CONTEXT_RUNTIME_CAPABILITY,
   WORKTREE_LINKED_WORK_ITEM_CONTEXT_RUNTIME_CAPABILITY,
   WORKTREE_GITHUB_PR_SUPPRESSION_RUNTIME_CAPABILITY,
