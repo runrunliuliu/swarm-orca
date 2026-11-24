@@ -564,6 +564,7 @@ import {
   SkillUploadChunkRequestSchema,
   SkillUploadCommitRequestSchema
 } from '../skill-upload-session-contract'
+import { TaskRecordsRemoteQuerySchema } from '../task-records-remote'
 
 // Why: the host parses params with these schemas, so a client that matches this map
 // matches the dispatcher. Clients must import it for types only — parsing a params
@@ -1150,6 +1151,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'ssh.listTargets': null,
   'stats.summary': null,
   'status.get': null,
+  'taskRecords.get': TaskRecordsRemoteQuerySchema,
   'terminal.adoptOrphans': TerminalAdoptOrphans,
   'terminal.agentStatus': TerminalHandle,
   'terminal.clearBuffer': TerminalHandle,

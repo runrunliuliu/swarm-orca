@@ -9,6 +9,10 @@ import { splitWorktreeIdForFilesystem } from '../../shared/worktree/id'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import type { ExecutionHostId } from '../../shared/execution-host'
 import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../shared/execution-host'
+import type {
+  TaskRecordsRemoteQuery,
+  TaskRecordsRemoteResult
+} from '../../shared/task-records-remote'
 import type { IPtyProvider } from '../providers/types'
 import { killAllProcessesForWorktree } from './worktree-teardown'
 import type { RuntimeCommandSurfaceHost } from './orca-runtime-core'
@@ -131,6 +135,24 @@ export class OrcaRuntimeWithPtyForegroundProcessReads extends OrcaRuntimeWithSta
    *  later, when the metadata row is dropped, and by then this list is gone. */
   captureTaskRecordsRemovalSessions(worktreeId: string): void {
     this.store?.captureTaskRecordsRemovalSessions?.(worktreeId)
+  }
+
+  /**
+   * The task record behind one tracker identity, read from THIS runtime's
+   * profile (issue #31). `taskRecords:get` answers from the client's profile,
+   * which is a different database as soon as the workspace lives here.
+   *
+   * `repoKnown` is the scope answer, not decoration: a repo this runtime has no
+   * registration for cannot have a record here, so the caller must keep its own
+   * content and say this host could not be asked — an empty record would read as
+   * "this task never ran" (the false negative the cross-profile gap produced).
+   * A build that loaded no profile at all answers the same way for the same
+   * reason: it cannot tell.
+   */
+  getTaskRecordForTask(args: TaskRecordsRemoteQuery): TaskRecordsRemoteResult {
+    const read = this.store?.getTaskRecordForTask
+    const repoKnown = Boolean(this.store?.getRepo?.(args.repoId))
+    return { record: read && repoKnown ? read(args) : null, repoKnown }
   }
 
   protected async stopPtysForDestructiveWorktreeRemoval(

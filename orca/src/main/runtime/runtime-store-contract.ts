@@ -38,6 +38,11 @@ export type RuntimeStore = {
   setWorktreeMetaForHost?: Store['setWorktreeMetaForHost']
   removeWorktreeMeta: Store['removeWorktreeMeta']
   captureTaskRecordsRemovalSessions?: Store['captureTaskRecordsRemovalSessions']
+  // Why optional: the headless orcad root and every test double build this
+  // contract by parts. The task-records read RPC answers `repoKnown: false` when
+  // the accessor is absent, which is the same verdict a runtime that never loaded
+  // a profile gives — never an empty record.
+  getTaskRecordForTask?: Store['getTaskRecordForTask']
   getWorktreeLineage?: Store['getWorktreeLineage']
   getAllWorktreeLineage?: Store['getAllWorktreeLineage']
   setWorktreeLineage?: Store['setWorktreeLineage']
