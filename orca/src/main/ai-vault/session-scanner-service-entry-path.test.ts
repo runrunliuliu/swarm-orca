@@ -55,4 +55,18 @@ describe('resolveAiVaultServiceEntryPath', () => {
       )
     ).toBe(entry)
   })
+
+  // The orcad artifact is a packaged non-Electron host: its app root holds orcad.js and
+  // has no asar, and it answers `isPackaged() === true`. That combination skips the
+  // adjacent probe, so `config/scripts/build-orcad.mjs` has to emit the entry under
+  // `out/main` of the install root. Pinned here because the build's landing path is a
+  // consequence of this resolver, not an independent choice.
+  it('nests the entry under out/main for the packaged orcad install root', () => {
+    const installRoot = '/opt/orca/orcad-install'
+    const adjacent = join(installRoot, 'session-scanner-service-entry.js')
+
+    expect(resolveAiVaultServiceEntryPath(installRoot, true, (path) => path === adjacent)).toBe(
+      join(installRoot, 'out', 'main', 'session-scanner-service-entry.js')
+    )
+  })
 })

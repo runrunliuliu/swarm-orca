@@ -75,6 +75,10 @@ export const ORCAD_ARTIFACTS: readonly OrcadArtifact[] = [
   { filename: 'windows-bun-pty-gate-entry.js' },
   { filename: 'profile-state-writer-worker-entry.js' },
   { filename: 'profile-state-backup-worker-entry.js' },
+  // Forked by the AI Vault scan, which the history backfill needs on a host with no app.
+  // The directory is part of the name: `session-scanner-service-entry-path` resolves it
+  // under `out/main` of the install root on a host that reports itself packaged.
+  { filename: 'out/main/session-scanner-service-entry.js' },
   // Target-specific even when the JavaScript bundle is shared across packaged slots.
   { filename: ORCAD_BUILD_TARGET_FILENAME },
   // orcad never depends on a host runtime or host-installed native module.

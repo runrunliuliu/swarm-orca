@@ -9,7 +9,14 @@ export const ORCAD_CHILD_ENTRY_POINTS = {
   daemon: 'src/main/daemon/daemon-entry.ts',
   ptyGate: 'src/main/daemon/pty-subprocess/windows-bun-pty-gate-entry.ts',
   writer: 'src/main/persistence/profile-state/profile-state-writer-worker-entry.ts',
-  backup: 'src/main/persistence/profile-state/profile-state-backup-worker-entry.ts'
+  backup: 'src/main/persistence/profile-state/profile-state-backup-worker-entry.ts',
+  // Why shipped with the server artifact: `spawnAiVaultServiceProcess` forks it, and on a
+  // host with no desktop app it is the only scanner there is — without it the history
+  // backfill can only refuse (`ai-vault-scan-unavailable.ts`). It lands under `out/main`
+  // rather than beside orcad.js because `session-scanner-service-entry-path` checks the
+  // adjacent probe only when the host reports itself unpackaged, and orcad answers
+  // `isPackaged() === true`.
+  sessionScanner: 'src/main/ai-vault/session-scanner-service-entry.ts'
 }
 
 export const ORCAD_EXTERNAL_MODULES = [

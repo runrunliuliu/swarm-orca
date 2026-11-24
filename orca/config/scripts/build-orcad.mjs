@@ -56,6 +56,13 @@ const DAEMON_ENTRY = join(ROOT, ORCAD_CHILD_ENTRY_POINTS.daemon)
 const DAEMON_OUT_FILE = join(OUT_DIR, 'daemon-entry.js')
 const PTY_GATE_ENTRY = join(ROOT, ORCAD_CHILD_ENTRY_POINTS.ptyGate)
 const PTY_GATE_OUT_FILE = join(OUT_DIR, 'windows-bun-pty-gate-entry.js')
+// Why NOT beside orcad.js, unlike the children above: this entry is resolved by
+// `session-scanner-service-entry-path`, not by a probe of the app root. orcad reports
+// `isPackaged() === true` (its install root is a production bundle), and that resolver
+// only tries the adjacent file when the host says it is unpackaged — so it appends
+// `out/main` and the entry has to be emitted there or the scan is unavailable.
+const SCANNER_ENTRY = join(ROOT, ORCAD_CHILD_ENTRY_POINTS.sessionScanner)
+const SCANNER_OUT_FILE = join(OUT_DIR, 'out', 'main', 'session-scanner-service-entry.js')
 const OUT_FILE = join(OUT_DIR, 'orcad.js')
 const BUILD_TARGET = process.env.ORCAD_BUILD_TARGET
 if (!BUILD_TARGET) {
@@ -180,6 +187,7 @@ const childResults = await Promise.all([
   buildForkedChild(WATCHER_ENTRY, WATCHER_OUT_FILE),
   buildForkedChild(DAEMON_ENTRY, DAEMON_OUT_FILE),
   buildForkedChild(PTY_GATE_ENTRY, PTY_GATE_OUT_FILE),
+  buildForkedChild(SCANNER_ENTRY, SCANNER_OUT_FILE),
   ...['writer', 'backup'].map((role) =>
     buildForkedChild(
       join(ROOT, ORCAD_CHILD_ENTRY_POINTS[role]),
