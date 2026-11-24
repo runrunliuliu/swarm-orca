@@ -17396,6 +17396,17 @@
         "emptyBody": "Créez un espace de travail pour démarrer un agent sur cette tâche.",
         "createWorkspace": "Créer un espace de travail"
       },
+      "TaskWorkbenchRecordSourceNotice": {
+        "conflict": "Deux profils décrivent l'espace de travail {{value0}} différemment ({{value1}}) ; affichage de {{value2}}.",
+        "forbidden": "Impossible de lire l'historique depuis {{value0}} : cette application n'est pas autorisée à lire cet environnement. Affichage de ce que contient cet ordinateur.",
+        "included": "L'historique inclut aussi ce que {{value0}} environnement(s) ont enregistré.",
+        "keptLocal": "cet ordinateur",
+        "pending": "Lecture de {{value0}} environnement(s) en cours ; d'autres éléments peuvent arriver.",
+        "repoUnknown": "Impossible de lire l'historique depuis {{value0}} : cet environnement n'a aucun espace de travail enregistré pour ce dépôt, il ne peut donc pas contenir cette tâche. Affichage de ce que contient cet ordinateur.",
+        "unreachable": "Impossible de lire l'historique depuis {{value0}} : il n'a pas répondu (délai dépassé ou connexion perdue). Affichage de ce que contient cet ordinateur ; nouvelle tentative possible.",
+        "unsupported": "Impossible de lire l'historique depuis {{value0}} : cet environnement exécute une version d'Orca plus ancienne, sans méthode d'historique des tâches. Affichage de ce que contient cet ordinateur ; réessayez après sa mise à jour.",
+        "unsupportedWithVersion": "Impossible de lire l'historique depuis {{value0}} : il exécute Orca {{value1}}, qui n'a pas de méthode d'historique des tâches. Affichage de ce que contient cet ordinateur ; réessayez après sa mise à jour."
+      },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} tokens",
         "estimatedCost": "env. ${{value0}}",

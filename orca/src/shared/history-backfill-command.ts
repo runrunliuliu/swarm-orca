@@ -181,13 +181,23 @@ export function isHistoryBackfillCommandError(
  * here guesses: a malformed value is an error the CLI prints, never a no-op.
  */
 export function parseHistoryBackfillTaskArgument(raw: string): HistoryBackfillTask {
+  return parseTaskArgument(raw, '--task expects')
+}
+
+/** Same `<repo>#<number>` grammar as `history backfill`; only the sentence that
+ *  names the argument differs, because `history task` takes it positionally. */
+export function parseHistoryTaskArgument(raw: string): HistoryBackfillTask {
+  return parseTaskArgument(raw, 'history task expects')
+}
+
+function parseTaskArgument(raw: string, label: string): HistoryBackfillTask {
   const separator = raw.lastIndexOf('#')
   const repo = separator === -1 ? '' : raw.slice(0, separator).trim()
   const numberText = separator === -1 ? '' : raw.slice(separator + 1).trim()
   if (repo.length === 0 || !/^[1-9][0-9]*$/.test(numberText)) {
     throw new HistoryBackfillCommandError(
       'invalid_argument',
-      `--task expects <repo>#<number>, where <repo> is a registered repo id or its checkout path, and <number> is the tracker number (got "${raw}").`
+      `${label} <repo>#<number>, where <repo> is a registered repo id or its checkout path, and <number> is the tracker number (got "${raw}").`
     )
   }
   const number = Number(numberText)

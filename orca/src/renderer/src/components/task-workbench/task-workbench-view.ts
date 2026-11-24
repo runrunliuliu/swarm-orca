@@ -199,6 +199,58 @@ export type TaskWorkbenchHistorySession = {
   worktreeId: string
 }
 
+/** Why a source's record could not be read (issue #31). Each arm is a different
+ *  sentence and a different remedy, and none of them means "no history":
+ *  `unsupported` is a host older than this app (retry after it updates),
+ *  `forbidden` is a scope the client does not hold, `repo-unknown` is an
+ *  environment that has no registration for this repository, and `unreachable` is
+ *  a timeout or a lost connection (retry now). */
+export type TaskWorkbenchRecordSourceFailure =
+  | 'unsupported'
+  | 'forbidden'
+  | 'repo-unknown'
+  | 'unreachable'
+
+/** One environment whose profile could not be read for this task. */
+export type TaskWorkbenchRecordSourceUnavailable = {
+  environmentId: string
+  failure: TaskWorkbenchRecordSourceFailure
+  /** The environment's display name when the catalog has one, so the sentence
+   *  names the machine the reader configured instead of an opaque id. */
+  label?: string
+  /** The host's own app version, when the status store knew it. Printed with
+   *  `unsupported` so "older host" is a fact rather than an inference. */
+  appVersion?: string
+}
+
+/** One workspace two profiles described differently (issue #31). The merge kept
+ *  the owner's values (`kept`); the panel says so instead of letting the two
+ *  databases silently disagree. `kept: null` means the local profile won. */
+export type TaskWorkbenchRecordSourceConflict = {
+  worktreeId: string
+  kept: string | null
+  fields: string[]
+}
+
+/** Where this task's record was read from, and what could not be read (issue #31).
+ *
+ * The record behind the history can now come from several profiles: the client's
+ * own plus each environment this task's workspaces name. This field is how the
+ * panel states that instead of presenting a merged — and possibly partial —
+ * picture as the whole truth. `environmentIds` is the set that was asked, so a
+ * reader can tell "no remote profiles apply to this task" from "a remote profile
+ * had nothing". */
+export type TaskWorkbenchRecordSource = {
+  environmentIds: string[]
+  /** Sources that answered, with a record or explicitly without one. */
+  answered: string[]
+  unavailable: TaskWorkbenchRecordSourceUnavailable[]
+  conflicts: TaskWorkbenchRecordSourceConflict[]
+  /** True while a selected environment has not answered yet: the history below is
+   *  not yet the whole picture, and the panel must not call it final. */
+  pending: boolean
+}
+
 /** The facts a closed task can still state about work it already ran (issue
  *  #31). Absent is never zero: `agents: null` and an unavailable token figure
  *  say "not known", which is what a pruned record actually means. */
@@ -207,8 +259,18 @@ export type TaskWorkbenchHistory = {
   agents: number | null
   wall: TaskWorkbenchWallClock
   /** Same "unknown is not zero" rule as a row, but a task-level total rather
-   *  than one agent's: only `available` carries a number. */
-  tokens: { kind: 'available'; tokens: number } | { kind: 'unavailable'; reason: SpendReason }
+   *  than one agent's: only `available` carries a whole number. The four states
+   *  are the settlement's own (see `aggregateSettlement`): `available` = every
+   *  contributing figure was measured; `partial` = some closed workspaces settled
+   *  a number and at least one did not, so `tokens` is a subtotal and the copy
+   *  says so; `unavailable` = a workspace was measured and the figure is missing;
+   *  `unknown` = no closed workspace was captured at all (this build did not
+   *  measure), which is not a reason for a missing figure and never `0`. */
+  tokens:
+    | { kind: 'available'; tokens: number }
+    | { kind: 'partial'; tokens: number }
+    | { kind: 'unavailable'; reason: SpendReason }
+    | { kind: 'unknown' }
   lastActivityAt?: number
   archivedWorkspaces: number
   deletedWorkspaces: number
@@ -236,6 +298,10 @@ export type TaskWorkbenchHistory = {
    *  a reader must not read an empty list as "nothing ran", which is why the run
    *  list says `no run recorded` separately. */
   gaps?: TaskWorkbenchGapView[]
+  /** Where the record came from, and what could not be read (issue #31). Absent on
+   *  a view built before records had more than one possible source — which is not
+   *  "everything was read", but there is nothing to print either way. */
+  recordSource?: TaskWorkbenchRecordSource
 }
 
 /** Renderer overlay on the untouched snapshot card (R18): the row component

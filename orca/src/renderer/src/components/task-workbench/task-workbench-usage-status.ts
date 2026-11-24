@@ -1,4 +1,4 @@
-import type { AgentTokenView, SpendView } from './task-workbench-view'
+import type { AgentTokenView, SpendReason, SpendView } from './task-workbench-view'
 
 /**
  * Usage vocabulary, no React and no data access.
@@ -69,6 +69,28 @@ export const USAGE_STATUS_WORD: Record<UsageStatus, string> = {
   remote_host: 'Remote host',
   scan_failed: 'Scan failed',
   unattributed: 'Unattributed'
+}
+
+/** Locale key of one absence's sentence. Shared with the history strip, so the
+ *  same reason reads the same wherever it is stated. */
+export function usageReasonCopyKey(reason: SpendReason): string {
+  return `auto.components.TaskWorkbenchSpend.reason.${reason}`
+}
+
+/** One sentence per absence, saying what the reader can do or why no number
+ *  exists. Exhaustive by type, so a new `SpendReason` cannot render silently.
+ *
+ * It lives in this vocabulary module rather than in the Spend component because
+ * the history strip states the same four absences for a task total; one table is
+ * what keeps the two surfaces from drifting into two answers for one reason. */
+export const REASON_COPY: Record<SpendReason, string> = {
+  disabled: 'Usage tracking is off. No spend is recorded for this task.',
+  unpriced: 'Some models in this task have no price, so the total is unknown.',
+  ambiguous_session: 'More than one session matches this task, so usage cannot be attributed.',
+  no_matching_session: 'No session matches this task yet, so there is nothing to total.',
+  remote_host: 'This workspace runs on a remote host, where usage is not collected yet.',
+  scan_failed: 'The usage scan failed, so this figure could not be read.',
+  unattributed: 'Some sessions could not be tied to this task.'
 }
 
 /** `available` is the only status that carries a figure; every other status is an

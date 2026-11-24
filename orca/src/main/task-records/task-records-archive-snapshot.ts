@@ -40,7 +40,9 @@ import type {
  *    claim, and the usage settlement computed exactly as the removal path does. An
  *    empty attribution is *still not an empty authoritative list*: it stores
  *    `runs: []` plus an explicit gap, because zero rows with no gap renders as
- *    "never ran" (T2).
+ *    "never ran" (T2). That holds when the runtime has **no** usage source either
+ *    (the headless composition root): the gap then says the source was missing and
+ *    names the two ways to finish the record, so the empty list is never final.
  * 2. **Asynchronous enrichment**, fired after the transition and never awaited by
  *    the metadata write: one follow-up task with two independent jobs. The reverse
  *    lookup by absolute path + time window runs only when this write attributed
@@ -76,6 +78,12 @@ export type ArchiveSnapshotLookupPlan =
   /** The workspace belongs to another host: its transcripts are not on this
    *  host's disk, so no local scan can answer for it. */
   | 'other_host'
+  /** This runtime bound no usage source at all (the headless/`orcad` composition
+   *  root has no session source), so the archive could not even look. It is the
+   *  same observation as `no_lookup` — nothing was attributed — but the missing
+   *  piece is this process's wiring, not the build, and the gap it leaves is the
+   *  marker a later metadata touch or `orca history backfill` resolves. */
+  | 'source_unavailable'
 
 export type ArchiveSnapshotRequest = {
   state: TaskRecordsState
@@ -124,14 +132,14 @@ export type ArchiveSnapshotFollowUp = {
 }
 
 export type ArchiveSnapshotOutcome =
-  /** No source is bound yet (startup order): nothing was observed, so nothing is
-   *  claimed — writing `unattributable` here would blame the workspace for a gap
-   *  in this process's wiring. */
-  | { kind: 'skipped'; reason: 'no_source' }
   /** Refused as a whole; no partial write (A4). `missing_binding` is the state
    *  answering "nothing written" (`skipped` on the transition result): the record
    *  or the binding this snapshot addressed is not there any more, so there is no
-   *  state to store and nothing to call a completed snapshot. */
+   *  state to store and nothing to call a completed snapshot.
+   *
+   *  There is deliberately no "no source → nothing to say" arm: an archive with no
+   *  usage source still writes `runs: []` plus the `source_unavailable` gap, so the
+   *  stored empty session list can never be read as a measured "never ran". */
   | { kind: 'refused'; reason: 'limit' | 'source_failed' | 'conflict' | 'missing_binding' }
   | { kind: 'applied'; state: TaskRecordsState; followUp: ArchiveSnapshotFollowUp | null }
 
@@ -159,35 +167,42 @@ export function isArchiveTransition(
 
 export function applyArchiveSnapshot(request: ArchiveSnapshotRequest): ArchiveSnapshotOutcome {
   const { state, taskId, binding, usageSource, now } = request
-  if (!usageSource) {
-    return { kind: 'skipped', reason: 'no_source' }
-  }
-  let sessions: readonly TaskRecordSession[]
-  let settlement: TaskUsageSettlement
+  // A missing source is **not** a reason to claim nothing (issue #31's empty
+  // history): an archive that writes neither a row nor a gap leaves `sessions: []`
+  // as the only statement, which the page renders as "never ran". The source is
+  // absent in the headless composition root (`orcad`) for the whole process
+  // lifetime, so this arm is where a real archive lands — it writes the same
+  // explicit absence as every other unattributed arm, plus a marker that names
+  // how to finish the record (see `UNATTRIBUTABLE_DETAIL.source_unavailable`).
+  const plan: ArchiveSnapshotLookupPlan = usageSource ? request.lookup : 'source_unavailable'
+  let sessions: readonly TaskRecordSession[] = []
+  let settlement: TaskUsageSettlement | null = null
   let outcomes: ReadonlyMap<string, AgentJournalTurnOutcome> | undefined
-  try {
-    // The removal path's own computation: same four stores, same host rule
-    // (`remote_usage_unavailable` off-local), same session collector. An archive
-    // tears nothing down, so there is no capture step to consume. Typed as the
-    // archive snapshot so the pre-#53 fallback (sessions only, no verdicts) is the
-    // ordinary "this source states no outcome" case rather than a special one.
-    const snapshot: TaskRecordsArchiveSnapshot = usageSource.snapshotForArchive
-      ? usageSource.snapshotForArchive({
-          worktreeId: binding.worktreeId,
-          hostId: binding.hostId,
-          now
-        })
-      : usageSource.snapshotForRemoval({
-          worktreeId: binding.worktreeId,
-          hostId: binding.hostId,
-          now
-        })
-    sessions = snapshot.sessions
-    settlement = snapshot.settlement
-    outcomes = snapshot.outcomes
-  } catch (error) {
-    console.error('[task-records] archive snapshot source failed', binding.worktreeId, error)
-    return { kind: 'refused', reason: 'source_failed' }
+  if (usageSource) {
+    try {
+      // The removal path's own computation: same four stores, same host rule
+      // (`remote_usage_unavailable` off-local), same session collector. An archive
+      // tears nothing down, so there is no capture step to consume. Typed as the
+      // archive snapshot so the pre-#53 fallback (sessions only, no verdicts) is the
+      // ordinary "this source states no outcome" case rather than a special one.
+      const snapshot: TaskRecordsArchiveSnapshot = usageSource.snapshotForArchive
+        ? usageSource.snapshotForArchive({
+            worktreeId: binding.worktreeId,
+            hostId: binding.hostId,
+            now
+          })
+        : usageSource.snapshotForRemoval({
+            worktreeId: binding.worktreeId,
+            hostId: binding.hostId,
+            now
+          })
+      sessions = snapshot.sessions
+      settlement = snapshot.settlement
+      outcomes = snapshot.outcomes
+    } catch (error) {
+      console.error('[task-records] archive snapshot source failed', binding.worktreeId, error)
+      return { kind: 'refused', reason: 'source_failed' }
+    }
   }
   const rows: TaskRecordSession[] = sessions.map((session) => ({
     ...session,
@@ -243,7 +258,7 @@ export function applyArchiveSnapshot(request: ArchiveSnapshotRequest): ArchiveSn
     worktreeId: binding.worktreeId,
     hostId: binding.hostId,
     runs,
-    gaps: rows.length > 0 ? [] : [unattributableGap(now, request.lookup)],
+    gaps: rows.length > 0 ? [] : [unattributableGap(now, plan)],
     now
   })
   if (!withRuns.ok) {
@@ -253,33 +268,39 @@ export function applyArchiveSnapshot(request: ArchiveSnapshotRequest): ArchiveSn
     return refuseMissing(binding.worktreeId, 'record runs')
   }
   current = withRuns.state
-  const withSettlement = setTaskRecordBindingSettlement(current, {
-    taskId,
-    worktreeId: binding.worktreeId,
-    hostId: binding.hostId,
-    settlement
-  })
-  if (!withSettlement.ok) {
-    return refuse(binding.worktreeId, 'record settlement', withSettlement.reason)
+  if (settlement !== null) {
+    const withSettlement = setTaskRecordBindingSettlement(current, {
+      taskId,
+      worktreeId: binding.worktreeId,
+      hostId: binding.hostId,
+      settlement
+    })
+    if (!withSettlement.ok) {
+      return refuse(binding.worktreeId, 'record settlement', withSettlement.reason)
+    }
+    if (withSettlement.skipped !== undefined) {
+      // The snapshot itself is applied: sessions, runs and gap above were written, and
+      // only this figure was kept as stored (`settlement_downgrade` — an `unavailable`
+      // snapshot never replaces a measured one). Reported rather than swallowed, so no
+      // caller reads "settled" as "the figure I just measured is on the record"; the
+      // state is still handed back, because dropping the rows to announce one skipped
+      // figure would lose the snapshot this write exists for.
+      console.error(
+        `[task-records] archive snapshot wrote no settlement for ${binding.worktreeId}: ${withSettlement.skipped}`
+      )
+    }
+    current = withSettlement.state
   }
-  if (withSettlement.skipped !== undefined) {
-    // The snapshot itself is applied: sessions, runs and gap above were written, and
-    // only this figure was kept as stored (`settlement_downgrade` — an `unavailable`
-    // snapshot never replaces a measured one). Reported rather than swallowed, so no
-    // caller reads "settled" as "the figure I just measured is on the record"; the
-    // state is still handed back, because dropping the rows to announce one skipped
-    // figure would lose the snapshot this write exists for.
-    console.error(
-      `[task-records] archive snapshot wrote no settlement for ${binding.worktreeId}: ${withSettlement.skipped}`
-    )
-  }
-  current = withSettlement.state
   // The follow-up is decided against the state this write just produced: a
   // `pending` lookup plan additionally means the async inputs and a save target
   // are bound, so `no_lookup` is exactly "this build cannot follow up at all".
-  const needsLookup = rows.length === 0 && request.lookup === 'pending'
+  // A `source_unavailable` archive schedules none: the same process has no lookup
+  // either, so the marker gap is what a later metadata touch (in a runtime that
+  // does have the source) or `orca history backfill` consumes.
+  const needsLookup = rows.length === 0 && plan === 'pending'
   const needsCheck =
-    request.lookup !== 'no_lookup' &&
+    plan !== 'no_lookup' &&
+    plan !== 'source_unavailable' &&
     hasUncheckedTranscript(current, {
       taskId,
       worktreeId: binding.worktreeId,
@@ -391,7 +412,54 @@ const UNATTRIBUTABLE_DETAIL: Record<ArchiveSnapshotLookupPlan, string> = {
     'no pane attribution from the hook server at the archive moment; the session index lookup by path is the remaining source',
   no_lookup: 'no pane attribution and no session index lookup is available in this build',
   other_host:
-    'no pane attribution; the workspace belongs to another host, whose transcripts this host cannot look up'
+    'no pane attribution; the workspace belongs to another host, whose transcripts this host cannot look up',
+  source_unavailable:
+    'no session source in this runtime at the archive moment, so the workspace could not be observed; `orca history backfill` (or a later metadata touch in a runtime that has the source) can complete this record'
+}
+
+/** The gap texts whose observation was left unfinished, i.e. the marker a later
+ *  metadata touch or `orca history backfill` consumes (see
+ *  `hasUnresolvedArchiveSnapshot`). */
+const RETRYABLE_MARKER_DETAILS: ReadonlySet<string> = new Set([
+  UNATTRIBUTABLE_DETAIL.pending,
+  UNATTRIBUTABLE_DETAIL.no_lookup,
+  UNATTRIBUTABLE_DETAIL.source_unavailable
+])
+
+/**
+ * Whether a stored binding still carries the marker of an archive whose
+ * observation never finished, so a later writer can complete it.
+ *
+ * `sessions: []` alone is not that marker — an archive that looked and found
+ * nothing also stores no rows — so the pair is required: one of the
+ * "the observation can still be continued" gaps **and** an empty session list.
+ * Once any writer lands a session row the marker is spent, because the unfinished
+ * observation it records has been finished.
+ *
+ * Which gap counts, and why the vocabulary already answers it:
+ * - `pending` — the archive expected a lookup and the process that owned it ended
+ *   (a quit, a scan still in flight) before it answered. That is the clearest
+ *   retryable marker there is.
+ * - `no_lookup` — that build had no lookup (or no save target); a later runtime may
+ *   have one.
+ * - `source_unavailable` — this runtime bound no session source at all.
+ * - **not** `other_host`: the workspace's transcripts are not on this machine, so
+ *   no local touch, scan or backfill can answer for it, and retrying would be a
+ *   scan that cannot succeed.
+ *
+ * Identity is `kind|detail` as everywhere in this domain, so the check compares
+ * the exact text this module writes and cannot be satisfied by a reader's own
+ * prose (`ambiguous_match` and the measured 0-hit gap are different statements).
+ */
+export function hasUnresolvedArchiveSnapshot(
+  binding: Pick<TaskWorkspaceBinding, 'isArchived' | 'sessions' | 'gaps'>
+): boolean {
+  if (!binding.isArchived || binding.sessions.length > 0) {
+    return false
+  }
+  return (binding.gaps ?? []).some(
+    (gap) => gap.kind === 'session_unattributable' && RETRYABLE_MARKER_DETAILS.has(gap.detail ?? '')
+  )
 }
 
 /** The lookup plan the metadata write passes in: only a local owner's transcripts

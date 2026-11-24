@@ -6,6 +6,7 @@ import {
   type TaskRecordSession,
   type TaskWorkspaceBinding
 } from '../../../../shared/task-records-types'
+import { aggregateTaskUsageSettlements } from '../../../../shared/task-usage-settlement-aggregate'
 import type {
   TaskWorkbenchGapView,
   TaskWorkbenchHistory,
@@ -14,7 +15,7 @@ import type {
   TaskWorkbenchHistoryWorkspace
 } from '@/components/task-workbench/task-workbench-view'
 import { taskHistoryWallClock } from './task-workbench-join'
-import { aggregateSettlement, settleTokens } from './task-workbench-history-settlement'
+import { settleTokens } from './task-workbench-history-settlement'
 
 /**
  * Fold the persisted task record into the join's history (issue #36).
@@ -27,7 +28,8 @@ import { aggregateSettlement, settleTokens } from './task-workbench-history-sett
  * - a binding the store still knows is *not* history; presence is decided by the
  *   caller's workspace list, never by the record, so a live workspace cannot be
  *   mislabelled `Removed`;
- * - an absent settled figure stays absent (an unavailable reason), never `0`;
+ * - an absent settled figure stays absent (a distinct `unknown` state, never a
+ *   reason for a measurement that did not happen), never `0`;
  * - a task with no live workspace but a record states the deleted form instead of
  *   falling back to "never started".
  *
@@ -138,7 +140,7 @@ export function mergeTaskRecordHistory(args: {
       worktreeId: binding.worktreeId
     }))
   )
-  const settled = aggregateSettlement(
+  const settled = aggregateTaskUsageSettlements(
     // Archived and removed: a settlement is a *workspace* figure the record froze,
     // so it belongs to the task total once, whether or not the checkout is still
     // on this machine (S11). Counting the per-row rollups instead left an

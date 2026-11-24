@@ -1,13 +1,15 @@
 /** Executable entry for `orcad`. See `./orcad-entry.ts`. */
 import process from 'node:process'
-import { main, resolveOrcadExitCode } from './orcad-entry'
+import { installOrcadHostAdapters, main, resolveOrcadExitCode } from './orcad-entry'
 import { runOrcadNativePreflight } from './orcad-native-preflight'
 import {
   ORCAD_PROFILE_PREFLIGHT_FLAG,
   ORCAD_STARTUP_PREFLIGHT_FLAG
 } from '../../shared/orcad-profile-preflight'
+import { HISTORY_BACKFILL_FLAG } from '../../shared/history-backfill-command'
 import { preflightBundledOrcadStartup, runOrcadProfilePreflight } from './orcad-profile-preflight'
 import { handoffToBundledOrcad } from './orcad-bundled-runtime'
+import { runOrcadHistoryBackfillPreflight } from './orcad-history-backfill-preflight'
 
 // Why exit before the preflight: reaching this line means the whole module graph resolved
 // under plain Node, which is all the build guard needs to prove. Probing natives or
@@ -32,13 +34,20 @@ function failStartup(error: unknown): void {
 
 try {
   if (!handoffToBundledOrcad()) {
-    const flag = process.argv[2]
-    if (
-      (flag === ORCAD_PROFILE_PREFLIGHT_FLAG || flag === ORCAD_STARTUP_PREFLIGHT_FLAG) &&
+    // Why first and not as a `main()` flag: the CLI relaunches this executable with
+    // `--serve --history-backfill <json>`, so the flag is not `argv[2]`. Like the
+    // desktop preflight, it must own the profile-state maintenance lock in a process
+    // that never becomes the server, and it exits before any host startup work.
+    if (process.argv.includes(HISTORY_BACKFILL_FLAG)) {
+      installOrcadHostAdapters()
+      runOrcadHistoryBackfillPreflight(process.argv)
+    } else if (
+      (process.argv[2] === ORCAD_PROFILE_PREFLIGHT_FLAG ||
+        process.argv[2] === ORCAD_STARTUP_PREFLIGHT_FLAG) &&
       process.argv.length === 4
     ) {
       void runOrcadProfilePreflight(process.argv[3], {
-        nativeFeatures: flag === ORCAD_PROFILE_PREFLIGHT_FLAG
+        nativeFeatures: process.argv[2] === ORCAD_PROFILE_PREFLIGHT_FLAG
       }).catch(failStartup)
     } else {
       void preflightBundledOrcadStartup()

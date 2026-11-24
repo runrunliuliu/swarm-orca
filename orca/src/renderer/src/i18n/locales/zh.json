@@ -17496,7 +17496,9 @@
         "wallPartial": "墙钟 {{value0}}（部分）",
         "wallUnknown": "墙钟未知",
         "tokensKnown": "{{value0}} token",
+        "tokensPartial": "{{value0}} 个 token（部分）",
         "tokensUnknown": "token 未知",
+        "tokensNotCaptured": "本构建未捕获已关闭工作区的用量，因此没有总计。",
         "lastActivity": "最后 {{value0}}",
         "archivedOne": "工作区已归档 1 个（内容仍在本机）",
         "archivedMany": "已归档工作区 {{value0}} 个（内容仍在本机）",
@@ -17551,6 +17553,17 @@
         "createWorkspace": "创建工作区",
         "notWired": "此版本暂不支持"
       },
+      "TaskWorkbenchRecordSourceNotice": {
+        "conflict": "两个配置对工作区 {{value0}} 的描述不一致（{{value1}}）；当前显示 {{value2}}。",
+        "forbidden": "无法从 {{value0}} 读取历史：本应用没有读取该环境的权限。当前显示的是本机已有的内容。",
+        "included": "历史也包含 {{value0}} 个环境记录的内容。",
+        "keptLocal": "本机",
+        "pending": "仍在读取 {{value0}} 个环境，可能还有历史。",
+        "repoUnknown": "无法从 {{value0}} 读取历史：该环境没有注册这个仓库，因此不可能持有此任务。当前显示的是本机已有的内容。",
+        "unreachable": "无法从 {{value0}} 读取历史：该环境没有响应（超时或连接中断）。当前显示的是本机已有的内容；可重试。",
+        "unsupported": "无法从 {{value0}} 读取历史：该环境运行的 Orca 版本较旧，没有任务历史方法。当前显示的是本机已有的内容；待该环境更新后可重试。",
+        "unsupportedWithVersion": "无法从 {{value0}} 读取历史：该环境运行 Orca {{value1}}，没有任务历史方法。当前显示的是本机已有的内容；待该环境更新后可重试。"
+      },
       "TaskWorkbenchSpend": {
         "tokensValue": "{{value0}} token",
         "estimatedCost": "约 ${{value0}}",
@@ -17565,6 +17578,7 @@
           "ambiguous_session": "有多个会话与此任务匹配，因此无法归属用量。",
           "no_matching_session": "尚无会话与此任务匹配，因此没有可汇总的数据。",
           "remote_host": "此工作区运行在远程主机上，该处尚未收集用量。",
+          "scan_failed": "用量扫描失败，因此无法读取该数字。",
           "unattributed": "有些会话无法关联到此任务。"
         },
         "status": {

@@ -30,6 +30,13 @@ vi.mock('./orcad-profile-state-telemetry', () => ({
 
 const { createOrcadProfileStateStartup } = await import('./orcad-profile-state-startup')
 
+/** The hook server is the only port this seam takes; the binding it enables is what
+ *  the archive transition reads, so its absence would be a startup bug, not a fixture. */
+const HOOK_SERVER = {
+  getProviderSessionIdentities: () => [],
+  getStatusSnapshot: () => []
+}
+
 beforeEach(() => {
   vi.resetAllMocks()
   ensureActiveOrcaProfileMock.mockReturnValue({
@@ -41,7 +48,7 @@ beforeEach(() => {
 
 describe('orcad profile-state startup', () => {
   it('selects the capable authority once and publishes bounded metadata', async () => {
-    const store = { getSettings: vi.fn() }
+    const store = { getSettings: vi.fn(), setTaskRecordsUsageSource: vi.fn() }
     createProfileStateStoreForStartupMock.mockReturnValue({
       store,
       authority: { readSerializedState: vi.fn() },
@@ -50,7 +57,9 @@ describe('orcad profile-state startup', () => {
       migrated: true
     })
 
-    const result = await createOrcadProfileStateStartup('/tmp/user-data')
+    const result = await createOrcadProfileStateStartup('/tmp/user-data', {
+      hookServer: HOOK_SERVER
+    })
 
     expect(initOrcaProfilePathsMock).toHaveBeenCalledOnce()
     expect(ensureActiveOrcaProfileMock).toHaveBeenCalledWith('/tmp/user-data')
@@ -82,7 +91,7 @@ describe('orcad profile-state startup', () => {
           refuse = reject
         })
     )
-    const startup = createOrcadProfileStateStartup('/tmp/user-data')
+    const startup = createOrcadProfileStateStartup('/tmp/user-data', { hookServer: HOOK_SERVER })
     const failure = new Error('writer startup refused')
     const rejected = expect(startup).rejects.toBe(failure)
     expect(initSshHostKeyStoreFileMock).not.toHaveBeenCalled()
@@ -92,7 +101,7 @@ describe('orcad profile-state startup', () => {
   })
 
   it('closes a ready writer if sidecar initialization fails', async () => {
-    const store = { freezeWritesAsync: vi.fn(async () => {}) }
+    const store = { freezeWritesAsync: vi.fn(async () => {}), setTaskRecordsUsageSource: vi.fn() }
     createProfileStateStoreForStartupMock.mockResolvedValueOnce({
       store,
       backend: 'sqlite',
@@ -103,8 +112,59 @@ describe('orcad profile-state startup', () => {
     initSshHostKeyStoreFileMock.mockImplementationOnce(() => {
       throw failure
     })
-    await expect(createOrcadProfileStateStartup('/tmp/user-data')).rejects.toBe(failure)
+    await expect(
+      createOrcadProfileStateStartup('/tmp/user-data', { hookServer: HOOK_SERVER })
+    ).rejects.toBe(failure)
     expect(store.freezeWritesAsync).toHaveBeenCalledOnce()
     expect(emitMock).not.toHaveBeenCalled()
+  })
+
+  it('binds the task-records usage source before the Store is handed to the runtime', async () => {
+    const store = { getSettings: vi.fn(), setTaskRecordsUsageSource: vi.fn() }
+    createProfileStateStoreForStartupMock.mockResolvedValueOnce({
+      store,
+      backend: 'sqlite',
+      classification: 'sqlite-only',
+      migrated: false
+    })
+
+    await createOrcadProfileStateStartup('/tmp/user-data', { hookServer: HOOK_SERVER })
+
+    // The archive transition reads this source at the metadata write that flips
+    // `isArchived` (issue #31); a Store returned without it writes "this runtime could
+    // not look" for a workspace whose session the local index holds.
+    expect(store.setTaskRecordsUsageSource).toHaveBeenCalledOnce()
+    const source = store.setTaskRecordsUsageSource.mock.calls[0]?.[0]
+    expect(typeof source?.snapshotForArchive).toBe('function')
+    expect(typeof source?.archiveSnapshot?.sessionIndexLookup).toBe('function')
+  })
+
+  it('reports a failed binding and still returns the Store instead of failing startup', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const store = {
+      getSettings: vi.fn(),
+      setTaskRecordsUsageSource: vi.fn(() => {
+        throw new Error('binding refused')
+      })
+    }
+    createProfileStateStoreForStartupMock.mockResolvedValueOnce({
+      store,
+      backend: 'sqlite',
+      classification: 'sqlite-only',
+      migrated: false
+    })
+
+    const result = await createOrcadProfileStateStartup('/tmp/user-data', {
+      hookServer: HOOK_SERVER
+    })
+
+    // No startup failure: a ledger source must not keep a headless host from serving.
+    expect(result.store).toBe(store)
+    // No silent degradation either: the failure names what the archive will store now.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('task-records usage source not bound'),
+      expect.any(Error)
+    )
+    warn.mockRestore()
   })
 })

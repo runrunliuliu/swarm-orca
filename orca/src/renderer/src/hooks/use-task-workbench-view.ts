@@ -2,12 +2,13 @@ import { useMemo } from 'react'
 import { useAppStore } from '@/store'
 import { isAgentJournalTurnOutcome } from '../../../shared/agent-turn-outcome'
 import type { DashboardCard, DashboardWorkspace } from '../../../shared/dashboard-snapshot'
-import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import { LOCAL_EXECUTION_HOST_ID, getRepoExecutionHostId } from '../../../shared/execution-host'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import { useLiveDashboardSnapshot } from '@/components/dashboard/useLiveDashboardSnapshot'
 import { projectMissingWorkspace } from '@/components/dashboard/project-missing-workspace'
 import type { TaskWorkbenchView } from '@/components/task-workbench/task-workbench-view'
 import { useTaskRecords } from './use-task-records'
+import { useTaskRecordSources } from './use-task-record-sources'
 import {
   resolveTaskIdentity,
   selectTaskItemWorktrees
@@ -82,6 +83,11 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   const repo = useAppStore((state) =>
     repoId === null ? undefined : state.repos.find((candidate) => candidate.id === repoId)
   )
+  // How to name the environment that could not answer, and how to know one cannot
+  // before asking (issue #31). The status map feeds only a capability verdict and
+  // the catalog only a display name, so neither can re-arm a read by identity.
+  const runtimeStatusByEnvironmentId = useAppStore((state) => state.runtimeStatusByEnvironmentId)
+  const runtimeEnvironments = useAppStore((state) => state.runtimeEnvironments)
   const agentStatusByPaneKey = useAppStore((state) => state.agentStatusByPaneKey)
   // A done row outlives its pane: once the agent process exits, the status map is
   // cleaned up and only the retained snapshot still speaks for that run. The
@@ -136,20 +142,6 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     worktrees
   )
 
-  // A binding the store no longer lists is a deleted workspace; the identity
-  // selector may name the task after it when no live or archived row is left
-  // (issue #38).
-  const removedWorktreeIds = useMemo(() => {
-    const record = taskRecord.record
-    if (!record || worktrees === undefined) {
-      return []
-    }
-    const live = new Set(worktrees.map((worktree) => worktree.id))
-    return record.bindings
-      .filter((binding) => !live.has(binding.worktreeId))
-      .map((binding) => binding.worktreeId)
-  }, [taskRecord.record, worktrees])
-
   // Provenance the selectors read, projected once. Archived rows are handed over
   // as such; since issue #31 they are a fallback identity rather than a refusal,
   // because a closed task whose only workspace was archived still has a name.
@@ -165,6 +157,58 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       })),
     [worktrees]
   )
+
+  // The task's workspace rows, selected by the item's own links. Computed before
+  // the identity resolution — which consumes the removed-binding ids below — so
+  // the record sources (issue #31) can be chosen without a cycle. `taskWorktrees`
+  // below reuses this list; there is exactly one selection rule.
+  const matchedWorktrees = useMemo(() => {
+    if (!worktrees) {
+      return []
+    }
+    const provider = taskSourceContext?.providerIdentity ?? null
+    const selected = new Set(
+      selectTaskItemWorktrees(identityWorktrees, item, provider).map(
+        (worktree) => worktree.worktreeId
+      )
+    )
+    return worktrees.filter((worktree) => selected.has(worktree.id))
+  }, [identityWorktrees, worktrees, item, taskSourceContext])
+
+  // This task's record, from the client's profile and each environment its
+  // workspaces name (issue #31). `local` is always part of the answer, so an
+  // environment that cannot answer keeps exactly what this computer already had.
+  const { record, recordSource, pending: recordSourcesPending } = useTaskRecordSources({
+    query:
+      repoId === null
+        ? null
+        : {
+            repoId,
+            itemType,
+            number,
+            ...(taskSourceContext?.provider ? { provider: taskSourceContext.provider } : {})
+          },
+    worktrees: matchedWorktrees,
+    local: taskRecord.record,
+    ...(repo ? { repoHostId: getRepoExecutionHostId(repo) } : {}),
+    statusByEnvironment: runtimeStatusByEnvironmentId,
+    environments: runtimeEnvironments,
+    revision: worktrees
+  })
+
+  // A binding the store no longer lists is a deleted workspace; the identity
+  // selector may name the task after it when no live or archived row is left
+  // (issue #38). Read from the merged record: a workspace that only the remote
+  // profile still names is exactly the case this page used to miss (issue #31).
+  const removedWorktreeIds = useMemo(() => {
+    if (!record || worktrees === undefined) {
+      return []
+    }
+    const live = new Set(worktrees.map((worktree) => worktree.id))
+    return record.bindings
+      .filter((binding) => !live.has(binding.worktreeId))
+      .map((binding) => binding.worktreeId)
+  }, [record, worktrees])
 
   const resolution = useMemo(
     () =>
@@ -185,22 +229,10 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   // The provider is the page's own, exactly what the list row's badge passes;
   // when the page has none there is no authority to scope by host, so both entry
   // points scope by the item links alone instead of guessing from a worktree.
-  const taskWorktrees = useMemo(() => {
-    if (!resolution) {
-      return []
-    }
-    const provider = taskSourceContext?.providerIdentity ?? null
-    const selected = new Set(
-      selectTaskItemWorktrees(identityWorktrees, item, provider).map(
-        (worktree) => worktree.worktreeId
-      )
-    )
-    return (worktrees ?? []).filter((worktree) => selected.has(worktree.id))
-  }, [resolution, identityWorktrees, worktrees, item, taskSourceContext])
-
-  // The archived worktrees of THIS task: the dashboard board never includes
-  // them, but a closed task's history needs their rows (issue #31).
-  const archivedTaskWorktreeIds = taskWorktrees
+  // The archived worktrees of THIS task: the dashboard board never includes them,
+  // but a closed task's history needs their rows (issue #31). No identity, no task
+  // workspaces — the view returns `null` for that case below.
+  const archivedTaskWorktreeIds = (resolution ? matchedWorktrees : [])
     .filter((worktree) => worktree.isArchived)
     .map((worktree) => worktree.id)
 
@@ -237,7 +269,7 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     const projected = new Map<string, DashboardWorkspace>(
       (snapshot.workspaces ?? []).map((workspace) => [workspace.worktreeId, workspace])
     )
-    const joinedWorktrees = taskWorktrees.map((worktree) => {
+    const joinedWorktrees = matchedWorktrees.map((worktree) => {
       const workspace = projected.get(worktree.id)
       // The store's own activity signal (the sidebar's "Recent" key): newest
       // wins the default workspace, and 0 can only lose that comparison.
@@ -318,7 +350,7 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     const archivedTokens = archivedRowTokens({
       archivedWorktreeIds: archivedIds,
       cardsByWorktree: cards,
-      bindings: taskRecord.record?.bindings ?? []
+      bindings: record?.bindings ?? []
     })
     // Per-row facts a projected card cannot carry. `outcome` goes through
     // `isAgentJournalTurnOutcome` instead of a cast, so an absent or unexpected
@@ -371,7 +403,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
         : mergeTaskRecordHistory({
             history: join.history,
             existingWorktreeIds: worktrees.map((worktree) => worktree.id),
-            record: taskRecord.record,
+            // The merged record, not the local one: a workspace only the remote
+            // profile still names is the case this page used to miss (issue #31).
+            record,
             liveRunSessionIds
           })
 
@@ -384,13 +418,18 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       workspaces: join.workspaces,
       spend: usage.spend,
       delivery: join.delivery,
-      history,
-      historyPending: taskRecord.pending,
+      // Where the record came from, so the panel can say which profiles it folded
+      // in and which it could not reach, instead of presenting a merged (and
+      // possibly partial) history as the whole truth (issue #31).
+      history: recordSource ? { ...history, recordSource } : history,
+      // Pending while EITHER source is still being read: the panel must not print
+      // "no history" while a remote profile may still answer.
+      historyPending: taskRecord.pending || recordSourcesPending,
       ...(targetBranchDefault ? { targetBranchDefault } : {})
     }
   }, [
     resolution,
-    taskWorktrees,
+    matchedWorktrees,
     targetBranchDefault,
     repo,
     snapshot,
@@ -408,6 +447,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
     title,
     tracker,
     taskRecord,
+    record,
+    recordSource,
+    recordSourcesPending,
     // Presence projection reads the repo's whole workspace list.
     worktrees
   ])

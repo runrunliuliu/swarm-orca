@@ -1,3 +1,5 @@
+import { isAiVaultScanUnavailableError } from '../../shared/ai-vault-scan-unavailable'
+
 const AI_VAULT_SERVICE_FAULT_WINDOW_MS = 60_000
 const AI_VAULT_SERVICE_RESTART_DELAYS_MS = [250, 1_000, 5_000] as const
 
@@ -26,6 +28,23 @@ export class AiVaultServiceRestartPolicy {
     return this.now() < this.circuitUntil
       ? new Error('AI Vault service restart circuit is open.')
       : null
+  }
+
+  /**
+   * A cold start that could not happen at all, as opposed to a spawned child that
+   * faulted. A missing scan entry is a fact about this install: the next attempt runs the
+   * same `existsSync`, so scheduling a respawn cannot change the answer — and the delay is
+   * an unref'd timer, which is what a headless caller drained past into a silent exit 0.
+   * Rejecting the caller now is the honest answer and needs no timer to stay alive.
+   *
+   * @returns the error the caller is rejected with (normalized to an `Error`).
+   */
+  recordStartFailure(error: unknown, restart: () => void): Error {
+    const failure = error instanceof Error ? error : new Error(String(error))
+    if (!isAiVaultScanUnavailableError(failure)) {
+      this.recordFault(restart)
+    }
+    return failure
   }
 
   recordFault(restart: () => void): void {

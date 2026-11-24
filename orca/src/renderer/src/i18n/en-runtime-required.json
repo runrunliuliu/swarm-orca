@@ -272,6 +272,8 @@
           "removed": "Removed"
         },
         "tokensKnown": "{{value0}} tokens",
+        "tokensNotCaptured": "This build did not capture usage for a closed workspace, so there is no total.",
+        "tokensPartial": "{{value0}} tokens (partial)",
         "tokensUnknown": "tokens unknown",
         "totalScope": "Total: every run",
         "traceLost": "Workspace deleted; the recorded trace is out of reach.",
@@ -292,6 +294,17 @@
         "emptyTitle": "No workspace is linked to this task yet",
         "notWired": "Not available in this version"
       },
+      "TaskWorkbenchRecordSourceNotice": {
+        "conflict": "Two profiles describe workspace {{value0}} differently ({{value1}}); showing {{value2}}.",
+        "forbidden": "Could not read history from {{value0}}: this app is not allowed to read that environment. Showing what this computer has.",
+        "included": "History also includes what {{value0}} environment(s) recorded.",
+        "keptLocal": "this computer",
+        "pending": "Still reading {{value0}} environment(s); more history may arrive.",
+        "repoUnknown": "Could not read history from {{value0}}: that environment has no workspace registered for this repository, so it cannot hold this task. Showing what this computer has.",
+        "unreachable": "Could not read history from {{value0}}: it did not answer (timeout or lost connection). Showing what this computer has; this is retryable.",
+        "unsupported": "Could not read history from {{value0}}: that environment runs an older Orca without the task-history method. Showing what this computer has; retry after it updates.",
+        "unsupportedWithVersion": "Could not read history from {{value0}}: it runs Orca {{value1}}, which has no task-history method. Showing what this computer has; retry after that environment updates."
+      },
       "TaskWorkbenchSpend": {
         "costEstimated": "Estimated from provider pricing.",
         "costUnknown": "A model in this task has no price, so no amount is estimated.",
@@ -304,6 +317,7 @@
           "disabled": "Usage tracking is off. No spend is recorded for this task.",
           "no_matching_session": "No session matches this task yet, so there is nothing to total.",
           "remote_host": "This workspace runs on a remote host, where usage is not collected yet.",
+          "scan_failed": "The usage scan failed, so this figure could not be read.",
           "unattributed": "Some sessions could not be tied to this task.",
           "unpriced": "Some models in this task have no price, so the total is unknown."
         },

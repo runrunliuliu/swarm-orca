@@ -337,7 +337,21 @@ export type TaskRecordIntent = {
 }
 
 export type TaskRecordsRemovalSnapshot = {
-  settlement: TaskUsageSettlement
+  /** The figure this build measured before the checkout stopped being readable,
+   *  or `null` when it has no provider usage store at all (the headless `orcad`
+   *  root: the four stores import `app` from `electron` at module scope and are
+   *  not in that bundle).
+   *
+   *  `null` is "this build did not measure", and it is deliberately **not** the
+   *  `unavailable` arm: every existing reason there states something that never
+   *  happened in such a runtime — `usage_not_enabled` names a user setting the
+   *  build does not have, and `no_matching_session` would be a measured zero.
+   *  The removal write stores no settlement at all for `null`, which is the same
+   *  rule the archive snapshot already follows, so a reader keeps the states
+   *  apart: field absent = not measured by this build; `unavailable` + reason =
+   *  measured, figure missing; `known` = a number. The other fields of this
+   *  snapshot (the frozen session list) are unchanged. */
+  settlement: TaskUsageSettlement | null
   /** Provider sessions the workspace reported before it stopped being readable. */
   sessions: TaskRecordSession[]
 }

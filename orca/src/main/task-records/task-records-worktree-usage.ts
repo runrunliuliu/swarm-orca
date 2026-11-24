@@ -188,7 +188,15 @@ export function hookSessionFacts(
 }
 
 export type TaskRecordsUsageSourceDeps = {
-  stores: TaskRecordsUsageStoreSet
+  /** The four provider usage stores. **Optional**, because a composition root can
+   *  have none at all: the headless `orcad` root cannot load them (each imports
+   *  `app` from `electron` at module scope, and the orcad bundle refuses any
+   *  Electron importer), so it binds the session half through this same factory
+   *  instead of a second, partial implementation. Absent is not "zero": every
+   *  snapshot then carries `settlement: null` — no settlement is written at all —
+   *  because no existing `unavailable` reason is true of a build that never
+   *  measured (see `TaskRecordsRemovalSnapshot.settlement`). */
+  stores?: TaskRecordsUsageStoreSet
   /** Hook-server snapshot; a session the server no longer knows cannot be listed. */
   sessionIdentities: () => readonly TaskRecordSessionIdentity[]
   /** Which usage provider a pane's agent is, when the tab pins one. */
@@ -232,10 +240,7 @@ const REMOVAL_SESSION_CAPTURE_TTL_MS = 10 * 60 * 1000
 export function createTaskRecordsUsageSource(
   deps: TaskRecordsUsageSourceDeps
 ): TaskRecordsUsageSource {
-  const capturedSessions = new Map<
-    string,
-    { capturedAt: number; sessions: TaskRecordSession[] }
-  >()
+  const capturedSessions = new Map<string, { capturedAt: number; sessions: TaskRecordSession[] }>()
   const captureSessionsForRemoval = (worktreeId: string): void => {
     const now = Date.now()
     for (const [key, entry] of capturedSessions) {
@@ -263,19 +268,30 @@ export function createTaskRecordsUsageSource(
     }
     return captured.sessions
   }
+  const settlementFor = (
+    worktreeId: string,
+    hostId: ExecutionHostId,
+    now: number
+  ): TaskUsageSettlement | null =>
+    // No store set ⇒ nothing was measured, and an absent figure is the only true
+    // statement; with stores, the desktop's own rule decides the arm. Deliberately
+    // not a second branch: one settlement rule, one place to change it.
+    deps.stores
+      ? buildTaskUsageSettlement({
+          worktreeId,
+          hostId,
+          now,
+          providers: readProviderRows(deps.stores, worktreeId),
+          enabled: anyProviderEnabled(deps.stores)
+        })
+      : null
   const settlementAndSessions = (
     worktreeId: string,
     hostId: ExecutionHostId,
     now: number,
     sessions: TaskRecordSession[]
   ): TaskRecordsRemovalSnapshot => ({
-    settlement: buildTaskUsageSettlement({
-      worktreeId,
-      hostId,
-      now,
-      providers: readProviderRows(deps.stores, worktreeId),
-      enabled: anyProviderEnabled(deps.stores)
-    }),
+    settlement: settlementFor(worktreeId, hostId, now),
     sessions
   })
   return {
@@ -289,7 +305,11 @@ export function createTaskRecordsUsageSource(
     snapshotForArchive: ({ worktreeId, hostId, now }) => {
       const collected = collectWorktreeSessions(deps, worktreeId, now)
       return {
-        ...settlementAndSessions(worktreeId, hostId, now, collected.sessions),
+        // No store set ⇒ nothing was measured, and an absent figure is the only true
+        // statement. The archive write then stores no settlement rather than a reason
+        // for a measurement that never happened.
+        settlement: settlementFor(worktreeId, hostId, now),
+        sessions: collected.sessions,
         ...(collected.outcomes.size === 0 ? {} : { outcomes: collected.outcomes })
       }
     },

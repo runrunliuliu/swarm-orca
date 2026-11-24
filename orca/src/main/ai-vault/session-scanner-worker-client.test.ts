@@ -6,6 +6,10 @@ import type {
   AiVaultWorkerResponse
 } from './session-scanner-worker-protocol'
 import { AiVaultScannerWorkerClient } from './session-scanner-worker-client'
+import {
+  AI_VAULT_SCAN_UNAVAILABLE_CODE,
+  createAiVaultWorkerEntryMissingError
+} from '../../shared/ai-vault-scan-unavailable'
 
 class FakeWorker {
   readonly posted: (AiVaultWorkerRequest | AiVaultWorkerControl)[] = []
@@ -180,6 +184,25 @@ describe('AiVaultScannerWorkerClient', () => {
     client.dispose()
     await expect(active).rejects.toThrow('disposed')
     await Promise.all(queued.map((promise) => expect(promise).rejects.toThrow('disposed')))
+  })
+
+  it('surfaces a missing worker entry as the typed unavailability, not a generic failure', async () => {
+    const client = new AiVaultScannerWorkerClient({
+      workerFactory: () => {
+        throw createAiVaultWorkerEntryMissingError('/install/session-scanner-worker-entry.js')
+      }
+    })
+
+    // The caller that has to act on it (the history backfill) needs to tell "this host
+    // cannot scan" from "the scanner kept failing"; the generic start error it used to
+    // report was indistinguishable from a transient crash.
+    await expect(
+      client.resolveTitles([{ agent: 'codex', sessionId: 'session' }])
+    ).rejects.toMatchObject({
+      code: AI_VAULT_SCAN_UNAVAILABLE_CODE,
+      entryPath: '/install/session-scanner-worker-entry.js'
+    })
+    client.dispose()
   })
 
   it('terminates and rejects active and queued calls on disposal', async () => {

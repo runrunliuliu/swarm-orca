@@ -1,8 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getAppEnvironment } from '../../shared/app-environment'
+import { orcadArtifactFilenames } from '../../shared/orcad-artifacts'
+import { getAiVaultServiceEntryPath } from '../ai-vault/session-scanner-service-entry-path'
 import { getWatcherProcessEntryPath } from '../ipc/parcel-watcher-entry-path'
 import { installOrcadHostAdapters } from './orcad-entry'
 
@@ -20,6 +22,8 @@ describe('orcad forked-child paths', () => {
     // The layout build-orcad.mjs emits: the bundle and its children side by side.
     writeFileSync(join(deployRoot, 'orcad.js'), '')
     writeFileSync(join(deployRoot, 'parcel-watcher-process-entry.js'), '')
+    mkdirSync(join(deployRoot, 'out', 'main'), { recursive: true })
+    writeFileSync(join(deployRoot, 'out', 'main', 'session-scanner-service-entry.js'), '')
     originalArgv = process.argv
     process.argv = [process.execPath, join(deployRoot, 'orcad.js')]
     installOrcadHostAdapters()
@@ -50,6 +54,16 @@ describe('orcad forked-child paths', () => {
       process.chdir(originalCwd)
       rmSync(elsewhere, { recursive: true, force: true })
     }
+  })
+
+  it('forks the AI Vault scanner child from the path this install declares and ships', () => {
+    // Why the two halves together: the resolver decides the path and the artifact list
+    // decides what an install contains. Asserting only one of them lets the build and the
+    // runtime disagree again — which is how a server-only host ended up with no scanner at
+    // all and a history backfill that could only refuse.
+    const entry = getAiVaultServiceEntryPath()
+    expect(entry).toBe(join(deployRoot, 'out', 'main', 'session-scanner-service-entry.js'))
+    expect(orcadArtifactFilenames()).toContain(relative(deployRoot, entry))
   })
 
   it('reports the install root and the Node binary, not the data directory', () => {

@@ -29,7 +29,7 @@ const outputRoot = path.join(root, '.bench-fixtures')
 mkdirSync(outputRoot, { recursive: true })
 
 const SCOPE =
-  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery fixtures (§7.11 testids and §7.12 delivered/archived states), the production delivery confirmation (its deliver scope), the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the delivery state signature and fact items, the six §7.11 delivery-entry states and their closed-popover semantics, the confirmation scope defaults without a dialog role, history facts/compact/trace-lost claims plus the record-sourced archived rows with their per-row locate and resume actions, per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction (the confirmation is rendered directly) or locale switching.'
+  'Production TaskWorkbenchPanel and its seven sections plus the issue #31 run-history strip, rendered with the committed P1a and delivery fixtures (§7.11 testids and §7.12 delivered/archived states), the production delivery confirmation (its deliver scope), the production folder-workspace row with its draft/linked marker, and the production GitHub task rows with the P3 row-activity badge. Proves data-testid presence/counts, the rendered layout decision, degradation copy, the delivery state signature and fact items, the six §7.11 delivery-entry states and their closed-popover semantics, the confirmation scope defaults without a dialog role, history facts/compact/trace-lost claims plus the record-sourced archived rows with their per-row locate and resume actions, the archived fold-row count equal to the facts agent count, the compact strip measured unclipped at 900 and 899 (rect, content width, viewport containment), per-row draft badge/link text, per-row activity kind/label next to an unchanged tracker state, badge geometry inside the viewport, hidden/unfocused windows, no pageerror and CDP screenshots. It does not exercise a live store action, RPC, popover interaction (the confirmation is rendered directly) or locale switching.'
 
 // Contract §4.2 plus the two §7.11 delivery-only fixture rows, copied by hand:
 // the fixture data is the other side of this pin, so a fixture edit that changes
@@ -68,9 +68,11 @@ const SHOT_MATRIX = [
   { id: 'S5', fixture: 'f2b_zero_workspace_closed', width: 1440, height: 900 },
   // Issue #31: the two "ran before, but is not here now" states. F2c keeps the
   // archived workspace (agent rows in the History fold); F2d has no row left and
-  // the strip carries its own run list. The narrow probe pins the compact form.
+  // the strip carries its own run list. The narrow probes pin the compact form at
+  // the issue's own `<900` wording and at 900, the width the earlier review used.
   { id: 'F2c', fixture: 'f2c_archived_only_closed', width: 1440, height: 900 },
   { id: 'F2c-narrow', fixture: 'f2c_archived_only_closed', width: 900, height: 700 },
+  { id: 'F2c-under-900', fixture: 'f2c_archived_only_closed', width: 899, height: 700 },
   { id: 'F2d', fixture: 'f2d_deleted_with_history', width: 1440, height: 900 },
   { id: 'S6', fixture: 'f3_many_workspaces_agents', width: 1440, height: 900 },
   { id: 'S7', fixture: 'f4_usage_disabled', width: 1440, height: 900 },
@@ -302,6 +304,15 @@ export function derive(fixtureKey, width, height) {
     'task-workbench-empty-state': hasWorkspaces || hasHistory ? 0 : 1,
     'task-workbench-history': hasHistory ? 1 : 0,
     'task-workbench-history-facts': hasHistory ? 1 : 0,
+    // A figure with no number states its reason in a sentence beside the facts
+    // line (issue #31 G3: not captured / measured-but-missing). A number — whole
+    // or a partial subtotal — needs no sentence.
+    'task-workbench-history-tokens-detail':
+      hasHistory &&
+      history.tokens.kind !== 'available' &&
+      history.tokens.kind !== 'partial'
+        ? 1
+        : 0,
     'task-workbench-history-archived-note':
       hasHistory && history.trace === 'archived' && historyDetailsOpen ? 1 : 0,
     'task-workbench-history-trace-lost':
@@ -612,6 +623,59 @@ function compare(failures, name, actual, expected) {
 }
 
 /**
+ * Issue #31's acceptance says the compact history strip is not clipped. A DOM
+ * text assertion cannot tell "the badge is on screen" from "the badge exists",
+ * so each visible box is measured twice: `scrollWidth` against its own content
+ * width (a squeezed or ellipsised badge stops fitting) and its rect against the
+ * viewport and the strip (an overflowing item leaves both).
+ */
+function assertHistoryGeometry(failures, history, viewport) {
+  const insideViewport = (box) =>
+    box.left >= -0.5 &&
+    box.right <= viewport.width + 0.5 &&
+    box.top >= -0.5 &&
+    box.bottom <= viewport.height + 0.5
+  const assertBox = (name, box, container) => {
+    if (box === null) {
+      failures.push({ name, expected: 'a rendered box', actual: null })
+      return
+    }
+    compare(failures, `${name}:visible`, box.width > 0 && box.height > 0, true)
+    // One pixel of integer rounding is allowed; more than that is content the
+    // reader cannot see without scrolling, which this strip never offers.
+    compare(failures, `${name}:content-fits`, box.scrollWidth <= box.clientWidth + 1, true)
+    compare(failures, `${name}:in-viewport`, insideViewport(box), true)
+    if (container !== undefined) {
+      compare(
+        failures,
+        `${name}:inside-container`,
+        box.left >= container.left - 0.5 && box.right <= container.right + 0.5,
+        true
+      )
+    }
+  }
+  assertBox('history:section', history.section)
+  assertBox('history:header', history.header, history.section)
+  history.headerItems.forEach((item, index) => {
+    assertBox(`history:header-item-${index}`, item, history.section)
+  })
+  assertBox('history:facts', history.factsBox, history.section)
+  history.factsItems.forEach((item, index) => {
+    assertBox(`history:facts-item-${index}`, item, history.section)
+  })
+  // Named, so a header that lost the NEW badge cannot pass by being smaller.
+  compare(failures, 'history:new-badge', history.headerItems.at(0)?.text ?? null, 'NEW')
+  if (history.compact) {
+    compare(
+      failures,
+      'history:details-toggle',
+      history.headerItems.at(-1)?.text ?? null,
+      'Details'
+    )
+  }
+}
+
+/**
  * The GitHub task rows, located by their title so a row without a badge is still
  * found: a missing mark must be reported as `activity: null`, not as a row that
  * silently disappeared from the list.
@@ -744,12 +808,42 @@ async function collectDom(page) {
         if (!node) {
           return null
         }
-        const facts = text(document.querySelector('[data-testid="task-workbench-history-facts"]'))
+        // Geometry, not presence: issue #31's acceptance says the compact strip
+        // is not clipped, and a squeezed badge keeps its text either way.
+        const box = (element) => {
+          if (!element) {
+            return null
+          }
+          const rect = element.getBoundingClientRect()
+          return {
+            text: text(element),
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth
+          }
+        }
+        const factsNode = document.querySelector('[data-testid="task-workbench-history-facts"]')
+        const header = node.firstElementChild
         return {
-          facts,
+          facts: text(factsNode),
           compact: node.getAttribute('data-compact') === 'true',
           traceLost: text(document.querySelector('[data-testid="task-workbench-history-trace-lost"]')),
-          runs: document.querySelectorAll('[data-testid="task-workbench-history-run"]').length
+          runs: document.querySelectorAll('[data-testid="task-workbench-history-run"]').length,
+          // Counted from the fold, not reused from the view that produced both
+          // numbers, so "fold rows == facts agents" can actually disagree.
+          archivedFoldRows: document.querySelectorAll(
+            '[data-testid="task-workbench-agents-history-records"] [data-testid="task-workbench-agent-row"]'
+          ).length,
+          section: box(node),
+          header: box(header),
+          headerItems: header ? [...header.children].map(box) : [],
+          factsBox: box(factsNode),
+          factsItems: factsNode ? [...factsNode.children].map(box) : []
         }
       })(),
       bodyText: document.body.innerText,
@@ -871,7 +965,16 @@ async function runOne(entry, builds) {
         historyFacts: dom.history?.facts ?? null,
         historyCompact: dom.history?.compact ?? null,
         historyTraceLost: dom.history?.traceLost ?? null,
-        historyRuns: dom.history?.runs ?? null
+        historyRuns: dom.history?.runs ?? null,
+        historyFoldRows: dom.history?.archivedFoldRows ?? null,
+        historyGeometry: dom.history
+          ? {
+              section: dom.history.section,
+              facts: dom.history.factsBox,
+              headerItems: dom.history.headerItems.length,
+              factsItems: dom.history.factsItems.length
+            }
+          : null
       }
     }
 
@@ -1107,14 +1210,27 @@ async function runOne(entry, builds) {
         }
         if (semantic.history.agents !== null) {
           // The fold lists exactly the rows the facts line counts, so the strip
-          // and the agents section cannot tell two stories.
-          compare(
-            failures,
-            'history:agents-count',
-            (dom.history?.facts ?? '').includes(`${semantic.history.agents} agents`),
-            true
-          )
+          // and the agents section cannot tell two stories. Parsed from the
+          // rendered sentence, so a facts line printing a different number than
+          // the fold renders is a failure even when both sides derive from the
+          // same view.
+          const factsAgents = /(-?\d+)\s+agents/.exec(dom.history?.facts ?? '')
+          const factsAgentCount = factsAgents === null ? null : Number(factsAgents[1])
+          compare(failures, 'history:facts-agents-number', factsAgentCount, semantic.history.agents)
+          // Equality, not "contains": issue #31 asks the archived fold's agent
+          // row count to equal the facts agent count. Only when the fold is
+          // mounted (its own render condition), since a collapsed fold prints no
+          // rows by design.
+          if (expectation.expectedTestIds['task-workbench-agents-history-records'] === 1) {
+            compare(
+              failures,
+              'history:fold-rows-equal-facts-agents',
+              dom.history?.archivedFoldRows ?? null,
+              factsAgentCount
+            )
+          }
         }
+        assertHistoryGeometry(failures, dom.history, dom.viewport)
         compare(failures, 'history:compact', dom.history?.compact ?? null, semantic.history.compact)
         compare(failures, 'history:runs', dom.history?.runs ?? null, semantic.history.runs)
         compare(
