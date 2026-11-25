@@ -184,6 +184,19 @@ describe('mergeTaskRecordSources', () => {
     ])
   })
 
+  it('scopes a runtime profile local binding to the environment that answered', () => {
+    const remote = record('local', [
+      binding({ worktreeId: 'wt-remote', hostId: 'local', isArchived: true })
+    ])
+    const sources = mergeTaskRecordSources({ local: null, answers: [answered(ENV_A, remote)] })
+
+    expect(sources.record).not.toBe(remote)
+    expect(sources.record).toMatchObject({
+      hostId: 'runtime:env-a',
+      bindings: [{ worktreeId: 'wt-remote', hostId: 'runtime:env-a', isArchived: true }]
+    })
+  })
+
   it('tells "asked and empty" apart from "could not ask"', () => {
     const empty = mergeTaskRecordSources({ local: null, answers: [answered(ENV_A, null)] })
     expect(empty.record).toBeNull()

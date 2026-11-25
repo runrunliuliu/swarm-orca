@@ -150,6 +150,63 @@ describe('mergeTaskRecordHistory', () => {
     expect(merged.workspaces.map((workspace) => workspace.state)).toEqual(['removed', 'removed'])
   })
 
+  it('keeps a remote archived binding archived when the local catalog has no row', () => {
+    const merged = mergeTaskRecordHistory({
+      history: EMPTY_HISTORY,
+      existingWorktreeIds: [],
+      record: record([
+        binding('wt-remote', {
+          hostId: 'runtime:env-a',
+          isArchived: true,
+          runs: [RUN]
+        })
+      ])
+    })
+
+    expect(merged.trace).toBe('archived')
+    expect(merged.workspaces).toEqual([
+      expect.objectContaining({ worktreeId: 'wt-remote', state: 'archived' })
+    ])
+    expect(merged.runs).toEqual([
+      expect.objectContaining({ key: RUN.key, resumable: true, transcriptPath: RUN.transcriptPath })
+    ])
+  })
+
+  it('does not state that an unseen non-archived runtime binding was deleted', () => {
+    const merged = mergeTaskRecordHistory({
+      history: EMPTY_HISTORY,
+      existingWorktreeIds: [],
+      record: record([
+        binding('wt-remote-live', {
+          hostId: 'runtime:env-a',
+          isArchived: false,
+          runs: [RUN]
+        })
+      ])
+    })
+
+    expect(merged.trace).not.toBe('deleted')
+    expect(merged.deletedWorkspaces).toBe(0)
+    expect(merged.workspaces).toEqual([])
+    expect(merged.runs).toEqual([
+      expect.objectContaining({ key: RUN.key, resumable: true, transcriptPath: RUN.transcriptPath })
+    ])
+  })
+
+  it('keeps a local binding deleted when the local catalog has no row', () => {
+    const merged = mergeTaskRecordHistory({
+      history: EMPTY_HISTORY,
+      existingWorktreeIds: [],
+      record: record([binding('wt-local', { hostId: 'local', isArchived: true, runs: [RUN] })])
+    })
+
+    expect(merged.trace).toBe('deleted')
+    expect(merged.workspaces).toEqual([
+      expect.objectContaining({ worktreeId: 'wt-local', state: 'removed' })
+    ])
+    expect(merged.runs).toEqual([expect.objectContaining({ key: RUN.key, resumable: false })])
+  })
+
   it('labels a live archived workspace as archived, not removed', () => {
     const merged = mergeTaskRecordHistory({
       history: HISTORY,

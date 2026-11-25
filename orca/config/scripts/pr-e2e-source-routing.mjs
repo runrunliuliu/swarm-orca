@@ -14,6 +14,31 @@ const NATIVE_IME_HARNESS =
 
 export const PR_E2E_SOURCE_ROUTES = [
   {
+    id: 'task-workbench.remote-only-record',
+    specs: ['tests/e2e/task-workbench-remote-only-record.spec.ts'],
+    // Exact paths make narrowing any issue-67 seam an explicit contract change.
+    matches: (file) =>
+      isProductSource(file) &&
+      new Set([
+        'src/main/runtime/orca-runtime-pty-foreground-process-reads.ts',
+        'src/main/runtime/rpc/methods/task-records.ts',
+        'src/renderer/src/components/task-workbench/TaskWorkbenchHistory.tsx',
+        'src/renderer/src/components/task-workbench/TaskWorkbenchPanel.tsx',
+        'src/renderer/src/components/task-workbench/task-workbench-record-source-notice.tsx',
+        'src/renderer/src/components/task-workbench/task-workbench-view.ts',
+        'src/renderer/src/hooks/task-record-repo-catalog-cache.ts',
+        'src/renderer/src/hooks/use-task-record-repo-candidates.ts',
+        'src/renderer/src/hooks/use-task-record-sources.ts',
+        'src/renderer/src/hooks/use-task-records-remote.ts',
+        'src/renderer/src/hooks/use-task-workbench-view.ts',
+        'src/renderer/src/lib/task-workbench/task-workbench-history-merge.ts',
+        'src/renderer/src/lib/task-workbench/task-workbench-record-repo-candidates.ts',
+        'src/renderer/src/lib/task-workbench/task-workbench-record-repo-match.ts',
+        'src/renderer/src/lib/task-workbench/task-workbench-record-source-view.ts',
+        'src/renderer/src/lib/task-workbench/task-workbench-record-sources.ts'
+      ]).has(file)
+  },
+  {
     id: 'ssh.localhost-agent-hooks',
     specs: ['tests/e2e/ssh-localhost.spec.ts'],
     matches: (file) =>

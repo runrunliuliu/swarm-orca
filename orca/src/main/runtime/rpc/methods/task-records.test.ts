@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { OrcaRuntimeService } from '../../orca-runtime'
+import { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcRequest } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { TASK_RECORD_METHODS } from './task-records'
@@ -65,7 +65,46 @@ function makeRuntime(result: { record: TaskRecord | null; repoKnown: boolean }) 
   }
 }
 
+class ReceiverSensitiveStore {
+  readonly state: { record: TaskRecord | null }
+
+  constructor(record: TaskRecord | null) {
+    this.state = { record }
+  }
+
+  getRepo(repoId: string): { id: string } | null {
+    return repoId === 'repo-1' ? { id: repoId } : null
+  }
+
+  getTaskRecordForTask(): TaskRecord | null {
+    return this.state.record
+  }
+}
+
 describe('taskRecords.get', () => {
+  it('keeps the Store receiver while reading a known repository', async () => {
+    const record = makeRecord()
+    const store = new ReceiverSensitiveStore(record)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This fixture exposes only the two runtime methods the dispatcher reaches.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      getTaskRecordForTask: (params: unknown) =>
+        Reflect.apply(OrcaRuntimeService.prototype.getTaskRecordForTask, { store }, [params])
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: TASK_RECORD_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('taskRecords.get', {
+        repoId: 'repo-1',
+        itemType: 'issue',
+        number: 7,
+        provider: 'github'
+      })
+    )
+
+    expect(response).toMatchObject({ ok: true, result: { record, repoKnown: true } })
+  })
+
   it('answers one identity with the record this runtime holds', async () => {
     const record = makeRecord()
     const { runtime, getTaskRecordForTask } = makeRuntime({ record, repoKnown: true })

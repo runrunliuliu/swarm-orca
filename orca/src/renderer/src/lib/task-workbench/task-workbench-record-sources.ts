@@ -163,6 +163,29 @@ function targetMatchesBinding(target: RuntimeClientTarget, binding: TaskWorkspac
 /** One source's view of the record, paired with the target it came from. */
 type SourceRecord = { target: RuntimeClientTarget; record: TaskRecord }
 
+/** A runtime profile spells its own checkout host as `local`; once that record
+ * crosses the paired boundary, the client must scope that relative identity to
+ * the environment that answered. Already-qualified runtime/SSH bindings remain
+ * byte-for-byte unchanged. */
+function scopeRecordToTarget(target: RuntimeClientTarget, record: TaskRecord): TaskRecord {
+  if (target.kind !== 'environment') {
+    return record
+  }
+  const hostId = toRuntimeExecutionHostId(target.environmentId)
+  const bindings = record.bindings.map((binding) =>
+    binding.hostId === 'local' ? { ...binding, hostId } : binding
+  )
+  const bindingsChanged = bindings.some((binding, index) => binding !== record.bindings[index])
+  if (record.hostId !== 'local' && !bindingsChanged) {
+    return record
+  }
+  return {
+    ...record,
+    ...(record.hostId === 'local' ? { hostId } : {}),
+    bindings
+  }
+}
+
 /** `kind|detail` is the gap identity the domain's own merge uses; two sources
  *  that observed one absence must print it once. */
 function gapKey(gap: TaskRecordGap): string {
@@ -206,7 +229,12 @@ export function mergeTaskRecordSources(args: {
     }
     answered.push(answer.target)
     if (answer.record) {
-      records.push({ target: answer.target, record: answer.record })
+      records.push({
+        target: answer.target,
+        // Mixed profiles already carry explicit ownership conflicts; scope only the remote-only
+        // record whose relative `local` spelling otherwise has no client-side meaning.
+        record: args.local ? answer.record : scopeRecordToTarget(answer.target, answer.record)
+      })
     }
   }
   const base = records[0]
@@ -214,10 +242,8 @@ export function mergeTaskRecordSources(args: {
     return { record: null, answered, unavailable, conflicts: [] }
   }
   // One source is the local-only task (or a task whose only record is on one
-  // environment): the answer is that record, unchanged and the same object. This
-  // is what keeps the local behaviour bit-for-bit what it was before records had
-  // more than one possible source — no rebuild, no reordered binding, nothing for
-  // a memo downstream to see.
+  // environment): after the remote-local host spelling above is scoped, no merge
+  // or reordering remains to do.
   if (records.length === 1) {
     return { record: base.record, answered, unavailable, conflicts: [] }
   }

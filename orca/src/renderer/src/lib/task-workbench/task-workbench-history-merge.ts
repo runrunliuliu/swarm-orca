@@ -7,6 +7,7 @@ import {
   type TaskWorkspaceBinding
 } from '../../../../shared/task-records-types'
 import { aggregateTaskUsageSettlements } from '../../../../shared/task-usage-settlement-aggregate'
+import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type {
   TaskWorkbenchGapView,
   TaskWorkbenchHistory,
@@ -66,9 +67,13 @@ export function mergeTaskRecordHistory(args: {
     return args.history
   }
   const live = new Set(args.existingWorktreeIds)
-  const removedBindings = record.bindings.filter((binding) => !live.has(binding.worktreeId))
+  const isRuntimeBinding = (binding: TaskWorkspaceBinding): boolean =>
+    parseExecutionHostId(binding.hostId)?.kind === 'runtime'
+  const removedBindings = record.bindings.filter(
+    (binding) => !live.has(binding.worktreeId) && !isRuntimeBinding(binding)
+  )
   const archivedBindings = record.bindings.filter(
-    (binding) => live.has(binding.worktreeId) && binding.isArchived
+    (binding) => binding.isArchived && (live.has(binding.worktreeId) || isRuntimeBinding(binding))
   )
   // A live workspace whose record already holds observations: an agent whose TUI
   // was closed mid-task is no longer a pane, so the live projection cannot speak
@@ -77,16 +82,17 @@ export function mergeTaskRecordHistory(args: {
   // removal reader's rows, and the pane projection already covers what is open.
   const liveBindingsWithRuns = record.bindings.filter(
     (binding) =>
-      live.has(binding.worktreeId) && !binding.isArchived && (binding.runs?.length ?? 0) > 0
+      (live.has(binding.worktreeId) || isRuntimeBinding(binding)) &&
+      !binding.isArchived &&
+      (binding.runs?.length ?? 0) > 0
   )
   const claimed = new Set(args.liveRunSessionIds ?? [])
   const recordedRuns = [
     // An archived workspace is still on this machine, so its recorded runs are
     // resumable; a removed one is not, and the row must say so instead of
     // offering an action that would fail (issue #53 A2).
-    ...[...archivedBindings, ...removedBindings].flatMap((binding) =>
-      recordRunsOf(binding, live.has(binding.worktreeId))
-    ),
+    ...archivedBindings.flatMap((binding) => recordRunsOf(binding, true)),
+    ...removedBindings.flatMap((binding) => recordRunsOf(binding, false)),
     ...liveBindingsWithRuns.flatMap((binding) => recordRunsOf(binding, true))
   ]
   // A run the live projection already prints is the same session observed twice,

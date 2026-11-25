@@ -53,6 +53,42 @@ const verifyStep = prWorkflow.jobs.verify.steps.find(
 const restartSurvivalRoute = PR_E2E_SOURCE_ROUTES.find(
   (route) => route.id === 'client-hosted-browser.restart-survival'
 )
+const remoteOnlyTaskRecordRoute = PR_E2E_SOURCE_ROUTES.find(
+  (route) => route.id === 'task-workbench.remote-only-record'
+)
+
+describe('remote-only task record E2E routing', () => {
+  it.each([
+    'src/main/runtime/orca-runtime-pty-foreground-process-reads.ts',
+    'src/main/runtime/rpc/methods/task-records.ts',
+    'src/renderer/src/components/task-workbench/TaskWorkbenchHistory.tsx',
+    'src/renderer/src/components/task-workbench/TaskWorkbenchPanel.tsx',
+    'src/renderer/src/components/task-workbench/task-workbench-record-source-notice.tsx',
+    'src/renderer/src/components/task-workbench/task-workbench-view.ts',
+    'src/renderer/src/hooks/task-record-repo-catalog-cache.ts',
+    'src/renderer/src/hooks/use-task-record-repo-candidates.ts',
+    'src/renderer/src/hooks/use-task-record-sources.ts',
+    'src/renderer/src/hooks/use-task-records-remote.ts',
+    'src/renderer/src/hooks/use-task-workbench-view.ts',
+    'src/renderer/src/lib/task-workbench/task-workbench-history-merge.ts',
+    'src/renderer/src/lib/task-workbench/task-workbench-record-repo-candidates.ts',
+    'src/renderer/src/lib/task-workbench/task-workbench-record-repo-match.ts',
+    'src/renderer/src/lib/task-workbench/task-workbench-record-source-view.ts',
+    'src/renderer/src/lib/task-workbench/task-workbench-record-sources.ts'
+  ])('routes issue-67 product source %s to the paired-runtime acceptance', (path) => {
+    expect(remoteOnlyTaskRecordRoute.matches(path)).toBe(true)
+  })
+
+  it.each([
+    'src/main/runtime/rpc/methods/task-records.test.ts',
+    'src/renderer/src/components/task-workbench/TaskWorkbenchHistory.test.tsx',
+    'src/renderer/src/hooks/use-task-record-sources.test.tsx',
+    'src/renderer/src/lib/task-workbench/task-workbench-history-merge.test.ts',
+    'src/main/git/git-status.ts'
+  ])('does not route exact non-product or adjacent path %s', (path) => {
+    expect(remoteOnlyTaskRecordRoute.matches(path)).toBe(false)
+  })
+})
 
 describe('restart-survival E2E routing', () => {
   // Every file below carries behavior the restart spec is the only test that exercises end to end.

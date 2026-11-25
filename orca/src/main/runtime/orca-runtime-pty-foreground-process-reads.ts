@@ -150,9 +150,11 @@ export class OrcaRuntimeWithPtyForegroundProcessReads extends OrcaRuntimeWithSta
    * reason: it cannot tell.
    */
   getTaskRecordForTask(args: TaskRecordsRemoteQuery): TaskRecordsRemoteResult {
-    const read = this.store?.getTaskRecordForTask
     const repoKnown = Boolean(this.store?.getRepo?.(args.repoId))
-    return { record: read && repoKnown ? read(args) : null, repoKnown }
+    return {
+      record: this.store && repoKnown ? this.store.getTaskRecordForTask(args) : null,
+      repoKnown
+    }
   }
 
   protected async stopPtysForDestructiveWorktreeRemoval(
