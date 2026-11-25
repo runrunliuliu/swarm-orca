@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import {
-  RuntimeRpcCallError
-} from '@/runtime/runtime-rpc-client'
+import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-client'
 import { RUNTIME_COMPAT_BLOCK_CODE } from '@/runtime/runtime-protocol-compat'
-import type { TaskRecord, TaskRecordRun, TaskRecordSession } from '../../../../shared/task-records-types'
+import type {
+  TaskRecord,
+  TaskRecordRun,
+  TaskRecordSession
+} from '../../../../shared/task-records-types'
 import {
   mergeTaskRecordSources,
   selectTaskRecordEnvironments,
@@ -292,16 +294,13 @@ describe('mergeTaskRecordSources', () => {
   })
 
   it('keeps a measured settlement the owning profile does not have', () => {
-    const local = record(
-      'local',
-      [
-        binding({
-          worktreeId: 'wt-shared',
-          hostId: 'runtime:env-a',
-          sessions: []
-        })
-      ]
-    )
+    const local = record('local', [
+      binding({
+        worktreeId: 'wt-shared',
+        hostId: 'runtime:env-a',
+        sessions: []
+      })
+    ])
     const remote = record('runtime:env-a', [
       {
         ...binding({ worktreeId: 'wt-shared', hostId: 'runtime:env-a' }),
@@ -386,7 +385,13 @@ describe('projectTaskRecordSource', () => {
 
   it('says nothing when no environment applies to this task', () => {
     expect(
-      projectTaskRecordSource({ environmentIds: [], sources, pending: false })
+      projectTaskRecordSource({
+        environmentIds: [],
+        candidateVerdict: 'not-needed',
+        blocksFinalAbsence: false,
+        sources,
+        pending: false
+      })
     ).toBeUndefined()
   })
 
@@ -394,6 +399,8 @@ describe('projectTaskRecordSource', () => {
     expect(
       projectTaskRecordSource({
         environmentIds: [ENV_A],
+        candidateVerdict: 'resolved',
+        blocksFinalAbsence: false,
         sources,
         pending: false,
         labels: new Map([[ENV_A, 'Build box']]),
@@ -430,13 +437,42 @@ describe('projectTaskRecordSource', () => {
     })
     const projected = projectTaskRecordSource({
       environmentIds: [ENV_A],
+      candidateVerdict: 'resolved',
+      blocksFinalAbsence: false,
       sources: unreachable,
       pending: true,
       appVersions: new Map([[ENV_A, '1.4.219']])
     })
-    expect(projected?.unavailable).toEqual([
-      { environmentId: ENV_A, failure: 'unreachable' }
-    ])
+    expect(projected?.unavailable).toEqual([{ environmentId: ENV_A, failure: 'unreachable' }])
     expect(projected?.pending).toBe(true)
+  })
+
+  it('projects an undetermined candidate even when no environment could be named', () => {
+    expect(
+      projectTaskRecordSource({
+        environmentIds: [],
+        candidateVerdict: 'undetermined',
+        blocksFinalAbsence: true,
+        sources: mergeTaskRecordSources({ local: null, answers: [] }),
+        pending: false
+      })
+    ).toMatchObject({
+      environmentIds: [],
+      candidateFailure: 'undetermined',
+      blocksFinalAbsence: true,
+      pending: false
+    })
+  })
+
+  it('does not emit a global no-guess verdict when local absence remains final', () => {
+    const projected = projectTaskRecordSource({
+      environmentIds: [ENV_A],
+      candidateVerdict: 'undetermined',
+      blocksFinalAbsence: false,
+      sources: mergeTaskRecordSources({ local: null, answers: [] }),
+      pending: false
+    })
+
+    expect(projected?.candidateFailure).toBeUndefined()
   })
 })

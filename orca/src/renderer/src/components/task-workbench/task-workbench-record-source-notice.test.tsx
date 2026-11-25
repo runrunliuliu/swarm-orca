@@ -71,13 +71,13 @@ describe('RecordSourceNotice', () => {
     expect(line).not.toHaveTextContent(/Orca \d/)
   })
 
-  it('separates a scope refusal from a wrong-repository answer', () => {
+  it('separates a scope refusal from a client catalog mismatch', () => {
     render(
       <RecordSourceNotice
         source={source({
           unavailable: [
             { environmentId: 'env-a', failure: 'forbidden' },
-            { environmentId: 'env-b', failure: 'repo-unknown' }
+            { environmentId: 'env-b', failure: 'repo-unmatched' }
           ]
         })}
       />
@@ -86,7 +86,50 @@ describe('RecordSourceNotice', () => {
     const lines = screen.getAllByTestId('task-workbench-history-source-unavailable')
     expect(lines).toHaveLength(2)
     expect(lines[0]).toHaveTextContent('not allowed to read that environment')
-    expect(lines[1]).toHaveTextContent('no workspace registered for this repository')
+    expect(lines[1]).toHaveTextContent('repository catalog has no matching registration')
+    expect(lines[1]).toHaveTextContent('no remote repository id was guessed')
+    expect(lines[1]).not.toHaveTextContent('cannot hold this task')
+  })
+
+  it('does not turn a runtime repo-unknown answer into a record-store claim', () => {
+    render(
+      <RecordSourceNotice
+        source={source({
+          unavailable: [{ environmentId: 'env-a', failure: 'repo-unknown' }]
+        })}
+      />
+    )
+
+    const line = screen.getByTestId('task-workbench-history-source-unavailable')
+    expect(line).toHaveTextContent('does not currently know this repository registration')
+    expect(line).not.toHaveTextContent('cannot hold this task')
+  })
+
+  it('refuses an ambiguous registration and states that none was guessed', () => {
+    render(
+      <RecordSourceNotice
+        source={source({
+          unavailable: [{ environmentId: 'env-a', failure: 'repo-ambiguous' }]
+        })}
+      />
+    )
+
+    const line = screen.getByTestId('task-workbench-history-source-unavailable')
+    expect(line).toHaveTextContent('several repository registrations match')
+    expect(line).toHaveTextContent('none was guessed')
+  })
+
+  it('states that no remote repo id was guessed when candidates are undetermined', () => {
+    render(
+      <RecordSourceNotice
+        source={source({ environmentIds: [], candidateFailure: 'undetermined' })}
+      />
+    )
+
+    const line = screen.getByTestId('task-workbench-history-source-undetermined')
+    expect(line).toHaveAttribute('data-source-state', 'undetermined')
+    expect(line).toHaveTextContent('could not be matched to a paired environment')
+    expect(line).toHaveTextContent('No remote repository id was guessed')
   })
 
   it('states a disagreement and which profile was kept', () => {

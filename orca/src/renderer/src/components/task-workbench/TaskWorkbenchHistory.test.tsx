@@ -489,23 +489,28 @@ describe('TaskWorkbenchHistory — the four settlement states', () => {
   })
 
   it('renders where the record came from, and what could not be read, inside the strip (issue #31)', () => {
-    renderHistory(
-      history({
-        recordSource: {
-          environmentIds: ['env-a'],
-          answered: [],
-          unavailable: [
-            {
-              environmentId: 'env-a',
-              failure: 'unsupported',
-              label: 'Build box',
-              appVersion: '0.1.0+9d05e51df904'
-            }
-          ],
-          conflicts: [],
-          pending: false
-        }
-      })
+    const facts = history()
+    render(
+      <TaskWorkbenchHistory
+        view={{
+          ...view(facts),
+          recordSource: {
+            environmentIds: ['env-a'],
+            answered: [],
+            unavailable: [
+              {
+                environmentId: 'env-a',
+                failure: 'unsupported',
+                label: 'Build box',
+                appVersion: '0.1.0+9d05e51df904'
+              }
+            ],
+            conflicts: [],
+            pending: false
+          }
+        }}
+        layout={LAYOUT}
+      />
     )
 
     // The notice lives in the history section, next to the facts it qualifies —

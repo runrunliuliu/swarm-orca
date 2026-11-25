@@ -12,10 +12,11 @@ import type {
   TaskRecordSourceFailure
 } from '@/lib/task-workbench/task-workbench-record-sources'
 import { classifyTaskRecordsRemoteFailure } from '@/lib/task-workbench/task-workbench-record-source-failures'
+import type { TaskRecordRepoPair } from './use-task-record-repo-candidates'
 
 /**
- * Read one task's record from each remote environment this task's workspaces
- * belong to (issue #31).
+ * Read one task's record from environment-local repo registrations already
+ * resolved by the evidence/fallback candidate layer (issues #31/#67).
  *
  * This is the counterpart of `useTaskRecords` (which asks the client's own
  * profile over IPC). Both run: the local profile is the existing path and the
@@ -43,7 +44,10 @@ export const TASK_RECORDS_REMOTE_TIMEOUT_MS = 15_000
  *  structural type rather than the store's own row: the view hook passes the
  *  store map unchanged, and a test can pass a two-field object. */
 export type TaskRecordsRuntimeStatus = {
-  status: { capabilities?: readonly string[] } | null
+  status: { capabilities?: readonly string[]; runtimeId?: string } | null
+  snapshot?: {
+    status: { capabilities?: readonly string[]; runtimeId?: string } | null
+  } | null
   /** Printed only when this host turned out to be too old to answer: the version
    *  is what makes "update that environment" actionable. */
   appVersion?: string | null
@@ -62,7 +66,10 @@ const IDLE: TaskRecordsRemoteLoad = { pending: false, answers: [] }
 
 /** Same key discipline as `useTaskRecords`: `\0` cannot appear in any part, so two
  *  different tasks (or two different environment sets) cannot collapse. */
-function remoteQueryKey(query: TaskRecordQuery | null, environmentIds: readonly string[]): string {
+function remoteQueryKey(
+  query: TaskRecordQuery | null,
+  pairs: readonly TaskRecordRepoPair[]
+): string {
   return query === null
     ? '\0none'
     : [
@@ -70,7 +77,14 @@ function remoteQueryKey(query: TaskRecordQuery | null, environmentIds: readonly 
         query.itemType,
         String(query.number),
         query.provider ?? '',
-        [...environmentIds].sort().join(',')
+        [...pairs]
+          .sort((left, right) =>
+            left.environmentId === right.environmentId
+              ? left.repoId.localeCompare(right.repoId)
+              : left.environmentId.localeCompare(right.environmentId)
+          )
+          .flatMap((pair) => [pair.environmentId, pair.repoId])
+          .join('\0')
       ].join('\0')
 }
 
@@ -103,9 +117,9 @@ function unavailable(
 
 export function useTaskRecordsRemote(args: {
   query: TaskRecordQuery | null
-  /** Environments this task's workspaces name, in store order (see
-   *  `selectTaskRecordEnvironments`). Empty is the ordinary local-only task. */
-  environmentIds: readonly string[]
+  /** Environment-local repository registrations resolved through `repo.list`.
+   *  Empty is the ordinary local-only task. */
+  pairs: readonly TaskRecordRepoPair[]
   /** The status store's per-environment rows, used only to skip a call a host has
    *  already advertised it cannot serve. Read during render into
    *  `capabilityGate`, never inside the effect: an inline `new Map(...)` argument
@@ -116,15 +130,23 @@ export function useTaskRecordsRemote(args: {
    *  list), matching `useTaskRecords`. */
   revision?: unknown
 }): TaskRecordsRemoteLoad {
-  const { query, environmentIds, statusByEnvironment, revision } = args
-  const key = remoteQueryKey(query, environmentIds)
-  // The set is compared by content through `key`; the joined form is what the
+  const { query, pairs, statusByEnvironment, revision } = args
+  const key = remoteQueryKey(query, pairs)
+  // The set is compared by content through `key`; the NUL-delimited form is what the
   // effect iterates so an inline array literal cannot re-trigger it.
-  const environmentKey = [...environmentIds].sort().join(',')
+  const pairKey = [...pairs]
+    .sort((left, right) =>
+      left.environmentId === right.environmentId
+        ? left.repoId.localeCompare(right.repoId)
+        : left.environmentId.localeCompare(right.environmentId)
+    )
+    .flatMap((pair) => [pair.environmentId, pair.repoId])
+    .join('\0')
   // `y` advertised, `n` advertised without the capability, `?` not known yet (the
   // call decides). The rendered decision, not the map, is what the effect depends
   // on, so a caller may pass a fresh Map without looping.
-  const capabilityGate = [...environmentIds]
+  const capabilityGate = [...pairs]
+    .map((pair) => pair.environmentId)
     .sort()
     .map((environmentId) => {
       const advertised = statusByEnvironment?.get(environmentId)?.status?.capabilities
@@ -144,11 +166,15 @@ export function useTaskRecordsRemote(args: {
   const provider = query?.provider
 
   useEffect(() => {
-    if (repoId === null || itemType === null || number === null || environmentKey === '') {
+    if (repoId === null || itemType === null || number === null || pairKey === '') {
       setLoad({ key, pending: false, answers: [] })
       return
     }
-    const environmentIdsForRead = environmentKey.split(',')
+    const pairParts = pairKey.split('\0')
+    const pairsForRead = Array.from({ length: pairParts.length / 2 }, (_unused, index) => ({
+      environmentId: pairParts[index * 2],
+      repoId: pairParts[index * 2 + 1]
+    }))
     const gate = new Map(
       capabilityGate
         .split(',')
@@ -162,34 +188,38 @@ export function useTaskRecordsRemote(args: {
     setLoad({ key, pending: true, answers: [] })
     const read = async (): Promise<void> => {
       const answers = await Promise.all(
-        environmentIdsForRead.map(async (environmentId): Promise<TaskRecordSourceAnswer> => {
-          const target: RuntimeClientTarget = { kind: 'environment', environmentId }
-          if (gate.get(environmentId) === 'n') {
-            return unavailable(target, 'unsupported')
-          }
-          try {
-            const result = await callRuntimeRpc<unknown>(
-              target,
-              TASK_RECORDS_GET_RPC,
-              {
-                repoId,
-                itemType,
-                number,
-                ...(provider ? { provider } : {})
-              },
-              { timeoutMs: TASK_RECORDS_REMOTE_TIMEOUT_MS, reuseRecentCompatibilityFailure: true }
-            )
-            if (!isRemoteResult(result)) {
-              return unavailable(target, 'unreachable')
+        pairsForRead.map(
+          async ({ environmentId, repoId: remoteRepoId }): Promise<TaskRecordSourceAnswer> => {
+            const target: RuntimeClientTarget = { kind: 'environment', environmentId }
+            if (gate.get(environmentId) === 'n') {
+              return unavailable(target, 'unsupported')
             }
-            if (!result.repoKnown) {
-              return unavailable(target, 'repo-unknown')
+            try {
+              const result = await callRuntimeRpc<unknown>(
+                target,
+                TASK_RECORDS_GET_RPC,
+                {
+                  // Repo ids are host-local. Sending the page's local `repoId` can collide on
+                  // the remote and return the dangerous silent `{ record: null, repoKnown: true }`.
+                  repoId: remoteRepoId,
+                  itemType,
+                  number,
+                  ...(provider ? { provider } : {})
+                },
+                { timeoutMs: TASK_RECORDS_REMOTE_TIMEOUT_MS, reuseRecentCompatibilityFailure: true }
+              )
+              if (!isRemoteResult(result)) {
+                return unavailable(target, 'unreachable')
+              }
+              if (!result.repoKnown) {
+                return unavailable(target, 'repo-unknown')
+              }
+              return { target, kind: 'answered', record: result.record }
+            } catch (error) {
+              return unavailable(target, classifyTaskRecordsRemoteFailure(error))
             }
-            return { target, kind: 'answered', record: result.record }
-          } catch (error) {
-            return unavailable(target, classifyTaskRecordsRemoteFailure(error))
           }
-        })
+        )
       )
       if (!cancelled) {
         setLoad({ key, pending: false, answers })
@@ -199,18 +229,9 @@ export function useTaskRecordsRemote(args: {
     return () => {
       cancelled = true
     }
-  }, [
-    key,
-    environmentKey,
-    repoId,
-    itemType,
-    number,
-    provider,
-    capabilityGate,
-    revision
-  ])
+  }, [key, pairKey, repoId, itemType, number, provider, capabilityGate, revision])
 
-  if (environmentKey === '') {
+  if (pairKey === '') {
     return IDLE
   }
   // Between a prop change and the effect that answers it, `load` still belongs to

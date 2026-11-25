@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
-import { act, renderHook, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DashboardCard, DashboardSnapshot } from '../../../shared/dashboard-snapshot'
 import type { TaskSourceContext } from '../../../shared/task-source-context'
 import type { TaskRecord } from '../../../shared/task-records-types'
 import type { Worktree } from '../../../shared/worktree/types'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
+import {
+  MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION,
+  RUNTIME_PROTOCOL_VERSION
+} from '../../../shared/protocol-version'
 
 /**
  * The tab's assembly, not the selectors' rules: a detail page states which item
@@ -38,10 +44,19 @@ vi.mock('@/components/dashboard/useLiveDashboardSnapshot', () => ({
 }))
 
 import { useAppStore } from '@/store'
+import { TaskWorkbenchPanel } from '@/components/task-workbench/TaskWorkbenchPanel'
+import type { TaskWorkbenchLayout } from '@/components/task-workbench/task-workbench-view'
 import { makeTab, makeWorktree } from '@/store/slices/store-test-helpers'
 import { useTaskWorkbenchView } from './use-task-workbench-view'
 
 const REPO_ID = 'repo-1'
+const EMPTY_LAYOUT: TaskWorkbenchLayout = {
+  columns: 'single',
+  delivery: 'collapsed',
+  agentHistory: 'expanded',
+  spend: 'summary',
+  workspaces: 'empty'
+}
 
 /** The page's own tracker context: one repo, no item number — exactly what the
  *  detail page hands over, and the shape that used to match the whole repo. */
@@ -154,6 +169,144 @@ describe('useTaskWorkbenchView — item scope', () => {
       kind: 'tracker',
       item: { type: 'issue', number: 9 }
     })
+  })
+
+  it('renders the local empty state when an empty catalog settled without hydrating', async () => {
+    useAppStore.setState({
+      repos: [
+        {
+          id: REPO_ID,
+          path: '/local/repo',
+          displayName: 'web-app',
+          badgeColor: 'gray',
+          addedAt: 1,
+          gitRemoteIdentity: {
+            canonicalKey: 'github.com/acme/web-app',
+            remoteName: 'origin',
+            remoteUrl: 'git@github.com:acme/web-app.git'
+          }
+        }
+      ],
+      worktreesByRepo: { [REPO_ID]: [] },
+      runtimeEnvironments: [],
+      runtimeEnvironmentCatalogHydrated: false,
+      runtimeEnvironmentCatalogSettled: true,
+      runtimeStatusByEnvironmentId: new Map()
+    })
+    window.api = { taskRecords: { get: async () => ({ record: null }) } } as never
+
+    function LocalEmptyPanel(): React.JSX.Element | null {
+      const current = useTaskWorkbenchView({
+        repoId: REPO_ID,
+        number: 9,
+        itemType: 'issue',
+        title: '#9',
+        taskSourceContext: GITHUB_WEB_APP
+      })
+      return current ? <TaskWorkbenchPanel view={current} layout={EMPTY_LAYOUT} /> : null
+    }
+
+    const rendered = render(<LocalEmptyPanel />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('task-workbench-empty-state')).toBeInTheDocument()
+    )
+    rendered.unmount()
+  })
+
+  it('reads a remote-childless page through the repo id returned by that runtime', async () => {
+    useAppStore.setState({
+      repos: [],
+      worktreesByRepo: { [REPO_ID]: [] },
+      runtimeEnvironments: [
+        {
+          id: 'env-a',
+          name: 'Build box',
+          createdAt: 1,
+          updatedAt: 1,
+          pairingRevision: 1,
+          lastUsedAt: null,
+          runtimeId: 'runtime-a',
+          endpoints: [
+            { id: 'endpoint-a', kind: 'websocket', label: 'Build box', endpoint: 'ws://host' }
+          ],
+          preferredEndpointId: 'endpoint-a'
+        }
+      ],
+      runtimeEnvironmentCatalogHydrated: true,
+      runtimeEnvironmentCatalogSettled: true,
+      runtimeStatusByEnvironmentId: new Map([
+        [
+          'env-a',
+          {
+            status: {
+              runtimeId: 'runtime-a',
+              rendererGraphEpoch: 1,
+              graphStatus: 'ready',
+              authoritativeWindowId: 1,
+              liveTabCount: 0,
+              liveLeafCount: 0,
+              capabilities: ['taskRecords.v1']
+            },
+            checkedAt: 1
+          }
+        ]
+      ])
+    })
+    const runtimeCall = vi.fn((request: { method: string; params?: { repoId?: string } }) => {
+      const { method } = request
+      const result =
+        method === 'status.get'
+          ? {
+              runtimeId: 'runtime-a',
+              rendererGraphEpoch: 1,
+              graphStatus: 'ready',
+              authoritativeWindowId: 1,
+              liveTabCount: 0,
+              liveLeafCount: 0,
+              runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
+              minCompatibleRuntimeClientVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
+            }
+          : method === 'repo.list'
+            ? {
+                repos: [
+                  {
+                    id: REPO_ID,
+                    path: '/remote/repo',
+                    displayName: 'web-app',
+                    badgeColor: 'gray',
+                    addedAt: 1,
+                    gitRemoteIdentity: {
+                      canonicalKey: 'github.com/acme/web-app',
+                      remoteName: 'origin',
+                      remoteUrl: 'git@github.com:acme/web-app.git'
+                    }
+                  }
+                ]
+              }
+            : { record: null, repoKnown: true }
+      return Promise.resolve({ id: method, ok: true, result, _meta: { runtimeId: 'runtime-a' } })
+    })
+    window.api = {
+      taskRecords: { get: async () => ({ record: null }) },
+      runtimeEnvironments: { call: runtimeCall }
+    } as never
+
+    const current = renderHook(() =>
+      useTaskWorkbenchView({
+        repoId: REPO_ID,
+        number: 9,
+        itemType: 'issue',
+        title: '#9',
+        taskSourceContext: GITHUB_WEB_APP
+      })
+    )
+
+    await waitFor(() => expect(current.result.current?.recordSource?.answered).toEqual(['env-a']))
+    expect(current.result.current?.history?.trace).toBe('none')
+    expect(
+      runtimeCall.mock.calls.find((call) => call[0].method === 'taskRecords.get')?.[0].params?.repoId
+    ).toBe(REPO_ID)
   })
 
   it('shows only the workspaces of the item it names', () => {

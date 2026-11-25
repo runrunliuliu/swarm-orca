@@ -4,6 +4,7 @@ import { translate } from '@/i18n/i18n'
 import { TaskWorkbenchAgents } from './TaskWorkbenchAgents'
 import { TaskWorkbenchFacts } from './TaskWorkbenchFacts'
 import { TaskWorkbenchHistory } from './TaskWorkbenchHistory'
+import { RecordSourceNotice } from './task-workbench-record-source-notice'
 import { TaskWorkbenchPendingAction } from './task-workbench-pending-action'
 import { TaskWorkbenchWorkspaces } from './TaskWorkbenchWorkspaces'
 import type { TaskWorkbenchLayout, TaskWorkbenchView } from './task-workbench-view'
@@ -69,10 +70,7 @@ function EmptyState(): React.JSX.Element {
   )
 }
 
-export function TaskWorkbenchPanel({
-  view,
-  layout
-}: TaskWorkbenchPanelProps): React.JSX.Element {
+export function TaskWorkbenchPanel({ view, layout }: TaskWorkbenchPanelProps): React.JSX.Element {
   useTranslation()
   const history = view.history
   // The strip is the "ran before, but is not here now" face (issue #31): an
@@ -82,8 +80,19 @@ export function TaskWorkbenchPanel({
   // The deleted form has no workspace and no row left: the strip is the whole
   // record, so an Agents section would claim "no agents" about work that ran.
   const deletedTrace = history?.trace === 'deleted'
+  const recordSource = view.recordSource
+  const sourceUnavailable =
+    recordSource?.candidateFailure === 'undetermined' || (recordSource?.unavailable.length ?? 0) > 0
+  const sourceBlocksFinalAbsence = recordSource?.blocksFinalAbsence === true && sourceUnavailable
+  const noDataBlocked =
+    !hasHistory &&
+    view.workspaces.length === 0 &&
+    (view.historyPending === true || sourceBlocksFinalAbsence)
   const showEmptyState =
-    view.workspaces.length === 0 && !hasHistory && view.historyPending !== true
+    view.workspaces.length === 0 &&
+    !hasHistory &&
+    view.historyPending !== true &&
+    !sourceBlocksFinalAbsence
 
   return (
     <section data-testid="task-workbench-panel" className="flex flex-col gap-5">
@@ -95,9 +104,13 @@ export function TaskWorkbenchPanel({
       >
         {showEmptyState ? <EmptyState /> : null}
 
+        {!hasHistory && recordSource && (recordSource.pending || sourceUnavailable) ? (
+          <RecordSourceNotice source={recordSource} />
+        ) : null}
+
         {hasHistory ? <TaskWorkbenchHistory view={view} layout={layout} /> : null}
 
-        {deletedTrace ? (
+        {noDataBlocked ? null : deletedTrace ? (
           <TaskWorkbenchFacts view={view} layout={layout} />
         ) : layout.columns === 'double' ? (
           <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start gap-5">

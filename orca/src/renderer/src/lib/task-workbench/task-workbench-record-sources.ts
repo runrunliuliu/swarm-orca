@@ -47,13 +47,16 @@ import { mergeRunRows, mergeSessionRows } from '../../../../shared/task-records-
  */
 
 /** Why a source could not answer. Every arm is a *different* decision for the
- *  reader: an old runtime is a version gap, a forbidden one is a scope gap, a
- *  repo the host never registered is a wrong-environment gap, and a transport
- *  failure is a retry. None of them means "this task has no history". */
+ *  reader: an old runtime is a version gap, a forbidden one is a scope gap,
+ *  `repo-unknown` is the runtime's own answer, `repo-unmatched` is a client-side
+ *  catalog mismatch, and a transport failure is a retry. None of them means
+ *  "this task has no history". */
 export const TASK_RECORD_SOURCE_FAILURES = [
   'unsupported',
   'forbidden',
   'repo-unknown',
+  'repo-unmatched',
+  'repo-ambiguous',
   'unreachable'
 ] as const
 export type TaskRecordSourceFailure = (typeof TASK_RECORD_SOURCE_FAILURES)[number]
@@ -149,10 +152,7 @@ function noteField(
   }
 }
 
-function targetMatchesBinding(
-  target: RuntimeClientTarget,
-  binding: TaskWorkspaceBinding
-): boolean {
+function targetMatchesBinding(target: RuntimeClientTarget, binding: TaskWorkspaceBinding): boolean {
   const parsed = parseExecutionHostId(binding.hostId)
   if (target.kind === 'local') {
     return parsed?.kind === 'local'

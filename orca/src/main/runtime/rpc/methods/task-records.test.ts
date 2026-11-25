@@ -137,4 +137,26 @@ describe('taskRecords.get', () => {
 
     expect(response).toMatchObject({ ok: true, result: { record: null, repoKnown: false } })
   })
+
+  it('can answer a colliding but wrong repo id as known and empty', async () => {
+    // This is why the renderer must resolve the answering runtime's own repo id first:
+    // a host-local id collision is indistinguishable from an honestly empty task here.
+    const { runtime, getTaskRecordForTask } = makeRuntime({ record: null, repoKnown: true })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TASK_RECORD_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('taskRecords.get', {
+        repoId: 'local-id-that-collides-remotely',
+        itemType: 'issue',
+        number: 7
+      })
+    )
+
+    expect(response).toMatchObject({ ok: true, result: { record: null, repoKnown: true } })
+    expect(getTaskRecordForTask).toHaveBeenCalledWith({
+      repoId: 'local-id-that-collides-remotely',
+      itemType: 'issue',
+      number: 7
+    })
+  })
 })

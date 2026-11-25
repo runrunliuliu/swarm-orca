@@ -18,6 +18,8 @@ import type { TaskRecordSources } from './task-workbench-record-sources'
  */
 export function projectTaskRecordSource(args: {
   environmentIds: readonly string[]
+  candidateVerdict: 'not-needed' | 'resolved' | 'undetermined'
+  blocksFinalAbsence: boolean
   sources: TaskRecordSources
   pending: boolean
   /** Display names by environment id (the environment catalog). */
@@ -26,12 +28,21 @@ export function projectTaskRecordSource(args: {
    *  only with `unsupported`, where the version is the actionable fact. */
   appVersions?: ReadonlyMap<string, string>
 }): TaskWorkbenchRecordSource | undefined {
-  if (args.environmentIds.length === 0) {
+  const candidateFailure = args.candidateVerdict === 'undetermined' && args.blocksFinalAbsence
+  if (
+    args.environmentIds.length === 0 &&
+    !candidateFailure &&
+    !(args.pending && args.blocksFinalAbsence)
+  ) {
     return undefined
   }
   const asked = new Set(args.environmentIds)
   return {
     environmentIds: [...args.environmentIds],
+    ...(args.blocksFinalAbsence ? { blocksFinalAbsence: true } : {}),
+    ...(candidateFailure
+      ? { candidateFailure: 'undetermined' as const }
+      : {}),
     answered: args.sources.answered.flatMap((target) =>
       target.kind === 'environment' && asked.has(target.environmentId) ? [target.environmentId] : []
     ),

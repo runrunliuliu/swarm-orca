@@ -52,8 +52,22 @@ function unavailableSentence(entry: TaskWorkbenchRecordSourceUnavailable): strin
   }
   if (entry.failure === 'repo-unknown') {
     return translate(
-      sourceKeys('repoUnknown'),
-      'Could not read history from {{value0}}: that environment has no workspace registered for this repository, so it cannot hold this task. Showing what this computer has.',
+      sourceKeys('repoUnknownCurrentRegistration'),
+      'Could not read history from {{value0}}: that runtime does not currently know this repository registration, so it could not answer the task-history request. Showing what this computer has.',
+      { value0: label }
+    )
+  }
+  if (entry.failure === 'repo-unmatched') {
+    return translate(
+      sourceKeys('repoUnmatched'),
+      "Could not read history from {{value0}}: that environment's repository catalog has no matching registration for this page, so no remote repository id was guessed. Showing what this computer has.",
+      { value0: label }
+    )
+  }
+  if (entry.failure === 'repo-ambiguous') {
+    return translate(
+      sourceKeys('repoAmbiguous'),
+      'Could not read history from {{value0}}: several repository registrations match this page, so none was guessed. Showing what this computer has.',
       { value0: label }
     )
   }
@@ -70,6 +84,17 @@ export function RecordSourceNotice({
   source: TaskWorkbenchRecordSource
 }): React.JSX.Element | null {
   const rows: { key: string; testId: string; text: string; kind: string }[] = []
+  if (source.candidateFailure === 'undetermined') {
+    rows.push({
+      key: 'candidate-undetermined',
+      testId: 'task-workbench-history-source-undetermined',
+      text: translate(
+        sourceKeys('candidateUndetermined'),
+        "Remote task history could not be read because this page's repository could not be matched to a paired environment. No remote repository id was guessed."
+      ),
+      kind: 'undetermined'
+    })
+  }
   for (const entry of source.unavailable) {
     rows.push({
       key: `unavailable:${entry.environmentId}`,
@@ -88,9 +113,7 @@ export function RecordSourceNotice({
         {
           value0: conflict.worktreeId,
           value1: conflict.fields.join(', '),
-          value2:
-            conflict.kept ??
-            translate(sourceKeys('keptLocal'), 'this computer')
+          value2: conflict.kept ?? translate(sourceKeys('keptLocal'), 'this computer')
         }
       ),
       kind: 'conflict'
