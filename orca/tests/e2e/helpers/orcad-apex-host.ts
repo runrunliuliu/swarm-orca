@@ -18,6 +18,7 @@ import {
   type ApexReadiness,
   type LaunchedApex
 } from './orcad-apex-child'
+import { readApexDaemonPidRecords, reclaimApexDaemons } from './orcad-apex-daemon'
 
 export { readOrcadHookEndpoint, waitForOrcadHookEndpoint } from './orcad-apex-hook-endpoint'
 export type {
@@ -98,6 +99,9 @@ export type StartOptions = {
   shutdownGraceMs?: number
   /** How long SIGKILL gets to be confirmed as an exit (default 5 s; injectable for the unit test). */
   killGraceMs?: number
+  /** SIGTERM → SIGKILL windows for reclaiming the forked PTY daemon on dispose. */
+  daemonGraceMs?: number
+  daemonKillGraceMs?: number
 }
 
 const READINESS_TIMEOUT_MS = 60_000
@@ -136,6 +140,8 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   let current: LaunchedApex | null = null
   let latestReady: ApexReadiness | null = null
   let disposed = false
+
+  const daemonDir = path.join(userDataDir, 'daemon')
 
   const output = (): string =>
     launched.map((entry) => `[stdout]\n${entry.stdout}[stderr]\n${entry.stderr}`).join('\n')
@@ -184,10 +190,39 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   }
 
   /**
-   * Stop, prove the source stayed read-only, then remove the temp root — in that order, and only the
-   * steps whose precondition holds. `disposed` is set **after** a disposal that actually finished, so
-   * a stop that could not confirm an exit keeps the root and the child owner for a retry instead of
-   * reporting a cleanup it did not perform.
+   * Reclaim the PTY daemon this profile forked, and confirm it is gone.
+   *
+   * Why it belongs here: the daemon deliberately outlives its `orcad` (a product restart must not kill
+   * every terminal), so a case's exit leaves one `daemon-entry.js` holding the temp profile. Once the
+   * root is deleted that process is unreachable by every later cleanup, which is how this host
+   * accumulated 103 orphans. Ownership is proved by the profile's own pid record plus the daemon dir
+   * appearing in the command line (`orcad-apex-daemon.ts`), never by process name.
+   *
+   * A daemon that survives is a failure, not a detail: the root is then the evidence and the retry
+   * handle, so it must not be removed. When the profile never had a daemon dir there is nothing to
+   * scan for, which is also what keeps the mock-child unit tests hermetic.
+   */
+  const reclaimDaemon = async (): Promise<unknown | null> => {
+    if (!existsSync(daemonDir)) {
+      return null
+    }
+    try {
+      await reclaimApexDaemons({
+        daemonDir,
+        ...(options.daemonGraceMs === undefined ? {} : { graceMs: options.daemonGraceMs }),
+        ...(options.daemonKillGraceMs === undefined ? {} : { killGraceMs: options.daemonKillGraceMs })
+      })
+      return null
+    } catch (error) {
+      return error
+    }
+  }
+
+  /**
+   * Stop, reclaim the daemon it forked, prove the source stayed read-only, then remove the temp root —
+   * in that order, and only the steps whose precondition holds. `disposed` is set **after** a disposal
+   * that actually finished, so a stop that could not confirm an exit keeps the root and the child
+   * owner for a retry instead of reporting a cleanup it did not perform.
    */
   const dispose = async (): Promise<void> => {
     if (disposed) {
@@ -199,17 +234,30 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     } catch (error) {
       failures.push(error)
     }
+    const daemonReclaimError = await reclaimDaemon()
+    if (daemonReclaimError !== null) {
+      failures.push(daemonReclaimError)
+    }
     try {
       assertApexSourceUnchanged(sourceWitness)
     } catch (error) {
       failures.push(error)
     }
-    if (current === null) {
+    if (current === null && daemonReclaimError === null) {
       try {
         rmSync(root, { recursive: true, force: true })
       } catch (error) {
         failures.push(error)
       }
+    } else if (current === null) {
+      // The daemon is still holding this profile, so the root is the evidence and the retry handle,
+      // not garbage; the reclaim error above says which process refused to go.
+      failures.push(
+        new Error(
+          `the apex daemon for ${daemonDir} (pid records: ${JSON.stringify(readApexDaemonPidRecords(daemonDir))}) ` +
+            `was not reclaimed; keeping ${root} for retry`
+        )
+      )
     } else {
       // An orphan may still be writing into the profile and the artifact copy, so the root is the
       // evidence and the retry handle, not garbage.
@@ -289,6 +337,10 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
       await stopCurrent()
     } catch (stopError) {
       failures.push(stopError)
+    }
+    const startDaemonError = await reclaimDaemon()
+    if (startDaemonError !== null) {
+      failures.push(startDaemonError)
     }
     if (failures.length === 0) {
       try {
