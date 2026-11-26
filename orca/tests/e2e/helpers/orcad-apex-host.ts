@@ -1,38 +1,72 @@
-import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { RuntimeClient } from '../../../src/cli/runtime/client'
 import {
-  isAgentHookEndpointFileName,
-  parseAgentHookEndpointFile,
-  type AgentHookEndpoint
-} from '../../../src/shared/agent-hook-endpoint-file'
-import { parseHeadlessPairedRuntimePairingOffer } from './headless-paired-runtime-serve-readiness'
+  assertApexSourceUnchanged,
+  copyApexArtifact,
+  witnessApexSource,
+  type ApexArtifactCopier,
+  type ApexArtifactCopy,
+  type ApexSourceWitness
+} from './orcad-apex-artifact'
+import {
+  awaitApexReadiness,
+  spawnApexChild,
+  terminateApexChild,
+  type ApexChildSpawn,
+  type ApexReadiness,
+  type LaunchedApex
+} from './orcad-apex-child'
+
+export { readOrcadHookEndpoint, waitForOrcadHookEndpoint } from './orcad-apex-hook-endpoint'
+export type {
+  ApexArtifactCopier,
+  ApexArtifactCopy,
+  ApexSourceFileWitness,
+  ApexSourceWitness
+} from './orcad-apex-artifact'
+export type { ApexChildSpawn } from './orcad-apex-child'
 
 /**
  * A **real headless `orcad` apex** (`out/orcad/orcad.js` under the bundled bun runtime), started on
- * an isolated profile for one e2e case.
+ * an isolated profile from a **private copy of the artifact** for one e2e case.
  *
  * Why this exists beside `headless-paired-runtime-host.ts`: that helper starts the *Electron* app in
  * `--serve` mode, i.e. `out/main/index.js`, which assembles the desktop observers. Issue #68 is about
  * the headless composition root having no live-run writer at all, so a test built on the Electron
  * host is structurally green whatever the fix does. Only the `orcad` entry can answer it.
  *
- * Isolation (the machine running these tests also serves a production orcad on `127.0.0.1:6768` with
- * `ORCA_USER_DATA=/home/tiger/.local/state/orca-server/config/orca`):
+ * Isolation. The machine running these tests may also serve a production runtime and hold a
+ * machine-wide build pointer; neither is this test's to touch, so the host is kept inside a temp
+ * root and launches the copy, never the artifact it reads:
  * - `ORCA_USER_DATA` → a fresh temp dir, so no profile is read or written;
  * - `HOME` → a fresh temp dir, so agent-hook installers and `~/.local/bin` dispatchers stay local;
  * - `ORCA_BUILD_POINTER_PATH` → a temp file, because `orcad-entry.ts` publishes the machine-wide
  *   `/opt/orca/current` pointer on Linux unless `shared/build-pointer.ts:110` is redirected;
- * - `--port 0`, so the kernel picks a free port instead of colliding with the production listener.
+ * - `--port 0`, so the kernel picks a free port instead of colliding with a listener that may
+ *   already exist on this host.
+ *
+ * Why the artifact is copied rather than launched in place: the pointer only moves *where the pointer
+ * lives*. Publishing still rewrites the install root's own `.orca-build.json` and `.orca-cli-argv`
+ * (`src/main/cli/build-pointer.ts:209-210`), so launching a production artifact in place would stamp
+ * this test's `publishedAt`/publisher pid into a directory the test only means to read. The copy is a
+ * real recursive copy — never a symlink or hardlink, checked by inode — and `dispose()` refuses to
+ * report a clean run when the source artifact's key files or pointer link changed.
  */
 export type OrcadApexHost = {
+  /** Directory the apex actually runs from: the private copy, never the source artifact. */
   readonly apexDir: string
+  /** Canonical artifact root the copy was taken from; the test must not write it. */
+  readonly sourceApexDir: string
+  readonly apexCopy: ApexArtifactCopy
+  /** Fingerprint taken before the copy; `verifySourceUntouched` re-reads it. */
+  readonly sourceWitness: ApexSourceWitness
   readonly bunRuntimePath: string
   readonly orcadEntryPath: string
   /** `/orca_server_ready` line decoded: the pairing offer a desktop client would consume. */
   readonly offer: { pairingUrl: string; webClientUrl?: string }
+  /** The **latest** readiness line: a `restart()` replaces it. */
   readonly readiness: Record<string, unknown>
   readonly userDataDir: string
   readonly homeDir: string
@@ -42,8 +76,26 @@ export type OrcadApexHost = {
   output(): string
   /** SIGTERM the host, wait for exit, and start a replacement on the same profile. */
   restart(): Promise<void>
+  /** Stop the host, prove the source artifact stayed read-only, and remove the temp root. */
   dispose(): Promise<void>
+  /** Same check `dispose()` performs, without stopping anything; returns the after-fingerprint. */
+  verifySourceUntouched(): ApexSourceWitness
 }
+
+export type StartOptions = {
+  apexDir?: string
+  /** Root for the profile, home, pointer and artifact-copy temp dirs; removed by `dispose()`. */
+  userDataParent?: string
+  /** Seams for the mock-child unit test; production uses the real copier and `node:child_process`. */
+  seams?: { copyApexArtifact?: ApexArtifactCopier; spawnApexChild?: ApexChildSpawn }
+  /** How long a launch waits for readiness before reclaiming the child (default 60 s). */
+  readinessTimeoutMs?: number
+  /** SIGTERM → SIGKILL escalation window for a stop (default 20 s). */
+  shutdownGraceMs?: number
+}
+
+const READINESS_TIMEOUT_MS = 60_000
+const SIGTERM_GRACE_MS = 20_000
 
 /** Where the apex under test lives. The red/green switch of issue #68 is exactly this variable. */
 export function resolveOrcadApexDir(explicit?: string): string {
@@ -58,127 +110,13 @@ export function resolveOrcadApexDir(explicit?: string): string {
   return apexDir
 }
 
-function findEndpointEnvFile(root: string): string | null {
-  if (!existsSync(root)) {
-    return null
-  }
-  for (const entry of readdirSync(root, { withFileTypes: true })) {
-    const fullPath = path.join(root, entry.name)
-    if (entry.isFile() && isAgentHookEndpointFileName(entry.name)) {
-      return fullPath
-    }
-    if (entry.isDirectory()) {
-      const nested = findEndpointEnvFile(fullPath)
-      if (nested) {
-        return nested
-      }
-    }
-  }
-  return null
-}
-
-/**
- * The orcad hook endpoint, read off the profile instead of off an Electron app: the server writes
- * `<userData>/agent-hooks[/<namespace>]/endpoint.env` (`server-runtime-env.ts:55-59`), and a POST to
- * `http://127.0.0.1:<port>/hook/<agent>` with `X-Orca-Agent-Hook-Token` is the same wire shape a real
- * agent produces.
- */
-export function readOrcadHookEndpoint(userDataDir: string): AgentHookEndpoint | null {
-  const endpointPath = findEndpointEnvFile(path.join(userDataDir, 'agent-hooks'))
-  return endpointPath ? parseAgentHookEndpointFile(readFileSync(endpointPath, 'utf8')) : null
-}
-
-export async function waitForOrcadHookEndpoint(
-  userDataDir: string,
-  timeoutMs = 30_000
-): Promise<AgentHookEndpoint> {
-  const deadline = Date.now() + timeoutMs
-  for (;;) {
-    const endpoint = readOrcadHookEndpoint(userDataDir)
-    if (endpoint) {
-      return endpoint
-    }
-    if (Date.now() > deadline) {
-      throw new Error(`Agent hook endpoint file not found under ${userDataDir}/agent-hooks`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100))
-  }
-}
-
-type StartOptions = {
-  apexDir?: string
-  /** Root for the profile/home/pointer temp dirs; removed by `dispose()`. */
-  userDataParent?: string
-}
-
-type HostInternals = {
-  child: ChildProcess
-  stdout: string
-  stderr: string
-}
-
-function spawnApex(args: {
-  apexDir: string
-  bunRuntimePath: string
-  orcadEntryPath: string
-  userDataDir: string
-  homeDir: string
-  buildPointerPath: string
-  onLine: (line: string) => void
-  onExit: (code: number | null, signal: NodeJS.Signals | null) => void
-}): ChildProcess {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    HOME: args.homeDir,
-    XDG_DATA_HOME: path.join(args.homeDir, '.local', 'share'),
-    XDG_CONFIG_HOME: path.join(args.homeDir, '.config'),
-    XDG_CACHE_HOME: path.join(args.homeDir, '.cache'),
-    ORCA_USER_DATA: args.userDataDir,
-    ORCA_BUILD_POINTER_PATH: args.buildPointerPath,
-    ORCA_E2E_ORCAD_APEX_CHILD: '1'
-  }
-  // The apex needs no display; clearing it keeps a Chromium-less host from inheriting a stale one.
-  delete env.DISPLAY
-  delete env.ELECTRON_RUN_AS_NODE
-  const child = spawn(
-    args.bunRuntimePath,
-    [
-      args.orcadEntryPath,
-      '--bind',
-      '127.0.0.1',
-      '--port',
-      '0',
-      '--pairing-address',
-      '127.0.0.1',
-      '--json'
-    ],
-    { env, stdio: ['ignore', 'pipe', 'pipe'] }
-  )
-  let buffered = ''
-  child.stdout?.setEncoding('utf8')
-  child.stdout?.on('data', (chunk: string) => {
-    buffered += chunk
-    for (let index = buffered.indexOf('\n'); index >= 0; index = buffered.indexOf('\n')) {
-      const line = buffered.slice(0, index)
-      buffered = buffered.slice(index + 1)
-      args.onLine(line)
-    }
-  })
-  child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', () => undefined)
-  child.once('exit', args.onExit)
-  return child
-}
-
 export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadApexHost> {
-  const apexDir = resolveOrcadApexDir(options.apexDir)
-  const bunRuntimePath = path.join(apexDir, 'bun-runtime')
-  const orcadEntryPath = path.join(apexDir, 'orcad.js')
-  if (!existsSync(bunRuntimePath)) {
-    throw new Error(
-      `No bun runtime at ${bunRuntimePath}: the orcad apex must run under bun (Bun.Terminal), not node`
-    )
-  }
+  const copyArtifact = options.seams?.copyApexArtifact ?? copyApexArtifact
+  const readinessTimeoutMs = options.readinessTimeoutMs ?? READINESS_TIMEOUT_MS
+  const shutdownGraceMs = options.shutdownGraceMs ?? SIGTERM_GRACE_MS
+
+  const configuredApexDir = resolveOrcadApexDir(options.apexDir)
+  const sourceWitness = witnessApexSource(configuredApexDir)
   const root = mkdtempSync(path.join(options.userDataParent ?? os.tmpdir(), 'orca-e2e-orcad-apex-'))
   const userDataDir = path.join(root, 'userdata')
   const homeDir = path.join(root, 'home')
@@ -188,113 +126,145 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   mkdirSync(userDataDir, { recursive: true })
   mkdirSync(homeDir, { recursive: true })
 
-  const outputs: HostInternals[] = []
-  let ready: {
-    readiness: Record<string, unknown>
-    offer: { pairingUrl: string; webClientUrl?: string }
-  } | null = null
-  let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null
+  const launched: LaunchedApex[] = []
+  let current: LaunchedApex | null = null
+  let latestReady: ApexReadiness | null = null
+  let disposed = false
 
-  const launch = async (): Promise<{
-    readiness: Record<string, unknown>
-    offer: { pairingUrl: string; webClientUrl?: string }
-  }> => {
-    ready = null
-    exitInfo = null
-    const internals: HostInternals = {
-      child: null as unknown as ChildProcess,
-      stdout: '',
-      stderr: ''
+  const output = (): string =>
+    launched.map((entry) => `[stdout]\n${entry.stdout}[stderr]\n${entry.stderr}`).join('\n')
+
+  const requireReady = (): ApexReadiness => {
+    if (!latestReady) {
+      throw new Error(`orcad apex at ${configuredApexDir} has no readiness line`)
     }
-    outputs.push(internals)
-    internals.child = spawnApex({
+    return latestReady
+  }
+
+  const launch = async (apexDir: string): Promise<ApexReadiness> => {
+    latestReady = null
+    const state = spawnApexChild({
       apexDir,
-      bunRuntimePath,
-      orcadEntryPath,
       userDataDir,
       homeDir,
       buildPointerPath,
-      onLine: (line) => {
-        internals.stdout += `${line}\n`
-        const offer = parseHeadlessPairedRuntimePairingOffer(line)
-        if (offer && !ready) {
-          let parsed: unknown = null
-          try {
-            parsed = JSON.parse(line) as unknown
-          } catch {
-            parsed = null
-          }
-          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the readiness line is parsed, not trusted.
-          ready = { readiness: (parsed ?? {}) as Record<string, unknown>, offer }
-        }
-      },
-      onExit: (code, signal) => {
-        exitInfo = { code, signal }
-      }
+      ...(options.seams?.spawnApexChild ? { spawn: options.seams.spawnApexChild } : {})
     })
-    internals.child.stderr?.setEncoding('utf8')
-    internals.child.stderr?.on('data', (chunk: string) => {
-      internals.stderr += chunk
+    launched.push(state)
+    current = state
+    latestReady = await awaitApexReadiness(state, {
+      apexDir,
+      timeoutMs: readinessTimeoutMs,
+      output
     })
-    const deadline = Date.now() + 60_000
-    while (!ready) {
-      if (exitInfo) {
-        throw new Error(
-          `orcad apex exited before readiness (${JSON.stringify(exitInfo)}):\n${outputs
-            .map((entry) => `${entry.stdout}${entry.stderr}`)
-            .join('\n')}`
-        )
-      }
-      if (Date.now() > deadline) {
-        throw new Error(
-          `orcad apex never published readiness from ${apexDir}:\n${outputs
-            .map((entry) => `${entry.stdout}${entry.stderr}`)
-            .join('\n')}`
-        )
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    return ready
+    return latestReady
   }
-
-  const startedReady = await launch()
 
   const stopCurrent = async (): Promise<void> => {
-    const current = outputs.at(-1)
-    if (!current || exitInfo) {
+    const target = current
+    current = null
+    if (!target) {
       return
     }
-    const child = current.child
-    const exited = new Promise<void>((resolve) => {
-      child.once('exit', () => resolve())
-    })
-    child.kill('SIGTERM')
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL')
-    }, 20_000)
-    await exited
-    clearTimeout(timer)
+    await terminateApexChild(target, shutdownGraceMs)
   }
 
-  return {
-    apexDir,
-    bunRuntimePath,
-    orcadEntryPath,
-    offer: startedReady.offer,
-    readiness: startedReady.readiness,
+  const dispose = async (): Promise<void> => {
+    if (disposed) {
+      return
+    }
+    disposed = true
+    const failures: unknown[] = []
+    try {
+      await stopCurrent()
+    } catch (error) {
+      failures.push(error)
+    }
+    try {
+      assertApexSourceUnchanged(sourceWitness)
+    } catch (error) {
+      failures.push(error)
+    }
+    try {
+      rmSync(root, { recursive: true, force: true })
+    } catch (error) {
+      failures.push(error)
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, `orcad apex cleanup failed for ${sourceWitness.dir}`)
+    }
+  }
+
+  const createHost = (copy: ApexArtifactCopy): OrcadApexHost => ({
+    apexDir: copy.dir,
+    sourceApexDir: sourceWitness.dir,
+    apexCopy: copy,
+    sourceWitness,
+    bunRuntimePath: path.join(copy.dir, 'bun-runtime'),
+    orcadEntryPath: path.join(copy.dir, 'orcad.js'),
+    get offer() {
+      return requireReady().offer
+    },
+    get readiness() {
+      return requireReady().readiness
+    },
     userDataDir,
     homeDir,
     buildPointerPath,
     client: new RuntimeClient(userDataDir, 30_000),
-    output: () =>
-      outputs.map((entry) => `[stdout]\n${entry.stdout}[stderr]\n${entry.stderr}`).join('\n'),
+    output,
     restart: async () => {
       await stopCurrent()
-      await launch()
+      try {
+        await launch(copy.dir)
+      } catch (error) {
+        try {
+          await stopCurrent()
+        } catch (stopError) {
+          throw new AggregateError(
+            [error, stopError],
+            'orcad apex restart failed and could not be reclaimed'
+          )
+        }
+        throw error
+      }
     },
-    dispose: async () => {
+    dispose,
+    verifySourceUntouched: () => assertApexSourceUnchanged(sourceWitness)
+  })
+
+  try {
+    // The copy lives inside the same temp root as the profile: `dispose()` removes both, and a failed
+    // start reclaims the child before it removes either.
+    const copy = copyArtifact({
+      sourceDir: sourceWitness.dir,
+      destinationDir: path.join(root, 'apex')
+    })
+    await launch(copy.dir)
+    return createHost(copy)
+  } catch (error) {
+    // Nothing else owns the child yet (the caller has no host to call `dispose()` on), so the
+    // failure path has to terminate it AND confirm the exit before the temp root goes away. When it
+    // cannot, the root is kept and the original error stays first in the aggregate.
+    const failures: unknown[] = []
+    try {
       await stopCurrent()
-      rmSync(root, { recursive: true, force: true })
+    } catch (stopError) {
+      failures.push(stopError)
     }
+    if (failures.length === 0) {
+      try {
+        rmSync(root, { recursive: true, force: true })
+      } catch (rmError) {
+        failures.push(rmError)
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(
+        [error, ...failures],
+        `orcad apex start from ${configuredApexDir} failed and the temporary root ${root} could not be reclaimed`
+      )
+    }
+    throw error
   }
 }

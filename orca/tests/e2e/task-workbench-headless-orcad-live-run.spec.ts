@@ -181,7 +181,36 @@ function describeRuns(runs: readonly TaskRecordRun[]): string {
     .join('\n')
 }
 
-/** Excerpt of the apex build under test: `/opt/orca/current` (red) vs a build of the fixed tree. */
+/**
+ * The bytes the host copied and the source fingerprint it will re-check on `dispose()`. Written next
+ * to the run's other evidence so a report can name the exact artifact a green/red result came from.
+ */
+function writeApexIsolationEvidence(host: OrcadApexHost): void {
+  const evidence = process.env.ORCA_E2E_EVIDENCE_DIR
+  if (!evidence) {
+    return
+  }
+  mkdirSync(evidence, { recursive: true })
+  writeFileSync(
+    path.join(evidence, 'apex-isolation.json'),
+    JSON.stringify(
+      {
+        launchedApexDir: host.apexDir,
+        sourceApexDir: host.sourceApexDir,
+        apexCopy: host.apexCopy,
+        sourceWitness: host.sourceWitness
+      },
+      null,
+      2
+    )
+  )
+}
+
+/**
+ * Excerpt of the apex build under test: a pre-fix artifact (red) vs a build of the fixed tree. The
+ * bundle read is the host's private copy, so `apexDir` is never the artifact the test only reads;
+ * `sourceApexDir` + `sourceWitness` record which bytes were copied, and `dispose()` re-checks them.
+ */
 function apexBuildEvidence(host: OrcadApexHost): string {
   const bundle = path.join(host.apexDir, 'orcad.js')
   const callSites = execFileSync('grep', ['-o', 'recordTaskRecordLiveRun(', bundle], {
@@ -193,6 +222,9 @@ function apexBuildEvidence(host: OrcadApexHost): string {
   return JSON.stringify(
     {
       apexDir: host.apexDir,
+      sourceApexDir: host.sourceApexDir,
+      apexCopy: host.apexCopy,
+      sourceWitness: host.sourceWitness,
       // One hit is the Store method's own definition; a fixed artifact also has the adapter's call.
       recordTaskRecordLiveRunMatches: callSites,
       readiness: host.readiness
@@ -203,14 +235,18 @@ function apexBuildEvidence(host: OrcadApexHost): string {
 }
 
 test.describe('issue #68 headless orcad live run', () => {
+  // The pane identity is a *closed pane's* key string, not a TUI this profile ever launched: the
+  // provider resolver answers `unknown` for it. What is proven is the record surviving without a
+  // retained pane and across a restart, not that a real agent TUI was opened and closed.
   // oxlint-disable-next-line no-empty-pattern -- Playwright callback signatures require fixture destructuring.
-  test('records a live-observation run that survives closing the pane and a restart', async ({}, testInfo: TestInfo) => {
+  test('records a live-observation run for a closed pane key and keeps it across a restart', async ({}, testInfo: TestInfo) => {
     test.setTimeout(420_000)
     const fixture = createFixtureRepo()
     let host: OrcadApexHost | null = null
     let testError: unknown
     try {
       host = await startOrcadApex()
+      writeApexIsolationEvidence(host)
       await testInfo.attach('issue-68-apex-build.json', {
         body: apexBuildEvidence(host),
         contentType: 'application/json'
@@ -366,12 +402,13 @@ test.describe('issue #68 headless orcad live run', () => {
     }
   })
 
-  // Not a regression in #68: the paired client's per-environment read of `taskRecords.get` against a
-  // real orcad apex comes back as an unclassified failure (the panel prints "it did not answer"),
-  // even though the same RPC over the same paired transport answers when the page issues it
-  // directly. That is the client's cross-profile source selection, a different component; the
-  // evidence of the attempt lives in `.swarm-run/task-68/e2e/`. Left as `fixme` so the runtime-level
-  // proof below stays a gate instead of being diluted by a case this spec cannot settle.
+  // The paired client's per-environment read of `taskRecords.get` against a real orcad apex comes
+  // back as an unclassified failure (the panel prints "it did not answer"), even though the same RPC
+  // over the same paired transport answers when the page issues it directly. The failure is real;
+  // its root cause is **not established** here — a cross-profile source selection, a transport/return
+  // shape problem and a test-setup problem all reach that same generic wording. Left as `fixme` so
+  // the runtime-level proof below stays a gate instead of being diluted by a case this spec cannot
+  // settle; the attempt's evidence is kept outside the repository.
   // oxlint-disable-next-line no-empty-pattern -- Playwright callback signatures require fixture destructuring.
   test.fixme('the paired desktop task page lists the live run in History', async ({}, testInfo: TestInfo) => {
     // The desktop half of acceptance #1: the run the headless host just recorded is in the History
