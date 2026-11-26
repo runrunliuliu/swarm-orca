@@ -18,7 +18,7 @@ import {
   type ApexReadiness,
   type LaunchedApex
 } from './orcad-apex-child'
-import { readApexDaemonPidRecords, reclaimApexDaemons } from './orcad-apex-daemon'
+import { readApexDaemonPidRecord, reclaimApexDaemons } from './orcad-apex-daemon'
 
 export { readOrcadHookEndpoint, waitForOrcadHookEndpoint } from './orcad-apex-hook-endpoint'
 export type {
@@ -76,8 +76,9 @@ export type OrcadApexHost = {
   /** Everything the host wrote to stdout/stderr so far, for attaching as failure evidence. */
   output(): string
   /**
-   * Why the daemon reclaim found nothing to reclaim (missing pid record, recycled pid, a process that
-   * only mentions this profile). Recorded rather than dropped: "no daemon" always has a reason.
+   * Why the daemon reclaim went the way it did (leader already exited, session members reclaimed, a
+   * recorded pid that is no longer a group leader). Recorded rather than dropped: "no daemon" always
+   * has a reason.
    */
   readonly daemonScanNotes: string[]
   /** SIGTERM the host, wait for exit, and start a replacement on the same profile. */
@@ -208,19 +209,21 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   }
 
   /**
-   * Reclaim the PTY daemon this profile forked, and confirm it is gone.
+   * Reclaim the PTY daemon this profile forked, and confirm it is gone — by **process group**.
    *
    * Why it belongs here: the daemon deliberately outlives its `orcad` (a product restart must not kill
    * every terminal), so a case's exit leaves one `daemon-entry.js` holding the temp profile. Once the
    * root is deleted that process is unreachable by every later cleanup, which is how this host
-   * accumulated 103 orphans. Ownership is the profile's own pid record **and** the recorded pid's
-   * command line carrying this profile's exact socket and pid-record arguments
-   * (`orcad-apex-daemon.ts`), never a process name and never a cmdline substring.
+   * accumulated 103 orphans. Ownership is the pid this profile published in **its own** pid record plus
+   * the kernel's group/session columns and the record's start-tick fence (`orcad-apex-daemon.ts`), never
+   * a process name and never a command line.
    *
    * A daemon that survives is a failure, not a detail: the root is then the evidence and the retry
    * handle, so it must not be removed. When the profile never had a daemon dir there is nothing to
-   * scan for, which is also what keeps the mock-child unit tests hermetic. When the dir exists but
-   * holds no usable pid record, the reclaim is a no-op **with a recorded reason**, not a silent pass.
+   * scan for, which is also what keeps the mock-child unit tests hermetic. Two states are **not** a
+   * pass and surface as an error here: a dir that exists with no usable pid record (the owner is
+   * unknown, so nothing may be signalled) and a recorded pid that is no longer its own group leader
+   * (pid reuse). Both keep the root; only "this profile never forked a daemon" removes it.
    */
   const reclaimDaemon = async (): Promise<{ error: unknown | null; notes: string[] }> => {
     if (!existsSync(daemonDir)) {
@@ -274,11 +277,11 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
         failures.push(error)
       }
     } else if (current === null) {
-      // The daemon is still holding this profile, so the root is the evidence and the retry handle,
-      // not garbage; the reclaim error above says which process refused to go.
+      // The daemon group is still holding this profile (or its owner could not be confirmed), so the
+      // root is the evidence and the retry handle, not garbage; the reclaim error above says which.
       failures.push(
         new Error(
-          `the apex daemon for ${daemonDir} (pid records: ${JSON.stringify(readApexDaemonPidRecords(daemonDir))}) ` +
+          `the apex daemon for ${daemonDir} (pid record: ${JSON.stringify(readApexDaemonPidRecord(daemonDir).record)}) ` +
             `was not reclaimed; keeping ${root} for retry`
         )
       )

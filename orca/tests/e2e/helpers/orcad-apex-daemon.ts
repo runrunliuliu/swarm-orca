@@ -1,50 +1,78 @@
 /**
- * Reclaim the **PTY daemon** an apex forked, and prove it is gone.
+ * Reclaim the **PTY daemon** an apex forked, and prove it is gone — by **process group**.
  *
- * Why this is needed at all: the daemon is detached on purpose (`main/orcad/orcad-daemon-supervision.ts`
- * calls `disconnectDaemon`, never `shutdownDaemon`), because a *product* restart must not kill every
- * terminal. That is the right behaviour for the product and the wrong outcome for an e2e case: after
- * `orcad` exits, one `daemon-entry.js` per case stays behind on the case's temp profile and, once that
- * profile is deleted, is unreachable by any later cleanup. Measured consequence on this host: 103
- * accumulated `out/orcad/daemon-entry.js` orphans between runs.
+ * Why the daemon has to be reclaimed at all: it is detached on purpose
+ * (`main/orcad/orcad-daemon-supervision.ts` calls `disconnectDaemon`, never `shutdownDaemon`) because a
+ * *product* restart must not kill every terminal. The e2e consequence is one `daemon-entry.js` per case
+ * holding that case's temp profile; once the profile is deleted the process is unreachable by any later
+ * cleanup. Measured on this host: 103 accumulated `out/orcad/daemon-entry.js` orphans between runs.
  *
- * How a daemon is **owned** — two conditions, both required, never a substring match:
- * 1. the pid is the one this profile published in its own pid record,
- *    `<daemonDir>/daemon-v38.pid` (JSON: `pid`, `launchNonce`, `entryPath` —
- *    `main/daemon/daemon-spawner.ts:139`), and
- * 2. that pid's command line carries **this profile's** `--socket <daemonDir>/daemon-v38.sock` and
- *    `--pid-record <daemonDir>/daemon-v38.pid` as whole arguments (`daemon-entry.ts:60-80`).
+ * Why ownership is a process group and no longer a command line: W19, W20 and W22 each tried to *infer*
+ * ownership from argv, and each was refuted by a counterexample (`--inspect <daemonDir>` names the
+ * directory without being the endpoint, `--entry daemon-entry.js` is not the daemon entry argument, and
+ * both paths inside one `--message` argument are not options at all). Content cannot prove ownership.
+ * The kernel can: `main/daemon/daemon-launched-child-spawn.ts:71` spawns the daemon with
+ * `detached: true`, so the daemon leads its own session and process group (`pgid === sid === pid`,
+ * measured on this host), and a process group can only be joined by the leader's own descendants.
+ * The case therefore stops `kill(-pgid)` and nothing else.
  *
- * Why whole arguments and the record: a pure cmdline-substring scan is not ownership. `.../daemon` is
- * a prefix of `.../daemon-other`, and `--inspect <daemonDir>` names the directory without being this
- * daemon's socket (both were W19 counterexamples that matched). The recorded pid is what rules out a
- * different instance, and the exact socket/pid-record arguments are what rule out a recycled pid.
+ * What still has to be established, from kernel facts only (never from a command line):
+ * 1. the pid comes from **this profile's own pid record** — `<daemonDir>/daemon-v38.pid` inside a
+ *    directory this case created with `mkdtemp`;
+ * 2. that pid is still **its own session and process-group leader** (`pgid === sid === pid`), which is
+ *    what a recycled pid is not;
+ * 3. it is still the same *instance*: the record's `linuxStartTicks`/`bootId`
+ *    (`main/daemon/daemon-pid-file-parse.ts`) are compared with `/proc/<pid>/stat` field 22 and
+ *    `/proc/sys/kernel/random/boot_id`, which pid reuse cannot forge.
  *
- * What happens when the two disagree: nothing is signalled. A missing pid record, a recorded pid that
- * is gone, a recorded pid that now belongs to another process (pid reuse), or a mismatched command
- * line all mean "this case has no reclaimable daemon" — and each of those appends a **note** so the
- * reason is recorded rather than silently swallowed.
+ * Any of those failing means "not attributable": **nothing is signalled**, the reason is recorded, and
+ * the reclaim throws so the caller keeps the profile. A leader that has already exited while session
+ * members remain is still reclaimable — such members can only be its descendants.
+ *
+ * Windows has no POSIX process groups, so `readProcessTable` reports `pgid: null` there and the
+ * identification refuses (throws, profile kept) instead of guessing a tree from parent links.
  *
  * The stop follows the same rule as `real-agent-process.ts`: a signal that was merely sent is not a
- * reclaim. SIGTERM, then SIGKILL after the grace window, and the **exit has to be observed**; what
- * cannot be confirmed is thrown at the caller so a failed cleanup is reported, not skipped.
+ * reclaim. SIGTERM the unit, observe it gone, SIGKILL it, observe again; what cannot be observed gone is
+ * thrown at the caller instead of being reported as a cleanup.
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
-export type ApexDaemonProcess = {
+export type ApexDaemonProcessEntry = {
   pid: number
+  /** Kernel process group; `null` where the platform has none (Windows). */
+  pgid: number | null
+  /** Kernel session id; `null` where the platform has none (Windows). */
+  sid: number | null
+  /** Evidence for a failure message. Never an ownership test. */
   commandLine: string
 }
 
+/** The unit this case owns: the detached daemon's session, which is also its process group. */
+export type ApexDaemonInstance = {
+  /** Process group and session id: `kill(-groupId)` reaches the unit in one call. */
+  groupId: number
+  /** The pid this profile's pid record published: the leader of that unit. */
+  pid: number
+  /** Every live pid of that session/group when the unit was identified. */
+  members: number[]
+}
+
 type ApexDaemonSeams = {
-  /** Every live process on the host, keyed by pid. Injectable so the unit test needs no `ps`. */
-  listProcesses?: () => Map<number, string>
-  signal?: (pid: number, signal: NodeJS.Signals) => void
+  /** The live process table, keyed by pid. Injectable so the unit test needs no `ps`. */
+  listProcesses?: () => Map<number, ApexDaemonProcessEntry>
+  /** Signal the whole owned unit (group plus session members). */
+  signalUnit?: (instance: ApexDaemonInstance, signal: NodeJS.Signals) => void
+  /** True while the kernel still has a process in that group (`kill(-pgid, 0)` without ESRCH). */
+  unitIsAlive?: (groupId: number) => boolean
+  /** `/proc/<pid>/stat` field 22, the per-instance fence. */
+  readStartTicks?: (pid: number) => string | null
+  readBootId?: () => string | null
   sleep?: (ms: number) => Promise<void>
-  /** Called for every "why there was nothing to reclaim" note, so a throw cannot lose them. */
+  /** Called for every note, so a throw cannot lose the reasons. */
   recordNote?: (note: string) => void
 }
 
@@ -60,61 +88,93 @@ export type ReclaimApexDaemonsInput = {
 }
 
 export type ApexDaemonReclaim = {
-  /** Pids this case signalled and then **observed** to exit. Never "signals sent". */
+  /** Pids of the owned unit, every one of them **observed** gone. Never "signals sent". */
   reclaimed: number[]
-  /** Owned daemons still in the process table when the last observation timed out. */
-  surviving: ApexDaemonProcess[]
-  /** Why a scan found nothing to reclaim (missing/foreign pid record...). Recorded, not silent. */
+  /** Owned unit rows still in the process table when the last observation timed out. */
+  surviving: ApexDaemonProcessEntry[]
+  /** Why the reclaim went the way it did. Recorded, not silent. */
   notes: string[]
 }
 
 const DEFAULT_GRACE_MS = 5_000
 const DEFAULT_KILL_GRACE_MS = 3_000
 const DEFAULT_POLL_MS = 100
-const DAEMON_ENTRY = 'daemon-entry.js'
-/** Protocol-versioned names the daemon publishes in its own runtime dir (`daemon-spawner.ts:139-143`). */
-const SOCKET_NAME = 'daemon-v38.sock'
+/** Protocol-versioned name the daemon publishes in its own runtime dir (`daemon-spawner.ts:139-143`). */
 const PID_RECORD_NAME = 'daemon-v38.pid'
 
-/** `ps -eo pid=,args=` (or the PowerShell equivalent): pid → full command line. */
-export function readProcessCommandLines(): Map<number, string> {
-  if (process.platform === 'win32') {
-    const stdout = execFileSync(
-      'powershell.exe',
-      [
-        '-NoLogo',
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress'
-      ],
-      { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, windowsHide: true }
-    )
-    const parsed = JSON.parse(stdout || '[]') as
-      | { ProcessId?: unknown; CommandLine?: unknown }
-      | { ProcessId?: unknown; CommandLine?: unknown }[]
-    const rows = Array.isArray(parsed) ? parsed : [parsed]
-    const lines = new Map<number, string>()
-    for (const row of rows) {
-      const pid = Number(row.ProcessId)
-      if (Number.isInteger(pid) && typeof row.CommandLine === 'string') {
-        lines.set(pid, row.CommandLine)
-      }
-    }
-    return lines
-  }
-  const stdout = execFileSync('ps', ['-eo', 'pid=,args='], {
+function readWindowsCommandLines(): Map<number, string> {
+  const args = [
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress'
+  ]
+  const stdout = execFileSync('powershell.exe', args, {
     encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024
+    maxBuffer: 32 * 1024 * 1024,
+    windowsHide: true
   })
+  const parsed = JSON.parse(stdout || '[]') as
+    | { ProcessId?: unknown; CommandLine?: unknown }
+    | { ProcessId?: unknown; CommandLine?: unknown }[]
   const lines = new Map<number, string>()
-  for (const line of stdout.split('\n')) {
-    const match = /^\s*(\d+)\s+(.*)$/.exec(line)
-    if (match) {
-      lines.set(Number(match[1]), match[2])
+  for (const row of Array.isArray(parsed) ? parsed : [parsed]) {
+    const pid = Number(row.ProcessId)
+    if (Number.isInteger(pid) && typeof row.CommandLine === 'string') {
+      lines.set(pid, row.CommandLine)
     }
   }
   return lines
+}
+
+/**
+ * The live process table with the kernel's own group/session columns.
+ *
+ * `pgid`/`sid` are `null` on Windows, which has no POSIX process groups: the identification below then
+ * refuses to signal instead of guessing a tree from parent links.
+ */
+export function readProcessTable(): Map<number, ApexDaemonProcessEntry> {
+  const table = new Map<number, ApexDaemonProcessEntry>()
+  if (process.platform === 'win32') {
+    for (const [pid, commandLine] of readWindowsCommandLines()) {
+      table.set(pid, { pid, pgid: null, sid: null, commandLine })
+    }
+    return table
+  }
+  const stdout = execFileSync('ps', ['-eo', 'pid=,ppid=,pgid=,sid=,args='], {
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024
+  })
+  for (const line of stdout.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line)
+    if (match) {
+      const pid = Number(match[1])
+      table.set(pid, { pid, pgid: Number(match[3]), sid: Number(match[4]), commandLine: match[5] })
+    }
+  }
+  return table
+}
+
+/**
+ * `/proc/<pid>/stat` field 22: this boot's tick count at which the pid started. Field 2 is `(comm)` and
+ * may contain spaces or parentheses, so counting starts after the last ')' (index 19 is then field 22).
+ */
+function readLinuxStartTicks(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    return stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)[19] ?? null
+  } catch {
+    return null
+  }
+}
+
+const readLinuxBootId = (): string | null => {
+  try {
+    return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()
+  } catch {
+    return null
+  }
 }
 
 export type ApexDaemonPidRecord = {
@@ -122,6 +182,9 @@ export type ApexDaemonPidRecord = {
   pid: number
   entryPath: string | null
   launchNonce: string | null
+  /** Kernel instance fence written by the daemon itself (`daemon-pid-file-parse.ts`). */
+  linuxStartTicks: string | null
+  bootId: string | null
 }
 
 export type ApexDaemonPidRecordRead = {
@@ -130,37 +193,33 @@ export type ApexDaemonPidRecordRead = {
   problem: string | null
 }
 
-/**
- * This profile's own pid record — the identity half of the ownership fence. Returns the reason
- * instead of throwing, because "no record" is a note to record, not an exception to lose.
- */
+const text = (value: unknown): string | null => (typeof value === 'string' ? value : null)
+
+/** This profile's own pid record: the only source of the pid this case may ever signal. */
 export function readApexDaemonPidRecord(daemonDir: string): ApexDaemonPidRecordRead {
   const pidFile = path.join(daemonDir, PID_RECORD_NAME)
   if (!existsSync(daemonDir)) {
-    return { record: null, problem: `the profile daemon dir ${daemonDir} does not exist: no daemon was forked` }
+    const problem = `the profile daemon dir ${daemonDir} does not exist: no daemon was forked`
+    return { record: null, problem }
   }
   if (!existsSync(pidFile)) {
     return { record: null, problem: `no daemon pid record at ${pidFile}` }
   }
   try {
-    const parsed = JSON.parse(readFileSync(pidFile, 'utf8')) as {
-      pid?: unknown
-      launchNonce?: unknown
-      entryPath?: unknown
-    }
+    const parsed = JSON.parse(readFileSync(pidFile, 'utf8')) as Record<string, unknown>
     const pid = Number(parsed.pid)
     if (!Number.isInteger(pid)) {
       return { record: null, problem: `the daemon pid record ${pidFile} carries no usable pid` }
     }
-    return {
-      record: {
-        pidFile,
-        pid,
-        entryPath: typeof parsed.entryPath === 'string' ? parsed.entryPath : null,
-        launchNonce: typeof parsed.launchNonce === 'string' ? parsed.launchNonce : null
-      },
-      problem: null
+    const record = {
+      pidFile,
+      pid,
+      entryPath: text(parsed.entryPath),
+      launchNonce: text(parsed.launchNonce),
+      linuxStartTicks: text(parsed.linuxStartTicks),
+      bootId: text(parsed.bootId)
     }
+    return { record, problem: null }
   } catch (error) {
     return {
       record: null,
@@ -169,208 +228,181 @@ export function readApexDaemonPidRecord(daemonDir: string): ApexDaemonPidRecordR
   }
 }
 
-/** Every pid record under the daemon dir, for evidence: what this profile published, and why. */
-export function readApexDaemonPidRecords(
-  daemonDir: string
-): { pidFile: string; pid: number; launchNonce: string | null }[] {
-  if (!existsSync(daemonDir)) {
-    return []
-  }
-  const records: { pidFile: string; pid: number; launchNonce: string | null }[] = []
-  for (const entry of readdirSync(daemonDir)) {
-    if (!entry.endsWith('.pid')) {
-      continue
-    }
-    const pidFile = path.join(daemonDir, entry)
-    try {
-      const parsed = JSON.parse(readFileSync(pidFile, 'utf8')) as {
-        pid?: unknown
-        launchNonce?: unknown
-      }
-      const pid = Number(parsed.pid)
-      if (Number.isInteger(pid)) {
-        records.push({
-          pidFile,
-          pid,
-          launchNonce: typeof parsed.launchNonce === 'string' ? parsed.launchNonce : null
-        })
-      }
-    } catch {
-      // A record mid-replace is not evidence of a live daemon; the process scan decides.
-    }
-  }
-  return records
-}
-
-/** True when `value` appears in `commandLine` as a **whole argument**, not as a path prefix. */
-export function namesExactArgument(commandLine: string, value: string): boolean {
-  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return new RegExp(`(?:^|[\\s"'])${escaped}(?=$|[\\s"'])`).test(commandLine)
-}
-
-/**
- * The command-line half of the ownership fence: the daemon entry plus **this profile's exact** socket
- * and pid-record paths. `.../daemon` is a prefix of `.../daemon-other`, so both are compared as whole
- * arguments and a mere mention of the directory (`--inspect <daemonDir>`) does not qualify.
- */
-export function commandLineIsOwnDaemon(commandLine: string, daemonDir: string): boolean {
-  return (
-    commandLine.includes(DAEMON_ENTRY) &&
-    namesExactArgument(commandLine, path.join(daemonDir, SOCKET_NAME)) &&
-    namesExactArgument(commandLine, path.join(daemonDir, PID_RECORD_NAME))
-  )
-}
-
-export type ApexDaemonScan = {
-  /** The one process this case can prove it owns, or null: the only pid a signal may ever reach. */
-  target: ApexDaemonProcess | null
-  /** Every reason the scan concluded there was nothing (or something unattributable) to reclaim. */
+export type ApexDaemonIdentification = {
+  /** The unit this case owns, or null when it provably has none left. */
+  instance: ApexDaemonInstance | null
   notes: string[]
+  /** Set exactly when ownership could not be established: the caller must not signal anything. */
+  unconfirmed: string | null
 }
 
 /**
- * The ownership scan: pid record first, then the recorded pid's own command line. A process that is a
- * `daemon-entry.js` but **not** the recorded pid is reported, never targeted — a stale record must not
- * hide a live daemon, and a stranger must not be signalled because it mentions this directory.
+ * Establish **which process group** this profile's daemon owns — from the profile's own pid record plus
+ * the kernel's group/session columns and the record's instance fence. Never from a command line.
  */
-export function scanApexDaemon(
+export function identifyApexDaemonGroup(
   daemonDir: string,
-  commandLines: Map<number, string> = readProcessCommandLines()
-): ApexDaemonScan {
+  table: Map<number, ApexDaemonProcessEntry> = readProcessTable(),
+  seams: ApexDaemonSeams = {}
+): ApexDaemonIdentification {
   const notes: string[] = []
   const { record, problem } = readApexDaemonPidRecord(daemonDir)
+  // "No record" is not "no daemon": the profile dir exists, so something may hold it. Not signalable.
   if (record === null) {
-    notes.push(problem ?? `no usable daemon pid record under ${daemonDir}`)
-    return { target: null, notes }
+    return { instance: null, notes, unconfirmed: problem ?? `no usable pid record under ${daemonDir}` }
   }
-
-  const recorded = commandLines.get(record.pid)
-  let target: ApexDaemonProcess | null = null
-  if (recorded === undefined) {
-    notes.push(
-      `the daemon pid record ${record.pidFile} names pid ${record.pid}, which is not in the process ` +
-        'table: it already exited'
-    )
-  } else if (!commandLineIsOwnDaemon(recorded, daemonDir)) {
-    notes.push(
-      `the daemon pid record ${record.pidFile} names pid ${record.pid}, but that pid is another ` +
-        `process now (pid reuse): not signalled\n${recorded}`
-    )
-  } else {
-    target = { pid: record.pid, commandLine: recorded }
-  }
-
-  for (const [pid, commandLine] of commandLines) {
-    if (pid === record.pid || !commandLine.includes(DAEMON_ENTRY) || !commandLine.includes(daemonDir)) {
-      continue
+  const groupId = record.pid
+  const rows = [...table.values()].filter((e) => e.pgid === groupId || e.sid === groupId)
+  const members = rows.map((e) => e.pid)
+  const confirm = (members2: number[]): ApexDaemonIdentification => ({
+    instance: { groupId, pid: groupId, members: members2 },
+    notes,
+    unconfirmed: null
+  })
+  const refuse = (unconfirmed: string): ApexDaemonIdentification => ({ instance: null, notes, unconfirmed })
+  const leader = table.get(groupId)
+  if (leader === undefined) {
+    if (members.length === 0) {
+      notes.push(
+        `the daemon pid record ${record.pidFile} names pid ${groupId}, which is gone from the process ` +
+          'table with no session or group member left: it already exited'
+      )
+      return { instance: null, notes, unconfirmed: null }
     }
     notes.push(
-      `pid ${pid} mentions ${daemonDir} but is not the pid ${record.pid} from the record: ` +
-        `not signalled\n${commandLine}`
+      `the daemon pid record ${record.pidFile} names pid ${groupId}, which already exited; ` +
+        `${members.length} process(es) of its session remain (${members.join(', ')}), which can only ` +
+        'be its descendants: reclaiming the group'
+    )
+    return confirm(members)
+  }
+  if (leader.pgid !== groupId || leader.sid !== groupId) {
+    return refuse(
+      `the daemon pid record ${record.pidFile} names pid ${groupId}, but that pid no longer leads its ` +
+        `own session and process group (pgid ${String(leader.pgid)}, sid ${String(leader.sid)}): pid ` +
+        `reuse, not this case's daemon\n${leader.commandLine}`
     )
   }
-  return { target, notes }
+  const ticks = record.linuxStartTicks
+  if (ticks !== null) {
+    const actual = (seams.readStartTicks ?? readLinuxStartTicks)(groupId)
+    if (actual !== null && actual !== ticks) {
+      return refuse(
+        `the daemon pid record ${record.pidFile} names pid ${groupId}, but that pid started at tick ` +
+          `${actual} and the record says ${ticks}: pid reuse`
+      )
+    }
+  }
+  const bootId = record.bootId
+  if (bootId !== null) {
+    const current = (seams.readBootId ?? readLinuxBootId)()
+    if (current !== null && current !== bootId) {
+      return refuse(
+        `the daemon pid record ${record.pidFile} was written under boot ${bootId} but this host ` +
+          `booted as ${current}: pid reuse`
+      )
+    }
+  }
+  return confirm(members)
 }
 
+/** Signal the owned unit: the group in one `kill(-pgid)`, then each session member by pid. */
+function signalApexDaemonUnit(instance: ApexDaemonInstance, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-instance.groupId, signal)
+  } catch {
+    // ESRCH (already gone) or EPERM (not ours to signal): the observation below decides.
+  }
+  for (const pid of instance.members) {
+    try {
+      // A job-control group inside the same session has its own pgid, which `-pgid` does not reach.
+      process.kill(pid, signal)
+    } catch {
+      // Same.
+    }
+  }
+}
+
+function apexDaemonUnitIsAlive(groupId: number): boolean {
+  try {
+    process.kill(-groupId, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+const describeUnit = (rows: ApexDaemonProcessEntry[]): string =>
+  rows.map((r) => `pid ${r.pid} (pgid ${String(r.pgid)}, sid ${String(r.sid)}): ${r.commandLine}`).join('\n')
+
 /**
- * Stop this profile's daemon and confirm it is gone. Throws when it survives — the caller must report a
- * failed cleanup and keep the temp root, rather than deleting a directory a live daemon is still
- * writing into. Every observation re-checks the **same** pid against the same ownership fence, so a
- * process that appears later (or a recycled pid) is neither signalled nor reported as a survivor.
+ * Stop this profile's daemon group and confirm it is gone. Throws when it survives **or when ownership
+ * cannot be established** — the caller must report a failed cleanup and keep the temp root, rather than
+ * deleting a directory a live daemon is still writing into.
  */
-export async function reclaimApexDaemons(
-  input: ReclaimApexDaemonsInput
-): Promise<ApexDaemonReclaim> {
+export async function reclaimApexDaemons(input: ReclaimApexDaemonsInput): Promise<ApexDaemonReclaim> {
   const seams = input.seams ?? {}
-  const signal =
-    seams.signal ??
-    ((pid: number, value: NodeJS.Signals): void => {
-      process.kill(pid, value)
-    })
-  const list = seams.listProcesses ?? readProcessCommandLines
-  const sleep = seams.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+  const list = seams.listProcesses ?? readProcessTable
+  const signalUnit = seams.signalUnit ?? signalApexDaemonUnit
+  const unitIsAlive = seams.unitIsAlive ?? apexDaemonUnitIsAlive
+  const sleep = seams.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
   const graceMs = input.graceMs ?? DEFAULT_GRACE_MS
   const killGraceMs = input.killGraceMs ?? DEFAULT_KILL_GRACE_MS
   const pollMs = input.pollMs ?? DEFAULT_POLL_MS
 
-  const scan = scanApexDaemon(input.daemonDir, list())
-  const notes = scan.notes
+  const identification = identifyApexDaemonGroup(input.daemonDir, list(), seams)
+  const notes = identification.notes
   for (const note of notes) {
     seams.recordNote?.(note)
   }
-  const target = scan.target
-  if (target === null) {
+  if (identification.unconfirmed !== null) {
+    throw new Error(
+      `cannot establish which process group belongs to the apex daemon for ${input.daemonDir} ` +
+        `(nothing was signalled and the profile is kept):\n${identification.unconfirmed}`
+    )
+  }
+  const instance = identification.instance
+  if (instance === null) {
     return { reclaimed: [], surviving: [], notes }
   }
 
-  const observe = (): ApexDaemonProcess | null => {
-    const commandLine = list().get(target.pid)
-    if (commandLine === undefined) {
-      return null
+  const groupId = instance.groupId
+  const owned = instance.members.length > 0 ? instance.members : [instance.pid]
+  const observeUnit = (): ApexDaemonProcessEntry[] => {
+    const rows = [...list().values()].filter((e) => e.pgid === groupId || e.sid === groupId)
+    if (rows.length > 0 || !unitIsAlive(groupId)) {
+      return rows
     }
-    if (!commandLineIsOwnDaemon(commandLine, input.daemonDir)) {
-      // Our daemon exited and its pid went to something else: not our survivor, not our signal.
-      const recycled = `pid ${target.pid} was recycled after our daemon exited: not signalled`
-      if (!notes.includes(recycled)) {
-        notes.push(recycled)
-        seams.recordNote?.(recycled)
-      }
-      return null
-    }
-    return { pid: target.pid, commandLine }
+    // The group answers signal 0 but the snapshot has no row for it: still alive, still ours.
+    return [{ pid: groupId, pgid: groupId, sid: groupId, commandLine: 'answers signal 0; no row matched it' }]
   }
-
-  const waitForGone = async (timeoutMs: number): Promise<ApexDaemonProcess | null> => {
+  const waitForGone = async (timeoutMs: number): Promise<ApexDaemonProcessEntry[] | null> => {
     const deadline = Date.now() + timeoutMs
     for (;;) {
-      const survivor = observe()
-      if (survivor === null) {
+      const survivors = observeUnit()
+      if (survivors.length === 0) {
         return null
       }
       if (Date.now() > deadline) {
-        return survivor
+        return survivors
       }
       await sleep(pollMs)
     }
   }
 
-  try {
-    signal(target.pid, 'SIGTERM')
-  } catch {
-    // Already gone, or not ours to signal: the observation below is what decides.
+  signalUnit(instance, 'SIGTERM')
+  let survivors = await waitForGone(graceMs)
+  if (survivors !== null) {
+    signalUnit(instance, 'SIGKILL')
+    survivors = await waitForGone(killGraceMs)
   }
-  let survivor = await waitForGone(graceMs)
-  if (survivor === null) {
-    return { reclaimed: [target.pid], surviving: [], notes }
+  if (survivors === null) {
+    return { reclaimed: owned, surviving: [], notes }
   }
-  try {
-    signal(target.pid, 'SIGKILL')
-  } catch {
-    // Same: the second observation decides.
-  }
-  survivor = await waitForGone(killGraceMs)
-  if (survivor === null) {
-    return { reclaimed: [target.pid], surviving: [], notes }
-  }
-  const described = `pid ${survivor.pid}: ${survivor.commandLine}`
   const reason = notes.length > 0 ? `\nscan notes:\n${notes.join('\n')}` : ''
   throw new Error(
-    `the apex daemon for ${input.daemonDir} was not reclaimed after SIGTERM+${graceMs}ms and ` +
-      `SIGKILL+${killGraceMs}ms; it still appears in the process table:\n${described}${reason}`
+    `the apex daemon process group ${groupId} for ${input.daemonDir} was not reclaimed after ` +
+      `SIGTERM+${graceMs}ms and SIGKILL+${killGraceMs}ms; it still appears in the process table:\n` +
+      `${describeUnit(survivors)}${reason}`
   )
-}
-
-/**
- * The assertion form, for a caller that must not delete the profile it is checking: throws naming the
- * daemon of this profile that is still owned, and reports the scan notes when there was none.
- */
-export async function assertNoApexDaemons(daemonDir: string): Promise<string[]> {
-  const scan = scanApexDaemon(daemonDir)
-  if (scan.target !== null) {
-    const daemon = scan.target
-    const survivor = `an apex daemon survived the case for ${daemonDir}:\npid ${daemon.pid}: ${daemon.commandLine}`
-    const reason = scan.notes.length > 0 ? `\nscan notes:\n${scan.notes.join('\n')}` : ''
-    throw new Error(`${survivor}${reason}`)
-  }
-  return scan.notes
 }
