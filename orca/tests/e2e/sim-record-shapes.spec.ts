@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { createServer } from 'node:net'
-import type { Locator, TestInfo } from '@stablyai/playwright-test'
+import type { TestInfo } from '@stablyai/playwright-test'
 import type { Repo } from '../../src/shared/repo-types'
 import { expect, test } from './helpers/orca-app'
 import {
@@ -8,6 +8,8 @@ import {
   type PairedElectronClient
 } from './helpers/paired-electron-client'
 import {
+  expandTaskWorkbenchAgentHistory,
+  expandTaskWorkbenchHistoryDetails,
   expectNoFalseEmptyState,
   expectUnknownUsage,
   openTaskWorkbenchInPairedClient
@@ -28,22 +30,6 @@ async function registerRepo(runtime: SimRuntime): Promise<Repo> {
     kind: 'git'
   })
   return response.result.repo
-}
-
-async function expandHistory(history: Locator): Promise<void> {
-  const details = history.getByTestId('task-workbench-history-details')
-  if ((await details.count()) > 0 && (await details.getAttribute('aria-expanded')) !== 'true') {
-    await details.click()
-    await expect(details).toHaveAttribute('aria-expanded', 'true')
-  }
-}
-
-async function expandAgentHistory(panel: Locator): Promise<void> {
-  const toggle = panel.getByTestId('task-workbench-agents-history-toggle')
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-    await toggle.click()
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
-  }
 }
 
 async function expectPortFree(port: number): Promise<void> {
@@ -177,14 +163,14 @@ test('renders four persisted record shapes without inventing empty or zero state
       'Archived record with two unknown-usage runs'
     )
     await expect(archivedUnknown.history).toHaveAttribute('data-trace', 'archived')
-    await expandHistory(archivedUnknown.history)
+    await expandTaskWorkbenchHistoryDetails(archivedUnknown.history)
     await expect(archivedUnknown.history.getByTestId('task-workbench-history-run')).toHaveCount(2)
     await expectUnknownUsage(archivedUnknown.panel)
     await expectNoFalseEmptyState(archivedUnknown.page, archivedUnknown.panel)
 
     const archivedKnown = await openShape(SHAPES.archivedKnown, 'Archived record with known usage')
     await expect(archivedKnown.history).toHaveAttribute('data-trace', 'archived')
-    await expandHistory(archivedKnown.history)
+    await expandTaskWorkbenchHistoryDetails(archivedKnown.history)
     await expect(archivedKnown.history.getByTestId('task-workbench-history-run')).toHaveCount(1)
     await expect(archivedKnown.history.getByTestId('task-workbench-history-facts')).toContainText(
       '432 tokens'
@@ -198,7 +184,7 @@ test('renders four persisted record shapes without inventing empty or zero state
       SHAPES.liveRuntime,
       'Live runtime binding absent from the client catalog'
     )
-    await expandAgentHistory(liveRuntime.panel)
+    await expandTaskWorkbenchAgentHistory(liveRuntime.panel)
     await expect(liveRuntime.panel.getByTestId('task-workbench-history-run')).toHaveCount(1)
     await expect(liveRuntime.panel.getByTestId('task-workbench-history')).toHaveCount(0)
     await expect(liveRuntime.panel.getByTestId('task-workbench-history-trace-lost')).toHaveCount(0)
@@ -207,7 +193,7 @@ test('renders four persisted record shapes without inventing empty or zero state
 
     const noRuns = await openShape(SHAPES.noRuns, 'Archived binding without recorded runs')
     await expect(noRuns.history).toHaveAttribute('data-trace', 'archived')
-    await expandHistory(noRuns.history)
+    await expandTaskWorkbenchHistoryDetails(noRuns.history)
     await expect(noRuns.history.getByTestId('task-workbench-history-run')).toHaveCount(0)
     await expect(noRuns.history.getByTestId('task-workbench-history-runs-none')).toHaveText(
       'No run recorded.'
