@@ -40,9 +40,7 @@ function statusWith(capabilities: string[]) {
 
 describe('useTaskRecordsRemote', () => {
   it('does not read anything for a task no environment applies to', () => {
-    const { result } = renderHook(() =>
-      useTaskRecordsRemote({ query: QUERY, environmentIds: [] })
-    )
+    const { result } = renderHook(() => useTaskRecordsRemote({ query: QUERY, pairs: [] }))
 
     expect(result.current).toEqual({ pending: false, answers: [] })
     expect(callRuntimeRpc).not.toHaveBeenCalled()
@@ -51,14 +49,17 @@ describe('useTaskRecordsRemote', () => {
   it('asks each environment for the one identity and reports an empty answer as an answer', async () => {
     callRuntimeRpc.mockResolvedValue({ record: null, repoKnown: true })
     const { result } = renderHook(() =>
-      useTaskRecordsRemote({ query: QUERY, environmentIds: ['env-a'] })
+      useTaskRecordsRemote({
+        query: QUERY,
+        pairs: [{ environmentId: 'env-a', repoId: 'remote-repo-a' }]
+      })
     )
 
     await waitFor(() => expect(result.current.pending).toBe(false))
     expect(callRuntimeRpc).toHaveBeenCalledWith(
       { kind: 'environment', environmentId: 'env-a' },
       'taskRecords.get',
-      { repoId: 'repo-1', itemType: 'issue', number: 7 },
+      { repoId: 'remote-repo-a', itemType: 'issue', number: 7 },
       expect.objectContaining({ timeoutMs: 15_000 })
     )
     expect(result.current.answers).toEqual([
@@ -74,7 +75,7 @@ describe('useTaskRecordsRemote', () => {
     const { result } = renderHook(() =>
       useTaskRecordsRemote({
         query: QUERY,
-        environmentIds: ['env-old'],
+        pairs: [{ environmentId: 'env-old', repoId: 'remote-repo-old' }],
         statusByEnvironment: new Map([['env-old', statusWith(['other.v1'])]])
       })
     )
@@ -96,7 +97,10 @@ describe('useTaskRecordsRemote', () => {
     })
     callRuntimeRpc.mockRejectedValue(missingMethod)
     const { result } = renderHook(() =>
-      useTaskRecordsRemote({ query: QUERY, environmentIds: ['env-a'] })
+      useTaskRecordsRemote({
+        query: QUERY,
+        pairs: [{ environmentId: 'env-a', repoId: 'remote-repo-a' }]
+      })
     )
 
     await waitFor(() => expect(result.current.pending).toBe(false))
@@ -117,7 +121,7 @@ describe('useTaskRecordsRemote', () => {
     const { result, rerender } = renderHook(() =>
       useTaskRecordsRemote({
         query: QUERY,
-        environmentIds: ['env-a'],
+        pairs: [{ environmentId: 'env-a', repoId: 'remote-repo-a' }],
         statusByEnvironment: new Map([['env-a', statusWith(['taskRecords.v1'])]])
       })
     )
@@ -131,7 +135,10 @@ describe('useTaskRecordsRemote', () => {
   it('treats a host that does not know the repo as a scope answer', async () => {
     callRuntimeRpc.mockResolvedValue({ record: null, repoKnown: false })
     const { result } = renderHook(() =>
-      useTaskRecordsRemote({ query: QUERY, environmentIds: ['env-b'] })
+      useTaskRecordsRemote({
+        query: QUERY,
+        pairs: [{ environmentId: 'env-b', repoId: 'remote-repo-b' }]
+      })
     )
 
     await waitFor(() => expect(result.current.pending).toBe(false))
@@ -147,7 +154,10 @@ describe('useTaskRecordsRemote', () => {
   it('rejects a malformed answer instead of feeding it to the merge', async () => {
     callRuntimeRpc.mockResolvedValue({ record: { noBindings: true }, repoKnown: true })
     const { result } = renderHook(() =>
-      useTaskRecordsRemote({ query: QUERY, environmentIds: ['env-a'] })
+      useTaskRecordsRemote({
+        query: QUERY,
+        pairs: [{ environmentId: 'env-a', repoId: 'remote-repo-a' }]
+      })
     )
 
     await waitFor(() => expect(result.current.pending).toBe(false))
@@ -155,5 +165,27 @@ describe('useTaskRecordsRemote', () => {
       kind: 'unavailable',
       failure: 'unreachable'
     })
+  })
+
+  it('re-arms when the matched repo id changes and never sends the local page id', async () => {
+    callRuntimeRpc.mockResolvedValue({ record: null, repoKnown: true })
+    const { result, rerender } = renderHook(
+      ({ repoId }) =>
+        useTaskRecordsRemote({
+          query: QUERY,
+          pairs: [{ environmentId: 'env-a', repoId }]
+        }),
+      { initialProps: { repoId: 'remote-repo-a' } }
+    )
+
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    rerender({ repoId: 'remote-repo-b' })
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    expect(callRuntimeRpc).toHaveBeenCalledTimes(2)
+    expect(callRuntimeRpc.mock.calls.map((call) => call[2].repoId)).toEqual([
+      'remote-repo-a',
+      'remote-repo-b'
+    ])
+    expect(callRuntimeRpc.mock.calls.some((call) => call[2].repoId === QUERY.repoId)).toBe(false)
   })
 })

@@ -1,120 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type {
-  TaskRecord,
-  TaskRecordRun,
-  TaskRecordSession,
-  TaskUsageSettlement,
-  TaskWorkspaceBinding
-} from '../../../../shared/task-records-types'
-import type {
-  TaskWorkbenchHistory,
-  TaskWorkbenchHistoryRun
-} from '@/components/task-workbench/task-workbench-view'
+import type { TaskWorkbenchHistoryRun } from '@/components/task-workbench/task-workbench-view'
 import { mergeTaskRecordHistory } from './task-workbench-history-merge'
 import { archivedRowsTokens } from './task-workbench-history-settlement'
-
-const HISTORY: TaskWorkbenchHistory = {
-  agents: 2,
-  wall: { kind: 'measured', startedAt: 1_000, endedAt: 2_000 },
-  tokens: { kind: 'available', tokens: 1_320_000 },
-  lastActivityAt: 2_000,
-  archivedWorkspaces: 0,
-  deletedWorkspaces: 0,
-  tokensSource: 'live',
-  workspaces: [],
-  sessions: [],
-  trace: 'none',
-  runs: []
-}
-
-/**
- * One recorded run, as the snapshot writer stores it (issue #53): written out
- * field by field so a reader can check it against `task-records-types.ts`
- * without following a helper call.
- */
-const RUN: TaskRecordRun = {
-  key: 'claude|session_id:run-1',
-  providerSession: { provider: 'claude', key: 'session_id', id: 'run-1' },
-  title: 'Wire the history fold',
-  agentType: 'claude',
-  startedAt: 5_000,
-  endedAt: 8_000,
-  messageCount: 12,
-  outcome: 'success',
-  transcriptPath: '/tmp/transcripts/run-1.jsonl',
-  transcriptCheck: { checkedAt: 9_000, presence: 'present' },
-  source: 'archive-snapshot',
-  recordedAt: 9_000,
-  firstSeenAt: 5_000,
-  lastSeenAt: 8_000
-}
-
-const SESSION: TaskRecordSession = {
-  provider: 'claude',
-  key: 'session_id',
-  id: 's-1',
-  agentType: 'claude',
-  transcriptPath: '/tmp/transcripts/s-1.jsonl',
-  transcriptCheck: { checkedAt: 9_000, presence: 'unverifiable' },
-  source: 'backfill',
-  recordedAt: 9_000,
-  firstSeenAt: 5_000,
-  lastSeenAt: 8_000
-}
-
-const EMPTY_HISTORY: TaskWorkbenchHistory = {
-  ...HISTORY,
-  agents: null,
-  wall: { kind: 'unknown' },
-  tokens: { kind: 'unavailable', reason: 'unattributed' },
-  runs: []
-}
-
-function binding(
-  worktreeId: string,
-  overrides: Partial<TaskWorkspaceBinding> = {}
-): TaskWorkspaceBinding {
-  return {
-    worktreeId,
-    repoId: 'repo-1',
-    hostId: 'local',
-    path: `/repo/${worktreeId}`,
-    isArchived: false,
-    boundAt: 1_000,
-    boundBy: 'created',
-    lastVerifiedAt: 2_000,
-    resolvedVia: 'locator',
-    sessions: [],
-    ...overrides
-  }
-}
-
-function record(bindings: TaskWorkspaceBinding[]): TaskRecord {
-  return {
-    taskId: 'task:repo-1:issue:31',
-    hostId: 'local',
-    origin: { kind: 'external', provider: 'github', itemType: 'issue', number: 31 },
-    bindings,
-    intent: {},
-    createdAt: 1_000,
-    updatedAt: 2_000,
-    schemaVersion: 1
-  }
-}
-
-function settlement(
-  worktreeId: string,
-  value: TaskUsageSettlement = {
-    kind: 'known',
-    collectedAt: 3_000,
-    scope: 'worktree-rollup',
-    worktreeId,
-    providers: [{ provider: 'claude', tokens: 420_000, costUsd: 0.7 }],
-    estimatedCostUsd: 0.7
-  }
-): TaskUsageSettlement {
-  return value
-}
+import {
+  binding,
+  EMPTY_HISTORY,
+  HISTORY,
+  record,
+  RUN,
+  SESSION,
+  settlement
+} from './task-workbench-history-merge-fixtures'
 
 describe('mergeTaskRecordHistory', () => {
   it('leaves a task whose workspaces all still exist exactly as the join reported it', () => {
@@ -148,6 +44,63 @@ describe('mergeTaskRecordHistory', () => {
       })
     )
     expect(merged.workspaces.map((workspace) => workspace.state)).toEqual(['removed', 'removed'])
+  })
+
+  it('keeps a remote archived binding archived when the local catalog has no row', () => {
+    const merged = mergeTaskRecordHistory({
+      history: EMPTY_HISTORY,
+      existingWorktreeIds: [],
+      record: record([
+        binding('wt-remote', {
+          hostId: 'runtime:env-a',
+          isArchived: true,
+          runs: [RUN]
+        })
+      ])
+    })
+
+    expect(merged.trace).toBe('archived')
+    expect(merged.workspaces).toEqual([
+      expect.objectContaining({ worktreeId: 'wt-remote', state: 'archived' })
+    ])
+    expect(merged.runs).toEqual([
+      expect.objectContaining({ key: RUN.key, resumable: true, transcriptPath: RUN.transcriptPath })
+    ])
+  })
+
+  it('does not state that an unseen non-archived runtime binding was deleted', () => {
+    const merged = mergeTaskRecordHistory({
+      history: EMPTY_HISTORY,
+      existingWorktreeIds: [],
+      record: record([
+        binding('wt-remote-live', {
+          hostId: 'runtime:env-a',
+          isArchived: false,
+          runs: [RUN]
+        })
+      ])
+    })
+
+    expect(merged.trace).not.toBe('deleted')
+    expect(merged.deletedWorkspaces).toBe(0)
+    expect(merged.workspaces).toEqual([])
+    expect(merged.runs).toEqual([
+      expect.objectContaining({ key: RUN.key, resumable: true, transcriptPath: RUN.transcriptPath })
+    ])
+  })
+
+  it('keeps a local binding deleted when the local catalog has no row', () => {
+    const merged = mergeTaskRecordHistory({
+      history: EMPTY_HISTORY,
+      existingWorktreeIds: [],
+      record: record([binding('wt-local', { hostId: 'local', isArchived: true, runs: [RUN] })])
+    })
+
+    expect(merged.trace).toBe('deleted')
+    expect(merged.workspaces).toEqual([
+      expect.objectContaining({ worktreeId: 'wt-local', state: 'removed' })
+    ])
+    expect(merged.runs).toEqual([expect.objectContaining({ key: RUN.key, resumable: false })])
   })
 
   it('labels a live archived workspace as archived, not removed', () => {
@@ -834,112 +787,5 @@ describe('archivedRowsTokens', () => {
       // codex contributed no settled figure at all.
       { kind: 'unavailable', reason: 'unattributed' }
     ])
-  })
-})
-
-describe('mergeTaskRecordHistory — an agent whose TUI closed (issue #53 follow-up)', () => {
-  it("lists a live workspace's recorded run once the pane that ran it is gone", () => {
-    const merged = mergeTaskRecordHistory({
-      history: EMPTY_HISTORY,
-      existingWorktreeIds: ['wt-feature'],
-      // The workspace is still open: only the pane is gone. That is why the run
-      // is not `Removed` — its checkout is right there to resume into.
-      record: record([binding('wt-feature', { runs: [{ ...RUN, source: 'live-observation' }] })])
-    })
-
-    expect(merged.runs).toEqual<TaskWorkbenchHistoryRun[]>([
-      {
-        key: 'claude|session_id:run-1',
-        title: 'Wire the history fold',
-        agentType: 'claude',
-        startedAt: 5_000,
-        endedAt: 8_000,
-        messageCount: 12,
-        outcome: 'success',
-        transcriptPath: '/tmp/transcripts/run-1.jsonl',
-        trace: { presence: 'present', checkedAt: 9_000 },
-        resumable: true,
-        checkoutPath: '/repo/wt-feature',
-        fromRecord: true
-      }
-    ])
-    expect(merged.historySource).toBe('record')
-    // The workspace row stays absent: nothing left the store and nothing is put
-    // away, so the section may not claim an archived or removed workspace.
-    expect(merged.workspaces).toEqual([])
-    expect(merged.archivedWorkspaces).toBe(0)
-    expect(merged.deletedWorkspaces).toBe(0)
-    expect(merged.trace).toBe('none')
-    // The facts line covers the rows under it, including the folded one.
-    expect(merged.agents).toBe(1)
-    expect(merged.wall).toEqual({ kind: 'measured', startedAt: 5_000, endedAt: 8_000 })
-  })
-
-  it('leaves the join untouched when every recorded run is still on screen', () => {
-    const liveRun: TaskWorkbenchHistoryRun = {
-      key: 'pane-live',
-      title: 'Still running',
-      agentType: 'claude',
-      startedAt: 6_000
-    }
-    const history: TaskWorkbenchHistory = {
-      ...EMPTY_HISTORY,
-      agents: 1,
-      runs: [liveRun],
-      historySource: 'live'
-    }
-
-    expect(
-      mergeTaskRecordHistory({
-        history,
-        existingWorktreeIds: ['wt-feature'],
-        record: record([binding('wt-feature', { runs: [{ ...RUN, source: 'live-observation' }] })]),
-        liveRunSessionIds: ['session_id:run-1']
-      })
-    ).toBe(history)
-  })
-
-  it('does not derive rows from a live binding whose sessions were never turned into runs', () => {
-    const history: TaskWorkbenchHistory = { ...EMPTY_HISTORY, agents: null }
-    // `runs` absent means no build observed this workspace's runs; the live
-    // projection is the only row source, and the panel must not invent one from
-    // the removal-era session list.
-    expect(
-      mergeTaskRecordHistory({
-        history,
-        existingWorktreeIds: ['wt-feature'],
-        record: record([binding('wt-feature', { sessions: [SESSION] })])
-      })
-    ).toBe(history)
-  })
-
-  it('lists both the closed run and an archived workspace of the same task', () => {
-    const merged = mergeTaskRecordHistory({
-      history: EMPTY_HISTORY,
-      existingWorktreeIds: ['wt-feature', 'wt-archive'],
-      record: record([
-        binding('wt-feature', { runs: [{ ...RUN, source: 'live-observation' }] }),
-        binding('wt-archive', {
-          isArchived: true,
-          runs: [
-            {
-              ...RUN,
-              key: 'claude|session_id:run-2',
-              providerSession: { provider: 'claude', key: 'session_id', id: 'run-2' },
-              source: 'archive-snapshot'
-            }
-          ]
-        })
-      ])
-    })
-
-    expect(merged.runs.map((run) => run.key)).toEqual([
-      'claude|session_id:run-2',
-      'claude|session_id:run-1'
-    ])
-    expect(merged.runs.every((run) => run.resumable)).toBe(true)
-    expect(merged.historySource).toBe('record')
-    expect(merged.archivedWorkspaces).toBe(1)
-    expect(merged.trace).toBe('archived')
   })
 })

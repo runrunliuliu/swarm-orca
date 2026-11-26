@@ -88,6 +88,8 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   // the catalog only a display name, so neither can re-arm a read by identity.
   const runtimeStatusByEnvironmentId = useAppStore((state) => state.runtimeStatusByEnvironmentId)
   const runtimeEnvironments = useAppStore((state) => state.runtimeEnvironments)
+  const catalogHydrated = useAppStore((state) => state.runtimeEnvironmentCatalogHydrated)
+  const catalogSettled = useAppStore((state) => state.runtimeEnvironmentCatalogSettled)
   const agentStatusByPaneKey = useAppStore((state) => state.agentStatusByPaneKey)
   // A done row outlives its pane: once the agent process exits, the status map is
   // cleaned up and only the retained snapshot still speaks for that run. The
@@ -128,7 +130,7 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   // can name the closed task instead of showing the never-started notice (issue
   // #38 review). The page's provider is passed when it has one, so the lookup is
   // exact instead of the ambiguous provider-less suffix scan.
-  const taskRecord = useTaskRecords(
+  const taskRecordQuery =
     repoId === null
       ? null
       : {
@@ -136,7 +138,9 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
           itemType,
           number,
           ...(taskSourceContext?.provider ? { provider: taskSourceContext.provider } : {})
-        },
+        }
+  const taskRecord = useTaskRecords(
+    taskRecordQuery,
     // Any change to this repo's workspace list can change the record: a removal
     // settles it, an archive rewrites a binding.
     worktrees
@@ -178,21 +182,20 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
   // This task's record, from the client's profile and each environment its
   // workspaces name (issue #31). `local` is always part of the answer, so an
   // environment that cannot answer keeps exactly what this computer already had.
-  const { record, recordSource, pending: recordSourcesPending } = useTaskRecordSources({
-    query:
-      repoId === null
-        ? null
-        : {
-            repoId,
-            itemType,
-            number,
-            ...(taskSourceContext?.provider ? { provider: taskSourceContext.provider } : {})
-          },
+  const {
+    record,
+    recordSource,
+    pending: recordSourcesPending
+  } = useTaskRecordSources({
+    query: taskRecordQuery,
     worktrees: matchedWorktrees,
     local: taskRecord.record,
-    ...(repo ? { repoHostId: getRepoExecutionHostId(repo) } : {}),
+    ...(repo ? { repoHostId: getRepoExecutionHostId(repo), pageRepo: repo } : {}),
+    providerIdentity: taskSourceContext?.providerIdentity,
     statusByEnvironment: runtimeStatusByEnvironmentId,
     environments: runtimeEnvironments,
+    catalogHydrated,
+    catalogSettled,
     revision: worktrees
   })
 
@@ -421,7 +424,8 @@ export function useTaskWorkbenchView(args: TaskWorkbenchViewArgs): TaskWorkbench
       // Where the record came from, so the panel can say which profiles it folded
       // in and which it could not reach, instead of presenting a merged (and
       // possibly partial) history as the whole truth (issue #31).
-      history: recordSource ? { ...history, recordSource } : history,
+      history,
+      ...(recordSource ? { recordSource } : {}),
       // Pending while EITHER source is still being read: the panel must not print
       // "no history" while a remote profile may still answer.
       historyPending: taskRecord.pending || recordSourcesPending,

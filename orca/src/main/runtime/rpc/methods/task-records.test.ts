@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { OrcaRuntimeService } from '../../orca-runtime'
+import { OrcaRuntimeService } from '../../orca-runtime'
 import type { RpcRequest } from '../core'
 import { RpcDispatcher } from '../dispatcher'
 import { TASK_RECORD_METHODS } from './task-records'
@@ -65,7 +65,61 @@ function makeRuntime(result: { record: TaskRecord | null; repoKnown: boolean }) 
   }
 }
 
+class ReceiverSensitiveStore {
+  readonly state: { record: TaskRecord | null }
+
+  constructor(record: TaskRecord | null) {
+    this.state = { record }
+  }
+
+  getRepo(repoId: string): { id: string } | null {
+    return repoId === 'repo-1' ? { id: repoId } : null
+  }
+
+  getTaskRecordForTask(): TaskRecord | null {
+    return this.state.record
+  }
+}
+
 describe('taskRecords.get', () => {
+  it('keeps the Store receiver while reading a known repository', async () => {
+    const record = makeRecord()
+    const store = new ReceiverSensitiveStore(record)
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This fixture exposes only the two runtime methods the dispatcher reaches.
+    const runtime = {
+      getRuntimeId: () => 'test-runtime',
+      getTaskRecordForTask: (params: unknown) =>
+        Reflect.apply(OrcaRuntimeService.prototype.getTaskRecordForTask, { store }, [params])
+    } as unknown as OrcaRuntimeService
+    const dispatcher = new RpcDispatcher({ runtime, methods: TASK_RECORD_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('taskRecords.get', {
+        repoId: 'repo-1',
+        itemType: 'issue',
+        number: 7,
+        provider: 'github'
+      })
+    )
+
+    expect(response).toMatchObject({ ok: true, result: { record, repoKnown: true } })
+  })
+
+  it('answers null without throwing when the store has no task-record accessor', () => {
+    // The accessor is optional in the store contract (runtime-store-contract.ts):
+    // the headless root and test doubles build the store by parts. A store with
+    // `getRepo` but no `getTaskRecordForTask` must answer "could not ask", not throw.
+    const store = { getRepo: (repoId: string) => (repoId === 'repo-1' ? { id: repoId } : null) }
+
+    const result = Reflect.apply(
+      OrcaRuntimeService.prototype.getTaskRecordForTask,
+      { store },
+      [{ repoId: 'repo-1', itemType: 'issue', number: 7, provider: 'github' }]
+    )
+
+    expect(result).toEqual({ record: null, repoKnown: true })
+  })
+
   it('answers one identity with the record this runtime holds', async () => {
     const record = makeRecord()
     const { runtime, getTaskRecordForTask } = makeRuntime({ record, repoKnown: true })
@@ -136,5 +190,27 @@ describe('taskRecords.get', () => {
     )
 
     expect(response).toMatchObject({ ok: true, result: { record: null, repoKnown: false } })
+  })
+
+  it('can answer a colliding but wrong repo id as known and empty', async () => {
+    // This is why the renderer must resolve the answering runtime's own repo id first:
+    // a host-local id collision is indistinguishable from an honestly empty task here.
+    const { runtime, getTaskRecordForTask } = makeRuntime({ record: null, repoKnown: true })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TASK_RECORD_METHODS })
+
+    const response = await dispatcher.dispatch(
+      makeRequest('taskRecords.get', {
+        repoId: 'local-id-that-collides-remotely',
+        itemType: 'issue',
+        number: 7
+      })
+    )
+
+    expect(response).toMatchObject({ ok: true, result: { record: null, repoKnown: true } })
+    expect(getTaskRecordForTask).toHaveBeenCalledWith({
+      repoId: 'local-id-that-collides-remotely',
+      itemType: 'issue',
+      number: 7
+    })
   })
 })

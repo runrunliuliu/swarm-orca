@@ -1,23 +1,9 @@
 import type { Page } from '@stablyai/playwright-test'
-import { mkdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { captureEvidence } from './helpers/evidence-capture'
 import { test, expect } from './helpers/orca-app'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { seedLineageScenario } from './worktree-lineage-state'
 import { worktreeRow } from './worktree-row-locators'
-
-// Set ORCA_CAPTURE_EVIDENCE=1 to also write before/after screenshots to
-// pr-evidence/. Off by default so CI just runs the behavioral assertions.
-const CAPTURE_EVIDENCE = process.env.ORCA_CAPTURE_EVIDENCE === '1'
-const SHOT_DIR = resolve(process.cwd(), 'pr-evidence')
-
-async function captureSidebar(page: Page, name: string): Promise<void> {
-  if (!CAPTURE_EVIDENCE) {
-    return
-  }
-  mkdirSync(SHOT_DIR, { recursive: true })
-  await sidebar(page).screenshot({ path: resolve(SHOT_DIR, name) })
-}
 
 // Seed two independent root agents on the parent worktree so its card shows the
 // compact "2 agents" summary pill alongside the "N child workspaces" chip.
@@ -94,12 +80,20 @@ test.describe('Worktree lineage agent-list expansion independence', () => {
     await expect(childWorkspacesChip(orcaPage, parentId)).toBeVisible()
     await expect(childRow).toBeVisible()
     await expect(compactSummary(orcaPage, parentId)).toHaveAttribute('aria-expanded', 'false')
-    await captureSidebar(orcaPage, '1-before-both-collapsed.png')
+    await captureEvidence({
+      page: orcaPage,
+      name: '1-before-both-collapsed.png',
+      locator: sidebar(orcaPage)
+    })
 
     // Expand the agent summary.
     await compactSummary(orcaPage, parentId).click()
     await expect(compactSummary(orcaPage, parentId)).toHaveAttribute('aria-expanded', 'true')
-    await captureSidebar(orcaPage, '2-agents-expanded.png')
+    await captureEvidence({
+      page: orcaPage,
+      name: '2-agents-expanded.png',
+      locator: sidebar(orcaPage)
+    })
 
     // Collapse the child worktrees via the chip. This remounts the parent card.
     await childWorkspacesChip(orcaPage, parentId).click()
@@ -107,6 +101,10 @@ test.describe('Worktree lineage agent-list expansion independence', () => {
 
     // FIXED: the agent summary stays expanded despite the card remount.
     await expect(compactSummary(orcaPage, parentId)).toHaveAttribute('aria-expanded', 'true')
-    await captureSidebar(orcaPage, '3-after-children-toggle-agents-still-expanded.png')
+    await captureEvidence({
+      page: orcaPage,
+      name: '3-after-children-toggle-agents-still-expanded.png',
+      locator: sidebar(orcaPage)
+    })
   })
 })

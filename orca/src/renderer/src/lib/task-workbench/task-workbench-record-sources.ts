@@ -47,13 +47,16 @@ import { mergeRunRows, mergeSessionRows } from '../../../../shared/task-records-
  */
 
 /** Why a source could not answer. Every arm is a *different* decision for the
- *  reader: an old runtime is a version gap, a forbidden one is a scope gap, a
- *  repo the host never registered is a wrong-environment gap, and a transport
- *  failure is a retry. None of them means "this task has no history". */
+ *  reader: an old runtime is a version gap, a forbidden one is a scope gap,
+ *  `repo-unknown` is the runtime's own answer, `repo-unmatched` is a client-side
+ *  catalog mismatch, and a transport failure is a retry. None of them means
+ *  "this task has no history". */
 export const TASK_RECORD_SOURCE_FAILURES = [
   'unsupported',
   'forbidden',
   'repo-unknown',
+  'repo-unmatched',
+  'repo-ambiguous',
   'unreachable'
 ] as const
 export type TaskRecordSourceFailure = (typeof TASK_RECORD_SOURCE_FAILURES)[number]
@@ -149,10 +152,7 @@ function noteField(
   }
 }
 
-function targetMatchesBinding(
-  target: RuntimeClientTarget,
-  binding: TaskWorkspaceBinding
-): boolean {
+function targetMatchesBinding(target: RuntimeClientTarget, binding: TaskWorkspaceBinding): boolean {
   const parsed = parseExecutionHostId(binding.hostId)
   if (target.kind === 'local') {
     return parsed?.kind === 'local'
@@ -162,6 +162,29 @@ function targetMatchesBinding(
 
 /** One source's view of the record, paired with the target it came from. */
 type SourceRecord = { target: RuntimeClientTarget; record: TaskRecord }
+
+/** A runtime profile spells its own checkout host as `local`; once that record
+ * crosses the paired boundary, the client must scope that relative identity to
+ * the environment that answered. Already-qualified runtime/SSH bindings remain
+ * byte-for-byte unchanged. */
+function scopeRecordToTarget(target: RuntimeClientTarget, record: TaskRecord): TaskRecord {
+  if (target.kind !== 'environment') {
+    return record
+  }
+  const hostId = toRuntimeExecutionHostId(target.environmentId)
+  const bindings = record.bindings.map((binding) =>
+    binding.hostId === 'local' ? { ...binding, hostId } : binding
+  )
+  const bindingsChanged = bindings.some((binding, index) => binding !== record.bindings[index])
+  if (record.hostId !== 'local' && !bindingsChanged) {
+    return record
+  }
+  return {
+    ...record,
+    ...(record.hostId === 'local' ? { hostId } : {}),
+    bindings
+  }
+}
 
 /** `kind|detail` is the gap identity the domain's own merge uses; two sources
  *  that observed one absence must print it once. */
@@ -206,7 +229,14 @@ export function mergeTaskRecordSources(args: {
     }
     answered.push(answer.target)
     if (answer.record) {
-      records.push({ target: answer.target, record: answer.record })
+      records.push({
+        target: answer.target,
+        // Always scope: a runtime profile spells its own checkout host as `local`,
+        // so leaving a mixed record's remote binding unscoped makes the history
+        // merge read that live binding as a removed one. Scoping is idempotent for
+        // already-qualified bindings, so a mixed record is safe to scope too.
+        record: scopeRecordToTarget(answer.target, answer.record)
+      })
     }
   }
   const base = records[0]
@@ -214,10 +244,8 @@ export function mergeTaskRecordSources(args: {
     return { record: null, answered, unavailable, conflicts: [] }
   }
   // One source is the local-only task (or a task whose only record is on one
-  // environment): the answer is that record, unchanged and the same object. This
-  // is what keeps the local behaviour bit-for-bit what it was before records had
-  // more than one possible source — no rebuild, no reordered binding, nothing for
-  // a memo downstream to see.
+  // environment): after the remote-local host spelling above is scoped, no merge
+  // or reordering remains to do.
   if (records.length === 1) {
     return { record: base.record, answered, unavailable, conflicts: [] }
   }

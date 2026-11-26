@@ -202,13 +202,16 @@ export type TaskWorkbenchHistorySession = {
 /** Why a source's record could not be read (issue #31). Each arm is a different
  *  sentence and a different remedy, and none of them means "no history":
  *  `unsupported` is a host older than this app (retry after it updates),
- *  `forbidden` is a scope the client does not hold, `repo-unknown` is an
- *  environment that has no registration for this repository, and `unreachable` is
- *  a timeout or a lost connection (retry now). */
+ *  `forbidden` is a scope the client does not hold, `repo-unknown` is the
+ *  runtime's authoritative answer, `repo-unmatched` is a client catalog mismatch,
+ *  `repo-ambiguous` means several registrations match, and `unreachable` is a
+ *  timeout or a lost connection (retry now). */
 export type TaskWorkbenchRecordSourceFailure =
   | 'unsupported'
   | 'forbidden'
   | 'repo-unknown'
+  | 'repo-unmatched'
+  | 'repo-ambiguous'
   | 'unreachable'
 
 /** One environment whose profile could not be read for this task. */
@@ -242,6 +245,12 @@ export type TaskWorkbenchRecordSourceConflict = {
  * had nothing". */
 export type TaskWorkbenchRecordSource = {
   environmentIds: string[]
+  /** Only this source state can make final local absence unsafe. A fallback probe
+   *  for a known local repo may print a notice without removing its Create action. */
+  blocksFinalAbsence?: boolean
+  /** No safe remote target could be derived. This has no environment id and is
+   *  therefore separate from the target-specific `unavailable` rows. */
+  candidateFailure?: 'undetermined'
   /** Sources that answered, with a record or explicitly without one. */
   answered: string[]
   unavailable: TaskWorkbenchRecordSourceUnavailable[]
@@ -298,10 +307,6 @@ export type TaskWorkbenchHistory = {
    *  a reader must not read an empty list as "nothing ran", which is why the run
    *  list says `no run recorded` separately. */
   gaps?: TaskWorkbenchGapView[]
-  /** Where the record came from, and what could not be read (issue #31). Absent on
-   *  a view built before records had more than one possible source — which is not
-   *  "everything was read", but there is nothing to print either way. */
-  recordSource?: TaskWorkbenchRecordSource
 }
 
 /** Renderer overlay on the untouched snapshot card (R18): the row component
@@ -362,6 +367,9 @@ export type TaskWorkbenchView = {
   /** Present only when work was actually recorded: absent is the never-started
    *  state whose primary action is `Create workspace`. */
   history?: TaskWorkbenchHistory
+  /** Where task history came from, including failures that exist before a history
+   *  row can be assembled. */
+  recordSource?: TaskWorkbenchRecordSource
   /** True until the persisted run ledger answered; the panel must not render the
    *  never-started empty state while a deleted history may still arrive. */
   historyPending?: boolean

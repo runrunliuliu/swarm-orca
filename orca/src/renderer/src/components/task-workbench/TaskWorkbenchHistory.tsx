@@ -319,9 +319,7 @@ export function TaskWorkbenchHistory({
           Rendered in compact mode too: an environment the client could not reach
           is a fact about the history's completeness, and folding it away with the
           details would leave the shorter view claiming a whole picture. */}
-      {history.recordSource === undefined ? null : (
-        <RecordSourceNotice source={history.recordSource} />
-      )}
+      {view.recordSource === undefined ? null : <RecordSourceNotice source={view.recordSource} />}
 
       {detailsOpen && history.workspaces.length > 0 ? (
         <ul
