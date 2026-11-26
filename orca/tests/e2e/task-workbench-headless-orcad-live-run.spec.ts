@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { Page, TestInfo } from '@stablyai/playwright-test'
@@ -15,6 +15,13 @@ import {
   launchPairedElectronClient,
   type PairedElectronClient
 } from './helpers/paired-electron-client'
+import {
+  isProcessAlive,
+  launchRealAgentTerminal,
+  readAgentPid,
+  seedPiAgentDir,
+  waitForAgentTui
+} from './helpers/real-agent-tui'
 import { startRecording, type RecordingArtifact } from './helpers/sim-remote/recorder'
 import {
   expandTaskWorkbenchAgentHistory,
@@ -50,6 +57,14 @@ import {
  * product failure: measured in `fixme-root-cause.md` (W12), where the same read answered
  * `repoKnown: true` with no `Could not read history` notice.
  *
+ * The fourth case below is the literal acceptance the issue text asks for, and the first three are
+ * not: a **real agent TUI** (`pi`, the same binary a user runs) is launched on the apex, its own
+ * status extension posts the hook events, the user closes that tab **in the paired client's UI**
+ * (tab X → "Stop this agent?"), and the run must still be listed afterwards. The other cases drive
+ * the hook endpoint over HTTP (a closed pane key, a restart) and therefore never prove the
+ * close path; that case is gated on `ORCA_PI_REAL_AGENT=1` because it spends one real model turn,
+ * following `new-workspace-swarm-pi-real-agent.spec.ts`.
+ *
  * Not covered here (and not claimed): an event that arrives *before* the binding exists is still
  * dropped (`task-records-live-runs.ts:167`), and the 512-entry write filter is cleared on restart.
  * Both are stated limitations of the issue, not regressions.
@@ -63,6 +78,8 @@ const SESSION_ID = 'issue-68-headless-live-run'
 const FIXTURE_OWNER = 'orca-e2e'
 const FIXTURE_REPO = 'headless-live-run'
 const FIXTURE_URL = `https://github.com/${FIXTURE_OWNER}/${FIXTURE_REPO}.git`
+/** Gate for the real-agent case: it launches `pi` and spends one real model turn. */
+const REAL_AGENT_GATE = 'ORCA_PI_REAL_AGENT'
 
 type FixtureRepo = { repoPath: string; root: string; transcriptPath: string }
 
@@ -194,9 +211,43 @@ function describeRuns(runs: readonly TaskRecordRun[]): string {
 }
 
 /**
- * The bytes the host copied and the source fingerprint it will re-check on `dispose()`. Written next
- * to the run's other evidence so a report can name the exact artifact a green/red result came from.
+ * One recording per act of the story the issue asks for, each spanning a real interaction.
+ *
+ * Why not one page-lifetime recording: a CDP screencast frame is emitted on a new composite, so an
+ * idle page (a terminal pane waiting on an RPC answer) delivers nothing. Measured on this scenario, a
+ * single recording held 77 frames but spanned only 3.26 s of a 20 s journey, i.e. it would have
+ * claimed to cover the close while showing only the first paint. A segment around each interaction
+ * starts its own capture, so every segment contains the frames of the act it names; the evidence
+ * notes which segment is which, and their frame counts and durations are reported with the run.
  */
+async function recordSegment<T>(
+  page: Page,
+  evidenceDir: string | undefined,
+  name: string,
+  artifacts: RecordingArtifact[],
+  act: () => Promise<T>
+): Promise<T> {
+  if (!evidenceDir) {
+    return act()
+  }
+  mkdirSync(evidenceDir, { recursive: true })
+  const recording = await startRecording(page, {
+    outDir: path.join(evidenceDir, 'w15-real-tui-close', name),
+    scope: 'caller-scoped'
+  })
+  try {
+    return await act()
+  } finally {
+    const artifact = await recording.stop().catch(() => null)
+    if (artifact) {
+      artifacts.push(artifact)
+      if (artifact.videoPath) {
+        copyFileSync(artifact.videoPath, path.join(evidenceDir, `w15-seg-${name}.mp4`))
+      }
+    }
+  }
+}
+
 function writeApexIsolationEvidence(host: OrcadApexHost): void {
   const evidence = process.env.ORCA_E2E_EVIDENCE_DIR
   if (!evidence) {
@@ -593,6 +644,253 @@ test.describe('issue #68 headless orcad live run', () => {
     }
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Issue 68 task page cleanup failed')
+    }
+  })
+
+  // The literal acceptance the issue text states, and the only case that exercises the close path:
+  // a **real** agent TUI runs on the apex, the user closes it in the client's own tab strip (tab X →
+  // "Stop this agent?"), and the task page must still list the run afterwards. The three cases above
+  // post to the hook endpoint themselves, so none of them can say anything about a closed TUI.
+  // oxlint-disable-next-line no-empty-pattern -- Playwright callback signatures require fixture destructuring.
+  test('a real agent TUI stays listed after it is closed', async ({}, testInfo: TestInfo) => {
+    test.skip(
+      process.env[REAL_AGENT_GATE] !== '1',
+      `set ${REAL_AGENT_GATE}=1 to run this case: it launches pi and spends one real model turn`
+    )
+    test.setTimeout(600_000)
+    const fixture = createFixtureRepo()
+    const evidence = process.env.ORCA_E2E_EVIDENCE_DIR
+    let host: OrcadApexHost | null = null
+    let client: PairedElectronClient | null = null
+    const segments: RecordingArtifact[] = []
+    let testError: unknown
+    try {
+      host = await startOrcadApex()
+      writeApexIsolationEvidence(host)
+      const workspace = await bindWorkspace(host, fixture)
+      const piAgent = seedPiAgentDir(fixture.root)
+      const terminal = await launchRealAgentTerminal(host, workspace.worktreeId, piAgent)
+      const startupScreen = await waitForAgentTui(host, terminal.handle)
+      const agentPid = await readAgentPid(host, terminal.handle)
+      expect(agentPid, 'the apex never reported a foreground pid for the agent pane').not.toBeNull()
+      const clientTabId = `web-terminal-${terminal.tabId}`
+
+      client = await launchPairedElectronClient(
+        { pairingUrl: host.offer.pairingUrl },
+        testInfo,
+        'Issue 68 real agent TUI'
+      )
+      // The paired client mirrors a host-created terminal as a `web-terminal-<hostTabId>` tab; that
+      // mirror is what makes "close it in the UI" the same close a user performs.
+      await expect
+        .poll(
+          async () =>
+            client!.page.evaluate(
+              ({ id, tabId }) =>
+                (window.__store?.getState().tabsByWorktree[id] ?? []).some(
+                  (tab) => tab.id === tabId
+                ),
+              { id: workspace.worktreeId, tabId: clientTabId }
+            ),
+          { timeout: 90_000, message: 'the paired client never mirrored the apex terminal tab' }
+        )
+        .toBe(true)
+      await client.page.evaluate((worktreeId) => {
+        const store = window.__store
+        if (!store) {
+          throw new Error('Orca store is unavailable')
+        }
+        store.getState().setActiveView('terminal')
+        store.getState().setActiveWorktree(worktreeId)
+      }, workspace.worktreeId)
+      const tab = client.page.locator(
+        `[data-testid="sortable-tab"][data-tab-id="${clientTabId}"]`
+      )
+      await expect(tab).toBeVisible({ timeout: 45_000 })
+      await tab.click()
+      // The pane has to be painted, not just mirrored: the screenshot below is the evidence that a
+      // real TUI is on screen when the run is observed.
+      await expect(client.page.locator('textarea, .xterm')).not.toHaveCount(0, { timeout: 45_000 })
+
+      // One turn from the real agent. Nothing here posts a hook event: pi's own status extension
+      // does, from the coordinates the apex put in the pane's environment.
+      const observed = await recordSegment(client.page, evidence, 'running', segments, async () => {
+        await host!.client.call('terminal.send', {
+          terminal: terminal.handle,
+          text: 'say hi in three words',
+          enter: true,
+          waitSubmitMs: 10_000
+        })
+        return expectLiveObservationRun(host!, workspace.repoId, workspace.worktreeId)
+      })
+      const liveRun = observed.run!
+      expect(
+        liveRun.providerSession.id,
+        'the run must carry the session id pi itself reported, not an id this test invented'
+      ).not.toBe(SESSION_ID)
+      expect(liveRun.agentType, 'the run must name the agent that actually ran').toBe('pi')
+      expect(liveRun.source).toBe('live-observation')
+      await testInfo.attach('issue-68-real-agent-run.json', {
+        body: JSON.stringify({ startupScreen, run: liveRun }, null, 2),
+        contentType: 'application/json'
+      })
+      await capturePanelScreenshot(client.page, evidence, 'w15-agent-running.png')
+
+      // The turn has to settle before the close, or the record would be read mid-turn: `endedAt` is
+      // only written when the agent states a settled row.
+      await expect
+        .poll(
+          async () =>
+            bindingRuns(
+              (await readTaskRecord(host!, workspace.repoId)).record,
+              workspace.worktreeId
+            ).runs.find((run) => run.source === 'live-observation')?.endedAt ?? null,
+          { timeout: 120_000, message: 'the real agent turn never settled in the task record' }
+        )
+        .not.toBeNull()
+
+      // THE CLOSE, as a user does it: hover the tab, click its X. A live agent makes the product ask
+      // first ("Stop this agent?" — `RunningTerminalCloseDialog`), so the dialog is part of the path
+      // rather than something to route around.
+      const pairedPage = client.page
+      await recordSegment(pairedPage, evidence, 'close', segments, async () => {
+        await tab.hover()
+        const closeButton = tab.locator('[data-tab-close-button="true"]')
+        await expect(closeButton).toHaveCount(1)
+        await closeButton.click()
+        const stopAgent = pairedPage.getByRole('button', { name: 'Stop Agent', exact: true })
+        await expect(
+          stopAgent,
+          'closing a running agent must raise the product confirm dialog'
+        ).toBeVisible({ timeout: 45_000 })
+        await capturePanelScreenshot(pairedPage, evidence, 'w15-agent-close-confirm.png')
+        await stopAgent.click()
+      })
+
+      // Closed, not switched away: the tab is gone from the client strip, the host dropped the tab
+      // and its PTY, and the agent process is gone.
+      await expect(tab, 'the closed tab must not remain in the client tab strip').toHaveCount(0, {
+        timeout: 60_000
+      })
+      await expect
+        .poll(
+          async () => {
+            const inventory = await host!.client.call<{ tabs: { id: string }[] }>(
+              'session.tabs.list',
+              { worktree: `id:${workspace.worktreeId}` }
+            )
+            return inventory.result.tabs.some((entry) => entry.id.startsWith(terminal.tabId))
+          },
+          { timeout: 60_000, message: 'the host kept the tab after the UI close' }
+        )
+        .toBe(false)
+      const inspected = await host.client
+        .call<Record<string, unknown>>('terminal.inspectProcess', { terminal: terminal.handle })
+        .catch((error: unknown) => ({ error: String(error) }) as Record<string, unknown>)
+      expect(
+        JSON.stringify(inspected),
+        'the pane must be gone from the host, not just hidden in the client'
+      ).toContain('terminal_gone')
+      expect(
+        isProcessAlive(agentPid!),
+        `the closed agent must not survive as an orphan (pid ${String(agentPid)})`
+      ).toBe(false)
+      await capturePanelScreenshot(pairedPage, evidence, 'w15-agent-closed.png')
+
+      // And the record: the run is still there, ended, and the binding states no live session.
+      const afterClose = bindingRuns(
+        (await readTaskRecord(host, workspace.repoId)).record,
+        workspace.worktreeId
+      )
+      const survivor = afterClose.runs.find((run) => run.source === 'live-observation')
+      expect(
+        survivor,
+        `the closed TUI dropped its observed run from the task record:\n${describeRuns(afterClose.runs)}`
+      ).toBeDefined()
+      expect(survivor!.providerSession.id).toBe(liveRun.providerSession.id)
+      expect(survivor!.endedAt).toBeGreaterThanOrEqual(survivor!.startedAt!)
+      await testInfo.attach('issue-68-real-agent-after-close.json', {
+        body: JSON.stringify(afterClose, null, 2),
+        contentType: 'application/json'
+      })
+
+      // The product surface the user reads: the Agents history lists exactly this one run, from the
+      // record, with no record-source notice underneath it.
+      const runtimeRepoId = workspace.repoId
+      const opened = await recordSegment(client.page, evidence, 'history', segments, async () =>
+        openTaskWorkbenchInPairedClient(client!, {
+        pageRepoId: runtimeRepoId,
+        clientRepoIdsToExclude: [runtimeRepoId],
+        issueNumber: ISSUE_NUMBER,
+        projectId: 'issue-68-real-agent-e2e',
+        title: 'Headless real agent run',
+          tracker: {
+            state: 'open',
+            url: `${FIXTURE_URL.replace(/\.git$/, '')}/issues/${ISSUE_NUMBER}`
+          }
+        })
+      )
+      const { page, panel } = opened
+      await expect(
+        panel.getByTestId('task-workbench-agents-history-count'),
+        `the closed agent left no live run for ${workspace.worktreeId}:\n${describeRuns(afterClose.runs)}`
+      ).toHaveText('1', { timeout: 90_000 })
+      await expandTaskWorkbenchAgentHistory(panel)
+      const rows = panel
+        .getByTestId('task-workbench-agents-record-runs')
+        .getByTestId('task-workbench-history-run')
+      await expect(rows).toHaveCount(1, { timeout: 45_000 })
+      const row = rows.first()
+      await expect(row).toBeVisible()
+      await expect(row).toHaveAttribute('data-run-source', 'record')
+      await expect(
+        panel.getByTestId('task-workbench-history-record-sources'),
+        'the panel printed a record-source notice, so the run is not a successful read'
+      ).toHaveCount(0)
+      // The closed terminal is not still an active tab anywhere on this page either.
+      await expect(
+        page.locator(`[data-testid="sortable-tab"][data-tab-id="${clientTabId}"]`),
+        'the closed terminal is still rendered as a tab'
+      ).toHaveCount(0)
+      await capturePanelScreenshot(page, evidence, 'w15-task-page-history.png')
+    } catch (error) {
+      testError = error
+      if (host) {
+        await testInfo
+          .attach('issue-68-real-agent-apex-output.txt', {
+            body: host.output(),
+            contentType: 'text/plain'
+          })
+          .catch(() => undefined)
+      }
+    } finally {
+      if (segments.length > 0) {
+        await testInfo.attach('issue-68-real-agent-recordings.json', {
+          body: JSON.stringify(segments, null, 2),
+          contentType: 'application/json'
+        })
+      }
+    }
+    const cleanup = await Promise.allSettled([
+      client?.dispose() ?? Promise.resolve(),
+      host?.dispose() ?? Promise.resolve(),
+      Promise.resolve().then(() => rmSync(fixture.root, { recursive: true, force: true }))
+    ])
+    const failures = cleanup.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    )
+    for (const segment of segments) {
+      console.log(
+        `[issue-68] recording ${path.basename(segment.framesDir)}: video=${String(segment.videoPath)} frames=${segment.capturedFrameCount} duration=${segment.durationSec}s videoFrames=${String(segment.videoFrameCount)} degraded=${String(segment.timedOut)}`
+      )
+    }
+    if (testError !== undefined) {
+      throw failures.length > 0
+        ? new AggregateError([testError, ...failures], 'Issue 68 real agent test failed')
+        : testError
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'Issue 68 real agent cleanup failed')
     }
   })
 })
