@@ -14,6 +14,8 @@ import {
   readPersistedStateJson,
   writePersistedStateJson
 } from '../../persistence-test-harness'
+import type { EnrichedAgentHookEventPayload } from '../../agent-hooks/server/server-types'
+import { installOrcadTaskRecordsLiveRuns } from '../../orcad/orcad-task-records-live-runs'
 
 vi.mock('electron', () => ({
   app: {
@@ -331,6 +333,71 @@ describe('task records live run ledger', () => {
 
     const reopened = openStore(file)
     expect(reopened.getTaskRecordForTask(QUERY)?.bindings[0].runs).toEqual([run])
+  })
+
+  it('keeps a run the headless entry observed live across save and reopen', () => {
+    // Issue #68: the orcad entry now installs the same observer the desktop does.
+    // This drives that binding end to end: a hook status becomes a Store write, the
+    // save lands on disk, and a reopened profile reads the row back.
+    const file = newDataFile()
+    const store = openStore(file)
+    store.setWorktreeMeta(ID, { linkedIssue: 31 })
+    const listeners: ((payload: EnrichedAgentHookEventPayload) => void)[] = []
+    const uninstallLiveRuns = installOrcadTaskRecordsLiveRuns({
+      hookServer: {
+        subscribeEnrichedStatus: (listener) => {
+          listeners.push(listener)
+          return () => {
+            const index = listeners.indexOf(listener)
+            if (index !== -1) {
+              listeners.splice(index, 1)
+            }
+          }
+        }
+      },
+      store
+    })
+    const emit = (payload: EnrichedAgentHookEventPayload): void => {
+      for (const listener of listeners) {
+        listener(payload)
+      }
+    }
+    const row = (
+      state: 'working' | 'done',
+      stateStartedAt: number,
+      mainAgent?: EnrichedAgentHookEventPayload['payload']['mainAgent']
+    ): EnrichedAgentHookEventPayload => ({
+      paneKey: 'tab-1:11111111-1111-4111-8111-111111111111',
+      connectionId: null,
+      worktreeId: ID,
+      providerSession: { key: 'session_id', id: 'run-live-1' },
+      payload: { state, prompt: '', agentType: 'claude', ...(mainAgent ? { mainAgent } : {}) },
+      receivedAt: stateStartedAt,
+      stateStartedAt
+    })
+
+    emit(row('working', 1_000))
+    emit(row('done', 2_000, { state: 'done', outcome: 'success', stateStartedAt: 2_000 }))
+    // Disposed by the entry before the persistence barrier; a later ping must not write.
+    uninstallLiveRuns()
+    emit(row('done', 3_000, { state: 'done', outcome: 'failure', stateStartedAt: 3_000 }))
+    store.flush()
+
+    const onDisk = JSON.parse(readPersistedStateJson(file))
+    const saved = onDisk.taskRecords.byId['task:github:repo-1:issue:31']
+    expect(saved.bindings[0].runs).toHaveLength(1)
+    expect(saved.bindings[0].runs[0]).toMatchObject({
+      key: 'unknown|session_id:run-live-1',
+      providerSession: { key: 'session_id', id: 'run-live-1' },
+      agentType: 'claude',
+      startedAt: 1_000,
+      endedAt: 2_000,
+      outcome: 'success',
+      source: 'live-observation'
+    })
+
+    const reopened = openStore(file)
+    expect(reopened.getTaskRecordForTask(QUERY)?.bindings[0].runs).toEqual(saved.bindings[0].runs)
   })
 
   it('writes nothing for a workspace no task binds', () => {

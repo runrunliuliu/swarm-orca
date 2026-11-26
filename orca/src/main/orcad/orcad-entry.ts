@@ -20,7 +20,8 @@ import {
   type PlannedRestartMaintenance
 } from '../runtime/rpc/planned-restart-admission'
 import { setAppEnvironment, type AppEnvironment } from '../../shared/app-environment'
-import { setSecretStore, type SecretStore } from '../../shared/secret-store'
+import { setSecretStore } from '../../shared/secret-store'
+import { createNodeSecretStore } from './orcad-node-secret-store'
 import type { ServeReadiness } from '../server/serve-readiness'
 import { resolveOrcadInstallRoot, resolveOrcadPath, resolveUserDataPath } from './orcad-app-paths'
 import { describeOrcadBindExposure, resolveOrcadBindHost } from './orcad-bind-address'
@@ -67,25 +68,6 @@ function createNodeAppEnvironment(): AppEnvironment {
     exit: (code = 0) => process.exit(code),
     // Why []: there are no Chromium processes on this host to measure.
     getAppMetrics: () => []
-  }
-}
-
-/**
- * Why not silently plaintext: `isEncryptionAvailable() === false` already makes every
- * caller fall back to unsealed storage, which is a security posture, not a detail.
- * `describeProtectionGap()` gives the reason a client can surface.
- */
-function createNodeSecretStore(): SecretStore {
-  return {
-    isEncryptionAvailable: () => false,
-    encryptString: () => {
-      throw new Error('orcad_secret_sealing_unavailable')
-    },
-    decryptString: () => {
-      throw new Error('orcad_secret_sealing_unavailable')
-    },
-    describeProtectionGap: () =>
-      'This host has no OS keyring, so credentials are stored unencrypted. Pair from a desktop to manage secrets, or install and unlock a keyring.'
   }
 }
 
@@ -150,6 +132,7 @@ async function startOrcadRuntime(
     await import('../agent-hooks/hook-status-session-tabs-republish')
   const { AgentStatusObservedPaneIdentities, AgentStatusObservedPaneIdentityCapture } =
     await import('../runtime/agent-status-observed-pane-identity')
+  const { installOrcadTaskRecordsLiveRuns } = await import('./orcad-task-records-live-runs')
 
   let rpc: InstanceType<typeof OrcaRuntimeRpcServer> | null = null
   let profileStoreForShutdown:
@@ -158,6 +141,9 @@ async function startOrcadRuntime(
   let uninstallHookStatusRepublish = (): void => {}
   let uninstallObservedStatusIdentity = (): void => {}
   let uninstallMaintenance = (): void => {}
+  // Declared before the cleanup closure and assigned only once the Store exists, so
+  // a launch that fails before the subscription is installed still tears down cleanly.
+  let uninstallTaskRecordsLiveRun = (): void => {}
   let profileFrozen = false
   let successorStarted = !successor
   registerCleanup(async () => {
@@ -165,6 +151,10 @@ async function startOrcadRuntime(
       await rpc?.stop()
     } finally {
       try {
+        // Why before the persistence barrier: once the Store starts its final flush
+        // (or freezes writes) every later task-record write is dropped silently, so an
+        // observation accepted after this point would be acknowledged and lost.
+        uninstallTaskRecordsLiveRun()
         // Stop accepting RPC writes before the final persistence barrier. A SQLite-backed
         // orcad has no JSON mirror to absorb a debounced write after SIGTERM.
         if (profileStoreForShutdown && !profileFrozen && successorStarted) {
@@ -213,6 +203,13 @@ async function startOrcadRuntime(
   uninstallObservedStatusIdentity = agentHookServer.subscribeEnrichedStatus((enriched) =>
     observedStatusCapture.observe(enriched)
   )
+  // Why next to the identity capture and not after the hook server starts: a
+  // subscription is a listener registration, and a status that arrives between
+  // `start` and this line would be a run no ledger row ever saw (issue #68).
+  uninstallTaskRecordsLiveRun = installOrcadTaskRecordsLiveRuns({
+    hookServer: agentHookServer,
+    store: profileStore
+  })
   if (isAgentStatusHooksEnabled(profileStore.getSettings())) {
     await agentHookServer.start({ env: 'production', userDataPath: runtimeUserDataPath })
   }
@@ -291,6 +288,9 @@ async function startOrcadRuntime(
   }
   if (maintenance) {
     const handler = maintenance(async () => {
+      // Same barrier as the shutdown path: a planned restart freezes this Store while
+      // the process may still be receiving hook events.
+      uninstallTaskRecordsLiveRun()
       try {
         await flushOrcadProfileStoreForShutdown(profileStore)
       } finally {
