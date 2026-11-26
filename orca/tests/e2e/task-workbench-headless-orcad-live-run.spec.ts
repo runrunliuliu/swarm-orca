@@ -16,7 +16,10 @@ import {
   type PairedElectronClient
 } from './helpers/paired-electron-client'
 import { startRecording, type RecordingArtifact } from './helpers/sim-remote/recorder'
-import { openTaskWorkbenchInPairedClient } from './helpers/task-workbench-paired-page'
+import {
+  expandTaskWorkbenchAgentHistory,
+  openTaskWorkbenchInPairedClient
+} from './helpers/task-workbench-paired-page'
 
 /**
  * Issue #68 — a live run observed on a **real headless `orcad` apex**.
@@ -36,7 +39,16 @@ import { openTaskWorkbenchInPairedClient } from './helpers/task-workbench-paired
  *
  * Red/green: `ORCA_E2E_ORCAD_APEX=<dir>` selects the apex. Green is a build of the fixed tree
  * (`out/orcad`); red is the pre-fix artifact `/opt/orca/current`. The same spec must fail on red at
- * the `live-observation` assertion, which is what proves the green pass comes from the fix.
+ * the `live-observation` assertion, which is what proves the green pass comes from the fix. The
+ * desktop case fails on red at its own first assertion (`History 1` in the Agents section) for the
+ * same reason: the run does not exist, so there is nothing to list.
+ *
+ * Where the desktop case looks: the task page renders a **live** workspace's runs in the Agents
+ * section, not in the archived `task-workbench-history` strip (`TaskWorkbenchPanel.tsx:79,111` —
+ * `trace === 'none'` skips the strip; `TaskWorkbenchAgents.tsx:137-142,254-257`). An assertion on
+ * the strip was asserting a surface the product never paints while the workspace is alive, not a
+ * product failure: measured in `fixme-root-cause.md` (W12), where the same read answered
+ * `repoKnown: true` with no `Could not read history` notice.
  *
  * Not covered here (and not claimed): an event that arrives *before* the binding exists is still
  * dropped (`task-records-live-runs.ts:167`), and the 512-entry write filter is cleared on restart.
@@ -402,17 +414,15 @@ test.describe('issue #68 headless orcad live run', () => {
     }
   })
 
-  // The paired client's per-environment read of `taskRecords.get` against a real orcad apex comes
-  // back as an unclassified failure (the panel prints "it did not answer"), even though the same RPC
-  // over the same paired transport answers when the page issues it directly. The failure is real;
-  // its root cause is **not established** here — a cross-profile source selection, a transport/return
-  // shape problem and a test-setup problem all reach that same generic wording. Left as `fixme` so
-  // the runtime-level proof below stays a gate instead of being diluted by a case this spec cannot
-  // settle; the attempt's evidence is kept outside the repository.
+  // The desktop half of acceptance #1. A live workspace's record runs are listed by the Agents
+  // section (`TaskWorkbenchAgents.tsx:137-142`), which is why this case reads that section and not
+  // the archived strip: asserting `task-workbench-history` here was asserting a surface the product
+  // deliberately does not paint for `trace === 'none'` (W12 root cause, `fixme-root-cause.md`).
   // oxlint-disable-next-line no-empty-pattern -- Playwright callback signatures require fixture destructuring.
-  test.fixme('the paired desktop task page lists the live run in History', async ({}, testInfo: TestInfo) => {
-    // The desktop half of acceptance #1: the run the headless host just recorded is in the History
-    // list, with the list count equal to the record's run count.
+  test('the paired desktop task page lists the live run in the Agents history', async ({}, testInfo: TestInfo) => {
+    // The run the headless host just recorded must be on screen in the panel's own reading of the
+    // record: the Agents history fold is where a live workspace's record runs are listed, and its
+    // count must be the one run this case posted.
     test.setTimeout(480_000)
     const fixture = createFixtureRepo()
     const evidence = process.env.ORCA_E2E_EVIDENCE_DIR
@@ -451,7 +461,13 @@ test.describe('issue #68 headless orcad live run', () => {
           }
         })
       ).toBe(204)
-      const observed = await expectLiveObservationRun(host, workspace.repoId, workspace.worktreeId)
+      // One read of what the artifact wrote, for this case's own failure message. It is not the
+      // assertion — that reads the page below — but on the pre-fix artifact it is what names the
+      // absence ("runs: (absent)") instead of leaving a bare element-not-found.
+      const recorded = bindingRuns(
+        (await readTaskRecord(host, workspace.repoId)).record,
+        workspace.worktreeId
+      )
 
       client = await launchPairedElectronClient(
         { pairingUrl: host.offer.pairingUrl },
@@ -480,7 +496,7 @@ test.describe('issue #68 headless orcad live run', () => {
         pairedRead.ok,
         `paired runtime did not answer taskRecords.get: ${JSON.stringify(pairedRead)}`
       ).toBe(true)
-      const { page, history } = await openTaskWorkbenchInPairedClient(client, {
+      const { page, panel } = await openTaskWorkbenchInPairedClient(client, {
         pageRepoId: runtimeRepoId,
         // The task page forwards the read to the paired runtime only once the client's catalog holds
         // the runtime's own repo row (issue #67 spec's contract); without this wait the panel opens
@@ -504,16 +520,39 @@ test.describe('issue #68 headless orcad live run', () => {
           deadlineMs: 20_000
         })
       }
-      // A record row, not a live projection: `data-trace` is `none` because nothing was archived.
-      await expect(history).toHaveAttribute('data-trace', 'none', { timeout: 60_000 })
-      const rows = history.getByTestId('task-workbench-history-run')
-      await expect(rows).toHaveCount(observed.runs.length, { timeout: 45_000 })
+      // Deliberately no workspace-card assertion: `worktree.create{activate:false}` links no pane,
+      // so the Workspaces section answers "No workspace is linked to this task yet" while the
+      // record-backed run still lists below — the run comes from the record, not from a live row.
+      await expect(
+        panel.getByTestId('task-workbench-agents-history-count'),
+        `the task record has no live run for ${workspace.worktreeId} (binding present=${recorded.bindingPresent}, boundBy=${String(recorded.boundBy)}):\n${describeRuns(recorded.runs)}`
+      ).toHaveText('1', { timeout: 90_000 })
+      // The fold's body is a Radix collapsible: the rows are mounted but not visible while it is
+      // closed, and the layout decides the initial state (`TaskWorkbenchAgents.tsx:145`).
+      await expandTaskWorkbenchAgentHistory(panel)
+      // A record row, not a live projection: nothing here keeps a retained pane row alive, and the
+      // renderer marks the origin — `data-run-source="record"` (`TaskWorkbenchHistory.tsx:96-97`).
+      const rows = panel
+        .getByTestId('task-workbench-agents-record-runs')
+        .getByTestId('task-workbench-history-run')
+      await expect(rows).toHaveCount(1, { timeout: 45_000 })
       const row = rows.filter({ hasText: SESSION_ID })
       await expect(row).toBeVisible()
       await expect(row).toHaveAttribute('data-run-source', 'record')
+      // Not a degraded render: a read that failed prints a notice row instead of the run
+      // (`task-workbench-record-source-notice.tsx:141-152`). The run on screen *and* this list
+      // absent is what distinguishes a record-backed row from a local-only fallback.
+      await expect(
+        panel.getByTestId('task-workbench-history-record-sources'),
+        'the panel printed a record-source notice, so the run is not a successful read'
+      ).toHaveCount(0)
+      // Closing the loop on where that row came from: the runtime's own answer to the same query
+      // the page made, read only after the page has shown it.
+      const observed = await expectLiveObservationRun(host, workspace.repoId, workspace.worktreeId)
+      expect(observed.run!.providerSession.id).toBe(SESSION_ID)
       await capturePanelScreenshot(page, evidence, 'history-live-run.png')
-      await testInfo.attach('issue-68-task-page-history.html', {
-        body: await history.evaluate((node) => node.outerHTML),
+      await testInfo.attach('issue-68-task-page-agents.html', {
+        body: await panel.getByTestId('task-workbench-agents').evaluate((node) => node.outerHTML),
         contentType: 'text/html'
       })
     } catch (error) {
