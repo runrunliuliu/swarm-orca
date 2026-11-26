@@ -31,6 +31,10 @@ depend on the primitive modules.
 | `bindings[].runs` | A deterministic number of distinct historical run claims. | Live agents, transcripts, or model calls. |
 | `bindings[].usage: 'unknown'` | An explicit unavailable usage settlement. | Zero tokens or zero cost. |
 | `bindings[].usage: { tokens, costUsd }` | A known provider rollup with fixed values. | Recalculation from genuine provider telemetry. |
+| `ORCA_CAPTURE_EVIDENCE=1` | The opt-in that turns lane-B capture on for one run. | A CI mode or a default: without the literal `1` no screenshot, CDP session or encoder is touched. |
+| `captureEvidence({ page, name, record: true })` | The real renderer's own pixels for the span between the helper starting the CDP screencast and the screenshot being taken — typically the screenshot's own span, 0–3 frames at 15 fps. | The page's lifetime: a longer clip needs the caller to run `startRecording(page, { scope: 'page-lifetime' })` (see “Recording a scenario”). It never decides a spec: a failed start or write arrives as `skipped` with the reason, and a degraded capture still returns the frames it did get. |
+| `startRecording(page, { outDir, scope })` | Paint-paced CDP screencast frames, each carrying its own `metadata.timestamp`, so the timeline is what the page painted. | Continuous wall-clock coverage: no paint means no frame, and one still frame is not a second of stillness. |
+| `writeEvidencePackage({ slug, lane, command, artefacts, notCaptured, redaction, … })` | One hashed `pr-evidence/<slug>/manifest.json` over the bytes that were actually captured. | Truth: `notCaptured`, `redaction` and every `what` string stay caller claims, so the hash makes them stable, not verified. |
 
 ## Running the routed lane
 
@@ -62,6 +66,48 @@ it('reads through a degraded runtime @sim-network', async () => {
 Keep the scenario below 90 seconds, add an applicable `@sim-*` tag, and register the spec in
 `config/scripts/pr-e2e-source-routing.mjs` when scenario files are in scope.
 
+### Recording a scenario
+
+Two sentences, two calls: run the spec with `ORCA_CAPTURE_EVIDENCE=1`, call
+`captureEvidence({ page, name: '<two digits>-<before|after|scenario>-<id>.png', record: true })` once
+`page` holds the state worth showing, then hand what it returned to `writeEvidencePackage()`, which
+hashes it into `pr-evidence/<slug>/manifest.json`. The recording travels in `recordings`, never in
+`artefacts`, and it needs a `recordingScope`: the writer refuses a package that ships a clip without
+saying what it covers. This block is the whole thing, and pasting it verbatim produces a package
+that validates.
+
+```ts
+import { captureEvidence } from './helpers/evidence-capture'
+import { writeEvidencePackage } from './helpers/sim-remote/evidence-package'
+
+const capture = await captureEvidence({ page, name: '01-before-issue-67.png', record: true })
+if (!capture.screenshotPath) {
+  throw new Error(`evidence capture skipped: ${capture.skipped ?? 'no screenshot'}`)
+}
+await writeEvidencePackage({
+  slug: 'issue-67-remote-only-record',
+  lane: 'B',
+  command: 'pnpm test:e2e --grep @issue-67',
+  project: 'orca',
+  notCaptured: ['agent model output (a stub agent stands in)', 'anything outside the app window'],
+  redaction: { applied: false, what: 'nothing was redacted; treat the package as sensitive' },
+  artefacts: [{ file: capture.screenshotPath, what: 'the window before the palette opened' }],
+  recordings: capture.recording ? [capture.recording] : [],
+  recordingScope: "the screenshot call's own span (0-3 frames at 15 fps), not the page's lifetime"
+})
+```
+
+What `record: true` covers is short by construction: the helper starts the screencast, takes the
+screenshot, and stops it, so the clip is the screenshot's own span rather than the page's lifetime.
+For a clip covering the page's lifetime, call `startRecording(page, { scope: 'page-lifetime' })`
+before the work, `await recording.stop()` after it, and pass that artifact instead —
+`recordings: [clip]` with `recordingScope: "the page's lifetime"` — everything else in the block is
+unchanged, because the recorder artifact *is* the entry the writer takes.
+
+Recording is best-effort by construction — no encoder, no CDP session, or a disk error yields a
+degraded artifact with `videoPath: null` and the reason, and the frames stay behind as
+`frames/*.jpg` and `timings.json` instead of failing the spec.
+
 ## Determinism rules
 
 - Select runtimes only by `name`; array position is not an identity.
@@ -87,3 +133,12 @@ Keep the scenario below 90 seconds, add an applicable `@sim-*` tag, and register
   the unit layer instead.
 - Loopback processes, local Git fixtures, and seeded profile state are controlled approximations,
   not evidence of real-machine equivalence or live service availability.
+- A recording is evidence, not an assertion. The recorder, the encoder and the package writer must
+  never turn a red product assertion green or a green one red; a clip nobody reads proves nothing.
+- The clip covers only the span the recorder was running for — the page's lifetime only when the
+  caller started it at page start — and inside that span only the moments the page painted. Frames
+  arrive when the compositor presents one, so a large `largestGapSec` is missing picture rather than
+  a proven still interval, and the seconds before the recorder started are not in the file at all.
+- It records whatever is on screen, including absolute paths in the window chrome and any content
+  the fixture did not redact. Say in the manifest what was and was not redacted, and treat the
+  artefact as sensitive: recording is a lane-B, opt-in, non-archived-in-CI action.

@@ -256,10 +256,16 @@ describe('PR E2E lane cost', () => {
       )
     }
 
-    // The kit lane is the same six: five scenarios plus the issue-67 consumer of the helper.
+    // The kit lane is priced from disk, not from a hard-coded lane size: every `sim-*` spec on disk
+    // is a kit scenario, plus the issue-67 consumer that imports the paired-page helper. A new
+    // scenario or a new recording spec therefore changes the count here rather than hiding behind a
+    // constant.
     const kitSpecs = selectPrE2eSpecs(['tests/e2e/helpers/sim-remote/index.ts'])
+    const simScenarioSpecs = readdirSync(join(projectDir, 'tests/e2e'))
+      .filter((file) => /^sim-.*\.spec\.ts$/.test(file))
+      .map((file) => `tests/e2e/${file}`)
     expect(kitSpecs.length, `kit selects ${kitSpecs.join(', ')}`).toBe(
-      REPRESENTATIVE_CHANGE_SPEC_BUDGET
+      simScenarioSpecs.length + 1
     )
   })
 })
