@@ -5,6 +5,14 @@ import { expect } from './orca-app'
 import { getPiAgentStatusExtensionSource } from '../../../src/main/pi/agent-status-extension-source'
 import type { OrcadApexHost } from './orcad-apex-host'
 
+export {
+  isProcessAlive,
+  localAgentProcess,
+  stopRealAgentProcess,
+  type AgentProcessControl,
+  type StopAgentOptions
+} from './real-agent-process'
+
 /**
  * A **real agent TUI** on a headless `orcad` apex, and the panes it runs in.
  *
@@ -20,15 +28,25 @@ const PI_PROVIDER_SOURCE_DIR = path.join(os.homedir(), '.pi', 'agent')
 const PI_PROVIDER_FILES = ['models.json', 'models-store.json', 'auth.json', 'settings.json']
 
 /**
- * Environment the launched `pi` must NOT inherit from the test runner.
+ * Environment the launched `pi` must NOT inherit from the test runner, applied to the **pane** as a
+ * second line of defence (`terminal.create{envToDelete}`).
+ *
+ * The first line is earlier and is what actually buys the isolation: `startOrcadApex()` spawns the
+ * apex with `AGENT_PANE_ENV_KEYS_ISOLATED_FROM_RUNNER` (`orcad-apex-child.ts`) removed, so the
+ * host-env assembler's `process.env` fallback cannot resolve the runner's real `~/.pi/agent` before it
+ * resolves the throwaway dir. `envToDelete` alone is too late: `host-env/assembly.ts` builds the PTY
+ * env — and installs managed extensions — before `runtime/spawn-options.ts` merges `envToDelete`.
+ *
+ * This list is deliberately **not** the apex list: it applies after the assembler, so it must not
+ * delete `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR`. Those are this case's own seeded temp
+ * dir (passed in `env`); removing them here pointed the child `pi` at the apex's empty default home,
+ * which is silently event-free (measured: the TUI paints, the extension is missing, no run).
  *
  * Measured, not defensive: a worker that itself runs inside `pi` carries `ORCA_PI_STATUS_OWNED`
  * (the owning pid) and `PI_SESSION_FILE`. With the owner stamp present the extension's owner guard
  * answers "another live process owns this pane" and **posts nothing at all** — the TUI loads the
  * extension (`[Extensions] orca-agent-status.ts`) and stays silent, which reads exactly like a
- * product bug. `PI_SESSION_FILE` would make the child write into the worker's own session, and
- * `ORCA_PI_SOURCE_AGENT_DIR` would point the host-env assembler at the real `~/.pi/agent` instead of
- * the throwaway directory.
+ * product bug. `PI_SESSION_FILE` would make the child write into the worker's own session.
  */
 export const PI_ENV_TO_DELETE = [
   'PI_SESSION_FILE',
@@ -120,13 +138,4 @@ export async function readAgentPid(host: OrcadApexHost, handle: string): Promise
     process: { foregroundProcessEvidence?: { fence?: { process?: { pid?: number } } } }
   }>('terminal.inspectProcess', { terminal: handle })
   return inspected.result.process.foregroundProcessEvidence?.fence?.process?.pid ?? null
-}
-
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as { code?: string } | null)?.code !== 'ESRCH'
-  }
 }

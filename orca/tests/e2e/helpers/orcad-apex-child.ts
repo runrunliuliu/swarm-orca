@@ -109,6 +109,36 @@ function wireApexChild(state: LaunchedApex, onLine: (line: string) => void): voi
   })
 }
 
+/**
+ * pi's pane-injection variables that a **test runner may itself carry** because it is an agent pane
+ * (a worker running inside `pi` has all of them).
+ *
+ * They are removed from the apex's own environment at spawn time, before the apex can assemble a
+ * single PTY. That ordering is the fix W16 asked for: `main/ipc/pty/host-env/pi-agent.ts` resolves a
+ * pi source directory from the base PTY env **with a fallback to the host process's `process.env`**,
+ * and `main/pi/titlebar-extension-service.ts` then installs the managed extension into whatever
+ * directory that resolved to — including `~/.pi/agent`. A `envToDelete` on `terminal.create` runs
+ * later (`runtime/spawn-options.ts` merges it after `host-env/assembly.ts` already built the env), so
+ * on its own it cannot stop that write. Deleting here means the fallback never sees the runner's
+ * values, so the assembler stays inside the apex's own temporary `HOME`.
+ */
+export const AGENT_PANE_ENV_KEYS_ISOLATED_FROM_RUNNER = [
+  // pi/omp session and config pointers: a child pi would write into the runner's session/profile.
+  'PI_SESSION_FILE',
+  'PI_SESSION_ID',
+  'PI_CODING_AGENT',
+  'PI_CODING_AGENT_DIR',
+  'PI_CODING_AGENT_SESSION_DIR',
+  // The host-env assembler's own resolution inputs (`shared/pi-agent-kind.ts`).
+  'ORCA_PI_SOURCE_AGENT_DIR',
+  'ORCA_PI_CODING_AGENT_DIR',
+  // Status-extension ownership stamps: a live pid here means "another pane owns this agent".
+  'ORCA_PI_STATUS_OWNED',
+  'ORCA_PI_TITLE_MARKER_OWNED',
+  // The runner's own pane identity would be mistaken for the pane under test.
+  'ORCA_AGENT_PANE'
+] as const
+
 function apexEnv(request: {
   userDataDir: string
   homeDir: string
@@ -127,6 +157,12 @@ function apexEnv(request: {
   // The apex needs no display; clearing it keeps a Chromium-less host from inheriting a stale one.
   delete env.DISPLAY
   delete env.ELECTRON_RUN_AS_NODE
+  // Why before the apex starts and not on `terminal.create`: see the constant's comment — the
+  // assembler reads the host env and installs extensions while building the PTY env, i.e. before any
+  // per-spawn `envToDelete` is applied.
+  for (const key of AGENT_PANE_ENV_KEYS_ISOLATED_FROM_RUNNER) {
+    delete env[key]
+  }
   return env
 }
 

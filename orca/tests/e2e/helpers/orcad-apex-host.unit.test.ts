@@ -15,6 +15,10 @@ import { PassThrough } from 'node:stream'
 import type { ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startOrcadApex, type ApexChildSpawn, type OrcadApexHost } from './orcad-apex-host'
+import {
+  AGENT_PANE_ENV_KEYS_ISOLATED_FROM_RUNNER,
+  spawnApexChild
+} from './orcad-apex-child'
 
 // Why: the host under test reaches the runtime only through the RPC client, which this unit test
 // never calls. Mocking it keeps the case about process/temp-dir ownership instead of loading the
@@ -218,6 +222,59 @@ describe('startOrcadApex startup failure reclamation', () => {
     // No process was created, so there is nothing to signal — and nothing to wait an exit for.
     expect(children[0].killedWith).toEqual([])
     expect(readdirSync(parent)).toEqual([])
+  })
+})
+
+describe('orcad apex environment isolation (W17 / B1)', () => {
+  /**
+   * Why this is a unit test: W16's finding was about **ordering**, and ordering is observable without
+   * any model or product install — the env the apex is spawned with is the input the host-env
+   * assembler later falls back to (`main/ipc/pty/host-env/pi-agent.ts` reads `process.env`), and the
+   * spawn happens before the apex can assemble, or install into, a single agent dir. The sentinel
+   * values stand in for the runner's real `~/.pi/agent`: if any of them survived, this test would see
+   * it in the spawn env, i.e. the case would be able to write the real directory.
+   */
+  it('never hands the runner pi pane variables to the apex, so no agent dir can be resolved from them', () => {
+    const sentinel = '/tmp/w17-sentinel-runner-agent-dir'
+    const saved = new Map<string, string | undefined>()
+    for (const key of AGENT_PANE_ENV_KEYS_ISOLATED_FROM_RUNNER) {
+      saved.set(key, process.env[key])
+      process.env[key] = key === 'ORCA_PI_SOURCE_AGENT_DIR' ? sentinel : 'sentinel-value'
+    }
+    try {
+      let capturedEnv: NodeJS.ProcessEnv | null = null
+      const children: FakeApexChild[] = []
+      spawnApexChild({
+        apexDir: '/tmp/w17-unused-apex',
+        userDataDir: '/tmp/w17-userdata',
+        homeDir: '/tmp/w17-home',
+        buildPointerPath: '/tmp/w17-pointer.json',
+        spawn: (request) => {
+          capturedEnv = request.env
+          const child = createFakeApexChild({ publishReadiness: false })
+          children.push(child)
+          return child as unknown as ChildProcess
+        }
+      })
+
+      expect(capturedEnv).not.toBeNull()
+      const env = capturedEnv as unknown as NodeJS.ProcessEnv
+      for (const key of AGENT_PANE_ENV_KEYS_ISOLATED_FROM_RUNNER) {
+        expect(env[key], `${key} leaked from the test runner into the apex process`).toBeUndefined()
+      }
+      // The isolation must not be a blanket wipe: the apex still gets its own temp home and profile.
+      expect(env.HOME).toBe('/tmp/w17-home')
+      expect(env.ORCA_USER_DATA).toBe('/tmp/w17-userdata')
+      expect(env.ORCA_BUILD_POINTER_PATH).toBe('/tmp/w17-pointer.json')
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) {
+          delete process.env[key]
+        } else {
+          process.env[key] = value
+        }
+      }
+    }
   })
 })
 
