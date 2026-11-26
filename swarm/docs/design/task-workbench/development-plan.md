@@ -1,7 +1,8 @@
 # Tasks 工作台开发计划
 
-状态：**P1（= M1）已实现并合入 main**（GitHub issue/PR 的 `Orca` tab）；P3 未开始；**P4 的 main 数据面已落地**
-（issue #36，见 §9 与设计文档 §8.10），动作层与 M2a 验证未做。
+状态：**P1（= M1）已实现并合入 main**（GitHub issue/PR 的 `Orca` tab）；**P1c（版面收口）已评审、有设计稿，
+未实现**（§3 M1c，设计稿见 [设计文档 §7.13](README.md#713-版面收口2026-11-26设计稿未实现)）；P3 未开始；
+**P4 的 main 数据面已落地**（issue #36，见 §9 与设计文档 §8.10），动作层与 M2a 验证未做。
 本文不构成实现、部署、重启、创建 worktree 或启动 Agent 的授权。
 
 关联：[调研与设计](README.md)（数据链就绪度、UI、关系存储）、[任务与工作区模型](../task-workspaces.md)
@@ -29,16 +30,19 @@
 | 路标 | 目标 | 看得到什么 | 主要工作包 | 不做 |
 | --- | --- | --- | --- | --- |
 | **P1 工作台 UI** | 先钉住那一屏 | 详情页 `Orca` tab：工作区、agent 行（带所属工作区）、token、用量三态、证据摘要 | WP1/WP2/WP3 的只读部分；P1a 明细见 [静态壳计划](p1a-ui-shell-plan.md) | 列表主轴、持久化 |
+| **P1c 版面收口** | 那一屏"读得顺" | 内容感知双列、`Usage`/`Delivery` 通栏、历史去重、无死控件 | WP3 的版式切片（见 §3 M1c） | 存储、RPC、交付语义 |
 | **P3 列表主轴** | 任务"排得开" | 分组（Delivered = agent done）、`◇` 徽标、一任务多工作区 | WP1/WP5 + M2b 的 renderer 部分 | 持久化 |
 | **P4 持久化** | 任务"记得住" | primary、归档、结算快照、意图层 | WP0、WP4a–c（M2a → M2b） | 跨端 |
 
 - **P1 允许停在 1a**：先交组件 + fixture 数据 + 全部状态与降级（可 CDP 截图评审），不接真实 selector、
   不建 tab 入口；1b 再接 `identity/join/usage` 三件套。2026-11-16 两轮评审都把"没有真机渲染"列为
   最大返工源，1a 就是回答它。
+- **P1c 是 P1 的收尾而不是新阶段**：P1 已实现功能，P1c 只收版式（`TaskWorkbenchPanel` 的列策略、facts 位置、
+  History 去重与死控件），不改数据面；设计稿与六个优化点见[设计文档 §7.13](README.md#713-版面收口2026-11-26设计稿未实现)。
 - **旁路**：T1（Agent 派生树）可随时独立合入；M3（交付证据聚合）留在 P3 之后；M4（跨端）单独授权。
 - **P3 与 P4 的切分**：分组与多工作区反查是纯 renderer 投影（P3），primary/归档/结算/意图层需要
   `taskRecords`（P4 且以 M2a 判决为门槛）。
-- **路标**：P1（已实现）→ P3 → P4；agent 侧建单 skills / CLI 动词与路标无关，保留。
+- **路标**：P1（已实现）→ P1c（版面收口）→ P3 → P4；agent 侧建单 skills / CLI 动词与路标无关，保留。
 
 ## 1. 目标与非目标
 
@@ -73,7 +77,7 @@
 
 ## 3. 阶段与退出条件
 
-本节按历史编号（M/T）排列，**执行顺序以 §0.5 路标为准**：P1(=M1，已实现) → P3 → P4。
+本节按历史编号（M/T）排列，**执行顺序以 §0.5 路标为准**：P1(=M1，已实现) → P1c(版面收口) → P3 → P4。
 每个标题后的"路标"标注它落在哪一段。
 
 ### M0 决策冻结（0.5–1 天）
@@ -118,6 +122,25 @@
   - identity/join/usage selector 可被 M2 直接引用（不是页面内拼装）；
   - `pnpm tc`、定向 `pnpm test`、i18n 抽取与覆盖、`check:code-quality:changed` 通过。
 - 不做：列表主轴、分组、任务归档、移动端、逐 Agent 金额。
+
+### M1c 版面收口（1–2 天，路标 P1c）
+
+P1 已把功能做齐，但版面仍是 P1 定下的固定双列；本阶段只收版式，不改数据面。六个优化点与预期版式见
+[设计文档 §7.13](README.md#713-版面收口2026-11-26设计稿未实现)。
+
+- 前提：P1 已实现；只改版式与可见性，不改 §2 的数据来源与 §8 的存储。
+- 范围：
+  - 双列由固定 `1.4fr/1fr` 改为内容感知（按 Agent / 工作区数量与宽度切换列宽或单列）；
+  - `Usage` / `Delivery` 从右列移为整宽 facts band；
+  - Run 历史条与 Agents → History 只留一处；`History` 标签去重；
+  - 未接线的 `Open terminal`、不可用的 `New workspace` / `Load evidence` 不再渲染成禁用按钮；
+  - `History` 计数回到左列标题；1100px 阈值改容器查询或提高下限，补 1100–1300px fixture。
+- 退出：
+  - `tests/tools/task-workbench-rendered/run.mjs --all` 全绿，并新增/更新 fixture 覆盖窄列与 1100–1300px；
+  - 每个 fixture 的 `data-wb-columns` / 版式断言与设计稿一致；交付行在宽屏不换行（截图证据）；
+  - `pnpm tc`、定向 `pnpm test`、`check:code-quality:changed` 通过；
+  - 新增生产组件渲染图（`ui/impl-*`），设计稿不替代。
+- 不做：列表主轴（P3）、持久化（P4）、交付/归档语义、任何 RPC 或 schema 改动。
 
 ### M2a 存储兼容验证（1–2 天，只读；P4 的门槛）
 
@@ -277,7 +300,7 @@
 
 ## 7. 顺序、依赖与风险
 
-顺序：M0 → **P1（1a → 1b，已实现）→ P3 → P4**；T1 旁路（可随时合入），M3 跟在 P3 后，M4 单独授权。
+顺序：M0 → **P1（1a → 1b，已实现）→ P1c（版面收口）→ P3 → P4**；T1 旁路（可随时合入），M3 跟在 P3 后，M4 单独授权。
 旧标签的对应关系：P1 = M1；P3 = M2b 的 renderer 部分；P4 = M2a + M2b 的 main 部分。
 
 | 风险 | 处理 |
@@ -314,6 +337,7 @@
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
 | **P1 工作台 UI**（= M1；1a 静态壳 → 1b 接线） | 已实现：1a、1b 与真实 `Orca` tab 均合入 main（GitHub issue/PR）；真机交互验收未做 | `swarm-orca` main `42232cbd`（P1a）→ `e91e115d`（P1b）；父仓库 pin `36e06e3a`、`dev_liuliu` merge `08ce3fa7`；线上构件 `0.1.0+39a6ecbc2818` 于 2026-11-17 重启后核验（`buildId` 一致、`source=pointer`、`pointer.state=ok`）。缺口：只有 `tests/tools/task-workbench-rendered` 的渲染证据，无交互验收；仓库内未找到 P1b 独立评审回执 |
+| **P1c 版面收口**（= M1c；设计稿见 [设计文档 §7.13](README.md#713-版面收口2026-11-26设计稿未实现)） | 已评审、有设计稿，未实现 | 评审用现有 harness 跑 `run.mjs --all`（27/27 PASS）；设计稿 `ui/design-workbench-20261126-expected.png`（1440×900，HTML/CSS，非生产组件渲染，源码 `ui/src/design-workbench-20261126-expected.html`）；实现与 `impl-*` 生产渲染证据待补 |
 | **P3 列表主轴**（= M2b renderer） | 未开始（其前置薄切片已完成，见下一行） | — |
 | **P3 前置薄切片：GitHub 列表行内活动徽标**（issue #27） | 已实现（本仓库；不分组、不重排、零持久化）；有 harness 的 CDP 截图（G1/G2），无真机验收 | 纯 selector `lib/task-workbench/task-workbench-row-activity.ts` + 列表页批量 hook `components/use-task-page-github-row-activity.ts` + 徽标 `components/task-page/github/RowActivityBadge.tsx`；CDP 截图 `ui/impl-github-rows-badge-{wide,narrow}.png`（harness fixture `d6_github_task_rows`）；单测覆盖 README §7.2 的并集规则（working+done → Working、任一 needs-you、归档不参与、failure/cancellation/sessionBoundary 不算 Delivered、outcome 缺失算 done、0 工作区不产徽标、有工作区无 agent → Workspace）；行级归属按 repoId+linkedIssue/linkedPR 反查（identity 的 GitHub key 是 owner/repo 级） |
 | **P4 持久化**（= M2a + M2b main） | 部分：`taskRecords` domain、绑定写入、移除前结算、读取投影与降级（issue #36）；动作层、启动对账、M2a round-trip 未做 | 落点与偏离见 [设计文档 §8.10](README.md#810-p4-已落地切片issue-362026-11-19)；单测：`shared/task-records*`、`loading-store/task-records-*`、`main/task-records/*`、`main/ipc/task-records.test.ts`、renderer `task-workbench-history-merge` / `task-workbench-session-totals`；`tc:node`、`tc:web`、`check:code-quality:changed` 通过；未做真机渲染验收 |

@@ -1,12 +1,13 @@
 # 以任务为中心的 Tasks tab 改造：调研与 UI 设计
 
 状态：**P1（M1，任务详情 `Orca` tab）已实现并合入 main**，实现范围是 GitHub issue/PR；
+**P1c（版面收口：内容感知双列 / facts 通栏 / 历史去重）已评审并给出设计稿，未实现**（§7.13）；
 **P3（列表主轴）未开始**；**P4 的 `taskRecords` 数据面已落地**（issue #36，见 §8.10），
 动作层与 M2a 存储兼容验证未做。
 调研基线：本仓库的 `orca/` 层（upstream `v1.4.219` 快照，见 `orca/upstream.json`、`orca/UPSTREAM.md`）。
 文中 `orca/...` 路径均相对本仓库根目录。
-核对日：2026-11-18（重核：P1a/P1b/真实 `Orca` tab 已在 main；新增项目块"Open agent in `<project>`" 入口，
-见 §7.9）。
+核对日：2026-11-26（新增 §7.13 版面评审与设计稿；上一次 2026-11-18 重核 P1a/P1b/真实 `Orca` tab 与
+项目块"Open agent in `<project>`" 入口，见 §7.9）。
 
 本文只记录"代码里有什么 / 能怎么改"。不修改任何 schema、启动器、已装技能或既有会话；不构成实施、合并、
 部署、重启或创建 worktree / Agent 的授权。文中行号与文件路径均为只读观察值，改动前需重新核对 HEAD。
@@ -1331,6 +1332,50 @@ launch-time paste 用的是通用的 8s spawn 判定（"8s 没有 PTY 就当启�
 - 提交确认依赖 agent 自己的 hook 状态：不上报状态的 agent 只能到 `written`；「Enter 被 TUI 吞掉」仍无输入
   事件证据，本次证明的是「不会把未确认说成已送达，也不会重发 Enter」。
 - 环境侧的 Trae 启动包装内容仍属私有配置（plan §10.3），本仓库只保证它不会被拆开送。
+
+### 7.13 版面收口（2026-11-26，设计稿，未实现）
+
+§7.12 之后 `Orca` tab 的功能已齐（工作区、Agent 行、用量、交付证据），但版面仍是 P1 定下的固定双列。
+本节记录 2026-11-26 的一次只读版面评审：用现有 harness 渲染全部 fixture，对照截图找优化空间，
+产出一张**预期版式**设计稿。**只是设计与计划，不改任何生产组件。**
+
+![预期版式：内容感知双列 + facts 通栏](ui/design-workbench-20261126-expected.png)
+
+设计稿源码：`ui/src/design-workbench-20261126-expected.html`（1440×900，Electron 隐藏窗口渲染）。
+它是 HTML/CSS 设计稿，**不是**生产组件渲染，也不是真机截图。
+
+**评审方法**：`cd orca && DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/run.mjs --all`
+（27/27 PASS，截图落在 `orca/.bench-fixtures/`），逐 fixture 看 `f1_baseline`、`f2a`、`f2c`、`f12`、
+`f15_delivered`、`f16_delivered_archived` 的宽 / 窄 / 矮形态。
+
+#### 7.13.1 六个可优化点（按影响排序）
+
+| # | 现象 | 证据（当前代码） |
+| --- | --- | --- |
+| 1 | 固定 `1.4fr/1fr` 双列不看内容：1–2 个 Agent 时左列只占一半，右列只剩工作区，整屏约 2/3 空白 | `TaskWorkbenchPanel.tsx:115-124`（`grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]`） |
+| 2 | 交付行在 ~580px 的右列里换行：`Deliver…` / `Open session` 被挤到第二行，说明文字被截断 | `TaskWorkbenchDelivery.tsx:400-455`（`flex-wrap`；toggle 的 `ml-auto` 在 `:439`） |
+| 3 | 归档形态把同一批运行显示两次：顶部 Run 历史条 + Agents → History 折叠 | `TaskWorkbenchPanel.tsx:111`（`TaskWorkbenchHistory`）与 `TaskWorkbenchAgents.tsx:241-252` |
+| 4 | `History` 标签出现两次：折叠标题一次、`RowGroup` label 又一次；代码与 `RowGroup` 自己的注释矛盾 | `TaskWorkbenchAgents.tsx:60-62`（注释说 History 折叠不传 label）vs `:245-246`（实际传了 `History`） |
+| 5 | 逐行禁用按钮制造"死控件"噪音：`Open terminal` 未接线，不可用的 `New workspace` / `Load evidence` 仍占位 | `TaskWorkbenchAgentRow.tsx:138-142`（`TaskWorkbenchPendingAction` + `NOT_WIRED`） |
+| 6 | `History N` 浮在左列右缘，读起来像右列的表头；1100px 双列阈值对 1100–1300px 偏乐观 | `task-workbench-layout.ts:15`、`:54-59` |
+
+#### 7.13.2 建议版式
+
+1. **双列改为内容感知**：`Agents | Workspaces` 仍并排，但列宽随内容（按 Agent / 工作区数量在
+   `1fr/1fr`、`2fr/1fr`、单列之间切换）；Agent 只有 1–2 行时不强留空列。
+2. **facts 提为通栏带**：`Usage` 与 `Delivery` 从右列底部移到两列下方的整宽 band（设计稿下半部）。
+   交付行获得整宽后 `Deliver…` 回到行尾、不再换行，也让"交付"读作任务级事实而不是右列的附属。
+3. **历史去重**：Run 历史条与 Agents → History 只保留一处；归档形态下不再同屏两份。
+4. **单一 `History` 标签**：折叠标题与分组标签二选一（按 `RowGroup` 注释的意图，折叠内不再重复 label）。
+5. **去掉死控件**：未接线的 `Open terminal` 用文字状态代替禁用按钮；不可用的 `New workspace` /
+   `Load evidence` 整项不渲染或改为说明，而不是留一个灰按钮。
+6. **阈值与对齐**：`History` 计数回到左列标题行内；1100px 阈值改为容器查询或提高下限，并补 1100–1300px 的 fixture。
+
+#### 7.13.3 边界
+
+- 本节只改版式与可见性判定，不改 §8 的存储、§7.11 / §7.12 的交付语义，也不新增 RPC。
+- 设计稿是 HTML/CSS 渲染，不经过 live store / selector / RPC / 持久化；它证明不了真实数据、真实 agent 或真机交互。
+- 实施后需要重新跑 `run.mjs --all` 并补一张生产组件渲染图（`impl-*`）；设计稿不能替代它。
 
 ---
 

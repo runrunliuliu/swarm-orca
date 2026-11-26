@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root {
+    --bg: #0a0a0b;
+    --surface: rgba(255, 255, 255, 0.025);
+    --surface-strong: rgba(255, 255, 255, 0.04);
+    --ring: rgba(255, 255, 255, 0.075);
+    --line: rgba(255, 255, 255, 0.06);
+    --fg: #e8e8ea;
+    --muted: #8b8b90;
+    --muted-2: #6c6c72;
+    --accent: #34d399;
+    --attention: #f59e0b;
+    --attention-bg: rgba(245, 158, 11, 0.07);
+    --attention-ring: rgba(245, 158, 11, 0.42);
+    --radius: 8px;
+    --gap: 20px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: system-ui, "Noto Sans CJK SC", "PingFang SC", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .mono { font-family: ui-monospace, "SFMono-Regular", "Noto Sans Mono CJK SC", monospace; }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* ---------- page chrome (the issue detail, not the workbench) ---------- */
+  .chrome { flex: none; }
+
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 22px 0;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .crumbs .sep { color: var(--muted-2); }
+  .crumbs b { color: var(--fg); font-weight: 500; }
+
+  .titlebar {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 14px 22px 10px;
+  }
+  .titlebar h1 {
+    margin: 0;
+    font-size: 26px;
+    line-height: 1.25;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  .titlebar .num { color: var(--muted); font-weight: 500; margin-left: 8px; }
+  .primary {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 8px;
+    background: #f4f4f5;
+    color: #111;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .primary .caret {
+    border-left: 1px solid rgba(0, 0, 0, 0.16);
+    padding-left: 10px;
+    margin-left: 2px;
+    color: #4b4b4f;
+  }
+
+  .meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 22px 14px;
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+  .pill-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: rgba(52, 211, 153, 0.14);
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .pill-open .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+  .tabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--line);
+  }
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 10px 10px;
+    font-size: 13px;
+    color: var(--muted);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab.active { color: var(--fg); border-bottom-color: #f4f4f5; font-weight: 550; }
+
+  /* ---------- workbench tab body ---------- */
+  .body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 18px 22px 22px;
+  }
+
+  .panel { display: flex; flex-direction: column; gap: var(--gap); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr);
+    gap: var(--gap);
+    align-items: start;
+  }
+
+  .section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+  .heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .heading .name { font-size: 12px; font-weight: 600; }
+  .heading .count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .heading .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+  .quiet {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .quiet:hover { background: var(--surface-strong); }
+  .quiet .chev { font-size: 10px; }
+
+  .surface {
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--ring);
+    overflow: hidden;
+  }
+  .surface.attention {
+    background: var(--attention-bg);
+    box-shadow: inset 0 0 0 1px var(--attention-ring);
+  }
+
+  .group-label {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 1px 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .group-label .gl { font-weight: 500; }
+  .group-label.needs { color: var(--attention); }
+  .group-label.needs .gl { color: var(--attention); }
+
+  .row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 7px 12px;
+    min-width: 0;
+  }
+  .row + .row { border-top: 1px solid var(--line); }
+
+  .row .icon { flex: none; width: 16px; text-align: center; color: var(--muted); font-size: 12px; }
+  .row .name {
+    flex: 1;
+    min-width: 128px;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row .meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .row .meta .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot.green { background: var(--accent); }
+  .dot.amber { background: var(--attention); }
+  .dot.grey { background: #5b5b61; }
+  .row .sep { color: var(--muted-2); }
+
+  .ws-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 46%;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--surface-strong);
+    box-shadow: inset 0 0 0 1px var(--ring);
+    color: var(--muted);
+    font-size: 11.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .action {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 6px;
+    box-shadow: inset 0 0 0 1px var(--ring);
+    color: #cfcfd3;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .action.primaryish { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22); }
+
+  .ask {
+    display: flex;
+    gap: 8px;
+    padding: 0 12px 8px 36px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .ask .q { flex: 1; min-width: 0; }
+
+  /* workspaces rows */
+  .ws-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: 8px 12px;
+    min-width: 0;
+  }
+  .ws-row + .ws-row { border-top: 1px solid var(--line); }
+  .ws-row .grid-ico { color: var(--muted); font-size: 12px; }
+  .ws-row .ident { flex: 1; min-width: 128px; display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .ws-row .repo { color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .ws-row .branch {
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ws-row .ws-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .tag-default {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(52, 211, 153, 0.16);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-archived {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--ring);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  /* full-width facts band */
+  .facts {
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--ring);
+    overflow: hidden;
+  }
+  .fact-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 9px 12px;
+    min-width: 0;
+  }
+  .fact-row + .fact-row { border-top: 1px solid var(--line); }
+  .fact-label { flex: none; font-size: 12px; font-weight: 600; }
+  .fact-main { display: flex; align-items: baseline; gap: 6px; font-size: 13px; white-space: nowrap; }
+  .fact-main .num { font-variant-numeric: tabular-nums; }
+  .fact-main .sub { color: var(--muted); font-size: 12px; }
+  .fact-providers {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+  }
+  .fact-spacer { flex: 1; min-width: 8px; }
+  .badge-quiet {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--ring);
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .state-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 21px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--attention);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .state-chip.delivered {
+    background: rgba(52, 211, 153, 0.14);
+    color: var(--accent);
+  }
+  .delivery-facts {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #c9c9cd;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .delivery-facts .sep { color: var(--muted-2); }
+  .pr-state {
+    display: inline-flex;
+    align-items: center;
+    height: 19px;
+    padding: 0 7px;
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 1px var(--ring);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .fact-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <!-- page chrome -->
+    <header class="chrome">
+      <div class="crumbs">
+        <span>‹ GitHub list</span>
+        <span class="sep">|</span>
+        <span>acme / <b>web-app</b></span>
+        <span class="sep">·</span>
+        <span>#412</span>
+      </div>
+      <div class="titlebar">
+        <h1>feat: 任务详情里的工作台视图与用量汇总<span class="num">#412</span></h1>
+        <div class="primary">打开工作区 →<span class="caret">▾</span></div>
+      </div>
+      <div class="meta">
+        <span class="pill-open"><span class="dot"></span>开放</span>
+        <span>acme-dev 创建了此议题</span>
+        <span>·</span>
+        <span>已更新 12 分钟前</span>
+      </div>
+      <nav class="tabs">
+        <span class="tab">▢ 对话</span>
+        <span class="tab active">✦ Orca</span>
+      </nav>
+    </header>
+
+    <!-- Orca tab body -->
+    <main class="body">
+      <div class="panel">
+        <div class="grid">
+          <!-- Agents -->
+          <section class="section">
+            <div class="heading">
+              <span class="name">Agents</span>
+              <span class="count">3</span>
+              <span class="right">
+                <span class="quiet">History 2 <span class="chev">▾</span></span>
+              </span>
+            </div>
+
+            <div class="group-label"><span class="gl">Working</span><span>2</span></div>
+            <div class="surface">
+              <div class="row">
+                <span class="icon">✳</span>
+                <span class="name">issue-context-injection</span>
+                <span class="meta">
+                  <span class="dot green"></span>Working
+                  <span class="sep">·</span>12m
+                  <span class="sep">·</span>412k
+                </span>
+                <span class="action">Open terminal</span>
+              </div>
+              <div class="row">
+                <span class="icon">✳</span>
+                <span class="name">worktree-naming-review</span>
+                <span class="meta">
+                  <span class="dot green"></span>Working
+                  <span class="sep">·</span>6m
+                  <span class="sep">·</span>890k
+                </span>
+                <span class="action">Open terminal</span>
+              </div>
+            </div>
+
+            <div class="group-label needs"><span class="gl">Needs you</span><span>1</span></div>
+            <div class="surface attention">
+              <div class="row">
+                <span class="icon">✳</span>
+                <span class="name">inject-issue-body</span>
+                <span class="meta">
+                  <span class="dot amber"></span>Needs you
+                  <span class="sep">·</span>just now
+                  <span class="sep">·</span>96k
+                </span>
+                <span class="action primaryish">Reply</span>
+              </div>
+              <div class="ask">
+                <span class="q">要不要把 issue 正文注入到第一个 prompt？</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- Workspaces -->
+          <section class="section">
+            <div class="heading">
+              <span class="name">Workspaces</span>
+              <span class="count">2</span>
+              <span class="right"><span class="quiet">＋ New workspace</span></span>
+            </div>
+            <div class="surface">
+              <div class="ws-row">
+                <span class="grid-ico">▦</span>
+                <span class="ident">
+                  <span class="repo">web-app</span>
+                  <span class="sep" style="color:var(--muted-2)">·</span>
+                  <span class="branch mono">feature/task-workbench-ui</span>
+                </span>
+                <span class="ws-meta">
+                  <span class="dot green"></span>Working
+                  <span class="tag-default">Default</span>
+                </span>
+              </div>
+              <div class="ws-row">
+                <span class="grid-ico">▦</span>
+                <span class="ident">
+                  <span class="repo">web-app</span>
+                  <span class="sep" style="color:var(--muted-2)">·</span>
+                  <span class="branch mono">feature/usage-spike</span>
+                </span>
+                <span class="ws-meta">
+                  <span class="badge-quiet">SSH</span>
+                  <span class="dot grey"></span>Idle
+                  <span class="tag-archived">Archived</span>
+                </span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- full-width facts band -->
+        <div class="facts">
+          <div class="fact-row">
+            <span class="fact-label">Usage</span>
+            <span class="fact-main">
+              <span class="num">1.4M tokens</span>
+              <span class="sub">·</span>
+              <span class="sub">est. $1.82</span>
+            </span>
+            <span class="fact-providers">
+              <span>Claude 412k · $1.20</span>
+              <span>Codex 890k · $0.62</span>
+              <span>Pi 96k · —</span>
+            </span>
+            <span class="fact-spacer"></span>
+            <span class="badge-quiet">2 sessions unattributed</span>
+          </div>
+          <div class="fact-row">
+            <span class="fact-label">Delivery</span>
+            <span class="state-chip"><span class="dot amber" style="width:6px;height:6px;border-radius:50%"></span>In progress</span>
+            <span class="delivery-facts">
+              <span>3 commits</span>
+              <span class="sep">·</span>
+              <span>PR #431 <span class="pr-state">draft</span></span>
+              <span class="sep">·</span>
+              <span>checks 5/6</span>
+              <span class="sep">·</span>
+              <span style="color:var(--muted)">Review pending</span>
+            </span>
+            <span class="fact-actions">
+              <span class="quiet">Expand <span class="chev">▾</span></span>
+              <span class="action">Deliver…</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
