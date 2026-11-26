@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  localAgentProcess,
+  launchedAgentProcess,
+  noAgentProcess,
   stopRealAgentProcess,
   type AgentProcessControl
 } from './real-agent-process'
@@ -10,6 +11,10 @@ import {
  * process that ignores SIGTERM — a signal that was sent is not a process that is gone, so the case
  * must report "not reclaimed" instead of proceeding to delete the directory that process was
  * configured from.
+ *
+ * W20 / B1: the same rule has to cover the state with **no pid at all**. A created pane whose pid
+ * could not be read (TUI wait timeout, `inspectProcess` failure, no foreground pid reported) may be a
+ * live agent with no handle to it, so it is "not confirmed gone" and not "nothing to reclaim".
  */
 
 type FakeAgentBehaviour = {
@@ -27,6 +32,9 @@ function createFakeAgent(pid: number | null, behaviour: FakeAgentBehaviour = {})
   const honours = behaviour.honours ?? ['SIGTERM', 'SIGKILL']
   const control: AgentProcessControl = {
     pid,
+    // `createFakeAgent` models a pane the case really created; the "nothing was created" state has
+    // its own constructor (`noAgentProcess`).
+    created: true,
     isAlive: () => alive,
     signal: (signal) => {
       signalled.push(signal)
@@ -63,6 +71,32 @@ describe('stopRealAgentProcess', () => {
     expect(agent.control.isAlive()).toBe(true)
   })
 
+  it('refuses to call a created pane with an unknown pid a reclaim', async () => {
+    // The W19/B1 shape: `terminal.create` returned, then the TUI wait or the pid RPC failed, so the
+    // agent may be alive and nothing in this process knows its pid.
+    const agent = createFakeAgent(null)
+
+    const error = await stopRealAgentProcess(agent.control, FAST).then(
+      () => null,
+      (reason: unknown) => reason
+    )
+
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toMatch(/no pid was ever reported/)
+    expect((error as Error).message).toMatch(/may not be treated as reclaimed/)
+    // Not "recovered": nothing was signalled, and the unknown state cannot be read as an exit.
+    expect(agent.signalled).toEqual([])
+    expect(agent.control.isAlive()).toBe(false)
+  })
+
+  it('refuses the unknown-pid state even when the real pane can no longer be probed', async () => {
+    // Same state through the real constructor: an unknown pid is not a dead pid. A stop that treats
+    // "isAlive() === false" as the exit proof would report a reclaim here — this pins the opposite.
+    const control = launchedAgentProcess(null)
+
+    await expect(stopRealAgentProcess(control, FAST)).rejects.toThrow(/no pid was ever reported/)
+  })
+
   it('escalates to SIGKILL and accepts only the confirmed exit', async () => {
     const agent = createFakeAgent(4243, { honours: ['SIGKILL'], exitDelayMs: 5 })
 
@@ -81,12 +115,13 @@ describe('stopRealAgentProcess', () => {
     expect(agent.control.isAlive()).toBe(false)
   })
 
-  it('does nothing for a pane that never reported a pid', async () => {
-    const agent = createFakeAgent(null)
+  it('does nothing when the case never created a pane', async () => {
+    const control = noAgentProcess()
 
-    await stopRealAgentProcess(agent.control, FAST)
+    await stopRealAgentProcess(control, FAST)
 
-    expect(agent.signalled).toEqual([])
+    expect(control.pid).toBeNull()
+    expect(control.created).toBe(false)
   })
 
   it('does not signal a pid that is already gone', async () => {
@@ -115,10 +150,11 @@ describe('stopRealAgentProcess', () => {
 
   it('builds a local control whose liveness probe is kill(pid, 0) semantics', () => {
     // A pid that cannot exist on this host: the probe is the kernel's answer, not a guess.
-    const dead = localAgentProcess(2 ** 22 + 12345)
+    const dead = launchedAgentProcess(2 ** 22 + 12345)
     expect(dead.isAlive()).toBe(false)
-    // `null` means "no process was created", which is not alive but also not an error to stop.
-    expect(localAgentProcess(null).isAlive()).toBe(false)
-    expect(localAgentProcess(null).pid).toBeNull()
+    expect(dead.created).toBe(true)
+    // A created pane with no pid is not alive either — but it is not "nothing to reclaim" (above).
+    expect(launchedAgentProcess(null).isAlive()).toBe(false)
+    expect(launchedAgentProcess(null).pid).toBeNull()
   })
 })

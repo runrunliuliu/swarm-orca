@@ -43,25 +43,29 @@ export async function cleanupRealAgentCase(input: {
     agentConfirmedGone = false
     failures.push(error)
   }
+  let hostDisposed = true
   if (input.host) {
     try {
       await input.host.dispose()
     } catch (error) {
+      hostDisposed = false
       failures.push(error)
     }
   }
-  if (agentConfirmedGone) {
+  // Only a confirmed agent exit **and** a disposed apex make the tree garbage. A failed host disposal
+  // is included on purpose: its own failure says a child or the daemon may still hold this root.
+  if (agentConfirmedGone && hostDisposed) {
     try {
       rmSync(input.fixtureRoot, { recursive: true, force: true })
     } catch (error) {
       failures.push(error)
     }
   } else {
-    failures.push(
-      new Error(
-        `the real agent pid ${String(input.agentProcess.pid)} was not confirmed gone; kept ${input.fixtureRoot} for inspection`
-      )
-    )
+    const reason = agentConfirmedGone
+      ? 'the apex did not dispose cleanly, so a child or its daemon may still hold this tree'
+      : `the real agent (pid ${String(input.agentProcess.pid)}, created=${String(input.agentProcess.created)}) ` +
+        'was not confirmed reclaimed'
+    failures.push(new Error(`${reason}; kept ${input.fixtureRoot} for inspection`))
   }
   return failures
 }

@@ -9,11 +9,22 @@
  * the agent is gone, and a signal that was merely **sent** is not evidence either (SIGTERM can be
  * ignored or handled and ignored). If the exit cannot be confirmed, the caller must keep the fixture
  * tree the agent was configured from and report a cleanup failure instead of deleting it.
+ *
+ * Why an unknown pid is a failure and not a no-op: "the pane never reported a pid" is what a *created*
+ * pane looks like when the TUI wait timed out or the `inspectProcess` call failed — the agent may be
+ * running, with no handle to signal it. Only `noAgentProcess()` (nothing was created) may be reported
+ * as "nothing to reclaim"; everything else has to fail closed and keep the tree.
  */
 
 /** The process a case owns: its pid (when one exists) plus how to probe and signal it. */
 export type AgentProcessControl = {
   pid: number | null
+  /**
+   * Whether this case ever asked the apex to create a pane for the agent. `false` only when nothing
+   * was created, i.e. when no process can exist. A created pane with an unknown pid is **not**
+   * "nothing to reclaim" — that is the state the stop below has to refuse.
+   */
+  created: boolean
   /** `kill(pid, 0)` semantics: false only when the kernel says the process does not exist. */
   isAlive: () => boolean
   /** Deliver a signal; throws when it cannot be delivered. */
@@ -30,10 +41,24 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-/** A control for a local process id, or an empty one when the pane never reported a pid. */
-export function localAgentProcess(pid: number | null): AgentProcessControl {
+/**
+ * Nothing was created for this case (`terminal.create` failed, or the case threw before asking for a
+ * pane): no process can exist, so there is nothing to reclaim and no exit to confirm.
+ */
+export function noAgentProcess(): AgentProcessControl {
+  return { pid: null, created: false, isAlive: () => false, signal: () => {} }
+}
+
+/**
+ * A pane **exists**. `pid` is what the apex reported, and `null` means the identity could not be
+ * established — the TUI wait timed out, `inspectProcess` threw, or it reported no foreground pid.
+ * That state is deliberately *not* "no process": the agent may be running and unreachable, so a stop
+ * must report "not reclaimed" rather than return quietly.
+ */
+export function launchedAgentProcess(pid: number | null): AgentProcessControl {
   return {
     pid,
+    created: true,
     isAlive: () => (pid === null ? false : isProcessAlive(pid)),
     signal: (signal) => {
       if (pid === null) {
@@ -79,8 +104,10 @@ async function waitForGone(
  * A stop that cannot confirm it throws — the caller must not delete the directory the process was
  * configured from, and must report the failed cleanup rather than a clean run.
  *
- * A `null` pid is not a failure: no process was ever created (`terminal.create` failed, or the pane
- * never reported a foreground pid), so there is nothing to reclaim.
+ * Two states are decided before any signal is sent:
+ * - `created === false` (with no pid): nothing was created, so this returns — the only no-op.
+ * - a created pane whose pid is unknown: it throws. The agent may be alive and there is no handle to
+ *   it, so "no pid" is "not confirmed gone", never "nothing to reclaim".
  */
 export async function stopRealAgentProcess(
   control: AgentProcessControl,
@@ -89,8 +116,14 @@ export async function stopRealAgentProcess(
   const graceMs = options.graceMs ?? DEFAULT_GRACE_MS
   const killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS
-  if (control.pid === null) {
+  if (!control.created && control.pid === null) {
     return
+  }
+  if (control.pid === null) {
+    throw new Error(
+      'the real agent pane was created but no pid was ever reported, so its exit cannot be ' +
+        'observed: it may not be treated as reclaimed (keeping the fixture tree for inspection)'
+    )
   }
   if (!control.isAlive()) {
     return

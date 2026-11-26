@@ -75,6 +75,11 @@ export type OrcadApexHost = {
   readonly client: RuntimeClient
   /** Everything the host wrote to stdout/stderr so far, for attaching as failure evidence. */
   output(): string
+  /**
+   * Why the daemon reclaim found nothing to reclaim (missing pid record, recycled pid, a process that
+   * only mentions this profile). Recorded rather than dropped: "no daemon" always has a reason.
+   */
+  readonly daemonScanNotes: string[]
   /** SIGTERM the host, wait for exit, and start a replacement on the same profile. */
   restart(): Promise<void>
   /**
@@ -140,8 +145,21 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   let current: LaunchedApex | null = null
   let latestReady: ApexReadiness | null = null
   let disposed = false
+  const daemonScanNotes: string[] = []
 
   const daemonDir = path.join(userDataDir, 'daemon')
+
+  /**
+   * Why notes are "recorded" rather than dropped: "this case has no reclaimable daemon" is a
+   * conclusion that needs its reason on the record (missing pid record, recycled pid, ...). The test
+   * output gets them even when the start fails and no host object exists to read them from.
+   */
+  const recordDaemonNotes = (notes: string[]): void => {
+    daemonScanNotes.push(...notes)
+    for (const note of notes) {
+      console.log(`[orcad-apex] daemon scan: ${note}`)
+    }
+  }
 
   const output = (): string =>
     launched.map((entry) => `[stdout]\n${entry.stdout}[stderr]\n${entry.stderr}`).join('\n')
@@ -195,26 +213,30 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
    * Why it belongs here: the daemon deliberately outlives its `orcad` (a product restart must not kill
    * every terminal), so a case's exit leaves one `daemon-entry.js` holding the temp profile. Once the
    * root is deleted that process is unreachable by every later cleanup, which is how this host
-   * accumulated 103 orphans. Ownership is proved by the profile's own pid record plus the daemon dir
-   * appearing in the command line (`orcad-apex-daemon.ts`), never by process name.
+   * accumulated 103 orphans. Ownership is the profile's own pid record **and** the recorded pid's
+   * command line carrying this profile's exact socket and pid-record arguments
+   * (`orcad-apex-daemon.ts`), never a process name and never a cmdline substring.
    *
    * A daemon that survives is a failure, not a detail: the root is then the evidence and the retry
    * handle, so it must not be removed. When the profile never had a daemon dir there is nothing to
-   * scan for, which is also what keeps the mock-child unit tests hermetic.
+   * scan for, which is also what keeps the mock-child unit tests hermetic. When the dir exists but
+   * holds no usable pid record, the reclaim is a no-op **with a recorded reason**, not a silent pass.
    */
-  const reclaimDaemon = async (): Promise<unknown | null> => {
+  const reclaimDaemon = async (): Promise<{ error: unknown | null; notes: string[] }> => {
     if (!existsSync(daemonDir)) {
-      return null
+      return { error: null, notes: [] }
     }
+    const notes: string[] = []
     try {
-      await reclaimApexDaemons({
+      const result = await reclaimApexDaemons({
         daemonDir,
+        seams: { recordNote: (note) => notes.push(note) },
         ...(options.daemonGraceMs === undefined ? {} : { graceMs: options.daemonGraceMs }),
         ...(options.daemonKillGraceMs === undefined ? {} : { killGraceMs: options.daemonKillGraceMs })
       })
-      return null
+      return { error: null, notes: result.notes }
     } catch (error) {
-      return error
+      return { error, notes }
     }
   }
 
@@ -234,7 +256,9 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     } catch (error) {
       failures.push(error)
     }
-    const daemonReclaimError = await reclaimDaemon()
+    const daemon = await reclaimDaemon()
+    recordDaemonNotes(daemon.notes)
+    const daemonReclaimError = daemon.error
     if (daemonReclaimError !== null) {
       failures.push(daemonReclaimError)
     }
@@ -291,6 +315,7 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     buildPointerPath,
     client: new RuntimeClient(userDataDir, 30_000),
     output,
+    daemonScanNotes,
     restart: async () => {
       // The first stop is deliberately outside the try: if the old child's exit cannot be confirmed, a
       // replacement must not be launched (nothing would own the old process) and the root stays.
@@ -338,7 +363,9 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     } catch (stopError) {
       failures.push(stopError)
     }
-    const startDaemonError = await reclaimDaemon()
+    const startDaemon = await reclaimDaemon()
+    recordDaemonNotes(startDaemon.notes)
+    const startDaemonError = startDaemon.error
     if (startDaemonError !== null) {
       failures.push(startDaemonError)
     }

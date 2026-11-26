@@ -30,7 +30,8 @@ import {
 import {
   isProcessAlive,
   launchRealAgentTerminal,
-  localAgentProcess,
+  launchedAgentProcess,
+  noAgentProcess,
   readAgentPid,
   seedPiAgentDir,
   waitForAgentTui
@@ -91,7 +92,7 @@ test.describe('issue #68 headless orcad live run — real agent', () => {
     let testError: unknown
     // Process ownership lives **outside** the try: a failure anywhere below still has to reclaim the
     // real agent, so the pid cannot be a try-local binding that a throw makes unreachable.
-    let agentProcess = localAgentProcess(null)
+    let agentProcess = noAgentProcess()
     try {
       // Isolation comes first, before anything that can install a product extension: `startOrcadApex()`
       // spawns the apex with the runner's pi pane variables removed (`orcad-apex-child.ts`,
@@ -104,9 +105,12 @@ test.describe('issue #68 headless orcad live run — real agent', () => {
       // Seeded after the apex is already isolated, and before the pane's own env assembly.
       const piAgent = seedPiAgentDir(fixture.root)
       const terminal = await launchRealAgentTerminal(host, workspace.worktreeId, piAgent)
+      // Ownership is registered as soon as the pane exists: from here the agent may be running, so a
+      // pid that never arrives is "unconfirmed", not "nothing to reclaim" (W19/B1).
+      agentProcess = launchedAgentProcess(null)
       const startupScreen = await waitForAgentTui(host, terminal.handle)
       const agentPid = await readAgentPid(host, terminal.handle)
-      agentProcess = localAgentProcess(agentPid)
+      agentProcess = launchedAgentProcess(agentPid)
       expect(agentPid, 'the apex never reported a foreground pid for the agent pane').not.toBeNull()
       const clientTabId = `web-terminal-${terminal.tabId}`
 
@@ -311,7 +315,7 @@ test.describe('issue #68 headless orcad live run — real agent', () => {
     const evidence = process.env.ORCA_E2E_EVIDENCE_DIR
     let host: OrcadApexHost | null = null
     let client: PairedElectronClient | null = null
-    let agentProcess = localAgentProcess(null)
+    let agentProcess = noAgentProcess()
     let testError: unknown
     try {
       host = await startOrcadApex()
@@ -319,11 +323,13 @@ test.describe('issue #68 headless orcad live run — real agent', () => {
       const workspace = await bindWorkspace(host, fixture)
       const piAgent = seedPiAgentDir(fixture.root)
       const terminal = await launchRealAgentTerminal(host, workspace.worktreeId, piAgent)
+      // The pane exists from here on, so the pid-unknown state is a live agent until proven gone.
+      agentProcess = launchedAgentProcess(null)
       // If the TUI never paints on the unfixed artifact, that *is* the finding: the case reports it as
       // "the artifact could not start the real agent" instead of pretending the close happened.
       const startupScreen = await waitForAgentTui(host, terminal.handle)
       const agentPid = await readAgentPid(host, terminal.handle)
-      agentProcess = localAgentProcess(agentPid)
+      agentProcess = launchedAgentProcess(agentPid)
       const clientTabId = `web-terminal-${terminal.tabId}`
       client = await launchPairedElectronClient(
         { pairingUrl: host.offer.pairingUrl },

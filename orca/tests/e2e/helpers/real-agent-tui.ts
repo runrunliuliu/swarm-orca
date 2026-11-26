@@ -7,7 +7,8 @@ import type { OrcadApexHost } from './orcad-apex-host'
 
 export {
   isProcessAlive,
-  localAgentProcess,
+  launchedAgentProcess,
+  noAgentProcess,
   stopRealAgentProcess,
   type AgentProcessControl,
   type StopAgentOptions
