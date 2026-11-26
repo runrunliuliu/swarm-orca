@@ -231,9 +231,11 @@ export function mergeTaskRecordSources(args: {
     if (answer.record) {
       records.push({
         target: answer.target,
-        // Mixed profiles already carry explicit ownership conflicts; scope only the remote-only
-        // record whose relative `local` spelling otherwise has no client-side meaning.
-        record: args.local ? answer.record : scopeRecordToTarget(answer.target, answer.record)
+        // Always scope: a runtime profile spells its own checkout host as `local`,
+        // so leaving a mixed record's remote binding unscoped makes the history
+        // merge read that live binding as a removed one. Scoping is idempotent for
+        // already-qualified bindings, so a mixed record is safe to scope too.
+        record: scopeRecordToTarget(answer.target, answer.record)
       })
     }
   }

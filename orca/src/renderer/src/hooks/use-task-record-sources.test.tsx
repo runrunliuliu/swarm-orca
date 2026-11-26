@@ -296,6 +296,51 @@ describe('useTaskRecordSources', () => {
     ])
   })
 
+  it('blocks the empty state when the fallback catalog match contradicts the page identity', async () => {
+    // No workspace row and no local record: the panel would otherwise print "this
+    // task never ran". The catalog found an id match whose Git identity contradicts
+    // the page, so the answer is undetermined, not absent (issue #67 review S3).
+    const contradictoryRepo: Repo = {
+      ...REMOTE_REPO,
+      id: QUERY.repoId,
+      gitRemoteIdentity: {
+        canonicalKey: 'github.com/other/repo',
+        remoteName: 'origin',
+        remoteUrl: 'git@github.com:other/repo.git'
+      }
+    }
+    runtimeEnvironmentCall.mockImplementation(({ method }: { method: string }) => {
+      if (method === 'status.get') {
+        return Promise.resolve(
+          envelope('status.get', {
+            runtimeId: 'remote-runtime',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: RUNTIME_PROTOCOL_VERSION,
+            minCompatibleRuntimeClientVersion: MIN_COMPATIBLE_RUNTIME_CLIENT_VERSION
+          })
+        )
+      }
+      if (method === 'repo.list') {
+        return Promise.resolve(envelope(method, { repos: [contradictoryRepo] }))
+      }
+      return Promise.resolve(envelope(method, { record: null, repoKnown: true }))
+    })
+
+    const { result } = renderHook(() =>
+      useTaskRecordSources({
+        query: QUERY,
+        worktrees: [],
+        local: null,
+        ...runtimeInputs()
+      })
+    )
+
+    await waitFor(() => expect(result.current.pending).toBe(false))
+    expect(result.current.record).toBeNull()
+    expect(result.current.recordSource?.blocksFinalAbsence).toBe(true)
+    expect(result.current.recordSource?.candidateFailure).toBe('undetermined')
+  })
+
   it('does not emit a no-guess notice for a local folder repository', async () => {
     serveRecords({ record: null, repoKnown: true })
     const folderRepo: Repo = {

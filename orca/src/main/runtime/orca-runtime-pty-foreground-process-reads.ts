@@ -150,9 +150,15 @@ export class OrcaRuntimeWithPtyForegroundProcessReads extends OrcaRuntimeWithSta
    * reason: it cannot tell.
    */
   getTaskRecordForTask(args: TaskRecordsRemoteQuery): TaskRecordsRemoteResult {
-    const repoKnown = Boolean(this.store?.getRepo?.(args.repoId))
+    // The accessor is optional in the store contract: a store that has `getRepo`
+    // but not this method must answer `null` (the caller keeps its own content),
+    // not throw. Bind the receiver explicitly so a real store method still sees
+    // its own `this`.
+    const store = this.store
+    const read = store?.getTaskRecordForTask
+    const repoKnown = Boolean(store?.getRepo?.(args.repoId))
     return {
-      record: this.store && repoKnown ? this.store.getTaskRecordForTask(args) : null,
+      record: read && repoKnown ? read.call(store, args) : null,
       repoKnown
     }
   }

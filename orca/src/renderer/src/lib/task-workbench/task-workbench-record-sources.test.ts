@@ -197,6 +197,25 @@ describe('mergeTaskRecordSources', () => {
     })
   })
 
+  it('scopes a mixed record\'s remote local-spelled binding too', () => {
+    // A runtime profile spells its own checkout host as `local`. When a local
+    // record also exists, that remote binding must still be scoped, or the history
+    // merge reads a live remote workspace as a removed one (issue #67 review S2).
+    const local = record('local', [binding({ worktreeId: 'wt-local', hostId: 'local' })])
+    const remote = record('local', [
+      binding({ worktreeId: 'wt-remote', hostId: 'local', isArchived: false })
+    ])
+    const sources = mergeTaskRecordSources({ local, answers: [answered(ENV_A, remote)] })
+
+    expect(
+      sources.record?.bindings.find((entry) => entry.worktreeId === 'wt-remote')?.hostId
+    ).toBe('runtime:env-a')
+    // The genuinely-local binding is left untouched.
+    expect(
+      sources.record?.bindings.find((entry) => entry.worktreeId === 'wt-local')?.hostId
+    ).toBe('local')
+  })
+
   it('tells "asked and empty" apart from "could not ask"', () => {
     const empty = mergeTaskRecordSources({ local: null, answers: [answered(ENV_A, null)] })
     expect(empty.record).toBeNull()
@@ -293,7 +312,9 @@ describe('mergeTaskRecordSources', () => {
 
     expect(sources.record?.bindings[0].isArchived).toBe(false)
     expect(sources.conflicts[0].kept).toEqual({ kind: 'local' })
-    expect(sources.conflicts[0].fields).toEqual(['isArchived'])
+    // The remote profile's `local` spelling is scoped to its own environment, so
+    // the two profiles now visibly disagree about the host as well as the flag.
+    expect(sources.conflicts[0].fields).toEqual(['hostId', 'isArchived'])
   })
 
   it('names the tie-break when neither profile owns the workspace it states', () => {

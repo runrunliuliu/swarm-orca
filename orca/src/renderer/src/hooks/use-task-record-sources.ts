@@ -140,7 +140,12 @@ export function useTaskRecordSources(args: {
   const sources = useMemo(() => mergeTaskRecordSources({ local, answers }), [local, answers])
   const pending = candidates.pending || remote.pending
   const blocksFinalAbsence =
-    evidenceEnvironmentIds.length > 0 || (!pageRepo && worktrees.length === 0 && local === null)
+    evidenceEnvironmentIds.length > 0 ||
+    (!pageRepo && worktrees.length === 0 && local === null) ||
+    // The catalog fallback probes every environment when no evidence names one.
+    // An inconclusive probe with no workspace row to anchor local absence must not
+    // print as "this task never ran" — unknown is not absence (issue #67).
+    (candidates.verdict === 'undetermined' && worktrees.length === 0)
   const recordSource = useMemo(
     () =>
       projectTaskRecordSource({

@@ -105,6 +105,21 @@ describe('taskRecords.get', () => {
     expect(response).toMatchObject({ ok: true, result: { record, repoKnown: true } })
   })
 
+  it('answers null without throwing when the store has no task-record accessor', () => {
+    // The accessor is optional in the store contract (runtime-store-contract.ts):
+    // the headless root and test doubles build the store by parts. A store with
+    // `getRepo` but no `getTaskRecordForTask` must answer "could not ask", not throw.
+    const store = { getRepo: (repoId: string) => (repoId === 'repo-1' ? { id: repoId } : null) }
+
+    const result = Reflect.apply(
+      OrcaRuntimeService.prototype.getTaskRecordForTask,
+      { store },
+      [{ repoId: 'repo-1', itemType: 'issue', number: 7, provider: 'github' }]
+    )
+
+    expect(result).toEqual({ record: null, repoKnown: true })
+  })
+
   it('answers one identity with the record this runtime holds', async () => {
     const record = makeRecord()
     const { runtime, getTaskRecordForTask } = makeRuntime({ record, repoKnown: true })
