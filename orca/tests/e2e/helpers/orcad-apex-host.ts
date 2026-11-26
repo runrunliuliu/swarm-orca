@@ -76,7 +76,11 @@ export type OrcadApexHost = {
   output(): string
   /** SIGTERM the host, wait for exit, and start a replacement on the same profile. */
   restart(): Promise<void>
-  /** Stop the host, prove the source artifact stayed read-only, and remove the temp root. */
+  /**
+   * Stop the host, prove the source artifact stayed read-only, and remove the temp root. A stop whose
+   * exit cannot be confirmed rejects, keeps the root and the child owner, and leaves `dispose()`
+   * retryable.
+   */
   dispose(): Promise<void>
   /** Same check `dispose()` performs, without stopping anything; returns the after-fingerprint. */
   verifySourceUntouched(): ApexSourceWitness
@@ -92,6 +96,8 @@ export type StartOptions = {
   readinessTimeoutMs?: number
   /** SIGTERM → SIGKILL escalation window for a stop (default 20 s). */
   shutdownGraceMs?: number
+  /** How long SIGKILL gets to be confirmed as an exit (default 5 s; injectable for the unit test). */
+  killGraceMs?: number
 }
 
 const READINESS_TIMEOUT_MS = 60_000
@@ -160,20 +166,33 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     return latestReady
   }
 
+  /**
+   * Stop the owned child and give up ownership **only once the exit is confirmed**. A stop that
+   * cannot prove the exit throws and leaves `current` in place: the child is still owned (so it can
+   * be retried), and the caller may not remove the temp root it is running from.
+   */
   const stopCurrent = async (): Promise<void> => {
     const target = current
-    current = null
     if (!target) {
       return
     }
-    await terminateApexChild(target, shutdownGraceMs)
+    await terminateApexChild(target, shutdownGraceMs, options.killGraceMs)
+    // Only now is the exit confirmed; until then `current` is what lets a retry reach the process.
+    if (current === target) {
+      current = null
+    }
   }
 
+  /**
+   * Stop, prove the source stayed read-only, then remove the temp root — in that order, and only the
+   * steps whose precondition holds. `disposed` is set **after** a disposal that actually finished, so
+   * a stop that could not confirm an exit keeps the root and the child owner for a retry instead of
+   * reporting a cleanup it did not perform.
+   */
   const dispose = async (): Promise<void> => {
     if (disposed) {
       return
     }
-    disposed = true
     const failures: unknown[] = []
     try {
       await stopCurrent()
@@ -185,14 +204,25 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     } catch (error) {
       failures.push(error)
     }
-    try {
-      rmSync(root, { recursive: true, force: true })
-    } catch (error) {
-      failures.push(error)
+    if (current === null) {
+      try {
+        rmSync(root, { recursive: true, force: true })
+      } catch (error) {
+        failures.push(error)
+      }
+    } else {
+      // An orphan may still be writing into the profile and the artifact copy, so the root is the
+      // evidence and the retry handle, not garbage.
+      failures.push(
+        new Error(
+          `orcad apex pid ${String(current.child.pid)} was not confirmed gone; keeping ${root} for retry`
+        )
+      )
     }
     if (failures.length > 0) {
       throw new AggregateError(failures, `orcad apex cleanup failed for ${sourceWitness.dir}`)
     }
+    disposed = true
   }
 
   const createHost = (copy: ApexArtifactCopy): OrcadApexHost => ({
@@ -214,16 +244,24 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     client: new RuntimeClient(userDataDir, 30_000),
     output,
     restart: async () => {
+      // The first stop is deliberately outside the try: if the old child's exit cannot be confirmed, a
+      // replacement must not be launched (nothing would own the old process) and the root stays.
       await stopCurrent()
       try {
         await launch(copy.dir)
       } catch (error) {
+        const failures: unknown[] = []
         try {
           await stopCurrent()
         } catch (stopError) {
+          failures.push(stopError)
+        }
+        if (failures.length > 0) {
+          // Both are kept: the launch failure explains the run, the stop failure explains why the
+          // root is still on disk and why `dispose()` can be retried.
           throw new AggregateError(
-            [error, stopError],
-            'orcad apex restart failed and could not be reclaimed'
+            [error, ...failures],
+            `orcad apex restart from ${configuredApexDir} failed and the temporary root ${root} could not be reclaimed`
           )
         }
         throw error

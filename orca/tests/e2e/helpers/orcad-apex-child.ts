@@ -30,9 +30,20 @@ export type LaunchedApex = {
   stdout: string
   stderr: string
   exit: ApexExit | null
+  /**
+   * A **spawn failure**: the OS never created a process (`ENOENT`/`EACCES`), so no `exit` will ever
+   * arrive. This — and only this — may be read as "the child is gone".
+   */
   spawnError: Error | null
+  /**
+   * An `error` that arrived **after** the process existed: a failed `kill` or a failed IPC message.
+   * Node documents that only the process's `exit` proves it is gone, so this is evidence, not an exit.
+   */
+  controlError: Error | null
+  /** True once the process exists (the `spawn` event, or a `pid` assigned by a successful spawn). */
+  started: boolean
   ready: ApexReadiness | null
-  /** Settles on `exit`, or on a spawn `error` (there is no process to wait for in that case). */
+  /** Settles on `exit`, or on a spawn failure (where there is no process to wait for). */
   exited: Promise<void>
   settleExited: () => void
 }
@@ -50,6 +61,8 @@ function createLaunched(child: ChildProcess): LaunchedApex {
     stderr: '',
     exit: null,
     spawnError: null,
+    controlError: null,
+    started: typeof child.pid === 'number',
     ready: null,
     exited,
     settleExited: settle
@@ -73,13 +86,24 @@ function wireApexChild(state: LaunchedApex, onLine: (line: string) => void): voi
   child.stderr?.on('data', (chunk: string) => {
     state.stderr += chunk
   })
+  child.once('spawn', () => {
+    state.started = true
+  })
   child.once('exit', (code, signal) => {
     state.exit = { code, signal }
     state.settleExited()
   })
   // Why: EACCES/ENOEXEC never emit `exit`, so without this the readiness wait would spin for the
-  // whole timeout and then report a missing readiness line instead of the spawn failure.
-  child.once('error', (error: Error) => {
+  // whole timeout and then report a missing readiness line instead of the spawn failure. But an
+  // `error` also reports a failed `kill` on a live child (`node:child_process` documents both), and
+  // treating *that* as an exit would let a stop "succeed" on a process that is still running. The
+  // discriminating fact is whether a process ever existed: a successful spawn assigns `pid` (and
+  // emits `spawn`), a spawn failure has neither.
+  child.on('error', (error: Error) => {
+    if (state.started || typeof child.pid === 'number') {
+      state.controlError = error
+      return
+    }
     state.spawnError = error
     state.settleExited()
   })
@@ -170,15 +194,23 @@ export async function awaitApexReadiness(
       )
     }
     if (Date.now() > deadline) {
+      // A live child that keeps failing to accept signals is worth naming: otherwise the timeout
+      // reads like a slow start while the real story is "this pid is unresponsive".
+      const control = state.controlError
+        ? `\nsignalling reported: ${state.controlError.message}`
+        : ''
       throw new Error(
-        `orcad apex never published readiness from ${options.apexDir} within ${options.timeoutMs}ms:\n${options.output()}`
+        `orcad apex never published readiness from ${options.apexDir} within ${options.timeoutMs}ms${control}:\n${options.output()}`
       )
     }
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
 }
 
-/** True once the child is gone (or never started); at most `timeoutMs` of waiting. */
+/**
+ * True once the child is gone (or never started) — proven by `exit` or by a spawn failure, never by
+ * an `error` that only means a signal could not be delivered. At most `timeoutMs` of waiting.
+ */
 async function waitForExit(state: LaunchedApex, timeoutMs: number): Promise<boolean> {
   if (state.exit || state.spawnError) {
     return true
@@ -198,9 +230,14 @@ async function waitForExit(state: LaunchedApex, timeoutMs: number): Promise<bool
 /**
  * Stop one child and **prove it is gone**: SIGTERM, then SIGKILL after the grace window. A stop that
  * cannot confirm the exit throws, so the caller keeps the temp root for inspection instead of
- * deleting a directory an orphan process may still be writing into.
+ * deleting a directory an orphan process may still be writing into. `killGraceMs` is injectable so
+ * the unit test can exercise the escalation without waiting the production five seconds.
  */
-export async function terminateApexChild(state: LaunchedApex, graceMs: number): Promise<void> {
+export async function terminateApexChild(
+  state: LaunchedApex,
+  graceMs: number,
+  killGraceMs: number = SIGKILL_GRACE_MS
+): Promise<void> {
   if (state.exit || state.spawnError) {
     return
   }
@@ -217,10 +254,13 @@ export async function terminateApexChild(state: LaunchedApex, graceMs: number): 
   } catch {
     // Same: the exit event (if any) settles the wait.
   }
-  if (await waitForExit(state, SIGKILL_GRACE_MS)) {
+  if (await waitForExit(state, killGraceMs)) {
     return
   }
+  const control = state.controlError
+    ? `; signalling reported: ${state.controlError.message}`
+    : ''
   throw new Error(
-    `orcad apex did not exit after SIGTERM+${graceMs}ms and SIGKILL+${SIGKILL_GRACE_MS}ms (pid ${String(state.child.pid)})`
+    `orcad apex did not exit after SIGTERM+${graceMs}ms and SIGKILL+${killGraceMs}ms (pid ${String(state.child.pid)})${control}`
   )
 }
