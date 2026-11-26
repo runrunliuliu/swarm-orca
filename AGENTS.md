@@ -247,6 +247,31 @@ A/B and, as important, what it did not measure are recorded in
 transcripts are not distributed with this repository. The numbers are stated for the reason the
 rule exists, not as a promise about another task.
 
+## Search: inside this checkout, never above it
+
+A recursive search above your own worktree is not a slower way to find context, it is a lost turn.
+On this host the directory above is an NFS4 mount (attribute caches at 30 s) holding twenty-odd
+checkouts, each with its own `orca/` and `node_modules`; one `grep -rl` there ran 28 minutes without
+an answer while the fact it wanted (its own dispatch) was one `worker-show` call away. Measured on
+the same mount: over the workspace root `grep -rl` did not return in 25 s and
+`rg --max-depth 8` did not return in 20 s, while `git grep` and `rg --max-depth 6` **inside one
+checkout** answered in 0.07 s and 0.26 s.
+
+The rule is one line: **a recursive search may only walk inside your own worktree** — the git top
+level of your cwd. `swarm/search_guard.py` decides it as code with offline tests, the agent-runtime
+hook refuses the tool call with the rewrites below, and every Worker brief states it.
+
+| Instead of | Use |
+| --- | --- |
+| `grep -rl <pattern> <workspace root>` | `git grep -n <pattern> -- '<glob>'` — tracked files only, indexed, repo-scoped |
+| `rg <pattern>` over a broad tree | `rg -n --max-depth 3 -g '!node_modules' -g '!.git' <pattern> .`, or `fast_search.py <pattern>` (both bounds, prints elapsed seconds) |
+| grepping for a dispatch / task / worker id | `orca orchestration worker-show --dispatch <id>` / `task-list` — an RPC, not a file |
+| grepping for a symbol name | `swarm/ORIENTATION.md`, the generated index above |
+
+A refusal is an efficiency verdict, not a permission boundary: the gate fail-opens, and it never
+stands in for an authorization, write-scope or evidence rule. Rationale, decision table and the
+live gaps: [search discipline](swarm/docs/design/search-discipline.md).
+
 ## Skills
 
 Discover skills through the table below and read the applicable `SKILL.md` completely before acting.

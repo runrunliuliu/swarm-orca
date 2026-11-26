@@ -56,6 +56,14 @@
 “在哪”，表里没有再去 grep，读到行区间后仍要打开源码确认。同一任务上，给了这条指针的会话比没有的少约
 四成符号搜索、约四分之一的模型回合（口径见 [measurement](docs/measurement/orientation-pointer.md)）。
 
+再往下是三条硬规则（判定表、实测数字与运行侧 hook 的对应关系见 [search discipline](docs/design/search-discipline.md)）：
+
+- **递归搜索只许在自己 worktree 内**：`grep -r` / `rg` / `find` / `fd` 的目标越过 `cwd` 的 git 顶层就是
+  一次空转回合（工作区根上有二十多个 checkout，25 s 都返不回来）；运行侧 hook 会拒绝并给出改写。
+- **优先 `git grep`**（只读 tracked、有索引）；用 `rg` 就带 `--max-depth 3 -g '!node_modules' -g '!.git'`，
+  或者用 `fast_search.py`（两处边界都替你带上，并把耗时打到 stderr）。
+- **查 dispatch / task / worker 状态用 `orca orchestration worker-show|task-list`**，不要 grep 文件系统。
+
 ## 测试（仅源码检出）
 
 上节的 `tests/` 只在源码检出里，产物不带测试，运行下面的命令要先回到 `swarm-orca/swarm`：

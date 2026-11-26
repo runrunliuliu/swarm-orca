@@ -36,7 +36,7 @@ python3 -B <swarm>/coordinator_launch.py start-grant-mint --record-file <path> -
 python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --json
 ```
 
-## 符号索引（47 个：协议文档点名的顶层定义与方法）
+## 符号索引（49 个：协议文档点名的顶层定义与方法）
 
 | 符号 | 位置 | 锚点 |
 | --- | --- | --- |
@@ -50,6 +50,7 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `canonical` | `coordinator_loop.py:271-274` | `def canonical` / `class canonical` |
 | `check` | `blocking_io.py:60-63` | `def check` / `class check` |
 | `check` | `coordinator_tui_continue.py:746-748` | `def check` / `class check` |
+| `check` | `generate_release_notes.py:283-301` | `def check` / `class check` |
 | `check` | `observation_budget.py:60-63` | `def check` / `class check` |
 | `check` | `operator_authority.py:106-165` | `def check` / `class check` |
 | `check` | `operator_readiness.py:70-119` | `def check` / `class check` |
@@ -67,6 +68,7 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `exact` | `coordinator_worker_plan.py:27-31` | `def exact` / `class exact` |
 | `execute` | `coordinator_driver.py:777-791` | `def execute` / `class execute` |
 | `fingerprint` | `wait_for_file.py:55-66` | `def fingerprint` / `class fingerprint` |
+| `git` | `generate_release_notes.py:69-77` | `def git` / `class git` |
 | `identity` | `coordinator_startup.py:55-70` | `def identity` / `class identity` |
 | `invocation` | `coordinator_prepare.py:26-48` | `def invocation` / `class invocation` |
 | `log` | `publication_wait.py:139-149` | `def log` / `class log` |
@@ -126,6 +128,7 @@ python3 -B <swarm>/coordinator_launch.py start-grant-state --grant <grant_id> --
 | `text` | `pi_policy.py:25-27` | `def text` / `class text` |
 | `text` | `software_development.py:35-36` | `def text` / `class text` |
 | `verify_prepared` | `operator_prepare.py:247-291` | `def verify_prepared` / `class verify_prepared` |
+| `worktree` | `fast_search.py:41-42` | `def worktree` / `class worktree` |
 
 ## 不要这样做
 
