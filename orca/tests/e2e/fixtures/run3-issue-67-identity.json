@@ -1,0 +1,10 @@
+{
+  "number": 67,
+  "title": "bug(task-workbench): 远端独有的任务读不到记录——环境候选的证据只存在于本机，taskRecords RPC 从不发出",
+  "state": "open",
+  "url": "https://github.com/runrunliuliu/swarm-orca/issues/67",
+  "source": {
+    "command": "gh issue view 67 --repo runrunliuliu/swarm-orca --json number,title,state,url",
+    "capturedAt": "2026-11-26T01:53:28Z"
+  }
+}

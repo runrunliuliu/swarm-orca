@@ -39,6 +39,85 @@ export const PR_E2E_SOURCE_ROUTES = [
       ]).has(file)
   },
   {
+    // Why the whole kit directory: one declarative world builds the runtimes, the proxy, the
+    // identity fixture and the seeded records for every consumer, so a primitive change invalidates
+    // all of them at once — the failure would otherwise wait for a spec edit to be swept. The two
+    // task-workbench specs are consumers too (they import the paired-page helper), and a kit
+    // change can strand their DOM waits.
+    // The issue-67 consumer is named because it also imports the paired-page helper, so changing
+    // that helper must re-run its pre-kit DOM waits as well as the five `sim-*` scenarios.
+    //
+    // `npm_config_verify_deps_before_run=false` alone did not stop global setup's `pnpm run
+    // prepare:cli-output` from running an install/postinstall pass against the shared tree. A lane
+    // sharing `orca/node_modules` must put a bounded `pnpm` shim in a temporary `bin/` first on
+    // `PATH`; it may accept only exactly `pnpm run prepare:cli-output`, run `verify-cli-bin.mjs`
+    // and `install-dev-cli.mjs` directly, and exit 64 otherwise. Without that shim (or a private
+    // dependency tree), global setup can mutate the tree underneath another worktree.
+    //
+    // Fresh W16 measurements on one prebuilt E2E output at `--workers=1`: the six files passed in
+    // 221.446 s in one Playwright invocation and in 228.090 s as six separate invocations. The
+    // exact six-spec guard prices route breadth; wall time varies with host load and with whether
+    // global setup is amortized across the files.
+    //
+    // Deliberately absent from `specs`: the kit's own `*.unit.test.ts` files. They are vitest
+    // files, and the changed-e2e lane hands this list to Playwright, which answers "Error: No
+    // tests found" for them (`--list` on one reproduces it) — the same reason
+    // `browser-network.ssh-docker-route` names a vitest file only because e2e.yml excludes it from
+    // changed-e2e. `tests/e2e/**/*.unit.test.ts` already puts them in the unit lane, which the
+    // contract test asserts instead of claiming here.
+    id: 'sim-remote.kit',
+    specs: [
+      'tests/e2e/sim-identity-mismatch.spec.ts',
+      'tests/e2e/sim-network-cut-degrade.spec.ts',
+      'tests/e2e/sim-network-degraded-read.spec.ts',
+      'tests/e2e/sim-record-shapes.spec.ts',
+      'tests/e2e/sim-topology-partial-failure.spec.ts',
+      'tests/e2e/task-workbench-remote-only-record.spec.ts'
+    ],
+    matches: (file) =>
+      file.startsWith('tests/e2e/helpers/sim-remote/') ||
+      file === 'tests/e2e/helpers/task-workbench-paired-page.ts'
+  },
+  {
+    // Why its own route rather than more paths on task-workbench.remote-only-record: these five
+    // scenarios exist to pin the remote-history seams — what a merge keeps from a host that
+    // answered, what it refuses when the identity is a lookalike, and what it says when a link is
+    // slow, cut or gone. The issue-67 spec pins one archived record end to end; these pin the
+    // shapes and faults around it, so the two lists are related but not interchangeable.
+    //
+    // Closed list, not a `task-workbench-` prefix: the neighbours in that directory (usage,
+    // settlement, row activity, deliver launch) have their own unit coverage and no scenario
+    // exercises them, so a prefix would run this lane on most task-workbench work.
+    id: 'task-workbench.remote-history-scenarios',
+    specs: [
+      'tests/e2e/sim-record-shapes.spec.ts',
+      'tests/e2e/sim-topology-partial-failure.spec.ts',
+      'tests/e2e/sim-network-degraded-read.spec.ts',
+      'tests/e2e/sim-network-cut-degrade.spec.ts',
+      'tests/e2e/sim-identity-mismatch.spec.ts'
+    ],
+    matches: (file) =>
+      isProductSource(file) &&
+      (new Set([
+        // The merge decides which binding is kept, dropped or reported as removed.
+        'src/renderer/src/lib/task-workbench/task-workbench-history-merge.ts',
+        // The source list, the answering/unavailable distinction, and the per-source view.
+        'src/renderer/src/lib/task-workbench/task-workbench-record-source-view.ts',
+        'src/renderer/src/hooks/use-task-record-sources.ts',
+        'src/renderer/src/hooks/use-task-records-remote.ts',
+        // The candidate match that must refuse a same-name repository.
+        'src/renderer/src/hooks/use-task-record-repo-candidates.ts',
+        // The main-process read these scenarios cross the runtime boundary on.
+        'src/main/runtime/rpc/methods/task-records.ts'
+      ]).has(file) ||
+        // The `task-workbench-record-repo-*` family: matching and candidate projection. Named as a
+        // family because the two files are one seam, and `isProductSource` keeps their `.test.ts`
+        // siblings out.
+        /^src\/renderer\/src\/lib\/task-workbench\/task-workbench-record-repo-[a-z0-9-]+\.ts$/.test(
+          file
+        ))
+  },
+  {
     id: 'ssh.localhost-agent-hooks',
     specs: ['tests/e2e/ssh-localhost.spec.ts'],
     matches: (file) =>

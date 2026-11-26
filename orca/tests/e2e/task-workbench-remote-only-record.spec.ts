@@ -23,6 +23,13 @@ import {
   launchPairedElectronClient,
   type PairedElectronClient
 } from './helpers/paired-electron-client'
+import {
+  expectArchivedRemoteAgentRow,
+  expectNoFalseEmptyState,
+  expectSourceNotice,
+  expectUnknownUsage,
+  openTaskWorkbenchInPairedClient
+} from './helpers/task-workbench-paired-page'
 
 const ISSUE_NUMBER = 67
 const SESSION_ID = 'issue-67-remote-only-record'
@@ -109,9 +116,8 @@ async function emitCodexRun(
   }
 }
 
-async function openRemoteOnlyTask(
+async function captureClientCatalog(
   page: Page,
-  environmentId: string,
   pageRepoId: string,
   runtimeRepoId: string
 ): Promise<{
@@ -123,83 +129,22 @@ async function openRemoteOnlyTask(
   statusEnvironmentIds: string[]
 }> {
   return page.evaluate(
-    async ({ environmentId, issueNumber, owner, pageRepoId, remoteRepo, runtimeRepoId }) => {
+    ({ pageRepoId, runtimeRepoId }) => {
       const store = window.__store
       if (!store) {
         throw new Error('Orca store is unavailable')
       }
-      if (!(await store.getState().setActiveRuntimeEnvironmentPreference(null))) {
-        throw new Error('Paired client could not return to its local profile')
-      }
-      store.setState((current) => {
-        return {
-          repos: current.repos.filter(
-            (repo) => repo.id !== pageRepoId && repo.id !== runtimeRepoId
-          ),
-          worktreesByRepo: {
-            ...current.worktreesByRepo,
-            [pageRepoId]: [],
-            [runtimeRepoId]: []
-          }
-        }
-      })
-      const state = store.getState()
-      const knownRepoIds = new Set(state.repos.map((repo) => repo.id))
-      state.openTaskPage(
-        {
-          taskSource: 'github',
-          preselectedRepoId: pageRepoId,
-          openGitHubInitialTab: 'orca',
-          openGitHubWorkItem: {
-            id: `issue-${issueNumber}`,
-            type: 'issue',
-            number: issueNumber,
-            title: 'Remote-only archived task record',
-            state: 'closed',
-            url: `https://github.com/${owner}/${remoteRepo}/issues/${issueNumber}`,
-            labels: ['bug'],
-            updatedAt: new Date(0).toISOString(),
-            author: 'orca-e2e',
-            repoId: pageRepoId
-          },
-          openGitHubSourceContext: {
-            kind: 'task-source',
-            provider: 'github',
-            projectId: 'remote-only-e2e',
-            hostId: 'local',
-            repoId: pageRepoId,
-            providerIdentity: {
-              provider: 'github',
-              host: 'github.com',
-              owner,
-              repo: remoteRepo
-            }
-          }
-        },
-        { recordTasksInteraction: false }
-      )
-      store.getState().setRuntimeEnvironments(await window.api.runtimeEnvironments.list())
-      if (!(await store.getState().refreshRuntimeEnvironmentStatus(environmentId))) {
-        throw new Error('Paired runtime status did not refresh for the task page')
-      }
       const finalState = store.getState()
       return {
         environmentIds: finalState.runtimeEnvironments.map((environment) => environment.id),
-        pageRepoKnown: knownRepoIds.has(pageRepoId),
+        pageRepoKnown: finalState.repos.some((repo) => repo.id === pageRepoId),
         runtimeEnvironmentCatalogHydrated: finalState.runtimeEnvironmentCatalogHydrated,
         runtimeEnvironmentCatalogSettled: finalState.runtimeEnvironmentCatalogSettled,
         runtimeRepoKnown: finalState.repos.some((repo) => repo.id === runtimeRepoId),
         statusEnvironmentIds: [...finalState.runtimeStatusByEnvironmentId.keys()]
       }
     },
-    {
-      environmentId,
-      issueNumber: ISSUE_NUMBER,
-      owner: REMOTE_OWNER,
-      pageRepoId,
-      remoteRepo: REMOTE_REPO,
-      runtimeRepoId
-    }
+    { pageRepoId, runtimeRepoId }
   )
 }
 
@@ -293,31 +238,13 @@ async function readPairedRuntimeCalls(app: ElectronApplication): Promise<PairedR
   })
 }
 
-async function assertRemoteRecordDom(page: Page): Promise<void> {
-  const panel = page.getByTestId('task-workbench-panel')
-  await expect(panel).toBeVisible({ timeout: 45_000 })
-  await expect(page.getByTestId('task-workbench-history')).toHaveAttribute('data-trace', 'archived')
-  const details = page.getByTestId('task-workbench-history-details')
-  if ((await details.count()) > 0 && (await details.getAttribute('aria-expanded')) !== 'true') {
-    await details.click()
-    await expect(details).toHaveAttribute('aria-expanded', 'true')
-  }
-  const run = page.getByTestId('task-workbench-history-run').filter({ hasText: SESSION_ID })
-  await expect(run).toBeVisible()
-  await expect(run).toContainText(/codex/i)
-  await expect(page.getByTestId('task-workbench-history-facts')).toContainText('tokens unknown')
-  await expect(page.getByTestId('task-workbench-history-trace-locate')).toBeVisible()
-  await expect(page.getByTestId('task-workbench-history-source-included')).toBeVisible()
-  await expect(page.getByTestId('task-workbench-empty-state')).toHaveCount(0)
-  await expect(panel).not.toContainText(/(?:\$0|\b0 tokens\b)/i)
-}
-
 // oxlint-disable-next-line no-empty-pattern -- Playwright callback signatures require fixture destructuring.
 test('reads an archived task record that exists only on a paired runtime', async ({}, testInfo: TestInfo) => {
   test.setTimeout(300_000)
   const fixture = createRuntimeRepo()
   let host: HeadlessPairedRuntimeHost | null = null
   let client: PairedElectronClient | null = null
+  let testError: unknown
   try {
     host = await launchRuntimeWithGoldenStub()
     const added = await host.client.call<{ repo: { id: string } }>('repo.add', {
@@ -402,9 +329,19 @@ test('reads an archived task record that exists only on a paired runtime', async
     )
     requireSetup(pairedEnvironmentEvidence.statusKnown, 'paired runtime status was unavailable')
     await installPairedRuntimeCallProbe(client.app)
-    const clientCatalog = await openRemoteOnlyTask(
-      client.page,
-      client.environmentId,
+    const { page, panel } = await openTaskWorkbenchInPairedClient(client, {
+      pageRepoId: PAGE_REPO_ID,
+      clientRepoIdsToExclude: [pairedEnvironmentEvidence.runtimeRepoId],
+      issueNumber: ISSUE_NUMBER,
+      projectId: 'remote-only-e2e',
+      title: 'Remote-only archived task record',
+      tracker: {
+        state: 'closed',
+        url: `https://github.com/${REMOTE_OWNER}/${REMOTE_REPO}/issues/${ISSUE_NUMBER}`
+      }
+    })
+    const clientCatalog = await captureClientCatalog(
+      page,
       PAGE_REPO_ID,
       pairedEnvironmentEvidence.runtimeRepoId
     )
@@ -468,30 +405,34 @@ test('reads an archived task record that exists only on a paired runtime', async
           (call.params as { repoId?: string } | undefined)?.repoId === PAGE_REPO_ID
       )
     ).toBeUndefined()
-    await assertRemoteRecordDom(client.page)
+    await expectArchivedRemoteAgentRow(panel, { runKind: new RegExp(SESSION_ID) })
+    await expectUnknownUsage(panel)
+    await expectSourceNotice(panel, /History also includes what 1 environment\(s\) recorded/i)
+    await expectNoFalseEmptyState(page, panel)
 
     await host.restartServeProcess({
       betweenProcesses: async () => {
-        const panel = client!.page.getByTestId('task-workbench-panel')
-        const unavailable = client!.page.getByTestId('task-workbench-history-source-unavailable')
-        await expect(unavailable).toContainText(/did not answer|lost connection/i, {
-          timeout: 45_000
-        })
-        await expect(client!.page.getByTestId('task-workbench-empty-state')).toHaveCount(0)
-        await expect(panel).not.toContainText(/(?:\$0|\b0 tokens\b)/i)
+        await expectSourceNotice(panel, /did not answer|lost connection/i)
+        await expectNoFalseEmptyState(page, panel)
       }
     })
-  } finally {
-    const cleanup = await Promise.allSettled([
-      client?.dispose() ?? Promise.resolve(),
-      host?.dispose() ?? Promise.resolve(),
-      Promise.resolve().then(() => rmSync(fixture.root, { recursive: true, force: true }))
-    ])
-    const failures = cleanup.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason] : []
-    )
-    if (failures.length > 0) {
-      throw new AggregateError(failures, 'Issue 67 fixture cleanup failed')
-    }
+  } catch (error) {
+    testError = error
+  }
+  const cleanup = await Promise.allSettled([
+    client?.dispose() ?? Promise.resolve(),
+    host?.dispose() ?? Promise.resolve(),
+    Promise.resolve().then(() => rmSync(fixture.root, { recursive: true, force: true }))
+  ])
+  const failures = cleanup.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  )
+  if (testError !== undefined) {
+    throw failures.length > 0
+      ? new AggregateError([testError, ...failures], 'Issue 67 test and fixture cleanup failed')
+      : testError
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Issue 67 fixture cleanup failed')
   }
 })
