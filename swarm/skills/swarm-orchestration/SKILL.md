@@ -95,6 +95,9 @@ Read [configuration](../../configuration.md) and obtain task-approved, explicit 
 - Coordinator model/runtime configuration and applicable Worker profiles, with reviewed paths/hashes;
 - evidence/archive and ledger directories, and a supported usage/session-binding method;
 - target repository instructions and domain role skills, including hidden skill directories.
+- for every Worker brief, the search rule of §4: search inside your own worktree, never above it,
+  with the `git grep` / bounded `rg` forms and `ORIENTATION.md` as the symbol lookup. Do not assume
+  the runtime hook is present, or that a pane reads this skill.
 
 Record unknown authorization separately from denial. Examples are not deployment defaults or
 permission. Inherit applicable restrictions when retrying; changing Run or directory cannot reset
@@ -140,6 +143,30 @@ At checkpoints record each original acceptance criterion, evidence and all remai
 Use the domain's actual schema/checker; generic text does not substitute for it. Do not relabel
 unfinished work as complete because a model turn or Worker ended. Bootstrap, recovery, business
 execution and closeout are separate phases. Long external jobs have separate capacity/accounting.
+
+### Search: one checkout, never above it
+
+A Worker's first turn fails the same way: it looks for context by walking the directory *above* its
+worktree. On this host that directory is an NFS4 mount holding twenty-odd checkouts, and one
+`grep -rl` there ran 28 minutes without an answer while the fact it wanted was one native query.
+Measured on the same mount: over the workspace root `grep -rl` did not return in 25 s and
+`rg --max-depth 8` did not return in 20 s; inside one checkout `git grep` and `rg --max-depth 6`
+answered in 0.07 s and 0.26 s.
+
+The rule for every Worker brief is one line: **search inside your own worktree, never above it.**
+The forms it names:
+
+- `git grep -n <pattern> -- '<glob>'` is the default: tracked files only, indexed, repo-scoped;
+- otherwise `rg -n --max-depth 3 -g '!node_modules' -g '!.git' <pattern> <in-worktree path>`, or
+  `fast_search.py <pattern>`, which applies both bounds and prints the elapsed time;
+- symbols come from [ORIENTATION.md](../../ORIENTATION.md) (generated; `--check` fails on drift),
+  not from a name search;
+- dispatch, Task and Worker state is `orca orchestration worker-show|task-list`, an RPC, not a file.
+
+An agent-runtime hook refuses a `bash` call whose recursive search leaves the worktree and returns
+these rewrites. It is a convenience, not a control: it fails open, it may be absent on another host,
+and it does not replace a brief. The decision table, its offline tests and what was deliberately not
+done live are in [search discipline](../../docs/design/search-discipline.md).
 
 ### Waiting: one blocking call, never a blind sleep
 

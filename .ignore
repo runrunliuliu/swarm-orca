@@ -1,0 +1,10 @@
+# ripgrep's defaults for this repository (see swarm/docs/design/search-discipline.md).
+#
+# `rg` skips these without a flag; `grep -r`, `find` and `fd` do not, which is why the rule is
+# enforced at the tool call instead of being left to a rememberable flag list.
+node_modules/
+.git/
+orca/out/
+orca/dist/
+*.png
+*.bench-fixtures/
