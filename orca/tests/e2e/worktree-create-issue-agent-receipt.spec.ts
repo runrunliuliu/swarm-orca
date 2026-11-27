@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
 import { expect, test as base } from './helpers/orca-app'
@@ -11,6 +11,7 @@ import {
   waitForTerminalOutput
 } from './helpers/terminal'
 import { waitForPtyShellEcho } from './terminal-pty-readiness'
+import { startRecording } from './helpers/sim-remote/recorder'
 import {
   configureGoldenStubAgent,
   GOLDEN_STUB_READY_MARKER,
@@ -154,6 +155,79 @@ function agentTail(userDataDir: string, handle: string): string {
   return envelope.result?.terminal.tail.join('\n') ?? ''
 }
 
+const SKILL_RPC = path.resolve(
+  process.cwd(),
+  '..',
+  'swarm',
+  'skills',
+  'auto-evolve',
+  'scripts',
+  'rpc.py'
+)
+
+type SkillReceipt = {
+  ok: boolean
+  result?: {
+    agentTerminalHandle?: string
+    worktree: {
+      id: string
+      createdWithAgent?: string
+      linkedIssue?: number | null
+      linkedWorkItem?: unknown
+      linkedTaskSourceContext?: unknown
+    }
+  }
+  error?: { code?: string; message?: string }
+}
+
+/** The skill's only execution entry, run exactly as the operator would. */
+function autoEvolveCommand(
+  metadataPath: string,
+  runtimeId: string,
+  paramsPath: string,
+  stateDir: string,
+  outputPath: string
+): string {
+  return [
+    'echo AUTO_EVOLVE_SKILL_EXECUTE',
+    `; python3 ${shellQuote(SKILL_RPC)}`,
+    '--metadata',
+    shellQuote(metadataPath),
+    '--runtime-id',
+    shellQuote(runtimeId),
+    '--method',
+    'worktree.create',
+    '--params-file',
+    shellQuote(paramsPath),
+    '--execute',
+    '--state-dir',
+    shellQuote(stateDir),
+    '--timeout',
+    '180',
+    `> ${shellQuote(outputPath)} 2>&1`,
+    '; echo SKILL_EXIT:$?',
+    `; cat ${shellQuote(outputPath)}`,
+    `; grep -E '"ok"|"agentTerminalHandle"|"createdWithAgent"' ${shellQuote(outputPath)}`,
+    '; echo AUTO_EVOLVE_END'
+  ].join(' ')
+}
+
+async function waitForSkillReceipt(outputPath: string, timeoutMs = 120_000): Promise<SkillReceipt> {
+  await expect
+    .poll(
+      () => {
+        try {
+          return JSON.parse(readFileSync(outputPath, 'utf8')) as SkillReceipt
+        } catch {
+          return null
+        }
+      },
+      { timeout: timeoutMs }
+    )
+    .not.toBeNull()
+  return JSON.parse(readFileSync(outputPath, 'utf8')) as SkillReceipt
+}
+
 async function resizeWindow(electronApp: ElectronApplication): Promise<void> {
   await electronApp.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.setBounds({ x: 0, y: 0, width: 1500, height: 950 })
@@ -278,6 +352,157 @@ test('issue create distinguishes a bare shell from a started agent', async ({
     await waitForTerminalOutput(orcaPage, GOLDEN_STUB_READY_MARKER, 20_000)
     await capture(orcaPage, '05-scenario-agent-pty-tail.png')
   } finally {
+    await orcaPage
+      .locator(`[role="option"][data-worktree-id="${originalWorktreeId}"]`)
+      .click()
+      .catch(() => undefined)
+    for (const worktreeId of createdWorktreeIds) {
+      await orcaPage
+        .evaluate(async (id) => {
+          await window.__store?.getState().removeWorktree(id, true)
+        }, worktreeId)
+        .catch(() => undefined)
+    }
+  }
+})
+
+test('auto_evolve execute creates the workspace and starts the agent', async ({
+  orcaPage,
+  electronApp,
+  seededRepoPath
+}) => {
+  test.setTimeout(300_000)
+  await waitForSessionReady(orcaPage)
+  await resizeWindow(electronApp)
+  await waitForActiveTerminalManager(orcaPage)
+  const originalWorktreeId = await waitForActiveWorktree(orcaPage)
+  const repoId = originalWorktreeId.split('::')[0]
+  const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'))
+  const metadataPath = path.join(userDataDir, 'orca-runtime.json')
+  const { runtimeId } = JSON.parse(readFileSync(metadataPath, 'utf8')) as { runtimeId: string }
+  const baseSha = execFileSync('git', ['-C', seededRepoPath, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8'
+  }).trim()
+  const ptyId = await waitForActivePanePtyId(orcaPage)
+  await waitForPtyShellEcho(orcaPage, ptyId, 20_000)
+  await capture(orcaPage, '06-scenario-autoevolve-app-ready.png')
+  // CDP screencast: the window is unmapped headless, so an X11 grab is black, while Playwright's
+  // electron.recordVideo never reached domcontentloaded. Frames arrive only when the page paints.
+  const recording = process.env.ORCA_E2E_RECORDING_DIR
+    ? await startRecording(orcaPage, { outDir: process.env.ORCA_E2E_RECORDING_DIR })
+    : null
+
+  const runTag = String(Date.now())
+  const paramsPath = evidencePath(`auto-evolve-create-params-${runTag}.json`)
+  const outputPath = evidencePath(`auto-evolve-receipt-${runTag}.json`)
+  const stateDir = evidencePath(`auto-evolve-intents-${runTag}`)
+  const createdWorktreeIds: string[] = []
+  try {
+    writeFileSync(
+      paramsPath,
+      `${JSON.stringify(
+        {
+          repo: `id:${repoId}`,
+          name: `issue-77-autoevolve-${runTag}`,
+          baseBranch: baseSha,
+          linkedIssue: 77,
+          linkedWorkItem: {
+            provider: 'github',
+            type: 'issue',
+            number: 77,
+            title: 'Issue 77 E2E',
+            url: 'https://github.com/example/project/issues/77',
+            repoId
+          },
+          linkedTaskSourceContext: {
+            kind: 'task-source',
+            provider: 'github',
+            projectId: 'project-e2e',
+            hostId: 'local',
+            repoId,
+            providerIdentity: {
+              provider: 'github',
+              host: 'github.com',
+              owner: 'example',
+              repo: 'project'
+            }
+          },
+          noParent: true,
+          setupDecision: 'skip',
+          activate: false,
+          startupAgent: 'codex',
+          startupPrompt: 'Issue 77 E2E: auto-evolve created this workspace; report ready.',
+          clientMutationId: `issue-77-autoevolve-${runTag}`
+        },
+        null,
+        2
+      )}\n`
+    )
+    await configureGoldenStubAgent(orcaPage, { agent: 'codex' })
+    await execInTerminal(
+      orcaPage,
+      ptyId,
+      autoEvolveCommand(metadataPath, runtimeId, paramsPath, stateDir, outputPath)
+    )
+    // The echoed command contains AUTO_EVOLVE_END, so waiting on the terminal would return
+    // before the script ran; wait for the redirected receipt to become complete JSON instead.
+    const receipt = await waitForSkillReceipt(outputPath)
+    if (!receipt.result) {
+      throw new Error(`auto-evolve returned no result: ${JSON.stringify(receipt.error)}`)
+    }
+    createdWorktreeIds.push(receipt.result.worktree.id)
+    // rpc.py exits non-zero on agent_not_started; reaching here means the receipt assertion passed.
+    expect(receipt.ok).toBe(true)
+    expect(receipt.result.worktree.createdWithAgent).toBe('codex')
+    expect(receipt.result.worktree.linkedIssue).toBe(77)
+    expect(receipt.result.worktree.linkedWorkItem).toBeTruthy()
+    expect(receipt.result.worktree.linkedTaskSourceContext).toBeTruthy()
+    const agentHandle = receipt.result.agentTerminalHandle
+    expect(agentHandle).toBeTruthy()
+    await waitForTerminalOutput(orcaPage, '"ok": true', 15_000)
+    await capture(orcaPage, '07-scenario-autoevolve-receipt.png')
+    // Evidence runs only: give each final state enough screen time to be readable in a recording.
+    const holdMs = Number(process.env.ORCA_E2E_HOLD_MS ?? 0)
+    const holdStepMs = holdMs > 0 ? Math.floor(holdMs / 3) : 0
+    if (holdStepMs > 0) {
+      await orcaPage.waitForTimeout(holdStepMs)
+    }
+
+    await expect
+      .poll(() => agentTail(userDataDir, String(agentHandle)), { timeout: 30_000 })
+      .toContain(GOLDEN_STUB_READY_MARKER)
+    await openWorkspace(orcaPage, receipt.result.worktree.id)
+    await expect(orcaPage.getByText('Golden Stub Agent').first()).toBeVisible({
+      timeout: 30_000
+    })
+    await capture(orcaPage, '08-scenario-autoevolve-agent-workspace.png')
+    if (holdStepMs > 0) {
+      await orcaPage.waitForTimeout(holdStepMs)
+    }
+
+    // The agent's tab can be silent (silently adopted background PTY has no scrollback replay),
+    // so print its live PTY tail from a shell: the ready marker is the process-level proof.
+    await openWorkspace(orcaPage, originalWorktreeId)
+    const readPtyId = await waitForActivePanePtyId(orcaPage)
+    await waitForPtyShellEcho(orcaPage, readPtyId, 20_000)
+    await execInTerminal(
+      orcaPage,
+      readPtyId,
+      `${cliPrefix(userDataDir)} terminal read --terminal ${shellQuote(String(agentHandle))} --limit 40 --json`
+    )
+    await waitForTerminalOutput(orcaPage, GOLDEN_STUB_READY_MARKER, 20_000)
+    await capture(orcaPage, '09-scenario-autoevolve-agent-pty-tail.png')
+    if (holdStepMs > 0) {
+      await orcaPage.waitForTimeout(holdStepMs)
+    }
+  } finally {
+    const artifact = await recording?.stop()
+    if (artifact) {
+      writeFileSync(
+        evidencePath('recording-artifact.json'),
+        `${JSON.stringify(artifact, null, 2)}\n`
+      )
+    }
     await orcaPage
       .locator(`[role="option"][data-worktree-id="${originalWorktreeId}"]`)
       .click()
