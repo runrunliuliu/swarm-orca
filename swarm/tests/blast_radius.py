@@ -16,7 +16,7 @@ unfalsifiable, so only these count:
   (b2) one hop back:    a `swarm/*.py` module importing `m`, then that module's (a)+(b)
   (c)  policy:          SHARED_MAP says the radius is wider than any import scan shows
   (d)  test helper:     a changed file under `swarm/tests/` -> the test modules importing it
-  (e)  path policy:     a non-Python path a test module pins by name (a skill file) -> PATH_MAP
+  (e)  path policy:     a skill bundle path pinned by name (including scripts) -> PATH_MAP
 
 (d) exists because a shared fixture is neither a source nor a test module: editing one selected
 nothing at all, and the command's only escape was a hand-widened run — the unrepeatable
@@ -66,14 +66,17 @@ UNTESTED: dict[str, str] = {
     "run_modules": "parallel runner helper; launched as a subprocess, so nothing imports it",
 }
 
-# Test modules whose subject is a document, so the usual "which source does this test reach?"
-# derivation answers nothing: no basename source, no import. An entry is a reviewed statement that
+# Test modules whose subject is a path-pinned skill bundle (documents or dynamically loaded
+# scripts), so the usual "which source does this test reach?" derivation answers nothing. An entry is a reviewed statement that
 # the module pins files by path, not a way to excuse a test that lost its subject — `PATH_MAP` must
 # also name it, so a doc-only test that stops being reachable fails the invariant instead of
-# disappearing from both maps. `test_offline_baseline` asserts both directions.
+# disappearing from both maps. The DOC_ONLY_TESTS name is historical; it includes path-loaded
+# skill scripts outside source_files(). `test_offline_baseline` asserts both directions.
 DOC_ONLY_TESTS: dict[str, str] = {
     "core.test_incident_triage_skill":
         "pins skills/incident-triage/** by path; the subject is a document, not a module",
+    "core.test_auto_evolve":
+        "pins skills/auto-evolve/** by path, including dynamically loaded RPC scripts",
 }
 
 # Modules under `tests/` that are code rather than fixtures. They are sources for the same reason
@@ -98,6 +101,7 @@ RUNNER_PATHS: dict[str, tuple[str, ...]] = {
 # change becomes `unmapped`, exit 2) instead of quietly selecting nothing.
 PATH_MAP: dict[str, tuple[str, ...]] = {
     "swarm/skills/incident-triage/": ("core.test_incident_triage_skill",),
+    "swarm/skills/auto-evolve/": ("core.test_auto_evolve",),
 }
 
 
@@ -155,7 +159,7 @@ def policy_matches(name: str, patterns: tuple[str, ...]) -> bool:
 
 
 def path_policy_modules(change: str) -> tuple[str, ...]:
-    """The modules a non-Python path is pinned by (rule e). Longest matching prefix wins."""
+    """The modules a bundle path is pinned by (rule e). Longest matching prefix wins."""
     for prefix in sorted(PATH_MAP, key=len, reverse=True):
         if change.startswith(prefix):
             return PATH_MAP[prefix]
@@ -263,15 +267,15 @@ def select(range_spec: str) -> tuple[dict[str, dict[str, str]], list[str], list[
                        if policy_matches(module, patterns)}
         elif str(path).startswith("swarm/tests/"):
             reasons = radius.tests_for_helper(path)
+        elif mapped := path_policy_modules(change):
+            # Skill scripts can be loaded by path rather than import. Apply the explicit path
+            # policy before generic Python fallback; a stale mapping still fails closed.
+            reasons = {module: "path" for module in mapped if module in radius.available}
         elif str(path).startswith("swarm/") and path.suffix == ".py" and name in radius.sources:
             reasons = radius.tests_for_source(name)
         elif str(path).startswith("swarm/") and path.suffix == ".py":
             package = path.parent.name
             reasons = radius.tests_for_source(package) if package in radius.sources else {}
-        elif mapped := path_policy_modules(change):
-            # (e) A path a named test module pins. A stale mapping (module gone) leaves `reasons`
-            # empty on purpose: it must land in `unmapped` and fail closed, not read as "nothing".
-            reasons = {module: "path" for module in mapped if module in radius.available}
         else:
             skipped.append(change)
             continue
