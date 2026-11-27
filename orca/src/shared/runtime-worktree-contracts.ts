@@ -123,6 +123,9 @@ export type RuntimeWorktreeCreateResult = {
   warning?: string
   startupTerminal?: CreateWorktreeResult['startupTerminal']
   agentTerminalHandle?: string
+  /** Stamped by the CLI before printing: whether an agent owned the first terminal. Derived from
+   *  the handle fields, not from the requested flags, so a failed startup reads as false. */
+  agentStarted?: boolean
 }
 
 export type RuntimeWorktreeRemoveResult = RemoveWorktreeResult & {

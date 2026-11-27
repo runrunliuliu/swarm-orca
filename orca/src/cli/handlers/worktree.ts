@@ -33,7 +33,6 @@ import {
 } from '../selectors'
 import { isTuiAgent } from '../../shared/tui-agent-config'
 import { isWorkspaceKey, worktreeWorkspaceKey } from '../../shared/workspace-scope'
-import { printLineageSummary } from './worktree-lineage-summary'
 import {
   assertWorkspaceTargetFlagsCompatible,
   hasWorkspaceProjectTarget,
@@ -44,6 +43,7 @@ import {
   resolveCreateParentSelector
 } from './worktree-create-parent-selector'
 import { getOptionalLinearIssueLinkFlag } from './worktree-linear-issue-link'
+import { printCreatedWorktree } from './worktree-create-agent-startup'
 
 function assertParentWorktreeFlagsCompatible(flags: Map<string, string | boolean>): void {
   if (flags.has('parent-worktree') && flags.get('no-parent') === true) {
@@ -261,9 +261,8 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
           }
         : {})
     })
-    printHookWarning(result.result, json)
-    printLineageSummary(result.result, json)
-    printResult(result, json, formatWorktreeShow)
+    const issueLinked = flags.has('issue') || flags.has('linear-issue')
+    printCreatedWorktree(result, startupAgent, issueLinked, json)
   },
   'worktree set': async ({ flags, client, cwd, json }) => {
     assertParentWorktreeFlagsCompatible(flags)

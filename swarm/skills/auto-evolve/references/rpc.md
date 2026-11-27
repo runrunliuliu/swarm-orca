@@ -119,6 +119,41 @@ helper 仅校验有限字段、防意外写方法和同目录重复提交。**�
 工作流引擎**：用户授权来源、候选资格、预算、单一启动者、host/source 一致性与实时已有绑定
 仍由 skill 执行者按 SKILL.md 核验。换脚本/直连 API 不会获得额外权限。
 
+### 回执断言：工作区建好不等于 Agent 启动
+
+`--execute` 收到成功的 `worktree.create` 回执后不只转发，还会断言请求的 Agent 真的起来了：
+
+- handle：`result.agentTerminalHandle`，或退回 `result.startupTerminal.handle`，必须是非空字符串；
+  `startupTerminal.spawned: false` 不得当作已启动。
+- 身份：`result.worktree.createdWithAgent` 必须等于请求的 `startupAgent`。缺失也算不满足（fail closed）——
+  无法核实的 Agent 不能记作已创建。
+
+任一不满足：非 0 退出，错误码 `agent_not_started`，message 带具体判定（如 `no_agent_terminal_handle`、
+`agent_identity_mismatch`）。intent 与 `.response.json` 都保留，作为“已创建但未启动”的证据；
+不重试、不补发 prompt、不换 `clientMutationId`。这类结果就是半成功，报告里必须写成半成功。
+
+原生失败（`ok: false`）照旧直接返回并退出非 0，不触发本断言，也不重试。
+
+### 只读自查：不是 skill 发出的创建
+
+CLI 等价命令（`orca worktree create --issue ...`）会丢掉 `linkedWorkItem`、`linkedTaskSourceContext`、
+`startupAgent`、`startupPrompt`、`launchSource`，但仍以成功返回一个裸 shell 工作区。它是**无效执行**，
+不能用“工作区成立”代替。核对自己或别人报的那次创建时，用同一个 helper 的只读方法：
+
+```json
+{"worktree":"id:<完整worktree.id>"}
+```
+
+```bash
+python3 "$SKILL_DIR/scripts/rpc.py" \
+  --metadata "$METADATA_PATH" --runtime-id "$RUNTIME_ID" \
+  --method worktree.show --params-file "$PRIVATE_DIR/show-params.json"
+```
+
+判定：`result.worktree` 缺 `linkedWorkItem`、`linkedTaskSourceContext` 或 `createdWithAgent` 任一项，
+即为“这次创建不是 skill 发出的”；`createdWithAgent` 与意图里的 `startupAgent` 不符也按未开工报告。
+该命令只读，不改绑定、不补 Agent。需要继续开工只能在单独授权下重新走完整 `worktree.create`。
+
 ## 源码核对入口（仅源码布局，不随控制平面产物发布）
 
 下列为仓库相对代码定位，不是运行时需要安装的依赖：
@@ -142,6 +177,7 @@ env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
 ```
 
 测试覆盖 preview 无副作用、写方法白名单、请求身份/sparse 校验、排他意图与未知结果、
+创建回执的 Agent 断言（有 handle / 缺 handle / 身份不符或缺失）、
 Unix framing/keepalive/响应身份、目录及父级同步顺序/失败拒绝发送、连接与发送共享总超时。
 这些测试验证 syscall 顺序和模拟失败，不是实际主机断电或存储后端耐久性验收；也不证明真实
 Agent 收到任务、UI 显示一致、跨设备互斥或业务完成。
