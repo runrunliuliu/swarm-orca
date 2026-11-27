@@ -29,6 +29,22 @@ export type EncoderOutcome = {
 
 export type VideoFacts = { durationSec: number; frameCount: number }
 
+export function timingFields(timings: ScreencastTiming[]): {
+  durationSec: number
+  largestGapSec: number
+} {
+  if (timings.length < 2) {
+    return { durationSec: 0, largestGapSec: 0 }
+  }
+  const first = timings[0]!
+  const last = timings.at(-1)!
+  let largestGapSec = 0
+  for (let index = 1; index < timings.length; index += 1) {
+    largestGapSec = Math.max(largestGapSec, timings[index]!.ts - timings[index - 1]!.ts)
+  }
+  return { durationSec: Math.max(0, last.ts - first.ts), largestGapSec }
+}
+
 type ExecOptions = { env: NodeJS.ProcessEnv; timeout: number; signal?: AbortSignal }
 
 const OUTPUT_FPS = 15

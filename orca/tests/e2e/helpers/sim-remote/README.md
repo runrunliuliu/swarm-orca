@@ -33,7 +33,7 @@ depend on the primitive modules.
 | `bindings[].usage: { tokens, costUsd }` | A known provider rollup with fixed values. | Recalculation from genuine provider telemetry. |
 | `ORCA_CAPTURE_EVIDENCE=1` | The opt-in that turns lane-B capture on for one run. | A CI mode or a default: without the literal `1` no screenshot, CDP session or encoder is touched. |
 | `captureEvidence({ page, name, record: true })` | The real renderer's own pixels for the span between the helper starting the CDP screencast and the screenshot being taken — typically the screenshot's own span, 0–3 frames at 15 fps. | The page's lifetime: a longer clip needs the caller to run `startRecording(page, { scope: 'page-lifetime' })` (see “Recording a scenario”). It never decides a spec: a failed start or write arrives as `skipped` with the reason, and a degraded capture still returns the frames it did get. |
-| `startRecording(page, { outDir, scope })` | Paint-paced CDP screencast frames, each carrying its own `metadata.timestamp`, so the timeline is what the page painted. | Continuous wall-clock coverage: no paint means no frame, and one still frame is not a second of stillness. |
+| `startRecording(page, { outDir, scope, pace: 'interval' })` | Paint-paced CDP screencast frames (default), or `pace: 'interval'` asking Chromium for a `Page.captureScreenshot` every `intervalMs` so a static page still gets frames. | Continuous wall-clock coverage: paint pacing has no frame without a paint; interval pacing measured 0.5–2 fps on a software-rendered hidden window and stalls under test load, because each capture waits on the compositor. |
 | `writeEvidencePackage({ slug, lane, command, artefacts, notCaptured, redaction, … })` | One hashed `pr-evidence/<slug>/manifest.json` over the bytes that were actually captured. | Truth: `notCaptured`, `redaction` and every `what` string stay caller claims, so the hash makes them stable, not verified. |
 
 ## Running the routed lane
@@ -107,6 +107,18 @@ unchanged, because the recorder artifact *is* the entry the writer takes.
 Recording is best-effort by construction — no encoder, no CDP session, or a disk error yields a
 degraded artifact with `videoPath: null` and the reason, and the frames stay behind as
 `frames/*.jpg` and `timings.json` instead of failing the spec.
+
+## Known recording limits (measured)
+
+| Path | What was measured | What to use instead |
+| --- | --- | --- |
+| `ORCA_E2E_RECORD_VIDEO=1` (`helpers/orca-app.ts`) | Electron `recordVideo` never reached `domcontentloaded`; the spec times out at launch. | Do not rely on it for Electron. |
+| X11 grab of a headless window | The window is unmapped (`Map State: IsUnMapped`), so `x11grab` records black. | Headful launch with `ORCA_BACKGROUND_LAUNCH` unset and `ORCA_E2E_FOREGROUND=1` maps the window; `x11grab` then records real time at 15 fps. |
+| `pace: 'interval'` / `BrowserWindow.capturePage()` in main | 0.5–2 fps, with multi-second gaps while the spec creates a worktree; `capturePage()` stalls while the renderer is busy. | `ORCA_E2E_EVIDENCE_RECORDING=1` opts into the clip for the states it does capture; a real-time clip still needs the mapped-window X11 grab. |
+
+`startScenarioEvidence()` in `helpers/evidence-capture.ts` keeps the recording off by default for
+that reason: screenshots are the reliable artefact, and the manifest's `largestGapSec` would expose
+a clip that is a slideshow rather than a recording.
 
 ## Determinism rules
 
