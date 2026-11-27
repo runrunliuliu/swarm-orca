@@ -504,6 +504,9 @@ def main(argv=None):
               % (overlay["state"], overlay["path"], overlay["buildId"],
                  len(overlay["entries"]), overlay["referencesChecked"],
                  len(overlay["brokenReferences"])))
+        for name, entry in sorted(overlay["entries"].items()):
+            print("overlay entry: %s %s declared=%s listed=%s"
+                  % (name, entry["path"], entry["declared"], entry["listed"]))
         print("skills: %s/%d missing=%s"
               % (result["skills"]["agent"], len(result["skills"]["required"]),
                  result["skills"]["missing"] or "none"))

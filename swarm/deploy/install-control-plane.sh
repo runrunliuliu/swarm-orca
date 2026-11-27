@@ -208,7 +208,7 @@ if [ -L "$POINTER" ] && [ -d "$(readlink -f "$POINTER" 2>/dev/null)" ]; then
     printf '%s\n' "$preflight" >&2
     fail "pre-flight check failed against the installed control plane (host override, skills, configs or overlay): $HOST_OVERRIDE"
   fi
-  note "host override, installed skills and private-policy overlay validated before writing"
+  note "installed control plane, host override and installed skills validated before writing"
 fi
 
 if [ ! -d "$ARTIFACT_ROOT" ] && [ "$PROVISION" = 0 ]; then

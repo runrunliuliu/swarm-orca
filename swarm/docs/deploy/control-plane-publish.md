@@ -267,9 +267,12 @@ repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个
 只读入口：`control_plane_readiness.py`，对任意项目输出五块：
 
 1. **控制平面**：指针状态、`buildId`、两个 commit、配置逐文件 hash；
-2. **私有政策入口**（`overlay`）：`overlay/<name>/SKILL.md` 的解析路径、当前 `buildId`、frontmatter 名称、
-   已解析引用数与断链清单。正文必须属于当前产物（路径出现在身份清单里），`references/` 必须按
-   **产物布局**解析；`private/`、`overlay/`、`workspace/` 在发布时按作者位置豁免，不代表安装后也可豁免；
+2. **私有政策入口**（`overlay`）：必需入口 `orca-cli`、`orchestration` 的 `overlay/<name>/SKILL.md`
+   解析路径、当前 `buildId`、frontmatter 名称、已解析引用数与断链清单。正文必须属于当前产物（路径
+   出现在身份清单里），`references/` 必须按**产物布局**解析：overlay 文档里的相对链接要在产物里
+   可解析（例如从 `overlay/<name>/references/` 指向 `../../../code/...`），不能写成只在源码检出
+   成立的 `../../../swarm-orca/swarm/...`。`private/`、`overlay/`、`workspace/` 在发布时按作者位置
+   豁免，不代表安装后也可豁免；
 3. **能力安装**：本 agent 类型是否装到 `swarm-orchestration` / `worktree-delivery` /
    `orca-cli` / `orchestration`，以及解析出的真实路径与 frontmatter 名称；
 4. **项目材料**：`AGENTS.md`（必需）、领域/角色技能与 binding 文件（**信息项**，只报告存在性）。

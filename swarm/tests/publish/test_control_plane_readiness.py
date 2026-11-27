@@ -150,6 +150,18 @@ class ReadinessTests(Fixture):
         self.assertGreaterEqual(overlay["referencesChecked"], 1)
         self.assertEqual(overlay["brokenReferences"], [])
 
+    def test_an_artifact_layout_cross_link_resolves(self):
+        # The private overlay must author links for the installed layout: a reference inside
+        # `overlay/<name>/references/` reaches `code/...` with `../../../`, not the source tree.
+        source = self.source()
+        write(source / "skills" / "orca-cli" / "references" / "runtime-selection.md",
+              "[stub](../../../code/skills/orca-cli/SKILL.md)\n")
+        result = self.report(control_plane=str(self.artifact(source)))
+        self.assertTrue(result["ready"], result["blocking"])
+        self.assertEqual(result["overlay"]["state"], "ok")
+        self.assertGreaterEqual(result["overlay"]["referencesChecked"], 1)
+        self.assertEqual(result["overlay"]["brokenReferences"], [])
+
     def test_a_missing_overlay_entry_blocks(self):
         source = self.source()
         (source / "skills" / "orca-cli" / "SKILL.md").unlink()
