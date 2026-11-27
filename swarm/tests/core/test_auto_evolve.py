@@ -148,6 +148,81 @@ class AutoEvolvePolicyTests(unittest.TestCase):
                     rpc.invoke(a, request(), send)
             send.assert_not_called()
 
+    def test_directory_hierarchy_is_synced_before_sending(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = args(Path(folder) / 'new-parent' / 'new-child', True)
+            root = Path(a.state_dir).resolve()
+            events = []
+
+            def transport(*unused):
+                events.append(('send', None))
+                return {'ok': True, 'result': {}}
+
+            with patch.object(rpc, 'sync_directory', side_effect=lambda p: events.append(('sync', p))):
+                rpc.invoke(a, request(), transport)
+            before_send = events[:events.index(('send', None))]
+            self.assertEqual(before_send, [('sync', p) for p in (root, *root.parents, root)])
+            self.assertEqual(events[-1], ('sync', root))  # response directory entry
+
+    def test_parent_sync_failure_blocks_even_if_directory_already_exists(self):
+        for exists in (False, True):
+            with self.subTest(exists=exists), tempfile.TemporaryDirectory() as folder:
+                a = args(Path(folder) / 'parent', True)
+                root = Path(a.state_dir).resolve()
+                if exists:
+                    root.mkdir(parents=True)
+                send = Mock()
+
+                def fail_on_parent(path):
+                    if path == root.parent:
+                        raise OSError('parent persistence failed')
+
+                with patch.object(rpc, 'sync_directory', side_effect=fail_on_parent):
+                    with self.assertRaisesRegex(OSError, 'parent persistence failed'):
+                        rpc.invoke(a, request(), send)
+                send.assert_not_called()
+                self.assertEqual(list(root.iterdir()), [])
+
+    def test_actual_parent_fsync_failure_prevents_transport(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = args(Path(folder), True)
+            parent = Path(folder).stat()
+            real_fsync = rpc.os.fsync
+            send = Mock(return_value={'ok': True, 'result': {}})
+
+            def fail_parent_fd(fd):
+                info = rpc.os.fstat(fd)
+                if (info.st_dev, info.st_ino) == (parent.st_dev, parent.st_ino):
+                    raise OSError('ancestor fsync refused')
+                return real_fsync(fd)
+
+            with patch.object(rpc.os, 'fsync', side_effect=fail_parent_fd):
+                with self.assertRaisesRegex(OSError, 'ancestor fsync refused'):
+                    rpc.invoke(a, request(), send)
+            send.assert_not_called()
+
+    def test_directory_sync_closes_fd_on_failure(self):
+        with patch.object(rpc.os, 'open', return_value=99), \
+                patch.object(rpc.os, 'fsync', side_effect=OSError('sync failed')), \
+                patch.object(rpc.os, 'close') as close:
+            with self.assertRaises(OSError):
+                rpc.sync_directory(Path('/fixture'))
+            close.assert_called_once_with(99)
+
+    def test_symlink_state_root_syncs_canonical_ancestors(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            target = base / 'real'
+            target.mkdir()
+            link = base / 'alias'
+            link.symlink_to(target, target_is_directory=True)
+            a = args(base, True)
+            a.state_dir = str(link / 'intents')
+            with patch.object(rpc, 'sync_directory') as sync:
+                rpc.invoke(a, request(), Mock(return_value={'ok': True, 'result': {}}))
+            self.assertEqual(sync.call_args_list[0].args[0], (target / 'intents').resolve())
+            self.assertNotIn(link, [c.args[0] for c in sync.call_args_list])
+
     def test_unknown_result_retains_intent_without_retry(self):
         with tempfile.TemporaryDirectory() as folder:
             a, params = args(Path(folder), True), request()
@@ -256,6 +331,28 @@ class AutoEvolveTransportTests(unittest.TestCase):
     def test_eof_is_unknown(self):
         with self.assertRaisesRegex(RpcError, 'outcome unknown'):
             self.exchange(lambda conn, req: None)
+
+    def test_connect_send_and_receive_share_one_deadline(self):
+        connection = Mock()
+        connection.recv.return_value = (json.dumps(self.frame({'id': 'fixture-id'})) + '\n').encode()
+        with patch('rpc_transport.read_metadata', return_value=('/fixture.sock', 'fixture')), \
+                patch('rpc_transport.uuid.uuid4', return_value='fixture-id'), \
+                patch('rpc_transport.time.monotonic', side_effect=[100, 100, 102, 104]), \
+                patch('rpc_transport.socket.socket') as socket_factory:
+            socket_factory.return_value.__enter__.return_value = connection
+            self.assertTrue(call('/fixture', 'runtime-test', 'status.get', {}, timeout=5)['ok'])
+        self.assertEqual([c.args[0] for c in connection.settimeout.call_args_list], [5, 3, 1])
+
+    def test_no_send_after_connect_exhausts_deadline(self):
+        connection = Mock()
+        with patch('rpc_transport.read_metadata', return_value=('/fixture.sock', 'fixture')), \
+                patch('rpc_transport.time.monotonic', side_effect=[100, 100, 106]), \
+                patch('rpc_transport.socket.socket') as socket_factory:
+            socket_factory.return_value.__enter__.return_value = connection
+            with self.assertRaisesRegex(RpcError, 'runtime_timeout'):
+                call('/fixture', 'runtime-test', 'status.get', {}, timeout=5)
+        connection.connect.assert_called_once()
+        connection.sendall.assert_not_called()
 
     def test_deadline_is_not_extended_by_keepalives(self):
         def respond(conn, req):

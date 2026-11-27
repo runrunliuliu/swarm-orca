@@ -46,15 +46,19 @@ def call(metadata_path, runtime_id, method, params, timeout=60):
     wire = (json.dumps(request, ensure_ascii=False) + '\n').encode()
     deadline = time.monotonic() + timeout
     buffer = bytearray()
+    def remaining_timeout():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RpcError('runtime_timeout: reconcile; do not resubmit')
+        return remaining
+
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(timeout)
+        connection.settimeout(remaining_timeout())
         connection.connect(endpoint)
+        connection.settimeout(remaining_timeout())
         connection.sendall(wire)
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RpcError('runtime_timeout: reconcile; do not resubmit')
-            connection.settimeout(remaining)
+            connection.settimeout(remaining_timeout())
             chunk = connection.recv(65536)
             if not chunk:
                 raise RpcError('runtime_eof: outcome unknown; reconcile; do not resubmit')

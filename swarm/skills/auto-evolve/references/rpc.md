@@ -104,8 +104,10 @@ python3 "$SKILL_DIR/scripts/rpc.py" \
   --execute --state-dir "$PRIVATE_DIR/launch-intents" --timeout 180
 ```
 
-首条输出 `mode: preview, sent: false`。第二条先以 O_EXCL 创建私有意图文件（0600，fsync），
-再一次 RPC；回执另存 `.response.json`（不包含 metadata/authToken）。参数文件和回执可能含任务敏感
+首条输出 `mode: preview, sent: false`。第二条将 state-dir 解析为规范路径，创建目录后自底向上
+fsync 目录及全部祖先（包含已存在的目录，覆盖上次准备失败留下的目录项）；任何 fsync 失败都在
+发请求前停止。再以 O_EXCL 创建私有意图文件（0600，文件与目录 fsync），然后一次 RPC；
+回执另存 `.response.json`（不包含 metadata/authToken）。参数文件和回执可能含任务敏感
 信息，须按私有政策保存，报告中用摘要/hash 引用。state-dir 只能由本 launcher/操作者写入。
 
 同 profile 使用**同一 state-dir**，它不随进程或 runtime 重启变化；同 repo/provider issue 的意图已存在
@@ -140,6 +142,8 @@ env -u SWARM_WORKER_PROFILES -u RSI_CHECKER_TEST_ROOT \
 ```
 
 测试覆盖 preview 无副作用、写方法白名单、请求身份/sparse 校验、排他意图与未知结果、
-Unix framing/keepalive/响应身份。它们不证明真实 Agent 收到任务、UI 显示一致、跨设备互斥或业务完成。
+Unix framing/keepalive/响应身份、目录及父级同步顺序/失败拒绝发送、连接与发送共享总超时。
+这些测试验证 syscall 顺序和模拟失败，不是实际主机断电或存储后端耐久性验收；也不证明真实
+Agent 收到任务、UI 显示一致、跨设备互斥或业务完成。
 真实创建 + 关联 + Agent 首轮任务的端到端验证需要单独获准的 issue/工作区/费用预算。
 安装、发布和定时调用均不由添加这个 skill 自动发生。

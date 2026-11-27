@@ -90,6 +90,24 @@ def intent_path(state_dir, runtime_id, params):
     return Path(state_dir) / (hashlib.sha256(key.encode()).hexdigest() + '.json')
 
 
+def sync_directory(path):
+    directory = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def prepare_state_directory(path):
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # A file fsync cannot persist a newly created directory's entry in its parent.
+    # Sync bottom-up through existing ancestors too: an earlier failed preparation
+    # may have left a visible but not yet durably linked directory hierarchy.
+    # Failure is fatal before any intent or RPC; never downgrade unsupported fsync.
+    for directory in (path, *path.parents):
+        sync_directory(directory)
+
+
 def record_exclusive(path, value):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, 'w') as stream:
@@ -97,11 +115,7 @@ def record_exclusive(path, value):
         stream.write('\n')
         stream.flush()
         os.fsync(stream.fileno())
-    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    sync_directory(path.parent)
 
 
 def invoke(args, params, transport=call):
@@ -112,8 +126,8 @@ def invoke(args, params, transport=call):
     if not args.execute:
         return {'mode': 'preview', 'sent': False, 'method': args.method, 'params': params}
     require(args.state_dir and Path(args.state_dir).is_absolute(), 'absolute_state_dir_required')
-    root = Path(args.state_dir)
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root = Path(args.state_dir).resolve()
+    prepare_state_directory(root)
     path = intent_path(root, args.runtime_id, params)
     intent = {'state': 'intent_outcome_unknown', 'runtimeId': args.runtime_id,
               'method': args.method, 'params': params}
