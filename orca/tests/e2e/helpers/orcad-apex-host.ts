@@ -18,7 +18,7 @@ import {
   type ApexReadiness,
   type LaunchedApex
 } from './orcad-apex-child'
-import { readApexDaemonPidRecord, reclaimApexDaemons } from './orcad-apex-daemon'
+import { recordLeftoverApexDaemon } from './orcad-apex-daemon'
 
 export { readOrcadHookEndpoint, waitForOrcadHookEndpoint } from './orcad-apex-hook-endpoint'
 export type {
@@ -76,11 +76,11 @@ export type OrcadApexHost = {
   /** Everything the host wrote to stdout/stderr so far, for attaching as failure evidence. */
   output(): string
   /**
-   * Why the daemon reclaim went the way it did (leader already exited, session members reclaimed, a
-   * recorded pid that is no longer a group leader). Recorded rather than dropped: "no daemon" always
-   * has a reason.
+   * What the teardown recorded about the PTY daemon this profile forked: its pid/pgid, whether the
+   * socket is still there, and the exact command that stops it. Only ever *recorded* — `dispose()`
+   * neither signals the daemon nor changes what it deletes because of it.
    */
-  readonly daemonScanNotes: string[]
+  readonly daemonNotes: string[]
   /** SIGTERM the host, wait for exit, and start a replacement on the same profile. */
   restart(): Promise<void>
   /**
@@ -105,9 +105,6 @@ export type StartOptions = {
   shutdownGraceMs?: number
   /** How long SIGKILL gets to be confirmed as an exit (default 5 s; injectable for the unit test). */
   killGraceMs?: number
-  /** SIGTERM → SIGKILL windows for reclaiming the forked PTY daemon on dispose. */
-  daemonGraceMs?: number
-  daemonKillGraceMs?: number
 }
 
 const READINESS_TIMEOUT_MS = 60_000
@@ -146,21 +143,9 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   let current: LaunchedApex | null = null
   let latestReady: ApexReadiness | null = null
   let disposed = false
-  const daemonScanNotes: string[] = []
+  const daemonNotes: string[] = []
 
   const daemonDir = path.join(userDataDir, 'daemon')
-
-  /**
-   * Why notes are "recorded" rather than dropped: "this case has no reclaimable daemon" is a
-   * conclusion that needs its reason on the record (missing pid record, recycled pid, ...). The test
-   * output gets them even when the start fails and no host object exists to read them from.
-   */
-  const recordDaemonNotes = (notes: string[]): void => {
-    daemonScanNotes.push(...notes)
-    for (const note of notes) {
-      console.log(`[orcad-apex] daemon scan: ${note}`)
-    }
-  }
 
   const output = (): string =>
     launched.map((entry) => `[stdout]\n${entry.stdout}[stderr]\n${entry.stderr}`).join('\n')
@@ -209,42 +194,30 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
   }
 
   /**
-   * Reclaim the PTY daemon this profile forked, and confirm it is gone — by **process group**.
+   * Record the PTY daemon this profile forked, and print the one command that stops it. No signal.
    *
    * Why it belongs here: the daemon deliberately outlives its `orcad` (a product restart must not kill
-   * every terminal), so a case's exit leaves one `daemon-entry.js` holding the temp profile. Once the
-   * root is deleted that process is unreachable by every later cleanup, which is how this host
-   * accumulated 103 orphans. Ownership is the pid this profile published in **its own** pid record plus
-   * the kernel's group/session columns and the record's start-tick fence (`orcad-apex-daemon.ts`), never
-   * a process name and never a command line.
+   * every terminal), so a case's exit leaves one `daemon-entry.js` holding the temp profile. W19-W24
+   * each tried to reclaim it automatically and each ownership test failed open on a reused pid (argv
+   * content, then process group/session, then the start-tick fence), so the automation is gone: what is
+   * left is the pid this profile published in **its own** pid record, its process group when the kernel
+   * still shows it, and a copy-pasteable `kill` for exactly that pid (`orcad-apex-daemon.ts`).
    *
-   * A daemon that survives is a failure, not a detail: the root is then the evidence and the retry
-   * handle, so it must not be removed. When the profile never had a daemon dir there is nothing to
-   * scan for, which is also what keeps the mock-child unit tests hermetic. Two states are **not** a
-   * pass and surface as an error here: a dir that exists with no usable pid record (the owner is
-   * unknown, so nothing may be signalled) and a recorded pid that is no longer its own group leader
-   * (pid reuse). Both keep the root; only "this profile never forked a daemon" removes it.
+   * It must run *before* the temp root is removed, because the record lives inside the root; and it
+   * never changes what `dispose()` does with that root — the printed command names a pid, not a
+   * directory, so deleting the profile cannot make the command ambiguous. A profile that forked no
+   * daemon dir logs nothing, which keeps the mock-child unit tests hermetic.
    */
-  const reclaimDaemon = async (): Promise<{ error: unknown | null; notes: string[] }> => {
-    if (!existsSync(daemonDir)) {
-      return { error: null, notes: [] }
-    }
-    const notes: string[] = []
-    try {
-      const result = await reclaimApexDaemons({
-        daemonDir,
-        seams: { recordNote: (note) => notes.push(note) },
-        ...(options.daemonGraceMs === undefined ? {} : { graceMs: options.daemonGraceMs }),
-        ...(options.daemonKillGraceMs === undefined ? {} : { killGraceMs: options.daemonKillGraceMs })
-      })
-      return { error: null, notes: result.notes }
-    } catch (error) {
-      return { error, notes }
+  const recordDaemonLeftover = (): void => {
+    const leftover = recordLeftoverApexDaemon(daemonDir)
+    daemonNotes.push(...leftover.lines)
+    for (const line of leftover.lines) {
+      console.log(`[orcad-apex] ${line}`)
     }
   }
 
   /**
-   * Stop, reclaim the daemon it forked, prove the source stayed read-only, then remove the temp root —
+   * Stop, record the daemon it forked, prove the source stayed read-only, then remove the temp root —
    * in that order, and only the steps whose precondition holds. `disposed` is set **after** a disposal
    * that actually finished, so a stop that could not confirm an exit keeps the root and the child
    * owner for a retry instead of reporting a cleanup it did not perform.
@@ -259,32 +232,18 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     } catch (error) {
       failures.push(error)
     }
-    const daemon = await reclaimDaemon()
-    recordDaemonNotes(daemon.notes)
-    const daemonReclaimError = daemon.error
-    if (daemonReclaimError !== null) {
-      failures.push(daemonReclaimError)
-    }
+    recordDaemonLeftover()
     try {
       assertApexSourceUnchanged(sourceWitness)
     } catch (error) {
       failures.push(error)
     }
-    if (current === null && daemonReclaimError === null) {
+    if (current === null) {
       try {
         rmSync(root, { recursive: true, force: true })
       } catch (error) {
         failures.push(error)
       }
-    } else if (current === null) {
-      // The daemon group is still holding this profile (or its owner could not be confirmed), so the
-      // root is the evidence and the retry handle, not garbage; the reclaim error above says which.
-      failures.push(
-        new Error(
-          `the apex daemon for ${daemonDir} (pid record: ${JSON.stringify(readApexDaemonPidRecord(daemonDir).record)}) ` +
-            `was not reclaimed; keeping ${root} for retry`
-        )
-      )
     } else {
       // An orphan may still be writing into the profile and the artifact copy, so the root is the
       // evidence and the retry handle, not garbage.
@@ -318,7 +277,7 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     buildPointerPath,
     client: new RuntimeClient(userDataDir, 30_000),
     output,
-    daemonScanNotes,
+    daemonNotes,
     restart: async () => {
       // The first stop is deliberately outside the try: if the old child's exit cannot be confirmed, a
       // replacement must not be launched (nothing would own the old process) and the root stays.
@@ -366,12 +325,9 @@ export async function startOrcadApex(options: StartOptions = {}): Promise<OrcadA
     } catch (stopError) {
       failures.push(stopError)
     }
-    const startDaemon = await reclaimDaemon()
-    recordDaemonNotes(startDaemon.notes)
-    const startDaemonError = startDaemon.error
-    if (startDaemonError !== null) {
-      failures.push(startDaemonError)
-    }
+    // Same read-only record as `dispose()`: a start that failed after the fork may also leave the
+    // daemon behind, and the operator still needs its pid before the record is deleted with the root.
+    recordDaemonLeftover()
     if (failures.length === 0) {
       try {
         rmSync(root, { recursive: true, force: true })

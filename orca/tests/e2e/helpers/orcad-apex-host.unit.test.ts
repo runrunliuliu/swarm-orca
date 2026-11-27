@@ -580,4 +580,41 @@ describe('orcad apex stop ownership (B2)', () => {
     expect(atExit).toEqual([{ rootExisted: true, parentEntries: 1 }])
     expect(readdirSync(parent)).toEqual([])
   })
+
+  /**
+   * W25: the forked PTY daemon is only *recorded*. It outlives the case by design, and every attempt
+   * to reclaim it automatically (argv, process group, start-tick fence) failed open on a reused pid,
+   * so `dispose()` must neither signal it nor keep the root on its account — the printed command names
+   * the pid, not the directory.
+   */
+  it('records the daemon pid/pgid and prints a cleanup command instead of signalling it', async () => {
+    const artifact = createFakeArtifact()
+    const parent = createTempDir('orca-apex-host-parent-')
+    const children: FakeApexChild[] = []
+    const host = await startWithChild(children, [{ publishReadiness: true }], parent, artifact)
+    const daemonDir = path.join(host.userDataDir, 'daemon')
+    mkdirSync(daemonDir, { recursive: true })
+    writeFileSync(path.join(daemonDir, 'daemon-v38.pid'), JSON.stringify({ pid: 9001 }))
+    writeFileSync(path.join(daemonDir, 'daemon-v38.sock'), '')
+
+    const logged: string[] = []
+    const spy = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      logged.push(String(line))
+    })
+    try {
+      await host.dispose()
+    } finally {
+      spy.mockRestore()
+    }
+
+    expect(host.daemonNotes.join('\n')).toMatch(
+      /e2e daemon left running: pid=9001 pgid=(\d+|unknown) \(product keeps the PTY daemon alive by design\)/
+    )
+    expect(host.daemonNotes.join('\n')).toMatch(/e2e daemon cleanup \(copy-paste\): kill -TERM -?\d+$/m)
+    // Also on stdout: the start-failure path has no host object to read the notes from.
+    expect(logged.join('\n')).toContain('[orcad-apex] e2e daemon cleanup (copy-paste): kill -TERM')
+    // The daemon did not make `dispose()` keep the root or throw: only the child's exit decides that.
+    expect(readdirSync(parent)).toEqual([])
+    expect(children[0].exitedWith).toEqual(['SIGTERM'])
+  })
 })

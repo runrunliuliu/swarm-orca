@@ -37,6 +37,15 @@
  * Not covered here (and not claimed): an event that arrives *before* the binding exists is still
  * dropped (`task-records-live-runs.ts:167`), and the 512-entry write filter is cleared on restart.
  * Both are stated limitations of the issue, not regressions.
+ *
+ * Daemon (W25, deliberate): this case does **not** reuse and does **not** kill the PTY daemon the
+ * apex forks — the product keeps it alive on purpose (`main/orcad/orcad-daemon-supervision.ts`), and
+ * every external ownership test tried so far (argv content, kernel process group/session, start-tick
+ * and boot fence) can fail open on a pid the kernel has reused. So the harness only *records* it:
+ * `host.dispose()` logs `e2e daemon left running: pid=<pid> pgid=<pgid> (product keeps the PTY daemon
+ * alive by design)` plus one copy-pasteable command, `kill -TERM -<pgid>` (or `kill -TERM <pid>` when
+ * the group cannot be read). A run may therefore leave **one** `daemon-entry.js` behind, with its
+ * pid/pgid and cleanup command in the teardown log; nothing here signals it.
  */
 
 import { mkdirSync, rmSync } from 'node:fs'

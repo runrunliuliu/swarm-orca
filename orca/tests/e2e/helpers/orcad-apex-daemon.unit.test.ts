@@ -1,113 +1,40 @@
 /**
- * The daemon reclaim rule, driven with a fake process table: no `ps`, no daemon, no product state.
+ * The daemon teardown rule: **record** the forked PTY daemon and print one exact command, never signal.
  *
- * Why these cases: the ways this cleanup can be wrong are (a) signalling a process that is not this
- * profile's daemon — the host's own runtime daemon is one `ps` away — and (b) reporting a reclaim after
- * sending a signal the process ignored. Both are visible here without a daemon.
+ * Why these cases: W19–W24 each shipped an automatic reclaim and each one was refuted, because every
+ * ownership test available from outside the process (argv content, kernel group/session, start-tick and
+ * boot fence) can fail open on a pid the kernel has already reused. The dangerous direction was a
+ * signal landing on a process this case does not own; the benefit was one fewer process after the run.
+ * So the rule under test is now negative as well as positive: a record that names a pid must produce
+ * the right pid/pgid and a paste-ready command, a profile with no usable record must produce a
+ * "no pid record" line and nothing else, and the module must contain no signalling call at all.
  *
- * W23: ownership is the **process group** of the pid this profile published, never a command line. W19
- * (`--inspect <dir>` names the directory), W20 (whole-argument matching) and W22 (`--entry
- * daemon-entry.js`, both paths inside one `--message` argument) were all refuted by counterexamples,
- * which is why the last case here drives a stranger whose command line is byte-for-byte our daemon's:
- * content is not ownership, the kernel's group/session columns are.
+ * The last describe block is a source-level assertion on purpose: a future edit could reintroduce
+ * `process.kill` and still pass every behavioural case above (nothing here would exercise it), and that
+ * is precisely the regression this round has to make impossible.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import {
-  identifyApexDaemonGroup,
-  reclaimApexDaemons,
-  type ApexDaemonProcessEntry
-} from './orcad-apex-daemon'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { recordLeftoverApexDaemon } from './orcad-apex-daemon'
 
 const profiles: string[] = []
 
-type RecordOptions = { pid: number; startTicks?: string | null; bootId?: string | null }
-
 /** A profile daemon dir as the apex would leave it: socket/token names plus a pid record. */
-function makeProfile(record: RecordOptions | null): { root: string; daemonDir: string } {
+function makeProfile(record: { pid: number } | null, socket = true): string {
   const root = mkdtempSync(path.join(os.tmpdir(), 'orca-daemon-unit-'))
   const daemonDir = path.join(root, 'userdata', 'daemon')
   mkdirSync(daemonDir, { recursive: true })
+  if (socket) {
+    writeFileSync(path.join(daemonDir, 'daemon-v38.sock'), '')
+  }
   if (record !== null) {
-    writeFileSync(
-      path.join(daemonDir, 'daemon-v38.pid'),
-      JSON.stringify({
-        pid: record.pid,
-        launchNonce: 'unit-launch',
-        entryPath: '/tmp/orca-e2e-case/apex/daemon-entry.js',
-        ...(record.startTicks === undefined || record.startTicks === null
-          ? {}
-          : { linuxStartTicks: record.startTicks }),
-        ...(record.bootId === undefined || record.bootId === null ? {} : { bootId: record.bootId })
-      })
-    )
+    writeFileSync(path.join(daemonDir, 'daemon-v38.pid'), JSON.stringify(record))
   }
   profiles.push(root)
-  return { root, daemonDir }
-}
-
-/** The command line of the daemon a case leaves behind; used as *evidence text* only. */
-function daemonCommand(daemonDir: string): string {
-  return (
-    '/tmp/orca-e2e-case/apex/bun-runtime /tmp/orca-e2e-case/apex/daemon-entry.js ' +
-    `--socket ${daemonDir}/daemon-v38.sock --token ${daemonDir}/daemon-v38.token ` +
-    `--pid-record ${daemonDir}/daemon-v38.pid --app-version 1.4.219`
-  )
-}
-
-/** One process-table row, defaulting to "a normal non-leader process". */
-function row(
-  pid: number,
-  overrides: Partial<ApexDaemonProcessEntry> = {}
-): ApexDaemonProcessEntry {
-  return { pid, pgid: pid, sid: pid, commandLine: `node /tmp/p${pid}.js`, ...overrides }
-}
-
-type FakeHost = {
-  table: Map<number, ApexDaemonProcessEntry>
-  signalled: { groupId: number; pids: number[]; signal: NodeJS.Signals }[]
-  notes: string[]
-  seams: Parameters<typeof reclaimApexDaemons>[0]['seams']
-}
-
-/**
- * A process table plus a kernel that honours (or ignores) signals per signal name. Killed rows leave the
- * table, like a real exit; `unitIsAlive` is derived from the table so the two cannot disagree.
- */
-function fakeHost(
-  entries: ApexDaemonProcessEntry[],
-  honours: (signal: NodeJS.Signals) => boolean = () => true
-): FakeHost {
-  const table = new Map(entries.map((entry) => [entry.pid, entry]))
-  const signalled: FakeHost['signalled'] = []
-  const notes: string[] = []
-  return {
-    table,
-    signalled,
-    notes,
-    seams: {
-      listProcesses: () => new Map(table),
-      signalUnit: (instance, signal) => {
-        signalled.push({ groupId: instance.groupId, pids: instance.members, signal })
-        if (!honours(signal)) {
-          return
-        }
-        for (const [pid, entry] of table) {
-          if (entry.pgid === instance.groupId || entry.sid === instance.groupId) {
-            table.delete(pid)
-          }
-        }
-      },
-      unitIsAlive: (groupId) =>
-        [...table.values()].some((entry) => entry.pgid === groupId || entry.sid === groupId),
-      // The wait loop is about observation, not wall-clock time.
-      sleep: () => Promise.resolve(),
-      recordNote: (note) => notes.push(note)
-    }
-  }
+  return daemonDir
 }
 
 afterEach(() => {
@@ -116,216 +43,120 @@ afterEach(() => {
   }
 })
 
-describe('identifyApexDaemonGroup', () => {
-  it('takes the recorded pid as the owned group when the kernel still shows it leading its own session', () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    const table = new Map<number, ApexDaemonProcessEntry>([
-      [11, row(11, { commandLine: daemonCommand(daemonDir) })],
-      // A second member of the same session (a PTY child in its own job-control group).
-      [12, row(12, { pgid: 12, sid: 11 })],
-      // The host's own runtime daemon: a daemon-entry process that is not this profile's group.
-      [13, row(13, { commandLine: daemonCommand('/home/somebody/.local/state/orca/daemon') })]
+describe('recordLeftoverApexDaemon', () => {
+  it('prints the recorded pid, its process group and a group-scoped cleanup command', () => {
+    const daemonDir = makeProfile({ pid: 11 })
+    const readPgid = vi.fn(() => 11)
+
+    const leftover = recordLeftoverApexDaemon(daemonDir, { readPgid })
+
+    expect(leftover.pid).toBe(11)
+    expect(leftover.pgid).toBe(11)
+    expect(leftover.socketPresent).toBe(true)
+    expect(leftover.cleanupCommand).toBe('kill -TERM -11')
+    expect(leftover.lines).toEqual([
+      'e2e daemon left running: pid=11 pgid=11 (product keeps the PTY daemon alive by design)',
+      `e2e daemon record: ${path.join(daemonDir, 'daemon-v38.pid')} socket ${path.join(daemonDir, 'daemon-v38.sock')} present`,
+      'e2e daemon cleanup (copy-paste): kill -TERM -11'
     ])
-
-    const identification = identifyApexDaemonGroup(daemonDir, table)
-
-    expect(identification.unconfirmed).toBeNull()
-    expect(identification.instance).toEqual({ groupId: 11, pid: 11, members: [11, 12] })
-    expect(identification.notes).toEqual([])
+    // The pid in the command is the pid from this profile's own record, and nothing else was probed.
+    expect(readPgid.mock.calls).toEqual([[11]])
   })
 
-  it('refuses a recorded pid that no longer leads its own group (pid reuse)', () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    // The daemon exited; the kernel handed pid 11 to an unrelated, non-leader process.
-    const table = new Map<number, ApexDaemonProcessEntry>([
-      [11, row(11, { pgid: 900, sid: 900, commandLine: 'node /tmp/unrelated-worker.js --serve' })]
-    ])
+  it('falls back to a single-pid command when the process group cannot be read', () => {
+    const daemonDir = makeProfile({ pid: 12 })
 
-    const identification = identifyApexDaemonGroup(daemonDir, table)
+    const leftover = recordLeftoverApexDaemon(daemonDir, { readPgid: () => null })
 
-    expect(identification.instance).toBeNull()
-    expect(identification.unconfirmed).toMatch(/pid reuse/)
-    expect(identification.unconfirmed).toMatch(/pid 11/)
+    expect(leftover.pgid).toBeNull()
+    expect(leftover.cleanupCommand).toBe('kill -TERM 12')
+    expect(leftover.lines[0]).toMatch(/pid=12 pgid=unknown .*PTY daemon alive by design/)
+    expect(leftover.lines[2]).toBe('e2e daemon cleanup (copy-paste): kill -TERM 12')
   })
 
-  it('refuses when the kernel start tick of the recorded pid disagrees with the record', () => {
-    const { daemonDir } = makeProfile({ pid: 11, startTicks: '100', bootId: 'boot-a' })
-    const table = new Map<number, ApexDaemonProcessEntry>([[11, row(11)]])
+  it('reports a socket that is already gone instead of assuming the daemon still holds the profile', () => {
+    const daemonDir = makeProfile({ pid: 13 }, false)
 
-    const identification = identifyApexDaemonGroup(daemonDir, table, {
-      readStartTicks: () => '222',
-      readBootId: () => 'boot-a'
+    const leftover = recordLeftoverApexDaemon(daemonDir, { readPgid: () => 13 })
+
+    expect(leftover.socketPresent).toBe(false)
+    expect(leftover.lines[1]).toMatch(/daemon-v38\.sock absent$/)
+  })
+
+  it('records "no pid record" and prints no command — no throw, no probe, no signal', () => {
+    const daemonDir = makeProfile(null)
+    const readPgid = vi.fn(() => 11)
+
+    const leftover = recordLeftoverApexDaemon(daemonDir, { readPgid })
+
+    expect(leftover.pid).toBeNull()
+    expect(leftover.pgid).toBeNull()
+    expect(leftover.cleanupCommand).toBeNull()
+    expect(leftover.lines.join('\n')).toMatch(/e2e daemon left running: no pid record/)
+    expect(leftover.lines.join('\n')).toMatch(/socket .*daemon-v38\.sock present/)
+    expect(leftover.lines.join('\n')).toMatch(/nothing was signalled/)
+    // No pid to attribute → not even a process-group lookup: guessing is what was retired.
+    expect(readPgid).not.toHaveBeenCalled()
+  })
+
+  it('treats an unparseable pid record the same way as a missing one', () => {
+    const daemonDir = makeProfile(null)
+    writeFileSync(path.join(daemonDir, 'daemon-v38.pid'), '{ not json')
+
+    const leftover = recordLeftoverApexDaemon(daemonDir, { readPgid: () => 11 })
+
+    expect(leftover.cleanupCommand).toBeNull()
+    expect(leftover.lines.join('\n')).toMatch(/could not be read/)
+  })
+
+  it('records nothing at all for a profile that never forked a daemon dir', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'orca-daemon-unit-'))
+    profiles.push(root)
+
+    const leftover = recordLeftoverApexDaemon(path.join(root, 'userdata', 'daemon'))
+
+    expect(leftover).toEqual({
+      daemonDir: path.join(root, 'userdata', 'daemon'),
+      pid: null,
+      pgid: null,
+      socketPresent: false,
+      lines: [],
+      cleanupCommand: null
     })
-
-    expect(identification.unconfirmed).toMatch(/started at tick 222 and the record says 100/)
-  })
-
-  it('refuses when the record was written under another boot', () => {
-    const { daemonDir } = makeProfile({ pid: 11, startTicks: '100', bootId: 'boot-a' })
-    const table = new Map<number, ApexDaemonProcessEntry>([[11, row(11)]])
-
-    const identification = identifyApexDaemonGroup(daemonDir, table, {
-      readStartTicks: () => '100',
-      readBootId: () => 'boot-b'
-    })
-
-    expect(identification.unconfirmed).toMatch(/written under boot boot-a but this host booted as boot-b/)
-  })
-
-  it('still reclaims the group of a leader that exited while its session members remain', () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    const table = new Map<number, ApexDaemonProcessEntry>([[12, row(12, { pgid: 12, sid: 11 })]])
-
-    const identification = identifyApexDaemonGroup(daemonDir, table)
-
-    expect(identification.unconfirmed).toBeNull()
-    expect(identification.instance).toMatchObject({ groupId: 11, members: [12] })
-    expect(identification.notes.join('\n')).toMatch(/can only be its descendants/)
-  })
-
-  it('reports "already exited" only when neither the leader nor any session member is left', () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-
-    const identification = identifyApexDaemonGroup(daemonDir, new Map())
-
-    expect(identification.instance).toBeNull()
-    expect(identification.unconfirmed).toBeNull()
-    expect(identification.notes.join('\n')).toMatch(/already exited/)
-  })
-
-  it('cannot confirm ownership without a pid record, and says why', () => {
-    const { daemonDir } = makeProfile(null)
-
-    const identification = identifyApexDaemonGroup(daemonDir, new Map())
-
-    expect(identification.instance).toBeNull()
-    expect(identification.unconfirmed).toMatch(/no daemon pid record/)
   })
 })
 
-describe('reclaimApexDaemons', () => {
-  it('recovers the group with SIGTERM and confirms the whole unit is gone', async () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    const host = fakeHost([
-      row(11, { commandLine: daemonCommand(daemonDir) }),
-      row(12, { pgid: 12, sid: 11 })
-    ])
+describe('the daemon teardown contains no signalling path (W25)', () => {
+  const HELPERS = ['orcad-apex-daemon.ts', 'orcad-apex-host.ts']
 
-    const result = await reclaimApexDaemons({ daemonDir, seams: host.seams })
+  function helperSource(name: string): string {
+    return readFileSync(new URL(name, import.meta.url), 'utf8')
+  }
 
-    expect(result.surviving).toEqual([])
-    expect(result.reclaimed).toEqual([11, 12])
-    expect(host.signalled).toEqual([{ groupId: 11, pids: [11, 12], signal: 'SIGTERM' }])
-    expect(host.table.size).toBe(0)
+  it.each(HELPERS)('%s sends no signal and scans no process table', (name) => {
+    const source = helperSource(name)
+
+    expect(source).not.toContain('process.kill')
+    // The retired reclaim machinery, by name: a partial reintroduction would otherwise pass silently.
+    for (const retired of [
+      'reclaimApexDaemons',
+      'scanApexDaemon',
+      'identifyApexDaemonGroup',
+      'readProcessTable',
+      'linuxStartTicks',
+      'readLinuxStartTicks',
+      'bootId'
+    ]) {
+      expect(source, `${name} still references ${retired}`).not.toContain(retired)
+    }
   })
 
-  it('escalates to SIGKILL for a session member that ignores SIGTERM, and still confirms the exit', async () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    const host = fakeHost(
-      [row(11, { commandLine: daemonCommand(daemonDir) }), row(12, { pgid: 12, sid: 11 })],
-      (signal) => signal === 'SIGKILL'
-    )
+  it('the daemon helper names no signal at all, only the shell command it prints', () => {
+    const source = helperSource('orcad-apex-daemon.ts')
 
-    const result = await reclaimApexDaemons({ daemonDir, seams: host.seams })
-
-    expect(host.signalled.map((entry) => entry.signal)).toEqual(['SIGTERM', 'SIGKILL'])
-    expect(result.surviving).toEqual([])
-    expect(host.table.size).toBe(0)
-  })
-
-  it('does not signal anything when the recorded pid belongs to another process now, and keeps the profile', async () => {
-    const { daemonDir, root } = makeProfile({ pid: 11 })
-    const host = fakeHost([
-      row(11, { pgid: 900, sid: 900, commandLine: 'node /tmp/unrelated-worker.js --serve' })
-    ])
-
-    const error = await reclaimApexDaemons({ daemonDir, seams: host.seams }).catch(
-      (reason: unknown) => reason
-    )
-
-    expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toMatch(/cannot establish which process group belongs/)
-    expect((error as Error).message).toMatch(/pid reuse/)
-    // Nothing was signalled and the stranger is untouched: the profile is the evidence, so it stays.
-    expect(host.signalled).toEqual([])
-    expect(host.table.has(11)).toBe(true)
-    expect(existsSync(root)).toBe(true)
-  })
-
-  it('throws, names the survivor and keeps the profile when a session member outlives both signals', async () => {
-    const { daemonDir, root } = makeProfile({ pid: 11 })
-    const host = fakeHost([row(11, { commandLine: daemonCommand(daemonDir) })], () => false)
-
-    const error = await reclaimApexDaemons({ daemonDir, seams: host.seams }).catch(
-      (reason: unknown) => reason
-    )
-
-    expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toMatch(
-      /was not reclaimed after SIGTERM\+5000ms and SIGKILL\+3000ms/
-    )
-    expect((error as Error).message).toMatch(/pid 11 \(pgid 11, sid 11\): .*daemon-entry\.js/)
-    expect(host.table.has(11)).toBe(true)
-    expect(existsSync(root)).toBe(true)
-  })
-
-  it('never signals a stranger whose command line is byte-for-byte this daemon’s', async () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    // W22's counterexamples, taken to the limit: same entry, same --socket, same --pid-record, but not
-    // the recorded group. Ownership is the kernel's group identity, not the text.
-    const host = fakeHost([
-      row(11, { pgid: 900, sid: 900, commandLine: daemonCommand(daemonDir) }),
-      row(12, { commandLine: daemonCommand(daemonDir) })
-    ])
-
-    const error = await reclaimApexDaemons({ daemonDir, seams: host.seams }).catch(
-      (reason: unknown) => reason
-    )
-
-    expect(error).toBeInstanceOf(Error)
-    expect(host.signalled).toEqual([])
-    expect(host.table.size).toBe(2)
-  })
-
-  it('reclaims a group whose leader already exited, without touching a stranger that mentions the dir', async () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    const host = fakeHost([
-      row(12, { pgid: 12, sid: 11, commandLine: daemonCommand(daemonDir) }),
-      row(13, { commandLine: daemonCommand(daemonDir) })
-    ])
-
-    const result = await reclaimApexDaemons({ daemonDir, seams: host.seams })
-
-    expect(result.reclaimed).toEqual([12])
-    expect(host.signalled).toEqual([{ groupId: 11, pids: [12], signal: 'SIGTERM' }])
-    expect(host.table.has(13)).toBe(true)
-  })
-
-  it('reports "nothing to reclaim" only when the recorded group provably exited', async () => {
-    const { daemonDir } = makeProfile({ pid: 11 })
-    const host = fakeHost([])
-
-    const result = await reclaimApexDaemons({ daemonDir, seams: host.seams })
-
-    expect(result).toEqual({ reclaimed: [], surviving: [], notes: expect.any(Array) })
-    expect(result.notes.join('\n')).toMatch(/already exited/)
-    expect(host.signalled).toEqual([])
-    expect(host.notes).toEqual(result.notes)
-  })
-
-  it('throws instead of reporting a pass when the profile published no pid record', async () => {
-    const { daemonDir, root } = makeProfile(null)
-    const host = fakeHost([row(12, { commandLine: daemonCommand(daemonDir) })])
-
-    const error = await reclaimApexDaemons({ daemonDir, seams: host.seams }).catch(
-      (reason: unknown) => reason
-    )
-
-    // W22/B2: "no record" is an unknown owner, not a confirmed exit. It must not read as success.
-    expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toMatch(/no daemon pid record/)
-    expect(host.signalled).toEqual([])
-    expect(host.table.has(12)).toBe(true)
-    expect(existsSync(root)).toBe(true)
+    // `kill -TERM` is text handed to the operator, not a call: the Node signal constants must be gone.
+    expect(source).not.toMatch(/\bSIG(TERM|KILL|INT|QUIT|HUP)\b/)
+    expect(source).toContain('kill -TERM ${pid}')
+    expect(source).toContain('kill -TERM -${pgid}')
   })
 })
