@@ -58,6 +58,23 @@ class PathPolicyTests(unittest.TestCase):
         self.assertEqual(selection, {})
         self.assertEqual(unmapped, [SKILL])
 
+    def test_auto_evolve_documents_and_dynamic_scripts_share_a_radius(self):
+        paths = ["swarm/skills/auto-evolve/" + suffix for suffix in
+                 ("SKILL.md", "references/rpc.md", "scripts/rpc.py", "scripts/rpc_transport.py")]
+        with patch.object(self.blast, "changed_paths", return_value=paths):
+            selection, skipped, removed, unmapped = self.blast.select("HEAD")
+        self.assertEqual(selection, {path: {"core.test_auto_evolve": "path"} for path in paths})
+        self.assertEqual((skipped, removed, unmapped), ([], [], []))
+
+    def test_a_stale_python_path_mapping_also_fails_closed(self):
+        script = "swarm/skills/auto-evolve/scripts/rpc.py"
+        with patch.object(self.blast, "PATH_MAP",
+                          {"swarm/skills/auto-evolve/": ("core.test_gone",)}), \
+                patch.object(self.blast, "changed_paths", return_value=[script]):
+            selection, skipped, removed, unmapped = self.blast.select("HEAD")
+        self.assertEqual(selection, {})
+        self.assertEqual((skipped, removed, unmapped), ([], [], [script]))
+
     def test_a_path_without_a_mapping_is_skipped_not_silently_selected(self):
         design_doc = "swarm/docs/design/issue-sedimentation.md"
         with patch.object(self.blast, "changed_paths", return_value=[design_doc]):

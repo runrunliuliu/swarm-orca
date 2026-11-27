@@ -281,6 +281,7 @@ repository reading entry points, not a claim that every harness automatically li
 | Task | Required entry |
 | --- | --- |
 | Orca worktrees, terminals, repositories or handoff | `orca skills get orca-cli` |
+| Autonomously select an authorized GitHub issue and start one linked development workspace via RPC | [auto-evolve](swarm/skills/auto-evolve/SKILL.md) (preview by default; explicit startup authorization required) |
 | Native messages, tasks, Dispatches and lifecycle | `orca skills get orchestration` |
 | Supervised Swarm preparation, Coordinator loop, recovery and accounting | [swarm-orchestration](swarm/skills/swarm-orchestration/SKILL.md) |
 | Incident triage: read exported facts, cluster, propose decisions (never confirms) | [incident-triage](swarm/skills/incident-triage/SKILL.md) |
