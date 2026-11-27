@@ -137,8 +137,8 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
       'Use --no-parent when the new worktree should be independent of the current context.',
       '--no-parent only affects Orca lineage; omit --base-branch to use the repo default base, or pass the default base ref explicitly for independent top-level work.',
       'By default this creates the worktree and its first terminal without switching the active Orca view.',
-      'Pass --agent to launch an agent in the first terminal; --prompt sends initial work to that agent.',
-      'With --agent --json, read the new agent handle from result.agentTerminalHandle; older runtimes return only result.startupTerminal.handle, and may return neither for folder-based repos.',
+      'Pass --agent to launch an agent in the first terminal; --prompt sends initial work to that agent. Without --agent, --issue / --linear-issue still creates and links the workspace but starts no agent: the receipt carries agentStarted: false and a warning.',
+      'With --agent --json, read result.agentStarted for whether an agent owns the first terminal, and the new agent handle from result.agentTerminalHandle; older runtimes return only result.startupTerminal.handle, and may return neither for folder-based repos.',
       'Repo-defined setup hooks follow the repository setup policy; pass --setup run to force them.',
       'Pass --activate when the CLI caller intentionally wants to reveal the new worktree in the app.',
       'Passing --run-hooks is kept as a legacy alias for --setup run and reveals the worktree.'

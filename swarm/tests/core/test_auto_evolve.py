@@ -1,6 +1,7 @@
 """Deterministic auto_evolve tool tests; no Orca process, CLI or Agent starts."""
 import copy
 import importlib.util
+import io
 import json
 import socket
 import sys
@@ -43,6 +44,14 @@ def args(root, execute=False):
     return SimpleNamespace(method='worktree.create', metadata='/not/read/in/preview',
                            runtime_id='runtime-test', timeout=1, execute=execute,
                            state_dir=str(root / 'intents'))
+
+
+def receipt(agent='pi', handle='term-agent-1'):
+    """A create result that proves the requested agent owns the first terminal."""
+    return {'ok': True, 'result': {
+        'worktree': {'id': 'repo-test::/workspace/issue-123-example', 'createdWithAgent': agent},
+        'startupTerminal': {'spawned': True, 'handle': handle},
+        'agentTerminalHandle': handle}}
 
 
 class AutoEvolvePolicyTests(unittest.TestCase):
@@ -128,7 +137,7 @@ class AutoEvolvePolicyTests(unittest.TestCase):
             def transport(*unused):
                 self.assertEqual(json.loads(path.read_text())['params'], params)
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-                return {'ok': True, 'result': {'worktree': {'id': 'fixture'}}}
+                return receipt()
 
             send = Mock(side_effect=transport)
             rpc.invoke(a, params, send)
@@ -156,7 +165,7 @@ class AutoEvolvePolicyTests(unittest.TestCase):
 
             def transport(*unused):
                 events.append(('send', None))
-                return {'ok': True, 'result': {}}
+                return receipt()
 
             with patch.object(rpc, 'sync_directory', side_effect=lambda p: events.append(('sync', p))):
                 rpc.invoke(a, request(), transport)
@@ -219,7 +228,7 @@ class AutoEvolvePolicyTests(unittest.TestCase):
             a = args(base, True)
             a.state_dir = str(link / 'intents')
             with patch.object(rpc, 'sync_directory') as sync:
-                rpc.invoke(a, request(), Mock(return_value={'ok': True, 'result': {}}))
+                rpc.invoke(a, request(), Mock(return_value=receipt()))
             self.assertEqual(sync.call_args_list[0].args[0], (target / 'intents').resolve())
             self.assertNotIn(link, [c.args[0] for c in sync.call_args_list])
 
@@ -251,7 +260,7 @@ class AutoEvolvePolicyTests(unittest.TestCase):
             a, params = args(Path(folder), True), request()
             barrier = threading.Barrier(2)
             outcomes = []
-            send = Mock(return_value={'ok': True, 'result': {}})
+            send = Mock(return_value=receipt())
 
             def attempt():
                 barrier.wait()
@@ -269,6 +278,74 @@ class AutoEvolvePolicyTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
             self.assertCountEqual(outcomes, ['sent', 'blocked'])
             send.assert_called_once()
+
+
+class AutoEvolveAgentReceiptTests(unittest.TestCase):
+    """A created workspace is not a started agent; the receipt has to say which one happened."""
+
+    def run_create(self, response):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        a, params = args(Path(folder.name), True), request()
+        send = Mock(return_value=response)
+        error = None
+        try:
+            rpc.invoke(a, params, send)
+        except rpc.AgentNotStarted as caught:
+            error = caught
+        return error, rpc.intent_path(a.state_dir, a.runtime_id, params), send
+
+    def test_started_agent_receipt_is_accepted(self):
+        for handle_field in ('agentTerminalHandle', 'startupTerminal'):
+            with self.subTest(handle_field=handle_field):
+                response = receipt()
+                if handle_field == 'startupTerminal':
+                    response['result'].pop('agentTerminalHandle')
+                error, intent, send = self.run_create(response)
+                self.assertIsNone(error)
+                send.assert_called_once()
+                self.assertTrue(intent.with_suffix('.response.json').exists())
+
+    def test_missing_handle_is_agent_not_started(self):
+        response = receipt()
+        response['result'].pop('agentTerminalHandle')
+        response['result']['startupTerminal'] = {'spawned': True}
+        error, intent, send = self.run_create(response)
+        self.assertIsInstance(error, rpc.AgentNotStarted)
+        self.assertIn('no_agent_terminal_handle', str(error))
+        send.assert_called_once()  # judged, not retried
+        self.assertTrue(intent.exists())
+        self.assertTrue(intent.with_suffix('.response.json').exists())
+
+    def test_receipt_for_another_agent_is_agent_not_started(self):
+        error, intent, send = self.run_create(receipt(agent='codex'))
+        self.assertIsInstance(error, rpc.AgentNotStarted)
+        self.assertIn('agent_identity_mismatch', str(error))
+        send.assert_called_once()
+        self.assertTrue(intent.with_suffix('.response.json').exists())
+
+    def test_unverifiable_agent_identity_is_agent_not_started(self):
+        response = receipt()
+        response['result']['worktree'].pop('createdWithAgent')
+        error, _, _ = self.run_create(response)
+        self.assertIsInstance(error, rpc.AgentNotStarted)
+        self.assertIn('agent_identity_missing', str(error))
+
+    def test_cli_exits_non_zero_with_agent_not_started_code(self):
+        with tempfile.TemporaryDirectory() as folder:
+            params = Path(folder) / 'params.json'
+            params.write_text(json.dumps(request()))
+            argv = ['rpc.py', '--metadata', '/fixture', '--runtime-id', 'runtime-test',
+                    '--method', 'worktree.create', '--params-file', str(params),
+                    '--execute', '--state-dir', str(Path(folder) / 'intents')]
+            stream = io.StringIO()
+            refusal = rpc.AgentNotStarted('agent_not_started: no_agent_terminal_handle')
+            with patch.object(sys, 'argv', argv), patch.object(rpc, 'invoke', side_effect=refusal), \
+                    patch.object(sys, 'stderr', stream):
+                self.assertEqual(rpc.main(), 1)
+            output = json.loads(stream.getvalue())
+            self.assertEqual(output['error']['code'], 'agent_not_started')
+            self.assertIs(output['ok'], False)
 
 
 class AutoEvolveTransportTests(unittest.TestCase):

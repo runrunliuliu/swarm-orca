@@ -187,6 +187,113 @@ describe('orca cli ticket → workspace chain', () => {
     })
   })
 
+  it('reports agentStarted false and warns when --issue was given without --agent', async () => {
+    queueFixtures(
+      callMock,
+      worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
+      okFixture('req_create_issue_no_agent', {
+        worktree: {
+          ...buildWorktree('/tmp/repo/login-retry', 'login-retry', 'abc', 'repo-1'),
+          linkedIssue: 42
+        },
+        lineage: null,
+        warnings: []
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await main(
+      [
+        'worktree',
+        'create',
+        '--repo',
+        'id:repo-1',
+        '--name',
+        'login-retry',
+        '--issue',
+        '42',
+        '--json'
+      ],
+      '/tmp/repo'
+    )
+
+    const printed = lastPrintedJson() as {
+      result: { agentStarted?: boolean; warning?: string }
+    }
+    // A create linked to a ticket is the request that used to lose its agent silently.
+    expect(printed.result.agentStarted).toBe(false)
+    expect(printed.result.warning).toContain('--agent')
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('prints the missing-agent warning on stderr without --json', async () => {
+    queueFixtures(
+      callMock,
+      worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
+      okFixture('req_create_issue_no_agent_text', {
+        worktree: buildWorktree('/tmp/repo/login-retry', 'login-retry', 'abc', 'repo-1'),
+        lineage: null,
+        warnings: []
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await main(
+      ['worktree', 'create', '--repo', 'id:repo-1', '--name', 'login-retry', '--issue', '42'],
+      '/tmp/repo'
+    )
+
+    expect(errorSpy.mock.calls.flat().join(' ')).toContain('without an agent')
+    expect(errorSpy.mock.calls.flat().join(' ')).toContain('--agent')
+  })
+
+  it('reports agentStarted true when --agent owns the first terminal', async () => {
+    queueFixtures(
+      callMock,
+      worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
+      okFixture('req_create_issue_agent', {
+        worktree: {
+          ...buildWorktree('/tmp/repo/login-retry', 'login-retry', 'abc', 'repo-1'),
+          linkedIssue: 42,
+          createdWithAgent: 'codex'
+        },
+        lineage: null,
+        warnings: [],
+        startupTerminal: { spawned: true, handle: 'term-agent-1' },
+        agentTerminalHandle: 'term-agent-1'
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await main(
+      [
+        'worktree',
+        'create',
+        '--repo',
+        'id:repo-1',
+        '--name',
+        'login-retry',
+        '--issue',
+        '42',
+        '--agent',
+        'codex',
+        '--prompt',
+        'Start on https://github.com/acme/app/issues/42',
+        '--json'
+      ],
+      '/tmp/repo'
+    )
+
+    const printed = lastPrintedJson() as {
+      result: { agentStarted?: boolean; warning?: string }
+    }
+    expect(printed.result.agentStarted).toBe(true)
+    expect(printed.result.warning).toBeUndefined()
+  })
+
   it('feeds the GitHub number create-issue printed into worktree create', async () => {
     queueFixtures(callMock, okFixture('req_create_issue', createdGithubIssue))
     vi.spyOn(console, 'log').mockImplementation(() => {})

@@ -17,9 +17,11 @@ import {
   encodeVideo,
   errorMessage,
   summarizeReason,
+  timingFields,
   type RecordingEncoder,
   type ScreencastTiming
 } from './screencast-encoder'
+import { resolveRecordingPacing, stopPaintScreencast } from './interval-frame-source'
 
 export type { RecordingEncoder } from './screencast-encoder'
 
@@ -63,32 +65,26 @@ type RecordingArgs = {
   scope?: RecordingScope
   /** Shortens CAPTURE_DEADLINE_MS for a caller with a smaller budget; never extends past it. */
   deadlineMs?: number
+  /**
+   * `paint` (default) takes what the compositor paints; a static page can therefore produce a
+   * handful of frames. `interval` additionally asks Chromium for a screenshot every `intervalMs`,
+   * which forces a paint and gives wall-clock coverage without depending on a mapped window.
+   */
+  pace?: 'paint' | 'interval'
+  /** Only with `pace: 'interval'`; clamped to 50–2000 ms. */
+  intervalMs?: number
 }
 type Timing = ScreencastTiming
 /** Wire data, not a contract: Chromium has been observed to omit `metadata` entirely. */
 type ScreencastFrame = { data: string; sessionId: number; metadata?: { timestamp?: number } }
 
 const OUTPUT_FPS = 15
-const DEFAULT_QUALITY = 70
 /**
  * The whole capture is bounded, not just the encoder call: CDP setup, discovery, encode, duration
  * probe and the two file writes all race this deadline. A spec that records must derive its own
  * timeout from this constant, so a slow encoder costs a degraded artefact rather than a red test.
  */
 export const CAPTURE_DEADLINE_MS = 25_000
-
-function timingFields(timings: Timing[]): Pick<RecordingArtifact, 'durationSec' | 'largestGapSec'> {
-  if (timings.length < 2) {
-    return { durationSec: 0, largestGapSec: 0 }
-  }
-  const first = timings[0]!
-  const last = timings.at(-1)!
-  let largestGapSec = 0
-  for (let index = 1; index < timings.length; index += 1) {
-    largestGapSec = Math.max(largestGapSec, timings[index]!.ts - timings[index - 1]!.ts)
-  }
-  return { durationSec: Math.max(0, last.ts - first.ts), largestGapSec: Math.max(0, largestGapSec) }
-}
 
 export async function startRecording(page: Page, args: RecordingArgs = {}): Promise<Recording> {
   const scope = args.scope ?? 'caller-scoped'
@@ -231,15 +227,18 @@ export async function startRecording(page: Page, args: RecordingArgs = {}): Prom
   const writeTimings = (): Promise<void> =>
     writeFile(path.join(framesDir, 'timings.json'), `${JSON.stringify(timings, null, 2)}\n`)
 
+  const pacing = resolveRecordingPacing(args, {
+    session: () => session,
+    accepting: () => acceptingFrames,
+    onFrame,
+    onFailure: recordFailure
+  })
+
   const finalize = async (): Promise<RecordingArtifact> => {
+    pacing.source.stop()
     acceptingFrames = false
-    if (session) {
-      try {
-        await session.send('Page.stopScreencast')
-      } catch (error) {
-        recordFailure('CDP screencast stop failed', error)
-      }
-    }
+    await pacing.source.waitForIdle()
+    await stopPaintScreencast(session, pacing.pace, recordFailure)
     // The listener is removed after the pending writes, so a frame that arrives in between is
     // acknowledged (no write, no lost session) rather than dropped by the compositor.
     await pendingWrites
@@ -280,6 +279,7 @@ export async function startRecording(page: Page, args: RecordingArgs = {}): Prom
   const deadlineReached = new Promise<'deadline'>((resolve) => {
     deadlineTimer = setTimeout(() => {
       deadlineFired = true
+      pacing.source.stop()
       acceptingFrames = false
       abortController.abort()
       // `finalize()` is abandoned by the race, so leave the frames that did arrive with their
@@ -296,14 +296,13 @@ export async function startRecording(page: Page, args: RecordingArgs = {}): Prom
       await writeFile(path.join(framesDir, 'timings.json'), '[]\n')
       session = await page.context().newCDPSession(page)
       session.on('Page.screencastFrame', onFrame)
-      const quality = Number.isFinite(args.quality)
-        ? Math.round(Math.min(100, Math.max(0, args.quality ?? DEFAULT_QUALITY)))
-        : DEFAULT_QUALITY
-      await session.send('Page.startScreencast', {
-        format: 'jpeg',
-        quality,
-        everyNthFrame: 1
-      })
+      if (pacing.pace === 'paint') {
+        await session.send('Page.startScreencast', {
+          format: 'jpeg',
+          quality: pacing.quality,
+          everyNthFrame: 1
+        })
+      }
       if (deadlineFired) {
         // The caller already holds a degraded artifact for this capture; a session that finally
         // answered after the deadline must not start collecting frames nobody will read.
@@ -312,9 +311,11 @@ export async function startRecording(page: Page, args: RecordingArgs = {}): Prom
         return
       }
       acceptingFrames = true
+      pacing.source.start()
     } catch (error) {
       recordFailure('recording setup failed', error)
       acceptingFrames = false
+      pacing.source.stop()
       if (session) {
         await dropSession(session)
       }

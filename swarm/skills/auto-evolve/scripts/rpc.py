@@ -3,6 +3,8 @@
 
 Only worktree.create can mutate; preview is its default. A durable per-issue
 intent prevents repeat submissions from this tool's shared state directory.
+A successful create is still judged: a workspace without the requested agent's
+own terminal is agent_not_started, never a success.
 This does not implement approval, global locking or a background scheduler.
 """
 import argparse
@@ -26,6 +28,11 @@ CREATE_FIELDS = frozenset({
     'linkedTaskSourceContext', 'startupAgent', 'startupPrompt',
     'clientMutationId', 'noParent', 'setupDecision', 'activate', 'sparseCheckout',
 })
+
+
+class AgentNotStarted(RpcError):
+    """A create succeeded without the requested agent: half success, never a result."""
+    code = 'agent_not_started'
 
 
 def require(condition, message):
@@ -81,6 +88,40 @@ def validate(method, params):
         # Canonical path/tree/cone checks remain the server's job, not a second Git implementation.
 
 
+def require_agent_started(params, response):
+    """Return the agent handle only when the receipt proves the requested agent started.
+
+    A workspace receipt is not an agent receipt. The host stamps `agentTerminalHandle`
+    only for a create that carried `startupAgent`, and records `createdWithAgent` from
+    the same field; neither is inferable from a successful create. Reading any of them
+    as optional is how a bare-shell workspace gets reported as a started agent.
+    """
+    def refuse(detail):
+        raise AgentNotStarted(f'agent_not_started: {detail}')
+
+    result = response.get('result')
+    if not isinstance(result, dict):
+        refuse('receipt_has_no_result')
+    worktree = result.get('worktree')
+    if not isinstance(worktree, dict):
+        refuse('receipt_has_no_worktree')
+    terminal = result.get('startupTerminal')
+    if isinstance(terminal, dict) and terminal.get('spawned') is False:
+        refuse('startup_terminal_not_spawned')
+    handle = result.get('agentTerminalHandle')
+    if not (isinstance(handle, str) and handle.strip()):
+        handle = terminal.get('handle') if isinstance(terminal, dict) else None
+    if not (isinstance(handle, str) and handle.strip()):
+        refuse('no_agent_terminal_handle')
+    # Fail closed on a missing identity: an unverifiable agent is not a started agent.
+    created = worktree.get('createdWithAgent')
+    if not (isinstance(created, str) and created.strip()):
+        refuse('agent_identity_missing')
+    if created != params['startupAgent']:
+        refuse('agent_identity_mismatch')
+    return handle
+
+
 def intent_path(state_dir, runtime_id, params):
     # Exclude runtime generation: a restart must NOT reset the issue lock.
     # Use the same private state directory for this runtime/profile across restarts.
@@ -134,7 +175,10 @@ def invoke(args, params, transport=call):
     # Intent survives refusal, timeout, process crash and restart. Never auto-delete it.
     record_exclusive(path, intent)
     response = transport(args.metadata, args.runtime_id, args.method, params, args.timeout)
+    # The receipt is evidence even when it disproves the request; record it first, then judge it.
     record_exclusive(path.with_suffix('.response.json'), response)
+    if isinstance(response, dict) and response.get('ok') is not False:
+        require_agent_started(params, response)
     return response
 
 
@@ -156,7 +200,8 @@ def main():
     except (OSError, ValueError, TypeError, KeyError) as error:
         # Never dump metadata/request/credentials in a traceback. Native failures are returned above.
         message = str(error) if isinstance(error, (RpcError, OSError)) else type(error).__name__
-        print(json.dumps({'ok': False, 'error': {'code': type(error).__name__, 'message': message},
+        code = getattr(error, 'code', None) or type(error).__name__
+        print(json.dumps({'ok': False, 'error': {'code': code, 'message': message},
                           'recovery': 'Stop. If executing, inspect the retained intent and native state; do not resubmit.'}),
               file=sys.stderr)
         return 1

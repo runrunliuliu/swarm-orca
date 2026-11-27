@@ -4,8 +4,11 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { getDockerSshRelayImage } from './docker-ssh-relay-image'
+import { shellQuote } from './shell-quote'
 
 import type { TestInfo } from '@stablyai/playwright-test'
+
+export { shellQuote }
 
 export const DOCKER_SSH_RELAY_REMOTE_REPO_PATH = '/tmp/orca-docker-relay-perf-repo'
 export const DOCKER_SSH_PROXY_JUMP_REMOTE_REPO_PATH = '/tmp/orca-docker-proxy-jump-repo'
@@ -30,10 +33,6 @@ function run(command: string, args: string[], opts: { timeoutMs?: number } = {})
 
 function tryRun(command: string, args: string[], opts: { timeoutMs?: number } = {}): void {
   spawnSync(command, args, { stdio: 'ignore', timeout: opts.timeoutMs ?? 10_000 })
-}
-
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`
 }
 
 export function execDockerSshRelayTargetCommand(
