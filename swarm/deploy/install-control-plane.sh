@@ -200,11 +200,15 @@ fi
 # already installed; a first install is covered by the phase-A probe on the new artifact.
 if [ -L "$POINTER" ] && [ -d "$(readlink -f "$POINTER" 2>/dev/null)" ]; then
   installed="$(readlink -f "$POINTER")"
-  python3 -B "$installed/code/control_plane_readiness.py" --project "$SOURCE_ROOT" \
-    --control-plane "$installed" --require-host-override --host-override "$HOST_OVERRIDE" \
-    --skills-dir "$SKILLS_DIR" >/dev/null \
-    || fail "pre-flight check failed against the installed control plane (host override, skills or configs): $HOST_OVERRIDE"
-  note "host override and installed skills validated before writing"
+  if ! preflight="$(
+      python3 -B "$installed/code/control_plane_readiness.py" --project "$SOURCE_ROOT" \
+        --control-plane "$installed" --require-host-override --host-override "$HOST_OVERRIDE" \
+        --skills-dir "$SKILLS_DIR" 2>&1
+    )"; then
+    printf '%s\n' "$preflight" >&2
+    fail "pre-flight check failed against the installed control plane (host override, skills, configs or overlay): $HOST_OVERRIDE"
+  fi
+  note "installed control plane, host override and installed skills validated before writing"
 fi
 
 if [ ! -d "$ARTIFACT_ROOT" ] && [ "$PROVISION" = 0 ]; then
@@ -307,8 +311,10 @@ if [ "$dirty" = "True" ] || [ "$unpinned" = "True" ]; then
 else
   probe+=(--require-pin)
 fi
-"${readiness[@]}" --project "$SOURCE_ROOT" "${probe[@]}" >/dev/null \
-  || fail "artifact failed the readiness probe (nothing was changed on this host)"
+if ! probe_output="$("${readiness[@]}" --project "$SOURCE_ROOT" "${probe[@]}" 2>&1)"; then
+  printf '%s\n' "$probe_output" >&2
+  fail "artifact failed the readiness probe (nothing was changed on this host)"
+fi
 note "artifact passed the readiness probe"
 
 # ---------------------------------------------------------------- phase B: commit with rollback

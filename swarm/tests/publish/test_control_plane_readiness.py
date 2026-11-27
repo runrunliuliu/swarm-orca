@@ -61,11 +61,17 @@ class Fixture(unittest.TestCase):
         if profiles:
             write(root / "swarm" / "worker-model-profiles.json", "{}\n")
         write(root / "skills" / "runtime-selection.md")
+        write(root / "skills" / "orca-cli" / "SKILL.md",
+              "---\nname: orca-cli\n---\n\n[runtime selection](references/runtime-selection.md)\n")
+        write(root / "skills" / "orca-cli" / "references" / "runtime-selection.md")
+        write(root / "skills" / "orchestration" / "SKILL.md",
+              "---\nname: orchestration\n---\n")
+        write(root / "skills" / "orchestration" / "references" / "coordinator-loop.md")
         return root
 
-    def artifact(self):
+    def artifact(self, source=None):
         artifacts = self.temporary()
-        self.assertEqual(publisher.main(["publish", "--source-root", str(self.source()),
+        self.assertEqual(publisher.main(["publish", "--source-root", str(source or self.source()),
                                          "--artifact-root", str(artifacts),
                                          "--allow-unpinned-source"]), 0)
         return next(path for path in artifacts.iterdir() if path.is_dir() and not path.is_symlink())
@@ -130,6 +136,74 @@ class ReadinessTests(Fixture):
         self.assertIn("--model-config", result["plan"]["argv"])
         self.assertIn("unconfirmed", result["plan"]["maxWorkers"])
         self.assertEqual(result["plan"]["cwd"], result["project"]["path"])
+
+    def test_the_private_overlay_entry_is_version_bound_and_resolvable(self):
+        result = self.report(control_plane=str(self.artifact()))
+        self.assertTrue(result["ready"], result["blocking"])
+        overlay = result["overlay"]
+        self.assertEqual(overlay["state"], "ok")
+        self.assertEqual(overlay["buildId"], result["controlPlane"]["buildId"])
+        self.assertEqual(sorted(overlay["entries"]), sorted(readiness.OVERLAY_SKILLS))
+        for name in readiness.OVERLAY_SKILLS:
+            self.assertTrue(overlay["entries"][name]["listed"])
+            self.assertEqual(overlay["entries"][name]["declared"], name)
+        self.assertGreaterEqual(overlay["referencesChecked"], 1)
+        self.assertEqual(overlay["brokenReferences"], [])
+
+    def test_an_artifact_layout_cross_link_resolves(self):
+        # The private overlay must author links for the installed layout: a reference inside
+        # `overlay/<name>/references/` reaches `code/...` with `../../../`, not the source tree.
+        source = self.source()
+        write(source / "skills" / "orca-cli" / "references" / "runtime-selection.md",
+              "[stub](../../../code/skills/orca-cli/SKILL.md)\n")
+        result = self.report(control_plane=str(self.artifact(source)))
+        self.assertTrue(result["ready"], result["blocking"])
+        self.assertEqual(result["overlay"]["state"], "ok")
+        self.assertGreaterEqual(result["overlay"]["referencesChecked"], 1)
+        self.assertEqual(result["overlay"]["brokenReferences"], [])
+
+    def test_a_missing_overlay_entry_blocks(self):
+        source = self.source()
+        (source / "skills" / "orca-cli" / "SKILL.md").unlink()
+        result = self.report(control_plane=str(self.artifact(source)))
+        self.assertFalse(result["ready"])
+        self.assertIn("overlay-entry-missing: overlay/orca-cli/SKILL.md", result["blocking"])
+
+    def test_a_broken_overlay_reference_blocks(self):
+        source = self.source()
+        write(source / "skills" / "orca-cli" / "SKILL.md",
+              "---\nname: orca-cli\n---\n\n[gone](references/absent.md)\n")
+        result = self.report(control_plane=str(self.artifact(source)))
+        self.assertFalse(result["ready"])
+        self.assertIn("overlay-reference-broken: overlay/orca-cli/SKILL.md -> references/absent.md",
+                      result["blocking"])
+
+    def test_a_reference_that_climbs_out_of_the_artifact_blocks(self):
+        source = self.source()
+        write(source / "skills" / "orchestration" / "SKILL.md",
+              "---\nname: orchestration\n---\n\n[source only](../../../swarm-orca/swarm/AGENTS.md)\n")
+        result = self.report(control_plane=str(self.artifact(source)))
+        self.assertFalse(result["ready"])
+        self.assertIn("overlay-reference-broken: overlay/orchestration/SKILL.md -> "
+                      "../../../swarm-orca/swarm/AGENTS.md", result["blocking"])
+
+    def test_an_overlay_entry_with_the_wrong_name_blocks(self):
+        source = self.source()
+        write(source / "skills" / "orchestration" / "SKILL.md",
+              "---\nname: not-orchestration\n---\n")
+        result = self.report(control_plane=str(self.artifact(source)))
+        self.assertFalse(result["ready"])
+        self.assertIn("overlay-entry-name-mismatch: orchestration", result["blocking"])
+
+    def test_a_missing_overlay_directory_blocks(self):
+        root = self.temporary()
+        block = readiness.overlay_block({"state": "ok", "path": str(root), "buildId": "abc123"})
+        self.assertEqual(block["state"], "invalid")
+        self.assertIn("overlay-missing: %s" % (root / "overlay"), block["reasons"])
+
+    def test_a_dev_checkout_does_not_claim_an_overlay_result(self):
+        result = self.report(control_plane=str(self.source()))
+        self.assertEqual(result["overlay"]["state"], "unchecked")
 
     def test_a_dev_checkout_is_usable_for_trials_without_the_pin_flag(self):
         result = self.report(control_plane=str(self.source()))
@@ -413,6 +487,17 @@ class ReadinessTests(Fixture):
         absent = self.temporary() / "absent-pointer"
         self.assertEqual(readiness.main(["--project", str(self.project()),
                                          "--pointer", str(absent),
+                                         "--skills-dir", str(skills)]),
+                         readiness.EXIT_BLOCKED)
+
+    def test_main_exits_blocked_for_a_broken_overlay_reference(self):
+        source = self.source()
+        write(source / "skills" / "orca-cli" / "SKILL.md",
+              "---\nname: orca-cli\n---\n\n[gone](references/absent.md)\n")
+        artifact = self.artifact(source)
+        skills = self.skills(*readiness.REQUIRED_SKILLS)
+        self.assertEqual(readiness.main(["--project", str(self.project()),
+                                         "--control-plane", str(artifact),
                                          "--skills-dir", str(skills)]),
                          readiness.EXIT_BLOCKED)
 
