@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Report, read-only, whether a project can start swarm work on this host.
 
-Contract: docs/deploy/control-plane-publish.md §6. Four blocks are reported: the
-control plane in use, the skills this agent can actually read, the project's own
-material, and the plan that would be used. Nothing is created, launched or written;
-`max_workers` is always reported as unconfirmed because only the user may set it.
+Contract: docs/deploy/control-plane-publish.md §6. Five blocks are reported: the
+control plane in use, the private-policy overlay it ships, the skills this agent can actually
+read, the project's own material, and the plan that would be used. Nothing is created, launched
+or written; `max_workers` is always reported as unconfirmed because only the user may set it.
 
 Exit codes: 0 ready, 2 usage, 78 blocked (the report lists the reasons).
 """
@@ -12,15 +12,22 @@ Exit codes: 0 ready, 2 usage, 78 blocked (the report lists the reasons).
 import argparse
 import json
 import os
+import posixpath
 import socket
 import sys
 from pathlib import Path
 
-from deploy.publish_control_plane import Failure, inspect_artifact
+from deploy.publish_control_plane import (IDENTITY, MANIFEST, MARKDOWN_LINK, REFERENCE_LINK,
+                                          Failure, inspect_artifact, without_code)
 
 EXIT_BLOCKED = 78
 
 REQUIRED_SKILLS = ("orca-cli", "orchestration", "swarm-orchestration", "worktree-delivery")
+
+# The two upstream skills whose bodies are private: `code/skills/<name>` stays a discovery stub and
+# the readable body ships as `overlay/<name>/SKILL.md`. They are the private-policy entries a session
+# must be able to open from the selected artifact, so readiness validates them against that artifact.
+OVERLAY_SKILLS = ("orca-cli", "orchestration")
 
 # Universal inputs every execution path needs; adapters are reported but not required here.
 REQUIRED_CONFIG = ("coordinator-model.json", "worker-model-profiles.json")
@@ -139,6 +146,93 @@ def dev_checkout(root, source):
             "reason": "variable source checkout: usable for local trials, never as a pin source"}
 
 
+def artifact_included(root):
+    """The file paths the selected artifact's identity says it ships, or None when unreadable."""
+    try:
+        identity = json.loads((root / IDENTITY).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    included = identity.get("included")
+    if not isinstance(included, list) or not all(isinstance(item, str) for item in included):
+        return None
+    return set(included)
+
+
+def overlay_links(root, included):
+    """Count overlay links and list those that do not resolve inside this artifact.
+
+    Publish deliberately skips `overlay/` because those documents are authored where the deployer
+    reads them. The installed artifact is a different layout, so the reader's copy is checked here:
+    a relative target that does not resolve to a shipped file is a dead private-policy reference.
+    """
+    checked, broken = 0, []
+    overlay = root / "overlay"
+    for path in sorted(overlay.rglob("*.md")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            broken.append("%s -> (symlink)" % relative)
+            continue
+        try:
+            text = without_code(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            broken.append("%s -> (unreadable)" % relative)
+            continue
+        for target in MARKDOWN_LINK.findall(text) + REFERENCE_LINK.findall(text):
+            if target.startswith(("#", "/", "mailto:")) or "://" in target:
+                continue
+            written = target.split("#")[0].split("?")[0]
+            if not written:
+                continue
+            checked += 1
+            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(relative), written))
+            if resolved in included:
+                continue
+            broken.append("%s -> %s" % (relative, target))
+    return checked, sorted(set(broken))
+
+
+def overlay_block(plane):
+    """The private-policy entry inside a released artifact: readable, version-bound, resolvable."""
+    block = {"state": "unchecked", "path": None, "buildId": None, "entries": {},
+             "referencesChecked": 0, "brokenReferences": [], "reasons": []}
+    if plane.get("state") != "ok":
+        block["reason"] = "not-a-released-artifact"
+        return block
+    root = Path(plane["path"])
+    overlay = root / "overlay"
+    block.update(path=str(overlay), buildId=plane.get("buildId"))
+    if overlay.is_symlink() or not overlay.is_dir():
+        block["state"] = "invalid"
+        block["reasons"].append("overlay-missing: %s" % overlay)
+        return block
+    included = artifact_included(root)
+    if included is None:
+        block["state"] = "invalid"
+        block["reasons"].append("overlay-identity-unreadable: %s" % (root / IDENTITY))
+        return block
+    for name in OVERLAY_SKILLS:
+        relative = "overlay/%s/SKILL.md" % name
+        path = root / relative
+        if path.is_symlink() or not path.is_file():
+            block["reasons"].append("overlay-entry-missing: %s" % relative)
+            continue
+        declared = frontmatter_name(path)
+        block["entries"][name] = {"path": str(path), "declared": declared,
+                                  "listed": relative in included}
+        if declared != name:
+            block["reasons"].append("overlay-entry-name-mismatch: %s" % name)
+        # `inspect_artifact` already ties every shipped file to the manifest; this states the
+        # contract the reader relies on: the body belongs to the buildId the pointer selected.
+        if relative not in included:
+            block["reasons"].append("overlay-entry-unlisted: %s" % relative)
+    checked, broken = overlay_links(root, included | {IDENTITY, MANIFEST})
+    block["referencesChecked"] = checked
+    block["brokenReferences"] = broken
+    block["reasons"].extend("overlay-reference-broken: %s" % item for item in broken)
+    block["state"] = "invalid" if block["reasons"] else "ok"
+    return block
+
+
 def config_inputs(plane):
     """Report the inputs the launch plan would use; missing required files block."""
     root = Path(plane["path"])
@@ -184,7 +278,7 @@ def plan_block(config, project):
             "note": "plan only: this tool never launches an Agent, a Run or a service"}
 
 
-def blocking_reasons(plane, skills, project, config, require_pin, expected=None):
+def blocking_reasons(plane, skills, project, config, require_pin, expected=None, overlay=None):
     reasons = []
     if plane["state"] in ("invalid", "dangling"):
         reasons.append("control-plane-%s: %s" % (plane["state"], plane.get("reason")))
@@ -207,6 +301,8 @@ def blocking_reasons(plane, skills, project, config, require_pin, expected=None)
     reasons += ["config-missing: %s" % name for name in config["missing"]]
     if config.get("codeSymlink"):
         reasons.append("config-symlink: %s" % config.get("codeRoot"))
+    if overlay:
+        reasons += overlay.get("reasons", [])
     for name, digest in (expected or {}).items():
         entry = config["required"].get(name) or config["adapters"].get(name)
         if entry is None:
@@ -329,8 +425,9 @@ def report(args):
         {"codeRoot": None, "configDir": None, "launcher": False, "required": {},
          "adapters": {}, "missing": []}
     override = host_override(args.host_override)
+    overlay = overlay_block(plane)
     reasons = blocking_reasons(plane, skills, project_info, config, args.require_pin,
-                               expected_config_hashes(args.expect_config))
+                               expected_config_hashes(args.expect_config), overlay)
     # An explicitly requested override is fail-closed; an implicit one is only reported, so a
     # generic project can still be planned without any host-local values.
     if args.host_override or args.require_host_override:
@@ -352,6 +449,7 @@ def report(args):
                            "source": "host-override" if override["state"] == "ok" else "unset"}
     return {"ready": not reasons,
             "controlPlane": plane,
+            "overlay": overlay,
             "skills": skills,
             "project": project_info,
             "config": config,
@@ -401,6 +499,11 @@ def main(argv=None):
         plane = result["controlPlane"]
         print("ready: %s" % ("yes" if result["ready"] else "no"))
         print("control plane: %s %s" % (plane["state"], plane.get("path")))
+        overlay = result["overlay"]
+        print("overlay: %s %s buildId=%s entries=%d references=%d broken=%d"
+              % (overlay["state"], overlay["path"], overlay["buildId"],
+                 len(overlay["entries"]), overlay["referencesChecked"],
+                 len(overlay["brokenReferences"])))
         print("skills: %s/%d missing=%s"
               % (result["skills"]["agent"], len(result["skills"]["required"]),
                  result["skills"]["missing"] or "none"))

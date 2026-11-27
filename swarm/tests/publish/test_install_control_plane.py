@@ -58,6 +58,11 @@ class InstallerTests(unittest.TestCase):
         write(self.source / "swarm" / "coordinator-model.json", "{}\n")
         write(self.source / "swarm" / "worker-model-profiles.json", "{}\n")
         write(self.source / "skills" / "runtime-selection.md")
+        write(self.source / "skills" / "orca-cli" / "SKILL.md",
+              "---\nname: orca-cli\n---\n\n[runtime selection](references/runtime-selection.md)\n")
+        write(self.source / "skills" / "orca-cli" / "references" / "runtime-selection.md")
+        write(self.source / "skills" / "orchestration" / "SKILL.md",
+              "---\nname: orchestration\n---\n")
         self.artifacts = self.root / "artifacts"
         self.artifacts.mkdir()
         self.skills = self.root / "skills-home"
@@ -139,6 +144,23 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.pointer.resolve().name, names[0])
         for skill in ("orca-cli", "orchestration", "swarm-orchestration", "worktree-delivery"):
             self.assertEqual(self.link_targets()[skill], "%s/code/skills/%s" % (self.pointer, skill))
+
+    def test_apply_reports_the_private_overlay_resolution(self):
+        result = self.run_installer("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertRegex(result.stdout, r"overlay: ok .*buildId=[0-9a-f]{12}")
+        self.assertIn("entries=2", result.stdout)
+        self.assertIn("broken=0", result.stdout)
+
+    def test_a_broken_overlay_reference_blocks_before_the_pointer_switches(self):
+        write(self.source / "skills" / "orca-cli" / "SKILL.md",
+              "---\nname: orca-cli\n---\n\n[gone](references/absent.md)\n")
+        result = self.run_installer("--apply")
+        self.assertEqual(result.returncode, 78)
+        self.assertIn("overlay-reference-broken", result.stderr)
+        # Phase A may publish the immutable artifact; the host must not point at it or link it.
+        self.assertFalse(self.pointer.exists())
+        self.assertEqual(self.link_targets(), {})
 
     def test_a_second_apply_is_idempotent(self):
         self.assertEqual(self.run_installer("--apply").returncode, 0)

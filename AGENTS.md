@@ -48,6 +48,12 @@ working inside `swarm/`, and keep it true in both places: the publisher copies i
   policy for that task, not from this file (see
   [public-repository boundary](#public-repository-boundary)). This section states the rule, not
   the address.
+- A private-policy entry is part of the handoff, not something to derive from the working
+  directory. A startup or continuation handoff must name an entry that is readable and whose
+  version is fixed by the deployed artifact; the receiver must confirm it resolves there. When
+  the entry is missing, ask the handoff party — do not search parent directories, a sibling
+  checkout, or a same-named directory and treat it as the policy. The concrete location stays in
+  private policy, not in this file.
 - A retry reuses the archive directory already registered for that Run or Task; do not open a new
   one, and do not overwrite a different attempt.
 

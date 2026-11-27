@@ -99,7 +99,7 @@ repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个
 | --- | --- |
 | `code/**`、产物根 `*.md` | 就地阅读。每个本地链接按文档在产物里的位置归一化后必须命中产物内路径；`./x`、`../x` 与裸 `x` 同等对待，爬出产物根的同样拒绝 |
 | `code/tests/…`、`orca/…` 下的目标 | 例外放行（`EXCLUDED_PATHS`）：这两处刻意不进产物，指向它们的是源码检出里的开发者文档，文中已说明 |
-| `private/`、`overlay/`、`workspace/` | 不判：这些文件在**作者位置**被读取（部署方工作区、已安装技能目录、项目工作区），`../` 目标在那边存在 |
+| `private/`、`overlay/`、`workspace/` | 发布时不判：这些文件在**作者位置**被读取（部署方工作区、项目工作区），`../` 目标在那边存在。`overlay/` 在安装后的 readiness 里按**产物布局**再判一次（正文可读、属于当前 `buildId`、引用可解析），见 §6 |
 
 实现细节：围栏代码块与行内代码先剔除——**讲链接语法的文档不应被当成链接**（本次实测中本节的
 `](target)` 示例就曾被自己的检查判为死链）；同时识别行内链接与参考式 `[id]: target`；正文不是 UTF-8 的
@@ -264,18 +264,22 @@ repository-relative”并指向 `swarm/docs/entry-paths.md`；在产物里这个
 
 ## 6. 消费者契约：只读 readiness
 
-只读入口：`control_plane_readiness.py`，对任意项目输出四块：
+只读入口：`control_plane_readiness.py`，对任意项目输出五块：
 
 1. **控制平面**：指针状态、`buildId`、两个 commit、配置逐文件 hash；
-2. **能力安装**：本 agent 类型是否装到 `swarm-orchestration` / `worktree-delivery` /
+2. **私有政策入口**（`overlay`）：`overlay/<name>/SKILL.md` 的解析路径、当前 `buildId`、frontmatter 名称、
+   已解析引用数与断链清单。正文必须属于当前产物（路径出现在身份清单里），`references/` 必须按
+   **产物布局**解析；`private/`、`overlay/`、`workspace/` 在发布时按作者位置豁免，不代表安装后也可豁免；
+3. **能力安装**：本 agent 类型是否装到 `swarm-orchestration` / `worktree-delivery` /
    `orca-cli` / `orchestration`，以及解析出的真实路径与 frontmatter 名称；
-3. **项目材料**：`AGENTS.md`（必需）、领域/角色技能与 binding 文件（**信息项**，只报告存在性）。
+4. **项目材料**：`AGENTS.md`（必需）、领域/角色技能与 binding 文件（**信息项**，只报告存在性）。
    无领域适配是受支持的形态，因此缺角色技能不阻断启动。
-4. **缺失项与计划**：缺失清单 + 将要使用的 argv 与环境，`max_workers` 一律标注“待用户确认”。
+5. **缺失项与计划**：缺失清单 + 将要使用的 argv 与环境，`max_workers` 一律标注“待用户确认”。
 
 fail-closed 条件（任一命中则不输出可执行计划）：指针 `dangling`/`invalid`、
 身份与清单不符、`dev-checkout` 且请求带 pin、`ok` 但发布源 `dirty`/`unpinned` 且请求带 pin、
-必需配置缺失、`--expect-config` 给出的哈希不符、`code/` 是符号链接、必需技能缺失或名称不符，
+必需配置缺失、`--expect-config` 给出的哈希不符、`code/` 是符号链接、必需技能缺失或名称不符、
+`overlay/` 目录缺失、私有政策入口缺失或名称不符、入口不在身份清单里、`overlay/` 引用断链，
 以及 `--require-pin` 下产物的 `identityKind` 不是 `provenance`（`control-plane-legacy-identity`）。
 
 readiness 不创建 worktree、不建 Run、不启动 Agent、不写任何状态；它不是启动授权。

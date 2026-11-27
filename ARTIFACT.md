@@ -12,7 +12,7 @@
 | `code/` | 启动器、协议、工具、文档、角色技能、安装与发布脚本（= 源码的 `swarm-orca/swarm/`） | 从 [code/AGENTS.md](code/AGENTS.md) 开始；能力与入口总表 [code/README.md](code/README.md)；文档 `code/docs/`；符号位置 `code/ORIENTATION.md`；技能 `code/skills/` |
 | `code/deploy/` | `install.sh`（新主机唯一该记的命令）、`publish_control_plane.py` | 默认只读；`--apply` 才发布并切指针，属于单独授权的部署动作 |
 | `private/` | 私有政策、`acceptance.md`、模型/runtime/Worker 白名单与台账政策 | 由部署方读取；不是公开示例，也不随公开代码发布 |
-| `overlay/` | 私有技能入口材料 | 安装时按部署策略链接，不由本产物安装 |
+| `overlay/` | 私有技能入口正文与 `references/`（如 runtime selection） | 从 `<pointer>/overlay/<name>/SKILL.md` 读取；安装校验会验证正文属于当前产物、`references/` 可解析，不链入全局技能目录 |
 | `workspace/` | 工作区级指引、索引与目录策略 | 复制到目标工作区后按**该工作区**的相对路径读取（其链接指向工作区的 `swarm/`、`swarm-orca/`） |
 | `NOTICE.md`、`MIGRATION_STATUS.md` | 许可证边界与迁移状态 | 边界说明，不是运行状态 |
 
