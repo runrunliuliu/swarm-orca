@@ -32,6 +32,7 @@
 | 任务 | 入口 |
 | --- | --- |
 | Orca worktree、终端、repo、handoff | `orca skills get orca-cli` |
+| 授权范围内自主选 GitHub issue，经 RPC 启动一个关联开发工作区 | [auto-evolve](skills/auto-evolve/SKILL.md)（默认预览，启动需另有授权） |
 | 原生消息、Task、Dispatch、生命周期 | `orca skills get orchestration` |
 | 受监督 Swarm 准备、Coordinator 循环、恢复与记账 | [swarm-orchestration](skills/swarm-orchestration/SKILL.md) |
 | strict software-development-v1 范围、进度与证据 | [software-development](skills/software-development/SKILL.md) |
