@@ -25,8 +25,8 @@ import {
 } from '../task-records/task-records-worktree-usage'
 import { createAiVaultSessionIndexLookup } from '../task-records/task-records-session-index-lookup'
 import { createTranscriptCheckProbe } from '../task-records/task-records-transcript-check'
-import { createTaskRecordsLiveRunObserver } from '../task-records/task-records-live-runs'
 import { usageProviderForPaneKey } from '../task-records/task-records-pane-provider'
+import { createTaskRecordsLiveRunSubscription } from './task-records-live-run-subscription'
 import { mainProcessState as state } from './main-process-state'
 
 export function initializeMainProcessObservers(): void {
@@ -177,37 +177,14 @@ export function initializeMainProcessObservers(): void {
   // Why a second subscription and not the stats recorder above: it must be bound
   // after the Store exists (it writes `taskRecords`), and it records the run while
   // the pane is still observable, so a TUI closed mid-task keeps its row (issue
-  // #53 follow-up). The observer skips a status that states nothing new, and the
-  // Store owns the save schedule like every other task-record write.
-  const liveRunObserver = createTaskRecordsLiveRunObserver({
+  // #53 follow-up). The projection and its replay filter live in the shared
+  // assembly so the headless entry observes the same facts (issue #68).
+  // The disposer is intentionally dropped, as it always was here: this process's
+  // observers live until it exits.
+  createTaskRecordsLiveRunSubscription({
+    subscribe: (listener) => agentHookServer.subscribeEnrichedStatus(listener),
     providerForPaneKey: (paneKey) =>
       usageProviderForPaneKey(store.getWorkspaceSessionPartitions(), paneKey),
     record: (observation) => store.recordTaskRecordLiveRun(observation)
-  })
-  agentHookServer.subscribeEnrichedStatus((enriched) => {
-    // A replay is a cached row from a prior runtime, not an observation taken
-    // here; writing it would label it a live run this process never saw.
-    if (enriched.isReplay === true) {
-      return
-    }
-    liveRunObserver.observe({
-      paneKey: enriched.paneKey,
-      ...(enriched.worktreeId === undefined ? {} : { worktreeId: enriched.worktreeId }),
-      ...(enriched.providerSession === undefined
-        ? {}
-        : { providerSession: enriched.providerSession }),
-      state: enriched.payload.state,
-      stateStartedAt: enriched.stateStartedAt,
-      ...(enriched.payload.agentType === undefined
-        ? {}
-        : { agentType: enriched.payload.agentType }),
-      ...(enriched.payload.sessionBoundary === undefined
-        ? {}
-        : { sessionBoundary: enriched.payload.sessionBoundary }),
-      ...(enriched.payload.interrupted === undefined
-        ? {}
-        : { interrupted: enriched.payload.interrupted }),
-      ...(enriched.payload.mainAgent === undefined ? {} : { mainAgent: enriched.payload.mainAgent })
-    })
   })
 }
