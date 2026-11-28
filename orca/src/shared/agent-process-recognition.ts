@@ -40,14 +40,31 @@ const PYTHON_SCRIPT_ENTRYPOINT_DIRECTORIES = ['/bin/', '/scripts/', '/site-packa
 
 const PROCESS_TO_AGENT = new Map<string, TuiAgent>()
 const AGENT_TYPE_IDS = new Set<TuiAgent>()
+// Why: kernel `comm` is the basename of the path used to exec, not the resolved
+// symlink target, so one binary reaches Orca under several names (`traecli` and
+// `traex` are the same file). Aliases are declared once per agent config and read
+// by both recognition and `isExpectedAgentProcess`, so the two cannot disagree.
+const EXPECTED_PROCESS_ALIASES = new Map<string, ReadonlySet<string>>()
 
 for (const [agent, config] of Object.entries(TUI_AGENT_CONFIG) as [
   TuiAgent,
   (typeof TUI_AGENT_CONFIG)[TuiAgent]
 ][]) {
   AGENT_TYPE_IDS.add(agent)
+  const expectedProcess = normalizeProcessName(config.expectedProcess)
+  const aliases = (config.expectedProcessAliases ?? [])
+    .map((alias) => normalizeProcessName(alias))
+    .filter(Boolean)
+  if (expectedProcess && aliases.length > 0) {
+    const known = new Set(EXPECTED_PROCESS_ALIASES.get(expectedProcess) ?? [])
+    for (const alias of aliases) {
+      known.add(alias)
+    }
+    EXPECTED_PROCESS_ALIASES.set(expectedProcess, known)
+  }
   for (const candidate of [
     config.expectedProcess,
+    ...aliases,
     ...getTuiAgentDetectCommands(config),
     getFirstCommandToken(config.launchCmd)
   ]) {
@@ -67,10 +84,6 @@ function agentForNormalizedProcess(normalized: string): TuiAgent | undefined {
   const exact = PROCESS_TO_AGENT.get(normalized)
   if (exact) {
     return exact
-  }
-  // TRAE CN's traecli launcher can resolve to its native traex binary.
-  if (normalized === 'traex') {
-    return PROCESS_TO_AGENT.get('traecli')
   }
   // Why: node-pty can report Codex's packaged platform binary
   // (for example codex-aarch64-ap) instead of the launch command.
@@ -154,6 +167,9 @@ function recognizePythonEntrypoint(
 // exact-name check never matches and readiness/follow-up delivery would stall.
 // Scoped to muse: a generic `-suffix` rule would misclassify short agent names
 // (see the ante-obsidian test).
+// Why: an agent's declared `expectedProcessAliases` are exact alternative comm
+// names for the same binary (trae's `traex`), never a prefix/suffix rule — that
+// is what keeps `ante` and other short names safe.
 export function isExpectedAgentProcess(
   processName: string | null | undefined,
   expectedProcess: string
@@ -165,6 +181,7 @@ export function isExpectedAgentProcess(
   }
   return (
     normalizedProcess === normalizedExpected ||
+    EXPECTED_PROCESS_ALIASES.get(normalizedExpected)?.has(normalizedProcess) === true ||
     normalizedProcess.startsWith(`${normalizedExpected}.`) ||
     (normalizedExpected === 'qodercli' && /^qodercli-\d/.test(normalizedProcess)) ||
     (normalizedExpected === 'muse' && normalizedProcess.startsWith('muse-bin-'))

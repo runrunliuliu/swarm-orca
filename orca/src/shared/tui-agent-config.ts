@@ -94,6 +94,10 @@ const TUI_AGENT_CONFIG_SOURCE: Record<TuiAgent, TuiAgentConfigSource> = {
     // Why: the unrelated open-source another open-source trae-agent package also installs a `trae-cli`
     // binary, so detect TRAE CN's CLI on `traecli`, an alias only TRAE CN ships.
     detectCmd: 'traecli',
+    // Why: `traex` is the same binary under the name TRAE CN ships it as, and a wrapper that
+    // `exec`s that path makes the kernel report `traex` as comm — expecting only `traecli`
+    // refused delivery to a healthy Trae session (#82).
+    expectedProcessAliases: ['traex'],
     // Why: only fresh launches opt into Trae pre-trust at the spawn boundary; reattaches and restores ask.
     preflightTrust: 'trae',
     // Why: `traecli [prompt]` takes the task as a positional argv, same as Claude/Codex.

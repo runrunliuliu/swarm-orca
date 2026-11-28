@@ -28,6 +28,12 @@ export type TuiAgentConfig = {
   /** Platform-specific launch command when the public binary name differs. */
   launchCmdByPlatform?: Partial<Record<NodeJS.Platform, string>>
   expectedProcess: string
+  /**
+   * Other foreground `comm` names that mean this same `expectedProcess` binary. The kernel
+   * reports the basename of the path used to exec, not the resolved symlink target, so one
+   * launcher reaches Orca under more than one name (e.g. `traecli` -> `traex`).
+   */
+  expectedProcessAliases?: readonly string[]
   promptInjectionMode: AgentPromptInjectionMode
   /** Option terminator required before positional prompts that may look like CLI syntax. */
   argvPromptSeparator?: '--'
