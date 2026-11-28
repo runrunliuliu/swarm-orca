@@ -23,7 +23,7 @@ const LISTING = JSON.stringify({
     // A repeat selector is one model, not two rows.
     { provider: 'deepseek', id: 'deepseek-v4-pro', selector: 'deepseek/deepseek-v4-pro' },
     // Older listings without `selector` still name the model by provider + id.
-    { provider: 'openai', id: 'gpt-5.5' },
+    { provider: 'openai', id: 'gpt-5.6-sol' },
     // Rows that cannot be launched are dropped rather than guessed.
     { provider: 'zai', name: 'No id' },
     'not a row'
@@ -39,7 +39,7 @@ describe('omp model list probe', () => {
     expect(parseOmpModelList(LISTING)).toEqual([
       { id: 'deepseek/deepseek-v4-pro', label: 'DeepSeek V4 Pro', description: 'deepseek' },
       { id: 'minimax-cn/MiniMax-M3', label: 'MiniMax M3', description: 'minimax-cn' },
-      { id: 'openai/gpt-5.5', label: 'Openai GPT 5.5', description: 'openai' }
+      { id: 'openai/gpt-5.6-sol', label: 'Openai GPT 5.6 Sol', description: 'openai' }
     ])
   })
 
@@ -48,7 +48,7 @@ describe('omp model list probe', () => {
     expect(parseOmpModelList(noisy).map(({ id }) => id)).toEqual([
       'deepseek/deepseek-v4-pro',
       'minimax-cn/MiniMax-M3',
-      'openai/gpt-5.5'
+      'openai/gpt-5.6-sol'
     ])
   })
 
@@ -63,11 +63,11 @@ describe('omp model list probe', () => {
             [],
             { provider: {}, id: [] },
             { selector: 5 },
-            { selector: 'openai/gpt-5.5', name: null, provider: 'openai' }
+            { selector: 'openai/gpt-5.6-sol', name: null, provider: 'openai' }
           ]
         })
       )
-    ).toEqual([{ id: 'openai/gpt-5.5', label: 'Openai GPT 5.5', description: 'openai' }])
+    ).toEqual([{ id: 'openai/gpt-5.6-sol', label: 'Openai GPT 5.6 Sol', description: 'openai' }])
     for (const value of ['null', 'true', '3', '"text"']) {
       expect(parseOmpModelList(value)).toEqual([])
     }
@@ -103,7 +103,7 @@ describe('omp session option catalog', () => {
         options: []
       },
       { id: 'minimax-cn/MiniMax-M3', label: 'MiniMax M3', description: 'minimax-cn', options: [] },
-      { id: 'openai/gpt-5.5', label: 'Openai GPT 5.5', description: 'openai', options: [] }
+      { id: 'openai/gpt-5.6-sol', label: 'Openai GPT 5.6 Sol', description: 'openai', options: [] }
     ])
   })
 
@@ -118,7 +118,7 @@ describe('omp session option catalog', () => {
   it('yields to a user --model in the launch args, in either spelling', () => {
     const override = OMP_SESSION_OPTION_CATALOG.modelApply.agentArgsOverride!
     expect(override(['--model', 'opus'])).toBe(true)
-    expect(override(['--model=openai/gpt-5.5'])).toBe(true)
+    expect(override(['--model=openai/gpt-5.6-sol'])).toBe(true)
     expect(override(['--no-extensions'])).toBe(false)
     // `--models` scopes Ctrl+P cycling; it does not pick a model. omp has no `-m`.
     expect(override(['--models=anthropic/*'])).toBe(false)

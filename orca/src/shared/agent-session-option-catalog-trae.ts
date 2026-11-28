@@ -61,7 +61,6 @@ export const TRAE_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
   // Only verified per-model overrides are offered; model-only launches retain Trae's defaults.
   models: [
     { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', options: [EFFORT, BACKEND_VARIANT] },
-    { id: 'gpt-5.5', label: 'GPT-5.5', options: [EFFORT, BACKEND_VARIANT] },
     { id: 'gpt-5.4', label: 'GPT-5.4', options: [GPT54_EFFORT, GPT54_BACKEND_VARIANT] },
     { id: 'DeepSeek-V4-Flash', label: 'DeepSeek V4 Flash', options: [EFFORT] },
     { id: 'DeepSeek-V4.1-Flash', label: 'DeepSeek V4.1 Flash', options: [BACKEND_VARIANT] },

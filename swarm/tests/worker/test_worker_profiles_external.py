@@ -43,7 +43,7 @@ class ExternalWorkerProfilesTests(unittest.TestCase):
 
     def test_absent_override_uses_bundled_file(self):
         del os.environ["SWARM_WORKER_PROFILES"]
-        _, profile = resolve("gpt-5.5", file_ref(PROFILES)["sha256"])
+        _, profile = resolve("gpt-5.6-sol", file_ref(PROFILES)["sha256"])
         self.assertEqual(profile["config"], file_ref(PROFILES))
 
     def test_invalid_explicit_paths_never_fall_back(self):
@@ -57,7 +57,7 @@ class ExternalWorkerProfilesTests(unittest.TestCase):
             with self.subTest(source=source), patch.dict(os.environ, {
                     "SWARM_WORKER_PROFILES": source}):
                 with self.assertRaisesRegex(ValueError, code):
-                    resolve("gpt-5.5", file_ref(PROFILES)["sha256"])
+                    resolve("gpt-5.6-sol", file_ref(PROFILES)["sha256"])
 
     def test_changed_hash_unknown_model_and_blocked_profile_fail_closed(self):
         request = self.request()
@@ -65,7 +65,7 @@ class ExternalWorkerProfilesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "file_pin_changed"):
             build_plan(request)
         with self.assertRaisesRegex(ValueError, "worker_model_not_in_fixed_profiles"):
-            resolve("gpt-5.5", file_ref(self.policy)["sha256"])
+            resolve("gpt-5.6-sol", file_ref(self.policy)["sha256"])
         self.config["profiles"]["deployment-model"]["blocked_reason"] = "pending review"
         self.policy.write_text(json.dumps(self.config))
         with self.assertRaisesRegex(ValueError, "worker_profile_blocked"):

@@ -746,7 +746,7 @@ describe('runtime git client', () => {
   it('passes one-shot commit-message params to local and runtime generation', async () => {
     const sourceControlAiResolvedParams = {
       agentId: 'codex' as const,
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'high',
       customPrompt: 'Use Conventional Commits.'
     }

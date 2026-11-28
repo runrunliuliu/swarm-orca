@@ -163,7 +163,7 @@ class OperatorStartupTests(unittest.TestCase):
 
     def test_log_history_change_between_gate_snapshots_stops(self):
         def change(**kwargs):
-            self.t.f.log.write_text(self.t.f.log.read_text().replace("GPT-5.5", "gpt-5.5"))
+            self.t.f.log.write_text(self.t.f.log.read_text().replace("GPT-5.6-Sol", "gpt-5.6-sol"))
             return self.observe_coordinator(**kwargs)
         with patch("trae_tui.observe", side_effect=change), \
                 self.assertRaisesRegex(ValueError, "operator_session_runtime_state_unverifiable"):

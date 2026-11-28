@@ -151,13 +151,13 @@ const HOST_CATALOG = {
 
 const LIVE_OPTIONS = {
   models: [
-    { id: 'gpt-5.5', label: 'GPT-5.5', isDefault: true, efforts: [] },
+    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', isDefault: true, efforts: [] },
     { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', efforts: [] }
   ],
-  current: { model: 'gpt-5.5', confirmed: ['model'] }
+  current: { model: 'gpt-5.6-sol', confirmed: ['model'] }
 }
 
-const SEED = { model: 'gpt-5.5' }
+const SEED = { model: 'gpt-5.6-sol' }
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('useStructuredAgentSessionOptions', () => {
@@ -237,7 +237,7 @@ describe('useStructuredAgentSessionOptions', () => {
       )
       await tick()
       expect(modelChoiceCount(result.current.optionSnapshot)).toBeGreaterThan(0)
-      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.5')
+      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.6-sol')
       unmount()
     }
   })
@@ -250,12 +250,12 @@ describe('useStructuredAgentSessionOptions', () => {
     })
     const { result, unmount } = renderOptions(ATTACHED, mutateWith(async () => null).mutate)
     await waitFor(() =>
-      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.5')
+      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.6-sol')
     )
     settleCatalog(HOST_CATALOG)
     await tick()
     const model = descriptor(result.current.optionSnapshot, 'model')
-    expect(model?.kind.type === 'select' ? model.kind.currentValue : null).toBe('gpt-5.5')
+    expect(model?.kind.type === 'select' ? model.kind.currentValue : null).toBe('gpt-5.6-sol')
     expect(
       model?.kind.type === 'select' &&
         model.kind.choices.some((choice) => choice.value === 'gpt-hosted')
@@ -273,7 +273,7 @@ describe('useStructuredAgentSessionOptions', () => {
         mutate
       )
       expect(modelChoiceCount(result.current.optionSnapshot)).toBeGreaterThan(0)
-      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.5')
+      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.6-sol')
 
       let accepted = false
       await act(async () => {
@@ -348,7 +348,7 @@ describe('useStructuredAgentSessionOptions', () => {
         sessionId: 'session-1'
       })
       rerender({ ...claude, launchSeedOptions: SEED })
-      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.5')
+      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.6-sol')
       unmount()
     })
 
@@ -368,7 +368,7 @@ describe('useStructuredAgentSessionOptions', () => {
       // The resumed conversation may keep its own model rather than the listing's default.
       expect(currentValue(result.current.optionSnapshot, 'model')).toBeNull()
       rerender({ ...resumed, launchSeedOptions: SEED })
-      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.5')
+      expect(currentValue(result.current.optionSnapshot, 'model')).toBe('gpt-5.6-sol')
       unmount()
     })
 

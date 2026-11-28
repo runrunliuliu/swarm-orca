@@ -72,7 +72,7 @@ describe.skipIf(process.platform === 'win32')('Trae worker workspace-write launc
       agentDefaultArgs: { trae: '--yolo --remote existing' },
       agentCmdOverrides: { trae: 'traecli' }
     }
-    const sessionOptions = { model: 'gpt-5.5', effort: 'high', backendVariant: 'max' }
+    const sessionOptions = { model: 'gpt-5.6-sol', effort: 'high', backendVariant: 'max' }
     const inputs = resolveAgentStartupPlanInputs({
       agent: 'trae',
       settings,
@@ -102,7 +102,7 @@ describe.skipIf(process.platform === 'win32')('Trae worker workspace-write launc
         '--add-dir',
         evidence,
         '--model',
-        'gpt-5.5',
+        'gpt-5.6-sol',
         '-c',
         'model_reasoning_effort="high"',
         '-c',

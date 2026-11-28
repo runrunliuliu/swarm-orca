@@ -296,7 +296,7 @@ describe('parseOpenCodeUsageDatabase', () => {
       1_777_777_800_000,
       JSON.stringify({
         providerID: 'openai',
-        modelID: 'gpt-5.5',
+        modelID: 'gpt-5.6-sol',
         cost: 0.03,
         tokens: {
           input: 800,
@@ -311,7 +311,7 @@ describe('parseOpenCodeUsageDatabase', () => {
     const parsed = await parseOpenCodeUsageDatabase(path, await resolveWorktree())
 
     expect(parsed.sessions[0]).toMatchObject({
-      primaryModel: 'openai/gpt-5.5',
+      primaryModel: 'openai/gpt-5.6-sol',
       primaryProjectLabel: 'Repo',
       totalTokens: 1150,
       estimatedCostUsd: 0.03
@@ -368,7 +368,7 @@ describe('parseOpenCodeUsageDatabase', () => {
       1_777_777_800_000,
       JSON.stringify({
         providerID: 'openai',
-        modelID: 'gpt-5.5',
+        modelID: 'gpt-5.6-sol',
         tokens: { input: 100, output: 20, reasoning: 0, cache: { read: 10, write: 0 } }
       })
     )
@@ -382,7 +382,7 @@ describe('parseOpenCodeUsageDatabase', () => {
       JSON.stringify({
         role: 'assistant',
         providerID: 'openai',
-        modelID: 'gpt-5.5',
+        modelID: 'gpt-5.6-sol',
         tokens: { input: 1000, output: 500, reasoning: 0, cache: { read: 100, write: 0 } }
       })
     )

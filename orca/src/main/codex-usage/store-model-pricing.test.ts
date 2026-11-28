@@ -108,7 +108,7 @@ describe('CodexUsageStore', () => {
         },
         {
           day: '2026-04-09',
-          model: 'gpt-5.5',
+          model: 'gpt-5.6-sol',
           projectKey: 'worktree:repo-1::/workspace/repo',
           projectLabel: 'Repo',
           repoId: 'repo-1',
@@ -130,7 +130,7 @@ describe('CodexUsageStore', () => {
     const summary = await store.getSummary('orca', '30d')
     const breakdown = await store.getBreakdown('orca', '30d', 'model')
 
-    expect(summary.estimatedCostUsd).toBeCloseTo(85.1)
+    expect(summary.estimatedCostUsd).toBeCloseTo(74)
     expect(breakdown.find((row) => row.key === 'gpt-5.2-codex')?.estimatedCostUsd).toBeCloseTo(
       15.925
     )
@@ -138,7 +138,7 @@ describe('CodexUsageStore', () => {
       15.925
     )
     expect(breakdown.find((row) => row.key === 'gpt-5.4')?.estimatedCostUsd).toBeCloseTo(17.75)
-    expect(breakdown.find((row) => row.key === 'gpt-5.5')?.estimatedCostUsd).toBeCloseTo(35.5)
+    expect(breakdown.find((row) => row.key === 'gpt-5.6-sol')?.estimatedCostUsd).toBeCloseTo(24.4)
   })
 
   it('prices GPT-5.6 sol, terra, and luna with current OpenAI rates', async () => {
@@ -527,7 +527,7 @@ describe('CodexUsageStore', () => {
         },
         {
           day: '2026-04-09',
-          model: 'gpt-5.5(xhigh)',
+          model: 'gpt-5.6-sol(xhigh)',
           projectKey: 'worktree:repo-1::/workspace/repo',
           projectLabel: 'Repo',
           repoId: 'repo-1',
@@ -554,17 +554,17 @@ describe('CodexUsageStore', () => {
     expect(
       breakdown.find((row) => row.key === 'gpt-5.3-codex-spark-xhigh')?.estimatedCostUsd
     ).toBeCloseTo(15.925)
-    expect(breakdown.find((row) => row.key === 'gpt-5.5(xhigh)')?.estimatedCostUsd).toBeCloseTo(
-      1.025
+    expect(breakdown.find((row) => row.key === 'gpt-5.6-sol(xhigh)')?.estimatedCostUsd).toBeCloseTo(
+      0.72
     )
   })
 
-  it('keeps cached input out of the full-price input bucket for GPT-5.5 totals', async () => {
+  it('keeps cached input out of the full-price input bucket for GPT-5.6 Sol totals', async () => {
     const store = createStoreWithState({
       dailyAggregates: [
         {
           day: '2026-04-09',
-          model: 'gpt-5.5',
+          model: 'gpt-5.6-sol',
           projectKey: 'worktree:repo-1::/workspace/repo',
           projectLabel: 'Repo',
           repoId: 'repo-1',
@@ -585,6 +585,6 @@ describe('CodexUsageStore', () => {
 
     const summary = await store.getSummary('orca', '30d')
 
-    expect(summary.estimatedCostUsd).toBeCloseTo(446.840002)
+    expect(summary.estimatedCostUsd).toBeCloseTo(349.6921936)
   })
 })

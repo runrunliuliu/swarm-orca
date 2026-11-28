@@ -28,8 +28,8 @@ function settings(): GlobalSettings {
       ...base.sourceControlAi!,
       enabled: true,
       agentId: 'codex' as const,
-      selectedModelByAgent: { codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'medium', 'gpt-5.4': 'high' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'medium', 'gpt-5.4': 'high' },
       instructionsByOperation: {
         commitMessage: 'Global commit style',
         pullRequest: 'Global PR style',
@@ -61,9 +61,9 @@ function resolve(operation: SourceControlAiOperation, overrides?: RepoSourceCont
 
 describe('source-control AI resolution', () => {
   it('uses the global default model for every operation', () => {
-    expect(resolve('commitMessage').params.model).toBe('gpt-5.5')
-    expect(resolve('pullRequest').params.model).toBe('gpt-5.5')
-    expect(resolve('branchName').params.model).toBe('gpt-5.5')
+    expect(resolve('commitMessage').params.model).toBe('gpt-5.6-sol')
+    expect(resolve('pullRequest').params.model).toBe('gpt-5.6-sol')
+    expect(resolve('branchName').params.model).toBe('gpt-5.6-sol')
   })
 
   it('resolves generation config and PR defaults when Source Control AI actions are hidden', () => {
@@ -85,7 +85,7 @@ describe('source-control AI resolution', () => {
       operation: 'pullRequest'
     })
     expect(generation.ok).toBe(true)
-    expect(generation.ok && generation.value.params.model).toBe('gpt-5.5')
+    expect(generation.ok && generation.value.params.model).toBe('gpt-5.6-sol')
     expect(
       resolveSourceControlAiPrCreationDefaults({
         settings: base,
@@ -122,7 +122,7 @@ describe('source-control AI resolution', () => {
     })
 
     expect(result.ok).toBe(true)
-    expect(result.ok && result.value.params.model).toBe('gpt-5.5')
+    expect(result.ok && result.value.params.model).toBe('gpt-5.6-sol')
   })
 
   it('lets repo action visibility override the global default', () => {
@@ -284,7 +284,7 @@ describe('source-control AI resolution', () => {
 
     const base = settings()
     base.sourceControlAi!.selectedThinkingByModel = {
-      'gpt-5.5': 'unsupported'
+      'gpt-5.6-sol': 'unsupported'
     } as Record<string, string>
     const result = resolveSourceControlAiForOperation({
       settings: base,
@@ -368,7 +368,7 @@ describe('source-control AI resolution', () => {
     const migrated = sourceControlAiSettingsFromLegacy({
       enabled: true,
       agentId: 'codex',
-      selectedModelByAgent: { codex: 'gpt-5.5' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
       selectedThinkingByModel: {},
       customPrompt: 'Legacy commit prompt',
       customAgentCommand: ''
@@ -398,8 +398,8 @@ describe('source-control AI resolution', () => {
     expect(merged).toMatchObject({
       enabled: false,
       agentId: 'claude',
-      selectedModelByAgent: { codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'medium', 'gpt-5.4': 'high' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'medium', 'gpt-5.4': 'high' },
       customAgentCommand: 'claude',
       instructionsByOperation: {
         commitMessage: 'Legacy commit prompt',
@@ -419,7 +419,7 @@ describe('source-control AI resolution', () => {
       {
         enabled: true,
         agentId: 'codex',
-        selectedModelByAgent: { codex: 'gpt-5.5' },
+        selectedModelByAgent: { codex: 'gpt-5.6-sol' },
         selectedThinkingByModel: {},
         customPrompt: 'Legacy PR prompt',
         customAgentCommand: ''
@@ -433,14 +433,14 @@ describe('source-control AI resolution', () => {
   it('projects commit-message operation model overrides into legacy settings', () => {
     const legacy = projectSourceControlAiToLegacyCommitMessageAi({
       ...settings().sourceControlAi!,
-      selectedModelByAgent: { codex: 'gpt-5.5', claude: 'sonnet' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol', claude: 'sonnet' },
       selectedModelByAgentByHost: {
-        local: { codex: 'gpt-5.5' },
-        'ssh:conn-1': { codex: 'gpt-5.5', claude: 'sonnet' }
+        local: { codex: 'gpt-5.6-sol' },
+        'ssh:conn-1': { codex: 'gpt-5.6-sol', claude: 'sonnet' }
       },
       selectedThinkingByModel: {
         'gpt-5.4': 'high',
-        'gpt-5.5': 'medium'
+        'gpt-5.6-sol': 'medium'
       },
       modelOverridesByOperation: {
         commitMessage: {
@@ -472,7 +472,7 @@ describe('source-control AI resolution', () => {
     expect(legacy.selectedThinkingByModel).toMatchObject({
       'gpt-5.4': 'xhigh',
       'gpt-5.4-mini': 'medium',
-      'gpt-5.5': 'medium'
+      'gpt-5.6-sol': 'medium'
     })
     expect(legacy.selectedThinkingByModel['gpt-5.2']).toBeUndefined()
   })
@@ -480,8 +480,8 @@ describe('source-control AI resolution', () => {
   it('merges projected legacy commit-message models without changing PR defaults', () => {
     const source = {
       ...settings().sourceControlAi!,
-      selectedModelByAgent: { codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'medium' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'medium' },
       modelOverridesByOperation: {
         commitMessage: {
           selectedModelByAgent: { codex: 'gpt-5.4' },
@@ -492,7 +492,7 @@ describe('source-control AI resolution', () => {
     const legacy = projectSourceControlAiToLegacyCommitMessageAi(source)
     const merged = mergeLegacyCommitMessageAiIntoSourceControlAi(source, legacy)
 
-    expect(merged.selectedModelByAgent.codex).toBe('gpt-5.5')
+    expect(merged.selectedModelByAgent.codex).toBe('gpt-5.6-sol')
     expect(merged.modelOverridesByOperation?.commitMessage?.selectedModelByAgent?.codex).toBe(
       'gpt-5.4'
     )
@@ -514,32 +514,32 @@ describe('source-control AI resolution', () => {
         operation: 'pullRequest',
         discoveryHostKey: 'local'
       })
-    ).toMatchObject({ ok: true, value: { params: { model: 'gpt-5.5' } } })
+    ).toMatchObject({ ok: true, value: { params: { model: 'gpt-5.6-sol' } } })
   })
 
   it('does not synthesize a commit-message override from projected global defaults', () => {
     const source = {
       ...settings().sourceControlAi!,
-      selectedModelByAgent: { codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'medium' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'medium' },
       modelOverridesByOperation: undefined
     }
     const legacy = projectSourceControlAiToLegacyCommitMessageAi(source)
     const merged = mergeLegacyCommitMessageAiIntoSourceControlAi(source, legacy)
 
-    expect(merged.selectedModelByAgent.codex).toBe('gpt-5.5')
+    expect(merged.selectedModelByAgent.codex).toBe('gpt-5.6-sol')
     expect(merged.modelOverridesByOperation?.commitMessage).toBeUndefined()
   })
 
   it('merges only rollback legacy model deltas into commit-message overrides', () => {
     const source = {
       ...settings().sourceControlAi!,
-      selectedModelByAgent: { codex: 'gpt-5.5', claude: 'sonnet' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol', claude: 'sonnet' },
       selectedModelByAgentByHost: {
-        local: { codex: 'gpt-5.5', claude: 'sonnet' }
+        local: { codex: 'gpt-5.6-sol', claude: 'sonnet' }
       },
       selectedThinkingByModel: {
-        'gpt-5.5': 'medium',
+        'gpt-5.6-sol': 'medium',
         sonnet: 'high'
       },
       modelOverridesByOperation: undefined
@@ -559,7 +559,7 @@ describe('source-control AI resolution', () => {
 
     const merged = mergeLegacyCommitMessageAiIntoSourceControlAi(source, legacy)
 
-    expect(merged.selectedModelByAgent).toEqual({ codex: 'gpt-5.5', claude: 'sonnet' })
+    expect(merged.selectedModelByAgent).toEqual({ codex: 'gpt-5.6-sol', claude: 'sonnet' })
     expect(merged.modelOverridesByOperation?.commitMessage).toEqual({
       selectedModelByAgent: { codex: 'gpt-5.4' },
       selectedModelByAgentByHost: { local: { codex: 'gpt-5.4' } }
@@ -569,8 +569,8 @@ describe('source-control AI resolution', () => {
   it('removes projected commit-message overrides cleared by legacy settings', () => {
     const source = {
       ...settings().sourceControlAi!,
-      selectedModelByAgent: { codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'medium' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'medium' },
       modelOverridesByOperation: {
         commitMessage: {
           selectedModelByAgent: { codex: 'gpt-5.4' },

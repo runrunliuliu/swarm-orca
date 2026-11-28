@@ -527,7 +527,7 @@ describe('native chat PTY session options', () => {
 
   it('hands Codex effort changes to the TUI picker and drops stale truth', async () => {
     seedNativeChatAppliedSessionOptions('pty-1', 'codex', {
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       effort: 'high'
     })
     const dispatch = vi.fn()

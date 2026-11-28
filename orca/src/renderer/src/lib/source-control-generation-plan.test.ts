@@ -22,7 +22,7 @@ describe('planSourceControlCommitMessageGeneration', () => {
     expect(
       planSourceControlCommitMessageGeneration({
         agentId: 'codex',
-        model: 'gpt-5.5',
+        model: 'gpt-5.6-sol',
         commandInputTemplate: ''
       })
     ).toEqual({ ok: false, error: 'Command input is empty.' })
@@ -31,7 +31,7 @@ describe('planSourceControlCommitMessageGeneration', () => {
   it('plans known agents and includes renderer-only caveats', () => {
     const result = planSourceControlCommitMessageGeneration({
       agentId: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'low'
     })
 
@@ -43,7 +43,7 @@ describe('planSourceControlCommitMessageGeneration', () => {
   it('plans pull-request generation with pull-request variables', () => {
     const result = planSourceControlTextGeneration('pullRequest', {
       agentId: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       commandInputTemplate: '{basePrompt}\n\nReview {changedFiles}'
     })
 
@@ -105,7 +105,7 @@ describe('planSourceControlCommitMessageGeneration', () => {
   it('shows per-action CLI arguments in dry-run command labels', () => {
     const result = planSourceControlTextGeneration('pullRequest', {
       agentId: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       agentArgs: '--model gpt-5.4',
       commandInputTemplate: '{basePrompt}'
     })

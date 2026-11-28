@@ -30,7 +30,7 @@ process.stdin.on('end', () => {
     process.exitCode = 3
     return
   }
-  if (process.argv.includes('debug')) console.log(JSON.stringify({models:[{slug:'gpt-5.5',display_name:'GPT-5.5'}]}))
+  if (process.argv.includes('debug')) console.log(JSON.stringify({models:[{slug:'gpt-5.6-sol',display_name:'GPT-5.6 Sol'}]}))
   else if (process.argv.includes('models')) console.log('anthropic/claude-sonnet-4')
   else if (prompt.includes('branch name')) console.log('honor-command-environment')
   else if (prompt.includes('JSON')) console.log(JSON.stringify({base:'main',title:'Honor command environment',body:'Passed environment.',draft:true}))
@@ -69,7 +69,7 @@ describe('environment-prefixed commands with real child processes', () => {
         operation === 'generation'
           ? generateCommitMessage({
               context: { branch: 'main', stagedSummary: 'M README.md', stagedPatch: '+test' },
-              params: { agentId: 'codex', model: 'gpt-5.5', agentCommandOverride: command },
+              params: { agentId: 'codex', model: 'gpt-5.6-sol', agentCommandOverride: command },
               target,
               spawnAgent
             })

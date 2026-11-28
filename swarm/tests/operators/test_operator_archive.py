@@ -31,7 +31,7 @@ class OperatorArchiveTests(unittest.TestCase):
         self.plan = strict_plan(build_trae_plan(trae=sys.executable, cwd=self.cwd,
             archive_dir=None, write_dirs=[], bootstrap_dir=self.bootstrap, resume_session=None,
             prompt_file=prompt, runtime_config=runtime, selection=dict(mode="explicit", agent="trae",
-                model="gpt-5.5", effort="xhigh", max_mode=True)))
+                model="gpt-5.6-sol", effort="xhigh", max_mode=True)))
         plan = self.root / "initial-plan.json"
         plan.write_text(json.dumps(self.plan))
         self.spec = dict(schema_version=1, directory=str(self.output), read_roots=[str(self.root)],

@@ -31,7 +31,7 @@ describe('sourceControlTextGenerationDefaultsMatchTarget', () => {
         target: { type: 'global' },
         params: {
           agentId: 'codex',
-          model: 'gpt-5.5',
+          model: 'gpt-5.6-sol',
           commandInputTemplate: '{basePrompt}',
           agentArgs: '--model sonnet'
         },
@@ -47,7 +47,7 @@ describe('sourceControlTextGenerationDefaultsMatchTarget', () => {
         target: { type: 'global' },
         params: {
           agentId: 'codex',
-          model: 'gpt-5.5',
+          model: 'gpt-5.6-sol',
           commandInputTemplate: '{basePrompt}\n\nchanged',
           agentArgs: '--model sonnet'
         },

@@ -196,8 +196,8 @@ describe('structured agent session options', () => {
 
   it('shows the launch seed until the record names a model, and held picks over both', () => {
     const seeded = createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG)
-    const seed = { model: 'gpt-5.5' }
-    expect(viewModel(seeded, seed, {})).toBe('gpt-5.5')
+    const seed = { model: 'gpt-5.6-sol' }
+    expect(viewModel(seeded, seed, {})).toBe('gpt-5.6-sol')
     // A model outside the static list still gets a labelled row.
     expect(viewModel(seeded, { model: 'gpt-next' }, {})).toBe('gpt-next')
     // Derived only: the record itself never takes the seed.
@@ -207,7 +207,7 @@ describe('structured agent session options', () => {
       current: { model: 'gpt-5.6-luna', confirmed: ['model'] }
     })
     expect(viewModel(live, seed, {})).toBe('gpt-5.6-luna')
-    expect(viewModel(live, seed, { model: 'gpt-5.5' })).toBe('gpt-5.5')
+    expect(viewModel(live, seed, { model: 'gpt-5.6-sol' })).toBe('gpt-5.6-sol')
     expect(live.record.model?.value).toBe('gpt-5.6-luna')
   })
 })

@@ -34,7 +34,7 @@ class FirstDispatchTests(unittest.TestCase):
         self.state = self.s.fixture.bootstrap / "first-dispatch"
         self.state.mkdir(mode=0o700)
         self.request = dict(schema_version=2, cli=self.s.contract["cli"]["path"],
-            run="run_test", task="task_test", model="gpt-5.5", timeout_ms=1000,
+            run="run_test", task="task_test", model="gpt-5.6-sol", timeout_ms=1000,
             profiles_sha256=file_ref(PROFILES)["sha256"],
             placement=dict(kind="existing", worktree="id:workspace_test"),
             first_dispatch=dict(contract=self.contract_ref, operator_gate=self.operator,

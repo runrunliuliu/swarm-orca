@@ -224,13 +224,13 @@ describe('OpenCodeUsageStore', () => {
         makeSession({ sessionId: 'session-1' }),
         makeSession({
           sessionId: 'session-2',
-          primaryModel: 'openai/gpt-5.5',
+          primaryModel: 'openai/gpt-5.6-sol',
           totalTokens: 2000,
           estimatedCostUsd: null,
           modelBreakdown: [
             {
-              modelKey: 'openai/gpt-5.5',
-              modelLabel: 'openai/gpt-5.5',
+              modelKey: 'openai/gpt-5.6-sol',
+              modelLabel: 'openai/gpt-5.6-sol',
               eventCount: 1,
               inputTokens: 1500,
               cachedInputTokens: 200,
@@ -245,7 +245,7 @@ describe('OpenCodeUsageStore', () => {
       dailyAggregates: [
         makeDaily(),
         makeDaily({
-          model: 'openai/gpt-5.5',
+          model: 'openai/gpt-5.6-sol',
           eventCount: 2,
           inputTokens: 1500,
           cachedInputTokens: 200,
@@ -270,7 +270,7 @@ describe('OpenCodeUsageStore', () => {
       reasoningOutputTokens: 100,
       totalTokens: 3350,
       estimatedCostUsd: 0.05,
-      topModel: 'openai/gpt-5.5',
+      topModel: 'openai/gpt-5.6-sol',
       topProject: 'Repo',
       hasAnyOpenCodeData: true
     })
@@ -284,7 +284,7 @@ describe('OpenCodeUsageStore', () => {
         totalTokens: 3350
       }
     ])
-    expect(breakdown.find((row) => row.key === 'openai/gpt-5.5')).toMatchObject({
+    expect(breakdown.find((row) => row.key === 'openai/gpt-5.6-sol')).toMatchObject({
       sessions: 1,
       estimatedCostUsd: null
     })

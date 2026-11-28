@@ -443,7 +443,7 @@ describe('OrcaRuntimeService', () => {
     try {
       const runtime = new OrcaRuntimeService(store)
       const serializeProviderBuffer = vi.fn().mockResolvedValue({
-        data: 'OpenAI Codex\r\nmodel: gpt-5.5\r\ndirectory: /repo\r\n',
+        data: 'OpenAI Codex\r\nmodel: gpt-5.6-sol\r\ndirectory: /repo\r\n',
         cols: 80,
         rows: 24,
         seq: 1
@@ -508,7 +508,7 @@ describe('OrcaRuntimeService', () => {
       'pty-bg',
       [
         ' >_ OpenAI Codex (v0.131.0)\n',
-        ' model:       gpt-5.5 high   /model to change\n',
+        ' model:       gpt-5.6-sol high   /model to change\n',
         ' directory:   ~/orca/workspaces/orca/cli-debug\n'
       ].join(''),
       Date.now()

@@ -271,7 +271,7 @@ class OperatorMaterialsTests(unittest.TestCase):
         bootstrap.mkdir()
         trae_model = self.ref("trae-coordinator-model.json", {
             "schema_version": 1, "scope": "swarm_coordinator_only",
-            "selection": {"mode": "explicit", "agent": "trae", "model": "gpt-5.5",
+            "selection": {"mode": "explicit", "agent": "trae", "model": "gpt-5.6-sol",
                           "effort": "xhigh", "max_mode": True}})
         trae_runtime = self.ref("trae-runtime.json", {
             "schema_version": 1, "scope": "swarm_coordinator_only", "provider": "trae",

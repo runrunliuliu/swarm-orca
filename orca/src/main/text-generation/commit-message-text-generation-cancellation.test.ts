@@ -329,7 +329,7 @@ describe('generateCommitMessageFromContext', () => {
     spawnMock.mockReturnValueOnce(firstChild as never).mockReturnValueOnce(secondChild as never)
     const env = { CODEX_HOME: '/managed/codex-generation-home' }
     const context = { branch: 'main', stagedSummary: 'M\tREADME.md', stagedPatch: '+hello' }
-    const params = { agentId: 'codex' as const, model: 'gpt-5.5' }
+    const params = { agentId: 'codex' as const, model: 'gpt-5.6-sol' }
 
     const first = generateCommitMessageFromContext(context, params, {
       kind: 'local',
@@ -367,7 +367,7 @@ describe('generateCommitMessageFromContext', () => {
     spawnMock.mockReturnValueOnce(firstChild as never).mockReturnValueOnce(secondChild as never)
     const env = { CODEX_HOME: '/managed/codex-descendant-home' }
     const context = { branch: 'main', stagedSummary: 'M\tREADME.md', stagedPatch: '+hello' }
-    const params = { agentId: 'codex' as const, model: 'gpt-5.5' }
+    const params = { agentId: 'codex' as const, model: 'gpt-5.6-sol' }
 
     const first = generateCommitMessageFromContext(context, params, {
       kind: 'local',
@@ -408,7 +408,7 @@ describe('generateCommitMessageFromContext', () => {
     spawnMock.mockReturnValueOnce(firstChild as never).mockReturnValueOnce(secondChild as never)
     const env = { CODEX_HOME: 'C:\\managed\\codex-generation-home' }
     const context = { branch: 'main', stagedSummary: 'M\tREADME.md', stagedPatch: '+hello' }
-    const params = { agentId: 'codex' as const, model: 'gpt-5.5' }
+    const params = { agentId: 'codex' as const, model: 'gpt-5.6-sol' }
 
     try {
       const first = generateCommitMessageFromContext(context, params, {
@@ -449,7 +449,7 @@ describe('generateCommitMessageFromContext', () => {
 
     const queued = generateCommitMessageFromContext(
       { branch: 'main', stagedSummary: 'M\tREADME.md', stagedPatch: '+hello' },
-      { agentId: 'codex', model: 'gpt-5.5' },
+      { agentId: 'codex', model: 'gpt-5.6-sol' },
       { kind: 'local', cwd: '/queued-repo', env }
     )
     cancelGenerateCommitMessageLocal('/queued-repo')
@@ -463,14 +463,14 @@ describe('generateCommitMessageFromContext', () => {
 
     discoveryChild.stdout.emit(
       'data',
-      Buffer.from(JSON.stringify({ models: [{ slug: 'gpt-5.5', display_name: 'GPT-5.5' }] }))
+      Buffer.from(JSON.stringify({ models: [{ slug: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' }] }))
     )
     discoveryChild.emit('close', 0)
     await expect(blocker).resolves.toMatchObject({ success: true })
 
     const later = generateCommitMessageFromContext(
       { branch: 'main', stagedSummary: 'M\tREADME.md', stagedPatch: '+later' },
-      { agentId: 'codex', model: 'gpt-5.5' },
+      { agentId: 'codex', model: 'gpt-5.6-sol' },
       { kind: 'local', cwd: '/later-repo', env }
     )
     await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2))

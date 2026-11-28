@@ -573,7 +573,7 @@ describe('git RPC methods', () => {
   it('forwards one-shot commit-message params to the runtime', async () => {
     const sourceControlAiResolvedParams = {
       agentId: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'high',
       customPrompt: 'Use Conventional Commits.'
     }
@@ -598,7 +598,7 @@ describe('git RPC methods', () => {
   it('forwards one-shot pull-request generation params to the runtime', async () => {
     const sourceControlAiResolvedParams = {
       agentId: 'codex',
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'high',
       commandInputTemplate: '{basePrompt}\n\nUse release-note style.'
     }

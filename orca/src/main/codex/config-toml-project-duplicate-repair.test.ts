@@ -30,7 +30,7 @@ describe('repairing configs broken by #22592', () => {
     const projectPath = '/Users/me/Projects/agentic-WPS'
     // The reported file: Codex's table, then the duplicate an older Orca appended.
     const broken = [
-      'model = "gpt-5.5"',
+      'model = "gpt-5.6-sol"',
       '',
       `["projects"."${projectPath}"]`,
       '"trust_level" = "trusted"',
@@ -47,7 +47,7 @@ describe('repairing configs broken by #22592', () => {
     const repaired = readFileSync(configPath, 'utf-8')
     expect(repaired).toBe(
       [
-        'model = "gpt-5.5"',
+        'model = "gpt-5.6-sol"',
         '',
         `["projects"."${projectPath}"]`,
         'trust_level = "trusted"',

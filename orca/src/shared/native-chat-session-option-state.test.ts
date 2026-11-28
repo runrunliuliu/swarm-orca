@@ -73,7 +73,7 @@ describe('matchNativeChatCatalogModelId', () => {
     expect(matchNativeChatCatalogModelId(CLAUDE_SESSION_OPTION_CATALOG, 'claude-sonnet-5')).toBe(
       'sonnet'
     )
-    expect(matchNativeChatCatalogModelId(CODEX_SESSION_OPTION_CATALOG, 'gpt-5.5')).toBe('gpt-5.5')
+    expect(matchNativeChatCatalogModelId(CODEX_SESSION_OPTION_CATALOG, 'gpt-5.6-sol')).toBe('gpt-5.6-sol')
   })
 
   it('returns null for unrecognized reports', () => {

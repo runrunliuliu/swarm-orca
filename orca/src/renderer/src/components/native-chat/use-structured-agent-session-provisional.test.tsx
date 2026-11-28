@@ -112,7 +112,7 @@ describe('useStructuredAgentSession provisional launch gate', () => {
         agent: 'codex',
         isVisible: true,
         transportEnabled: false,
-        launch: { kind: 'new', seedOptions: { model: 'gpt-5.5' }, heldOptions: {} }
+        launch: { kind: 'new', seedOptions: { model: 'gpt-5.6-sol' }, heldOptions: {} }
       })
     )
 
@@ -132,7 +132,7 @@ describe('useStructuredAgentSession provisional launch gate', () => {
     })
     expect(result.current.sessionCommands).toBeUndefined()
     // The picker shows the selection the create seeds, from the first frame.
-    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.5')
+    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.6-sol')
     expect(result.current.optionSurface.getSnapshot()).toBe(result.current.optionSnapshot)
     expect(result.current.send('queued while launching')).toBe(true)
     expect(mocks.send).toHaveBeenCalledWith('queued while launching')

@@ -105,7 +105,7 @@ class OperatorSessionTests(unittest.TestCase):
         self.assertTrue(result["requires_live_caller_check"])
         self.assertFalse(result["execution_authorized"])
         self.assertIn("not-live-process-attested", result["trust"])
-        self.assertEqual(result["effective"]["model"], "GPT-5.5")
+        self.assertEqual(result["effective"]["model"], "GPT-5.6-Sol")
         self.assertEqual(result["session"]["thread_id"], tui_tests.legacy.SID)
         self.assertNotIn("binding", result)
         self.assertNotIn("launch_token_hash", json.dumps(result))

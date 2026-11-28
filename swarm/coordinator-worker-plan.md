@@ -112,7 +112,7 @@ Coordinator 在原授权归档目录保存请求，审查后固定文件的 SHA2
   "cli": "/verified/absolute/orca-server-cli",
   "run": "run_example",
   "task": "task_example",
-  "model": "gpt-5.5",
+  "model": "gpt-5.6-sol",
   "profiles_sha256": "<Operator-reviewed worker-model-profiles.json SHA256>",
   "placement": {
     "kind": "existing",

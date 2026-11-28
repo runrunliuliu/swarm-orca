@@ -321,7 +321,7 @@ describe('discoverCommitMessageModelsLocal', () => {
         [
           'provider        model                   context  max-out  thinking  images',
           'github-copilot  gpt-5.4-mini            400K     128K     yes       yes',
-          'openai-codex    gpt-5.5                 272K     128K     yes       yes'
+          'openai-codex    gpt-5.6-sol                 272K     128K     yes       yes'
         ].join('\n')
       )
     )
@@ -330,7 +330,7 @@ describe('discoverCommitMessageModelsLocal', () => {
     await expect(pending).resolves.toMatchObject({
       success: true,
       defaultModelId: 'default',
-      models: [{ id: 'github-copilot/gpt-5.4-mini' }, { id: 'openai-codex/gpt-5.5' }]
+      models: [{ id: 'github-copilot/gpt-5.4-mini' }, { id: 'openai-codex/gpt-5.6-sol' }]
     })
   })
 
@@ -384,10 +384,10 @@ describe('discoverCommitMessageModelsLocal', () => {
       expect(spawnMock).toHaveBeenCalledTimes(2)
       secondChild.stdout.emit(
         'data',
-        Buffer.from(JSON.stringify({ models: [{ slug: 'gpt-5.5', display_name: 'GPT-5.5' }] }))
+        Buffer.from(JSON.stringify({ models: [{ slug: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' }] }))
       )
       secondChild.emit('close', 0)
-      await expect(second).resolves.toMatchObject({ success: true, defaultModelId: 'gpt-5.5' })
+      await expect(second).resolves.toMatchObject({ success: true, defaultModelId: 'gpt-5.6-sol' })
     } finally {
       vi.useRealTimers()
     }
@@ -416,10 +416,10 @@ describe('discoverCommitMessageModelsLocal', () => {
 
       secondChild.stdout.emit(
         'data',
-        Buffer.from(JSON.stringify({ models: [{ slug: 'gpt-5.5', display_name: 'GPT-5.5' }] }))
+        Buffer.from(JSON.stringify({ models: [{ slug: 'gpt-5.6-sol', display_name: 'GPT-5.6 Sol' }] }))
       )
       secondChild.emit('close', 0)
-      await expect(second).resolves.toMatchObject({ success: true, defaultModelId: 'gpt-5.5' })
+      await expect(second).resolves.toMatchObject({ success: true, defaultModelId: 'gpt-5.6-sol' })
     } finally {
       vi.useRealTimers()
     }

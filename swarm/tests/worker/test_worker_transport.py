@@ -51,21 +51,21 @@ class TransportInPlansTests(unittest.TestCase):
         # caller's environment must not change which file the plan pins.
         self.addCleanup(offline_env.cleared().stop)
 
-    def request(self, model="gpt-5.5"):
+    def request(self, model="gpt-5.6-sol"):
         return {"schema_version": 2, "cli": "/verified/orca-server-cli",
                 "run": "run_test", "task": "task_test", "model": model,
                 "profiles_sha256": file_ref(PROFILES)["sha256"],
                 "placement": {"kind": "existing", "worktree": "id:repo::/workspace"}}
 
     def test_resolved_profile_records_the_declared_transport(self):
-        for model, expected in (("gpt-5.5", "both"), ("example-pi-model", "tui-only"),
+        for model, expected in (("gpt-5.6-sol", "both"), ("example-pi-model", "tui-only"),
                                 ("codex-ark/example-ark-model", "tui-only")):
             with self.subTest(model=model):
                 _, profile = resolve(model, file_ref(PROFILES)["sha256"])
                 self.assertEqual(profile["launch_transport"], expected)
 
     def test_worker_plan_declares_tui_and_the_agent_shape(self):
-        for model, expected in (("gpt-5.5", "both"),
+        for model, expected in (("gpt-5.6-sol", "both"),
                                 ("codex-ark/example-ark-model", "tui-only")):
             with self.subTest(model=model):
                 plan = build_plan(self.request(model))

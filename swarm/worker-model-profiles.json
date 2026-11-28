@@ -14,12 +14,6 @@
       "backend_variant": "max",
       "blocked_reason": null
     },
-    "gpt-5.5": {
-      "agent": "trae",
-      "effort": "high",
-      "backend_variant": "max",
-      "blocked_reason": null
-    },
     "gpt-5.4": {
       "agent": "trae",
       "effort": "xhigh",

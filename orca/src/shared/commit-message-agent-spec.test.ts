@@ -46,7 +46,7 @@ describe('COMMIT_MESSAGE_AGENT_SPECS', () => {
 
   it('uses the strongest available defaults for core agents', () => {
     expect(COMMIT_MESSAGE_AGENT_SPECS.claude?.defaultModelId).toBe('sonnet')
-    expect(COMMIT_MESSAGE_AGENT_SPECS.codex?.defaultModelId).toBe('gpt-5.5')
+    expect(COMMIT_MESSAGE_AGENT_SPECS.codex?.defaultModelId).toBe('gpt-5.6-sol')
     expect(COMMIT_MESSAGE_AGENT_SPECS.pi?.defaultModelId).toBe('default')
   })
 
@@ -135,7 +135,7 @@ describe('COMMIT_MESSAGE_AGENT_SPECS', () => {
       'gpt-5.3-codex',
       'gpt-5.4',
       'gpt-5.4-mini',
-      'gpt-5.5'
+      'gpt-5.6-sol'
     ])
   })
 
@@ -188,7 +188,7 @@ describe('COMMIT_MESSAGE_AGENT_SPECS', () => {
   it('orders Codex models by version descending to match the official picker', () => {
     const ids = COMMIT_MESSAGE_AGENT_SPECS.codex?.models.map((m) => m.id)
     expect(ids).toEqual([
-      'gpt-5.5',
+      'gpt-5.6-sol',
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.3-codex',
@@ -205,7 +205,7 @@ describe('COMMIT_MESSAGE_AGENT_SPECS', () => {
       id: 'codex',
       label: 'Codex',
       modelSource: 'dynamic',
-      defaultModelId: 'gpt-5.5'
+      defaultModelId: 'gpt-5.6-sol'
     })
     expect(codex).not.toHaveProperty('binary')
     expect(codex).not.toHaveProperty('buildArgs')
@@ -335,8 +335,8 @@ describe('model discovery parsers', () => {
         JSON.stringify({
           models: [
             {
-              slug: 'gpt-5.5',
-              display_name: 'GPT-5.5',
+              slug: 'gpt-5.6-sol',
+              display_name: 'GPT-5.6 Sol',
               default_reasoning_level: 'low',
               supported_reasoning_levels: [{ effort: 'low' }, { effort: 'high' }]
             }
@@ -345,8 +345,8 @@ describe('model discovery parsers', () => {
       )
     ).toEqual([
       {
-        id: 'gpt-5.5',
-        label: 'GPT-5.5',
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6 Sol',
         thinkingLevels: [
           { id: 'low', label: 'Low' },
           { id: 'high', label: 'High' }
@@ -368,9 +368,9 @@ describe('model discovery parsers', () => {
   })
 
   it('parses one-model-per-line output', () => {
-    expect(parseLineModels('opencode/gpt-5.4-mini\n\nopenai/gpt-5.5\n').map((m) => m.id)).toEqual([
+    expect(parseLineModels('opencode/gpt-5.4-mini\n\nopenai/gpt-5.6-sol\n').map((m) => m.id)).toEqual([
       'opencode/gpt-5.4-mini',
-      'openai/gpt-5.5'
+      'openai/gpt-5.6-sol'
     ])
   })
 
@@ -447,7 +447,7 @@ describe('model discovery parsers', () => {
     const noise = 'ignored model with spaces\r\n'.repeat(10_000)
     const blankNoise = '\r\n'.repeat(10_000)
 
-    expect(parseLineModels(`${noise}opencode/gpt-5.4-mini\r\nopenai/gpt-5.5\r\n`)).toEqual([
+    expect(parseLineModels(`${noise}opencode/gpt-5.4-mini\r\nopenai/gpt-5.6-sol\r\n`)).toEqual([
       {
         id: 'opencode/gpt-5.4-mini',
         label: 'Opencode GPT 5.4 Mini',
@@ -460,8 +460,8 @@ describe('model discovery parsers', () => {
         defaultThinkingLevel: 'low'
       },
       {
-        id: 'openai/gpt-5.5',
-        label: 'Openai GPT 5.5',
+        id: 'openai/gpt-5.6-sol',
+        label: 'Openai GPT 5.6 Sol',
         thinkingLevels: [
           { id: 'low', label: 'Low' },
           { id: 'medium', label: 'Medium' },
@@ -718,10 +718,10 @@ describe('Pi Source Control AI model selection', () => {
   it('passes an explicit discovered Pi model through', () => {
     const args = getCommitMessageAgentSpec('pi')!.buildArgs({
       prompt: 'Name a branch',
-      model: 'openai-codex/gpt-5.5'
+      model: 'openai-codex/gpt-5.6-sol'
     })
     const modelFlagIndex = args.indexOf('--model')
     expect(modelFlagIndex).toBeGreaterThanOrEqual(0)
-    expect(args[modelFlagIndex + 1]).toBe('openai-codex/gpt-5.5')
+    expect(args[modelFlagIndex + 1]).toBe('openai-codex/gpt-5.6-sol')
   })
 })

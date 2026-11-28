@@ -28,7 +28,7 @@ from coordinator_state import DRIVER_CONFIG_SCHEMA, Journal
 from trae_coordinator import build_trae_plan, native, verify_log
 
 CLI_ENV = "ORCA_SERVER_CLI"
-SELECTION = {"mode": "explicit", "agent": "trae", "model": "gpt-5.5",
+SELECTION = {"mode": "explicit", "agent": "trae", "model": "gpt-5.6-sol",
              "effort": "xhigh", "max_mode": True}
 SKILL_ROOTS = (".agents/skills", ".codex/skills", ".claude/skills", ".trae/skills", "skills")
 RSI_ROLES = ("coordinator", "researcher", "reviewer", "paper-scout")

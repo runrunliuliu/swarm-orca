@@ -120,7 +120,7 @@ def build_trae_plan(*, trae, cwd, archive_dir, write_dirs, selection,
     tui = execution == TUI_EXECUTION
     require(not tui or (bootstrap_dir is not None and resume_session is None
                         and replacement_run is None), "TUI requires fresh native bootstrap; no recovery")
-    require(selection == {"mode": "explicit", "agent": "trae", "model": "gpt-5.5",
+    require(selection == {"mode": "explicit", "agent": "trae", "model": "gpt-5.6-sol",
                           "effort": "xhigh", "max_mode": True},
             "unsupported Trae Coordinator selection")
     require((bootstrap_dir is None) != (archive_dir is None),
@@ -147,7 +147,7 @@ def build_trae_plan(*, trae, cwd, archive_dir, write_dirs, selection,
     # do not infer or attest its daemon implementation from this launch plan.
     argv = [str(trae), *(["--no-daemon", "--no-alt-screen"] if tui else
                          ["exec", "--json", "--color", "never"]), "--strict-config", "--cd", str(cwd),
-            "--sandbox", "workspace-write", "--model", "gpt-5.5",
+            "--sandbox", "workspace-write", "--model", "gpt-5.6-sol",
             "-c", "approval_policy=" + json.dumps(execution["approval_policy"]),
             "-c", 'sandbox_workspace_write.network_access=true',
             "-c", 'model_reasoning_effort="xhigh"', "-c", 'model_backend_variant="max"']
@@ -314,7 +314,7 @@ def verify_log(path, *, thread_id, cwd, roots, now=None, max_age=300, execution=
     require(record is not None, "actual turn settings unavailable")
     actual = record["payload"]
     sandbox = actual.get("sandbox_policy", {})
-    require(actual.get("model") in ("gpt-5.5", "GPT-5.5")
+    require(actual.get("model") in ("gpt-5.6-sol", "GPT-5.6-Sol")
             and actual.get("model_provider") == "trae" and actual.get("effort") == "xhigh"
             and actual.get("model_backend_variant") == "max"
             and actual.get("cwd") == str(cwd)

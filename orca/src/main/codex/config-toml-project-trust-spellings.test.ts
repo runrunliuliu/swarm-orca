@@ -127,7 +127,7 @@ describe('the config mirror treats every spelling as one project table', () => {
       writeFileSync(
         join(systemHomePath, 'config.toml'),
         [
-          'model = "gpt-5.5"',
+          'model = "gpt-5.6-sol"',
           '',
           `["projects"."${PROJECT}"]`,
           '"trust_level" = "trusted"',
@@ -142,13 +142,13 @@ describe('the config mirror treats every spelling as one project table', () => {
       syncSystemConfigIntoManagedCodexHome({ runtimeHomePath, systemHomePath })
 
       const runtimeConfig = readFileSync(join(runtimeHomePath, 'config.toml'), 'utf-8')
-      expect(runtimeConfig).toContain('model = "gpt-5.5"')
+      expect(runtimeConfig).toContain('model = "gpt-5.6-sol"')
       expect(runtimeConfig.match(/projects/g)).toHaveLength(1)
       expect(findDuplicateTomlDeclarations(runtimeConfig)).toEqual([])
     })
 
     it('collapses a managed home already holding both spellings', () => {
-      writeFileSync(join(systemHomePath, 'config.toml'), 'model = "gpt-5.5"\n')
+      writeFileSync(join(systemHomePath, 'config.toml'), 'model = "gpt-5.6-sol"\n')
       writeFileSync(
         join(runtimeHomePath, 'config.toml'),
         [

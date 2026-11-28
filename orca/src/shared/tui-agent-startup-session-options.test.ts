@@ -43,13 +43,13 @@ describe('tui agent startup session options', () => {
       allowEmptyPromptLaunch: true,
       sessionOptions: { model: 'custom-codex-model', effort: 'high' },
       sessionOptionsOverrideAgentArgs: true,
-      agentArgs: '-m gpt-5.5 -c model_reasoning_effort=low'
+      agentArgs: '-m gpt-5.6-sol -c model_reasoning_effort=low'
     })
     expect(plan?.launchCommand).toBe(
       "codex '-m' 'custom-codex-model' '-c' 'model_reasoning_effort=high'"
     )
     expect(plan?.launchConfig.agentCommand).toBe(
-      "codex '-m' 'gpt-5.5' '-c' 'model_reasoning_effort=low'"
+      "codex '-m' 'gpt-5.6-sol' '-c' 'model_reasoning_effort=low'"
     )
     expect(plan?.sessionOptions).toEqual({ model: 'custom-codex-model', effort: 'high' })
   })
@@ -109,7 +109,7 @@ describe('tui agent startup session options', () => {
     expect(
       resolveAgentLaunchCommand({
         agent: 'codex',
-        cmdOverrides: { codex: 'codex --profile work -m gpt-5.5' },
+        cmdOverrides: { codex: 'codex --profile work -m gpt-5.6-sol' },
         platform: 'linux',
         shell: 'posix',
         sessionOptions: { model: 'custom-codex-model', effort: 'high' },
@@ -130,7 +130,7 @@ describe('tui agent startup session options', () => {
       platform: 'linux',
       allowEmptyPromptLaunch: true,
       sessionOptions: { model: 'gpt-5.6-sol', effort: 'medium' },
-      agentArgs: '--model gpt-5.5'
+      agentArgs: '--model gpt-5.6-sol'
     })
     expect(plan?.sessionOptions).toBeUndefined()
   })
@@ -200,15 +200,15 @@ describe('tui agent startup session options', () => {
       cmdOverrides: {},
       platform: 'linux',
       agentArgs: '-m gpt-5.6-sol -c model_reasoning_effort=medium',
-      sessionOptions: { model: 'gpt-5.5', effort: 'high' },
+      sessionOptions: { model: 'gpt-5.6-sol', effort: 'high' },
       sessionOptionsOverrideAgentArgs: true
     })
     expect(plan?.launchCommand).toBe(
-      "codex '-m' 'gpt-5.5' '-c' 'model_reasoning_effort=high' 'resume' 'thread-1'"
+      "codex '-m' 'gpt-5.6-sol' '-c' 'model_reasoning_effort=high' 'resume' 'thread-1'"
     )
     expect(plan?.launchConfig.agentCommand).toBe(
       "codex '-m' 'gpt-5.6-sol' '-c' 'model_reasoning_effort=medium'"
     )
-    expect(plan?.sessionOptions).toEqual({ model: 'gpt-5.5', effort: 'high' })
+    expect(plan?.sessionOptions).toEqual({ model: 'gpt-5.6-sol', effort: 'high' })
   })
 })

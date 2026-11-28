@@ -78,7 +78,7 @@ describe('agent launch caller arguments and permission bypass', () => {
     expect(command).toBeDefined()
     // A call site that names arguments replaces the shipped default outright; one that names none
     // inherits it. Both shapes must stay visible on the queued command.
-    const args = profile.args.agentArgs === undefined ? `'${CODEX_BYPASS}'` : "'--model' 'gpt-5.5'"
+    const args = profile.args.agentArgs === undefined ? `'${CODEX_BYPASS}'` : "'--model' 'gpt-5.6-sol'"
     // Why: quick-command is the ONE call site that carries a prompt and names no delivery mode, so
     // it takes the default auto-submit path and folds the prompt into argv for an argv agent.
     const argvPrompt = profile.id === 'quick-command' ? ` '${profile.args.prompt}'` : ''

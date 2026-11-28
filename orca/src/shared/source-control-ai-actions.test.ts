@@ -18,7 +18,7 @@ describe('source-control AI launch action defaults', () => {
         fixChecks: {
           agentId: 'codex',
           commandInputTemplate: '  {basePrompt}  ',
-          agentArgs: '  --model gpt-5.5  '
+          agentArgs: '  --model gpt-5.6-sol  '
         },
         resolveConflicts: { agentId: null },
         resolveComments: {
@@ -30,7 +30,7 @@ describe('source-control AI launch action defaults', () => {
       fixChecks: {
         agentId: 'codex',
         commandInputTemplate: '  {basePrompt}  ',
-        agentArgs: '  --model gpt-5.5  '
+        agentArgs: '  --model gpt-5.6-sol  '
       },
       resolveConflicts: { agentId: null },
       resolveComments: {

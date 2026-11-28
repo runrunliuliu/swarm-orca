@@ -134,7 +134,7 @@ describe.skipIf(process.platform === 'win32')('Trae writable roots at terminal c
       requireFreshPane: true,
       agentArgs: constraint.agentArgs,
       traeWorkspaceWrite: constraint,
-      launchPreferences: { model: 'gpt-5.5', effort: 'high', backendVariant: 'max' }
+      launchPreferences: { model: 'gpt-5.6-sol', effort: 'high', backendVariant: 'max' }
     }
   }
 
@@ -159,7 +159,7 @@ describe.skipIf(process.platform === 'win32')('Trae writable roots at terminal c
         '--add-dir',
         evidence,
         '--model',
-        'gpt-5.5',
+        'gpt-5.6-sol',
         '-c',
         'model_reasoning_effort="high"',
         '-c',
@@ -183,7 +183,7 @@ describe.skipIf(process.platform === 'win32')('Trae writable roots at terminal c
   it('mints proof for native Trae exec and retires it when the Agent exits to its shell', async () => {
     const terminal = await runtime.createTerminal(`id:${target.scope.id}`, {
       startupAgent: 'trae',
-      agentArgs: `exec --json --model gpt-5.5 'Pinned task with "quotes" and $(literal)'`
+      agentArgs: `exec --json --model gpt-5.6-sol 'Pinned task with "quotes" and $(literal)'`
     })
     const request = spawn.mock.calls[0]?.[0]
     const proof = {
@@ -199,7 +199,7 @@ describe.skipIf(process.platform === 'win32')('Trae writable roots at terminal c
         'exec',
         '--json',
         '--model',
-        'gpt-5.5',
+        'gpt-5.6-sol',
         'Pinned task with "quotes" and $(literal)'
       ]
     })

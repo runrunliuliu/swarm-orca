@@ -96,7 +96,7 @@ capture 显式拒绝 strict 计划，driver 的实时 fence 也拒绝 strict-v1 
 --bootstrap-dir /canonical/task-preparation --prompt-file /absolute/brief.md
 --trae-runtime-config /absolute/task-trae-runtime.json` 只生成计划。
 模型仍读取 Coordinator 选型文件，当前唯一支持组合为
-`trae / gpt-5.5 / xhigh / Max=true`。2026-10-18 用户要求新配置使用 Auto-Review；
+`trae / gpt-5.6-sol / xhigh / Max=true`。2026-10-18 用户要求新配置使用 Auto-Review；
 持久偏好见 [trae-coordinator-runtime.json](trae-coordinator-runtime.json)。后续获准启动时
 显式通过 `--trae-runtime-config` 传入此文件或当前一致的任务副本：
 

@@ -110,8 +110,8 @@ export function buildPrimaryCommitMessageAgentSpecs({
       // by version so the frontier model lands on top and legacy models trail.
       models: [
         {
-          id: 'gpt-5.5',
-          label: 'GPT-5.5',
+          id: 'gpt-5.6-sol',
+          label: 'GPT-5.6 Sol',
           thinkingLevels: OPENAI_THINKING_LEVELS,
           defaultThinkingLevel: 'low'
         },
@@ -150,7 +150,7 @@ export function buildPrimaryCommitMessageAgentSpecs({
           defaultThinkingLevel: 'low'
         }
       ],
-      defaultModelId: 'gpt-5.5'
+      defaultModelId: 'gpt-5.6-sol'
     },
     opencode: {
       id: 'opencode',

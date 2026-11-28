@@ -79,7 +79,7 @@ describe('OrcaRuntimeService', () => {
     ])
     const serializeProviderBuffer = vi.fn().mockResolvedValue(null)
     const serializeBuffer = vi.fn().mockResolvedValue({
-      data: ' >_ OpenAI Codex (v0.131.0)\r\n model:       gpt-5.5 high\r\n directory:   /repo\r\n',
+      data: ' >_ OpenAI Codex (v0.131.0)\r\n model:       gpt-5.6-sol high\r\n directory:   /repo\r\n',
       cols: 80,
       rows: 24
     })

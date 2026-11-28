@@ -261,7 +261,7 @@ class DriverTests(unittest.TestCase):
             "cli_version": "0.210.1", "model_provider": "trae", "cwd": str(self.cwd),
             "source": "exec", "originator": "codex_exec", "parent_thread_id": None}}
         context = {"type": "turn_context", "timestamp": at.isoformat(), "payload": {
-            "model": "GPT-5.5", "model_provider": "trae", "effort": "xhigh", "model_backend_variant": "max",
+            "model": "GPT-5.6-Sol", "model_provider": "trae", "effort": "xhigh", "model_backend_variant": "max",
             "cwd": str(self.cwd), "approval_policy": "on-request", "approvals_reviewer": "guardian_subagent",
             "sandbox_policy": {"type": "workspace-write", "network_access": True,
                                "writable_roots": self.plan["task_write_roots"]}}}

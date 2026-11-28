@@ -226,14 +226,14 @@ describe('CodexHookService', () => {
     mkdirSync(systemCodexHome, { recursive: true })
     writeFileSync(
       profilePath,
-      ['model = "gpt-5.5"', '', ...LEGACY_ORCA_PROFILE_LINES].join('\n'),
+      ['model = "gpt-5.6-sol"', '', ...LEGACY_ORCA_PROFILE_LINES].join('\n'),
       'utf-8'
     )
 
     expect((await new CodexHookService().install()).state).toBe('installed')
 
     const profileConfig = readFileSync(profilePath, 'utf-8')
-    expect(profileConfig).toContain('model = "gpt-5.5"')
+    expect(profileConfig).toContain('model = "gpt-5.6-sol"')
     expect(profileConfig).not.toContain('ORCA AGENT STATUS HOOKS')
     expect(profileConfig).not.toContain('codex-hook')
   })

@@ -39,14 +39,14 @@ class OfflineBaselineTests(unittest.TestCase):
         self.policy = self.root / "private profiles.json"
         self.policy.write_text(json.dumps({
             "schema_version": 1, "scope": "swarm_worker_only", "profiles": {
-                "gpt-5.5": {"agent": "trae", "effort": "high",
+                "gpt-5.6-sol": {"agent": "trae", "effort": "high",
                             "backend_variant": "max", "blocked_reason": None}}}))
         self.override = patch.dict(os.environ,
                                    {"SWARM_WORKER_PROFILES": str(self.policy)})
 
     def request(self, pin):
         return dict(schema_version=2, cli="/verified/orca-server-cli", run="run_test",
-                    task="task_test", model="gpt-5.5", profiles_sha256=pin,
+                    task="task_test", model="gpt-5.6-sol", profiles_sha256=pin,
                     placement={"kind": "existing", "worktree": "id:workspace"})
 
     def test_suite_is_env_hermetic(self):
@@ -90,7 +90,7 @@ class OfflineBaselineTests(unittest.TestCase):
                     build_plan(self.request(pin))
                 message = str(caught.exception)
                 self.assertNotIn(str(self.policy), message)
-                self.assertNotIn("gpt-5.5", message)
+                self.assertNotIn("gpt-5.6-sol", message)
                 self.assertNotIn("trae", message)
 
 

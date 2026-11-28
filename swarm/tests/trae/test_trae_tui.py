@@ -290,7 +290,7 @@ class TuiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.observe(startup_anchor=ref, expected_thread=legacy.SID)
         self.term["ptyId"] = "pty"
-        self.f.log.write_text(self.f.log.read_text().replace("GPT-5.5", "gpt-5.5"))
+        self.f.log.write_text(self.f.log.read_text().replace("GPT-5.6-Sol", "gpt-5.6-sol"))
         with self.assertRaisesRegex(ValueError, "history_changed"):
             self.observe(startup_anchor=ref, expected_thread=legacy.SID)
 

@@ -408,7 +408,7 @@ describe('RuntimeGitCommands', () => {
     }
     const sourceControlAiResolvedParams = {
       agentId: 'codex' as const,
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'high',
       customPrompt: 'Use Conventional Commits.'
     }
@@ -464,7 +464,7 @@ describe('RuntimeGitCommands', () => {
     }
     const sourceControlAiResolvedParams = {
       agentId: 'codex' as const,
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'high',
       commandInputTemplate: '{basePrompt}\n\nUse release-note style.'
     }
@@ -536,7 +536,7 @@ describe('RuntimeGitCommands', () => {
     }
     const sourceControlAiResolvedParams = {
       agentId: 'codex' as const,
-      model: 'gpt-5.5'
+      model: 'gpt-5.6-sol'
     }
     mocks.resolveHostedReviewBodyForGeneration.mockResolvedValue(templateBody)
     mocks.getPullRequestDraftContext.mockResolvedValue(context)
@@ -781,7 +781,7 @@ describe('RuntimeGitCommands', () => {
     await commands.generateRuntimePullRequestFields(
       'id:wt-1',
       { base: 'main', title: '', body: '', draft: false },
-      { sourceControlAiResolvedParams: { agentId: 'codex' as const, model: 'gpt-5.5' } }
+      { sourceControlAiResolvedParams: { agentId: 'codex' as const, model: 'gpt-5.6-sol' } }
     )
 
     expect(mocks.generatePullRequestFieldsFromContext.mock.calls[0][0]).toEqual({
@@ -817,7 +817,7 @@ describe('RuntimeGitCommands', () => {
       currentBody: '',
       currentDraft: false
     }
-    const params = { agentId: 'codex' as const, model: 'gpt-5.5' }
+    const params = { agentId: 'codex' as const, model: 'gpt-5.6-sol' }
     mocks.generatePullRequestFieldsFromContext.mockResolvedValue({ success: true, fields: {} })
     mocks.getSshGitProvider.mockReturnValue({
       exec: vi.fn(),
@@ -866,7 +866,7 @@ describe('RuntimeGitCommands', () => {
       currentBody: '',
       currentDraft: false
     }
-    const params = { agentId: 'codex' as const, model: 'gpt-5.5' }
+    const params = { agentId: 'codex' as const, model: 'gpt-5.6-sol' }
     mocks.getPullRequestDraftContext.mockResolvedValue(context)
     mocks.generatePullRequestFieldsFromContext.mockResolvedValue({ success: true, fields: {} })
 
