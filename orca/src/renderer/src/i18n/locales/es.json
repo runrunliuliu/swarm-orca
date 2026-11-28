@@ -453,8 +453,7 @@
           "in": {
             "new": {
               "tab": {
-                "11cce5cc77": "No se pudo iniciar {{value0}} en una nueva terminal.",
-                "a5a1f7033f": "No se envió tu {{value0}}; pégalo cuando el agente esté listo."
+                "11cce5cc77": "No se pudo iniciar {{value0}} en una nueva terminal."
               }
             }
           },
@@ -15306,7 +15305,11 @@
       "agentDisabled": "{{agent}} está deshabilitado en la configuración de agentes.",
       "agentUnavailable": "No se detectó {{agent}} en el host de este espacio de trabajo.",
       "sent": "El contexto de la sesión se envió a {{agent}} en una sesión nueva.",
-      "deliveryFailed": "La nueva sesión de {{agent}} se inició, pero no se pudo enviar su contexto.",
+      "deliveryNoPty": "No hubo ningún terminal disponible para la nueva sesión de {{agent}}. Abre la sesión, elige Copiar prompt, pégalo en la entrada y pulsa Intro una vez.",
+      "deliveryReadyTimeout": "{{agent}} no quedó listo y Orca no pudo verificar su proceso. Abre la sesión, elige Copiar prompt, pégalo en la entrada y pulsa Intro una vez.",
+      "deliveryProcessMismatch": "{{agent}} no quedó listo: se esperaba {{expectedProcess}}, pero se encontró {{foregroundProcess}}. Revisa la sesión o el contenedor, elige Copiar prompt, pega el contexto y pulsa Intro una vez.",
+      "deliveryObservedNoTurn": "Orca escribió el contexto en {{agent}}, pero no observó un turno nuevo. Revisa la sesión; si la entrada está vacía, elige Copiar prompt, pégalo y pulsa Intro una vez.",
+      "deliveryRouteUnreported": "La nueva sesión de {{agent}} no informó si recibió el contexto. Ábrela; si la entrada está vacía, elige Copiar prompt, pégalo y pulsa Intro una vez.",
       "launchFailed": "No se pudo iniciar una sesión nueva de {{agent}}.",
       "deliveryUnconfirmed": "Orca no pudo confirmar que {{agent}} recibió el contexto de la sesión. Revisa la nueva sesión y pégalo tú mismo si su entrada está vacía.",
       "copyPrompt": "Copiar prompt"

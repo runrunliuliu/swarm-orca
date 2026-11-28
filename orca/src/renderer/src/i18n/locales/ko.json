@@ -564,8 +564,7 @@
           "in": {
             "new": {
               "tab": {
-                "11cce5cc77": "새 terminal에서 {{value0}}을(를) 시작할 수 없습니다.",
-                "a5a1f7033f": "{{value0}}이(가) 전송되지 않았습니다. agent가 준비되면 붙여넣으세요."
+                "11cce5cc77": "새 terminal에서 {{value0}}을(를) 시작할 수 없습니다."
               }
             }
           },
@@ -18159,7 +18158,11 @@
       "agentDisabled": "에이전트 설정에서 {{agent}}이(가) 비활성화되어 있습니다.",
       "agentUnavailable": "이 워크스페이스 호스트에서 {{agent}}을(를) 찾지 못했습니다.",
       "sent": "세션 컨텍스트를 새 {{agent}} 세션으로 보냈습니다.",
-      "deliveryFailed": "새 {{agent}} 세션은 시작되었지만 컨텍스트를 보내지 못했습니다.",
+      "deliveryNoPty": "새 {{agent}} 세션에 사용할 터미널이 준비되지 않았습니다. 세션을 열고 '프롬프트 복사'를 선택한 뒤 입력란에 붙여넣고 Enter를 한 번 누르세요.",
+      "deliveryReadyTimeout": "{{agent}}가 준비 상태가 되지 않았고 Orca가 프로세스도 확인하지 못했습니다. 세션을 열고 '프롬프트 복사'를 선택한 뒤 입력란에 붙여넣고 Enter를 한 번 누르세요.",
+      "deliveryProcessMismatch": "{{agent}}가 준비 상태가 되지 않았습니다. 예상 프로세스는 {{expectedProcess}}이지만 {{foregroundProcess}}이(가) 발견되었습니다. 세션이나 래퍼를 확인한 뒤 '프롬프트 복사'를 선택해 붙여넣고 Enter를 한 번 누르세요.",
+      "deliveryObservedNoTurn": "Orca가 {{agent}}에 컨텍스트를 썼지만 새 턴을 관찰하지 못했습니다. 세션을 확인하고 입력란이 비어 있으면 '프롬프트 복사'를 선택해 붙여넣고 Enter를 한 번 누르세요.",
+      "deliveryRouteUnreported": "새 {{agent}} 세션이 컨텍스트 수신 여부를 보고하지 않았습니다. 세션을 열고 입력란이 비어 있으면 '프롬프트 복사'를 선택해 붙여넣고 Enter를 한 번 누르세요.",
       "launchFailed": "새 {{agent}} 세션을 시작할 수 없습니다.",
       "deliveryUnconfirmed": "Orca가 {{agent}}가 세션 컨텍스트를 받았는지 확인하지 못했습니다. 새 세션을 확인하고 입력이 비어 있으면 직접 붙여넣으세요.",
       "copyPrompt": "프롬프트 복사"

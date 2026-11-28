@@ -645,7 +645,76 @@ describe('createWebRuntimeSessionTerminal', () => {
       content: 'continue the unfinished task',
       agent: 'claude',
       submit: true,
-      forcePaste: true
+      forcePaste: true,
+      onTimeout: expect.any(Function)
+    })
+  })
+
+  it('returns the known process mismatch from a client-owned host fallback', async () => {
+    const failure = {
+      reason: 'process-mismatch' as const,
+      expectedProcess: 'claude',
+      foregroundProcess: 'sh'
+    }
+    mocks.deliverLaunchPromptToAgentTab.mockImplementation(
+      async (args: { onTimeout?: (reason: typeof failure) => void }) => {
+        args.onTimeout?.(failure)
+        return false
+      }
+    )
+    const runtimeCall = vi.fn(async (request: { method: string }) => {
+      if (request.method === 'status.get') {
+        return {
+          id: 'status',
+          ok: true,
+          result: {
+            runtimeId: 'runtime-1',
+            graphStatus: 'ready',
+            runtimeProtocolVersion: 3,
+            minCompatibleRuntimeClientVersion: 2,
+            capabilities: ['agent-session.launch-prompt-delivery.v1']
+          }
+        }
+      }
+      if (request.method === 'terminal.createAgentSession') {
+        return {
+          id: 'create',
+          ok: true,
+          result: {
+            terminal: {
+              handle: 'term_created',
+              worktreeId: WORKTREE_ID,
+              tabId: 'host-tab-2',
+              paneKey: `host-tab-2:${FOCUS_LEAF_ID}`
+            },
+            disposition: 'created',
+            promptDelivery: { state: 'not-requested' }
+          }
+        }
+      }
+      return { id: 'list', ok: true, result: makeSnapshot() }
+    })
+    vi.stubGlobal('window', {
+      api: { runtimeEnvironments: { call: runtimeCall } }
+    })
+
+    await expect(
+      createWebRuntimeAgentSessionTerminal({
+        worktreeId: WORKTREE_ID,
+        agentSessionKind: 'fresh',
+        agent: 'claude',
+        command: 'claude',
+        prompt: 'deliver the task',
+        promptDelivery: 'auto-submit',
+        hostAuthorityCapability: 'agent-session.launch-prompt-delivery.v1',
+        promptAfterReady: 'deliver the task',
+        submitPrompt: true,
+        forcePromptPaste: true
+      })
+    ).resolves.toEqual({
+      outcome: { status: 'created' },
+      promptDelivered: false,
+      failureReason: failure
     })
   })
 
@@ -839,7 +908,8 @@ describe('createWebRuntimeSessionTerminal', () => {
       content: 'keep this draft editable',
       agent: 'claude',
       submit: false,
-      forcePaste: true
+      forcePaste: true,
+      onTimeout: expect.any(Function)
     })
     expect(mocks.seedNativeChatSubmittedLaunchPromptForAgentTab).not.toHaveBeenCalled()
   })
@@ -895,7 +965,8 @@ describe('createWebRuntimeSessionTerminal', () => {
       content: 'deliver the task',
       agent: 'trae',
       submit: true,
-      forcePaste: true
+      forcePaste: true,
+      onTimeout: expect.any(Function)
     })
   })
 
@@ -960,7 +1031,8 @@ describe('createWebRuntimeSessionTerminal', () => {
       content: 'deliver the task',
       agent: 'zcode',
       submit: true,
-      forcePaste: true
+      forcePaste: true,
+      onTimeout: expect.any(Function)
     })
   })
 

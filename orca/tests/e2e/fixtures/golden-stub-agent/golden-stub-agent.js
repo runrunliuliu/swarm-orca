@@ -10,6 +10,14 @@ const EXIT_MARKER = 'GOLDEN_STUB_AGENT_EXITED'
 // handshake or a report file for every run would change what those specs observe.
 const pasteReady = process.env.ORCA_E2E_STUB_PASTE_READY === '1'
 const reportDir = process.env.ORCA_E2E_STUB_REPORT_DIR ?? ''
+const processTitle = process.env.ORCA_E2E_STUB_PROCESS_TITLE ?? ''
+const windowTitle = process.env.ORCA_E2E_STUB_WINDOW_TITLE ?? 'Golden Stub Agent'
+
+// Opt-in for readiness-fallback coverage: the real foreground-process probe reads the OS process
+// name, so a fixture title lets a test choose whether it matches the configured agent.
+if (processTitle) {
+  process.title = processTitle
+}
 
 // Agent detection and trust preflight ask the CLI for its version. Answering with a TUI frame (and
 // then waiting on stdin) leaves that probe hanging, which delays the real spawn, so answer plainly.
@@ -89,7 +97,7 @@ function render() {
   const lines = composer.split('\n')
   const renderedComposer = lines.map((line, index) => `${index === 0 ? '> ' : '  '}${line}`)
   process.stdout.write(
-    `${keyboardProtocolMode ? `\x1b]0;\u280b ${keyboardProtocolAgent} is thinking\x07\x1b[>1u` : '\x1b]0;Golden Stub Agent\x07'}${[
+    `${keyboardProtocolMode ? `\x1b]0;\u280b ${keyboardProtocolAgent} is thinking\x07\x1b[>1u` : `\x1b]0;${windowTitle}\x07`}${[
       '\x1b[H\x1b[2JGolden Stub Agent',
       `[${READY_MARKER}]`,
       '',
@@ -121,10 +129,7 @@ function submit() {
   lastSubmission = composer
   composer = ''
   writeReport((report) => ({
-    submissions: [
-      ...report.submissions,
-      { text: lastSubmission, at: new Date().toISOString() }
-    ]
+    submissions: [...report.submissions, { text: lastSubmission, at: new Date().toISOString() }]
   }))
   render()
 }

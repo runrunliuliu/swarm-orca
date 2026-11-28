@@ -9,6 +9,10 @@ import type { LaunchSource } from '../../../shared/telemetry-events'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import { translate } from '@/i18n/i18n'
 import { copyPromptToastAction } from '@/lib/copy-prompt-toast-action'
+import {
+  describeAgentPromptDeliveryFailure,
+  type AgentPromptDeliveryFailureReason
+} from '@/lib/launch-agent-paste-timeout-notice'
 
 type LaunchAgentSessionContinuationArgs = {
   agent: TuiAgent
@@ -118,12 +122,18 @@ export async function launchAgentSessionContinuation({
     void result.promptDeliveryResult
       .then((delivery) => {
         if (!delivery.delivered && !delivery.failureNotified) {
-          notifyDeliveryFailed(label, prompt)
+          const reason: AgentPromptDeliveryFailureReason = delivery.routeUnreported
+            ? {
+                reason: 'route-unreported',
+                ...(delivery.failureReason ? { cause: delivery.failureReason } : {})
+              }
+            : (delivery.failureReason ?? { reason: 'route-unreported' })
+          notifyDeliveryFailed(label, prompt, reason)
         }
       })
       .catch((error) => {
         console.error('Agent session continuation prompt delivery failed', error)
-        notifyDeliveryFailed(label, prompt)
+        notifyDeliveryFailed(label, prompt, { reason: 'route-unreported' })
       })
   }
   return true
@@ -139,13 +149,13 @@ function notifyLaunchFailed(agentLabel: string): void {
   )
 }
 
-function notifyDeliveryFailed(agentLabel: string, prompt: string): void {
+function notifyDeliveryFailed(
+  agentLabel: string,
+  prompt: string,
+  reason: AgentPromptDeliveryFailureReason
+): void {
   toast.error(
-    translate(
-      'components.agentSessionContinuation.deliveryFailed',
-      'The new {{agent}} session started, but its context could not be sent.',
-      { agent: agentLabel }
-    ),
+    describeAgentPromptDeliveryFailure(reason, agentLabel),
     copyPromptToastAction(prompt)
   )
 }

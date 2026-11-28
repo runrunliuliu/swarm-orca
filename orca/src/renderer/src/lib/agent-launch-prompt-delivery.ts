@@ -12,6 +12,7 @@ import { isNativeChatSupportedAgent } from '@/lib/native-chat-supported-agent'
 import { useAppStore } from '@/store'
 import { LAUNCH_PTY_SPAWN_TIMEOUT_MS } from '../../../shared/draft-paste-ready-timeout'
 import type { TuiAgent } from '../../../shared/tui-agent'
+import type { AgentPasteFailureReason } from '@/lib/agent-paste-draft'
 
 /** Seed the chat-composer copy of launch context that reaches only the TUI
  *  input (argv prefill or startup paste). No-op for agents without a
@@ -57,7 +58,7 @@ export function deliverLaunchPromptToAgentTab(args: {
   submit: boolean
   forcePaste: boolean
   timeoutMs?: number
-  onTimeout?: () => void
+  onTimeout?: (failure: AgentPasteFailureReason) => void
   /** Overrides the admitted-spawn budget for this delivery (see `LAUNCH_PTY_SPAWN_TIMEOUT_MS`). */
   spawnTimeoutMs?: number
   /** The paste was written without ever observing the agent's composer. */

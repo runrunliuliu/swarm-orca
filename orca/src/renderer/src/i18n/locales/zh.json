@@ -564,8 +564,7 @@
           "in": {
             "new": {
               "tab": {
-                "11cce5cc77": "无法在新终端中启动 {{value0}}。",
-                "a5a1f7033f": "您的 {{value0}} 未发送 - 智能体准备好后将其粘贴。"
+                "11cce5cc77": "无法在新终端中启动 {{value0}}。"
               }
             }
           },
@@ -18395,7 +18394,11 @@
       "agentDisabled": "{{agent}} 已在智能体设置中停用。",
       "agentUnavailable": "未在此工作区主机上检测到 {{agent}}。",
       "sent": "已将会话上下文发送到新的 {{agent}} 会话。",
-      "deliveryFailed": "新的 {{agent}} 会话已启动，但无法发送上下文。",
+      "deliveryNoPty": "新的 {{agent}} 会话没有可用终端。打开该会话，选择“复制提示”，将内容粘贴到输入框，然后按一次 Enter。",
+      "deliveryReadyTimeout": "{{agent}} 未进入就绪状态，Orca 也无法核实其进程。打开该会话，选择“复制提示”，将内容粘贴到输入框，然后按一次 Enter。",
+      "deliveryProcessMismatch": "{{agent}} 未进入就绪状态：预期进程为 {{expectedProcess}}，实际前台进程为 {{foregroundProcess}}。检查会话或包装脚本，然后选择“复制提示”，手动粘贴并按一次 Enter。",
+      "deliveryObservedNoTurn": "Orca 已将上下文写入 {{agent}}，但未观察到新回合。检查该会话；若输入框为空，选择“复制提示”，粘贴内容并按一次 Enter。",
+      "deliveryRouteUnreported": "新的 {{agent}} 会话未报告是否收到上下文。打开该会话；若输入框为空，选择“复制提示”，粘贴内容并按一次 Enter。",
       "launchFailed": "无法启动新的 {{agent}} 会话。",
       "deliveryUnconfirmed": "Orca 无法确认 {{agent}} 已收到会话上下文。请检查新会话，如果其输入为空，请自行粘贴。",
       "copyPrompt": "复制提示"

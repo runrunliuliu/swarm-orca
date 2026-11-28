@@ -9,8 +9,11 @@ import { translate } from '@/i18n/i18n'
  */
 export function copyPromptToastAction(prompt: string): {
   action: { label: string; onClick: () => void }
+  duration: number
 } {
   return {
+    // Manual recovery must remain available until the reader uses or dismisses it.
+    duration: Infinity,
     action: {
       label: translate('components.agentSessionContinuation.copyPrompt', 'Copy prompt'),
       onClick: () => {

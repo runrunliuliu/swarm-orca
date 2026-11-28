@@ -663,8 +663,7 @@
           "in": {
             "new": {
               "tab": {
-                "11cce5cc77": "Impossible de lancer {{value0}} dans un nouveau terminal.",
-                "a5a1f7033f": "Votre {{value0}} n'a pas été envoyé — collez-le dès que l'agent est prêt."
+                "11cce5cc77": "Impossible de lancer {{value0}} dans un nouveau terminal."
               }
             }
           },
@@ -18223,7 +18222,11 @@
       "agentDisabled": "{{agent}} est désactivé dans les paramètres des Agents.",
       "agentUnavailable": "{{agent}} n'a pas été détecté sur cet hôte d'espace de travail.",
       "sent": "Contexte de session envoyé à {{agent}} dans une nouvelle session.",
-      "deliveryFailed": "La nouvelle session {{agent}} a démarré, mais son contexte n'a pas pu être envoyé.",
+      "deliveryNoPty": "Aucun terminal n'est devenu disponible pour la nouvelle session {{agent}}. Ouvrez la session, choisissez Copier le prompt, collez-le dans la zone de saisie, puis appuyez une fois sur Entrée.",
+      "deliveryReadyTimeout": "{{agent}} n'est pas devenu prêt et Orca n'a pas pu vérifier son processus. Ouvrez la session, choisissez Copier le prompt, collez-le dans la zone de saisie, puis appuyez une fois sur Entrée.",
+      "deliveryProcessMismatch": "{{agent}} n'est pas devenu prêt : le processus attendu était {{expectedProcess}}, mais {{foregroundProcess}} a été trouvé. Vérifiez la session ou le wrapper, choisissez Copier le prompt, collez le contexte, puis appuyez une fois sur Entrée.",
+      "deliveryObservedNoTurn": "Orca a écrit le contexte dans {{agent}}, mais n'a observé aucun nouveau tour. Vérifiez la session ; si la zone de saisie est vide, choisissez Copier le prompt, collez-le, puis appuyez une fois sur Entrée.",
+      "deliveryRouteUnreported": "La nouvelle session {{agent}} n'a pas indiqué si elle avait reçu le contexte. Ouvrez-la ; si la zone de saisie est vide, choisissez Copier le prompt, collez-le, puis appuyez une fois sur Entrée.",
       "launchFailed": "Impossible de démarrer une nouvelle session {{agent}}.",
       "deliveryUnconfirmed": "Orca n'a pas pu confirmer que {{agent}} a reçu le contexte de la session. Vérifiez la nouvelle session et collez-le vous-même si sa saisie est vide.",
       "copyPrompt": "Copier le prompt"
