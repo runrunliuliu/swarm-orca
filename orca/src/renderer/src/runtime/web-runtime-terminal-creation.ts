@@ -5,6 +5,7 @@ import {
   seedNativeChatSubmittedLaunchPromptForAgentTab
 } from '../lib/agent-launch-prompt-delivery'
 import type { AgentPromptSubmissionVerdict } from '../lib/agent-prompt-submission'
+import type { AgentPasteFailureReason } from '../lib/agent-paste-draft'
 import { createWebRuntimeSessionTerminalResult } from './web-runtime-terminal-create-operation'
 import { toWebTerminalSurfaceTabId } from './web-terminal-surface-id'
 import type {
@@ -32,6 +33,7 @@ export async function createWebRuntimeAgentSessionTerminal(
 ): Promise<{
   outcome: WebRuntimeTerminalCreateOutcome
   promptDelivered: boolean
+  failureReason?: AgentPasteFailureReason
 }> {
   const created = await createWebRuntimeSessionTerminalResult(args)
   if (created.outcome.status === 'failed' || !created.hostTabId) {
@@ -55,6 +57,7 @@ export async function createWebRuntimeAgentSessionTerminal(
     return { outcome: created.outcome, promptDelivered: delivered }
   }
 
+  let failureReason: AgentPasteFailureReason | undefined
   const promptDelivered = await deliverLaunchPromptToAgentTab({
     tabId: toWebTerminalSurfaceTabId(created.hostTabId),
     content: args.promptAfterReady,
@@ -63,10 +66,17 @@ export async function createWebRuntimeAgentSessionTerminal(
     forcePaste: args.forcePromptPaste,
     // Why forwarded on this route too: a paired host's mirrored pane is where the readiness wait
     // actually ran, so silence here (as it used to be) made an unobserved composer look delivered.
+    onTimeout: (failure) => {
+      failureReason = failure
+    },
     ...(args.onUnconfirmedDelivery ? { onUnconfirmedDelivery: args.onUnconfirmedDelivery } : {}),
     ...(args.onSubmitVerdict ? { onSubmitVerdict: args.onSubmitVerdict } : {})
   })
-  return { outcome: created.outcome, promptDelivered }
+  return {
+    outcome: created.outcome,
+    promptDelivered,
+    ...(!promptDelivered && failureReason ? { failureReason } : {})
+  }
 }
 
 /**

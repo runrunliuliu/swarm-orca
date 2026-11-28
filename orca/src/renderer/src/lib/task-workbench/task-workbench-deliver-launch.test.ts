@@ -441,7 +441,19 @@ describe('delivery settlement (issue #60)', () => {
 
   function launchWithDelivery(args: {
     verdict?: 'submitted' | 'written' | 'unconfirmed' | 'not-written'
-    delivery?: { delivered: boolean; failureNotified: boolean }
+    delivery?: {
+      delivered: boolean
+      failureNotified: boolean
+      failureReason?:
+        | { reason: 'no-pty' }
+        | { reason: 'ready-timeout'; expectedProcess?: string }
+        | {
+            reason: 'process-mismatch'
+            expectedProcess: string
+            foregroundProcess: string
+          }
+      routeUnreported?: boolean
+    }
     omitDeliveryResult?: boolean
   }): ReturnType<typeof launchTaskWorkbenchDeliver> {
     mocks.store.detectedAgentIds = ['claude']
@@ -487,13 +499,16 @@ describe('delivery settlement (issue #60)', () => {
   it('warns with the existing copy when the turn could not be confirmed', async () => {
     const result = launchWithDelivery({ verdict: 'unconfirmed' })
 
-    await expect(settled(result)).resolves.toEqual({ state: 'unconfirmed' })
+    await expect(settled(result)).resolves.toEqual({
+      state: 'unconfirmed',
+      reason: { reason: 'observed-no-turn' }
+    })
     expect(mocks.toastWarning).toHaveBeenCalledTimes(1)
     const [message, options] = mocks.toastWarning.mock.calls[0] as [
       string,
       { action: { label: string } }
     ]
-    expect(message).toContain('could not confirm')
+    expect(message).toContain('did not observe a new turn')
     expect(options.action.label).toBe('Copy prompt')
     // Recovery must not duplicate the launch or resubmit: one launch, one paste attempt.
     expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
@@ -502,22 +517,48 @@ describe('delivery settlement (issue #60)', () => {
 
   it('reports a failed paste once, and not again when the terminal notice already spoke', async () => {
     const first = launchWithDelivery({
-      delivery: { delivered: false, failureNotified: false }
+      delivery: {
+        delivered: false,
+        failureNotified: false,
+        failureReason: { reason: 'no-pty' }
+      }
     })
     await expect(settled(first)).resolves.toEqual({
       state: 'not-delivered',
+      reason: { reason: 'no-pty' },
       alreadyNotified: false
     })
     expect(mocks.toastError).toHaveBeenCalledTimes(1)
-    expect((mocks.toastError.mock.calls[0] as [string])[0]).toContain('could not be sent')
+    expect((mocks.toastError.mock.calls[0] as [string])[0]).toContain(
+      'No terminal became available'
+    )
+    expect((mocks.toastError.mock.calls[0] as [string])[0]).toContain('press Enter once')
+    expect(
+      (mocks.toastError.mock.calls[0] as [string, { action: { label: string } }])[1].action.label
+    ).toBe('Copy prompt')
+    // Manual recovery never launches another agent or retries Enter into the old session.
+    expect(mocks.launchAgentInNewTab).toHaveBeenCalledTimes(1)
 
     mocks.launchAgentInNewTab.mockClear()
     mocks.toastError.mockClear()
     const second = launchWithDelivery({
-      delivery: { delivered: false, failureNotified: true }
+      delivery: {
+        delivered: false,
+        failureNotified: true,
+        failureReason: {
+          reason: 'process-mismatch',
+          expectedProcess: 'traecli',
+          foregroundProcess: 'sh'
+        }
+      }
     })
     await expect(settled(second)).resolves.toEqual({
       state: 'not-delivered',
+      reason: {
+        reason: 'process-mismatch',
+        expectedProcess: 'traecli',
+        foregroundProcess: 'sh'
+      },
       alreadyNotified: true
     })
     // F6: one sentence, one surface — the readiness toast already said it.
@@ -526,10 +567,44 @@ describe('delivery settlement (issue #60)', () => {
 
   it('treats a route that reports nothing as unreported rather than as a failure', async () => {
     await expect(settled(launchWithDelivery({ omitDeliveryResult: true }))).resolves.toEqual({
-      state: 'unreported'
+      state: 'unreported',
+      reason: { reason: 'route-unreported' }
     })
     expect(mocks.toastWarning).not.toHaveBeenCalled()
-    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(mocks.toastError).toHaveBeenCalledTimes(1)
+    expect((mocks.toastError.mock.calls[0] as [string])[0]).toContain('did not report')
+  })
+
+  it('shows the deepest process mismatch from a silent paired-host fallback', async () => {
+    const result = launchWithDelivery({
+      delivery: {
+        delivered: false,
+        failureNotified: false,
+        failureReason: {
+          reason: 'process-mismatch',
+          expectedProcess: 'claude',
+          foregroundProcess: 'sh'
+        },
+        routeUnreported: true
+      }
+    })
+
+    await expect(settled(result)).resolves.toEqual({
+      state: 'not-delivered',
+      reason: {
+        reason: 'route-unreported',
+        cause: {
+          reason: 'process-mismatch',
+          expectedProcess: 'claude',
+          foregroundProcess: 'sh'
+        }
+      },
+      alreadyNotified: false
+    })
+    const message = (mocks.toastError.mock.calls[0] as [string])[0]
+    expect(message).toContain('expected claude')
+    expect(message).toContain('found sh')
+    expect(message).not.toContain('did not report')
   })
 
   it('never rejects, so a host that ignores the promise cannot raise an unhandled failure', async () => {
@@ -547,7 +622,8 @@ describe('delivery settlement (issue #60)', () => {
       promptDeliveryResult: Promise.reject(new Error('boom'))
     })
     await expect(settled(launchTaskWorkbenchDeliver(deliverInput()))).resolves.toEqual({
-      state: 'unreported'
+      state: 'unreported',
+      reason: { reason: 'route-unreported' }
     })
   })
 })
@@ -558,7 +634,7 @@ describe('settleTaskWorkbenchDeliverSettlement', () => {
   it('maps a route without a delivery result to unreported', async () => {
     await expect(
       settleTaskWorkbenchDeliverSettlement({ readVerdict: () => 'submitted' })
-    ).resolves.toEqual({ state: 'unreported' })
+    ).resolves.toEqual({ state: 'unreported', reason: { reason: 'route-unreported' } })
   })
 
   it('reads the verdict only for a written instruction', async () => {
@@ -573,10 +649,18 @@ describe('settleTaskWorkbenchDeliverSettlement', () => {
   it('treats a written-then-lost write as the failed delivery case', async () => {
     await expect(
       settleTaskWorkbenchDeliverSettlement({
-        promptDeliveryResult: Promise.resolve({ delivered: false, failureNotified: true }),
+        promptDeliveryResult: Promise.resolve({
+          delivered: false,
+          failureNotified: true,
+          failureReason: { reason: 'ready-timeout', expectedProcess: 'claude' }
+        }),
         readVerdict: () => 'not-written'
       })
-    ).resolves.toEqual({ state: 'not-delivered', alreadyNotified: true })
+    ).resolves.toEqual({
+      state: 'not-delivered',
+      reason: { reason: 'ready-timeout', expectedProcess: 'claude' },
+      alreadyNotified: true
+    })
   })
 
   it('keeps a reported write when the route published no verdict', async () => {

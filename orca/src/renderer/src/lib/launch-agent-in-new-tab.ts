@@ -9,6 +9,7 @@ import { findWorktreeById } from '@/store/slices/worktree-helpers'
 import { persistAgentLaunchTabOrder } from '@/lib/launch-agent-tab-order'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { createPasteReadinessTimeoutNotice } from '@/lib/launch-agent-paste-timeout-notice'
+import type { AgentPasteFailureReason } from '@/lib/agent-paste-draft'
 import {
   deliverLaunchPromptToAgentTab,
   seedNativeChatLaunchDraftForAgentTab
@@ -102,7 +103,12 @@ export type LaunchAgentInNewTabResult = {
   surface: AgentLaunchSurface
   startupPlan: AgentStartupPlan
   pasteDraftAfterLaunch: boolean
-  promptDeliveryResult?: Promise<{ delivered: boolean; failureNotified: boolean }>
+  promptDeliveryResult?: Promise<{
+    delivered: boolean
+    failureNotified: boolean
+    failureReason?: AgentPasteFailureReason
+    routeUnreported?: boolean
+  }>
   /** Structured route only: what the launch did once it settled. The call stays synchronous. */
   structuredSettlement?: Promise<StructuredAgentLaunchSettlement>
 } | null
@@ -360,6 +366,7 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     seedNativeChatLaunchDraftForAgentTab({ tabId: tab.id, agent, text: trimmedPrompt })
   }
   if (pasteDraftAfterLaunch !== null) {
+    let failureReason: AgentPasteFailureReason | undefined
     const timeoutNotice = createPasteReadinessTimeoutNotice({
       worktreeId,
       tabId: tab.id,
@@ -375,7 +382,10 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       agent,
       submit: submitPastedPrompt,
       forcePaste: true,
-      onTimeout: timeoutNotice.onTimeout,
+      onTimeout: (failure) => {
+        failureReason = failure
+        timeoutNotice.onTimeout(failure)
+      },
       ...(onPromptDeliveryUnconfirmed ? { onUnconfirmedDelivery: onPromptDeliveryUnconfirmed } : {}),
       ...(onPromptSubmitVerdict ? { onSubmitVerdict: onPromptSubmitVerdict } : {})
     }).then((delivered) => {
@@ -387,7 +397,12 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
         }
         onPromptDelivered?.()
       }
-      return { delivered, failureNotified: !delivered && timeoutNotice.wasNotified() }
+      return {
+        delivered,
+        failureNotified: !delivered && timeoutNotice.wasNotified(),
+        ...(!delivered && failureReason ? { failureReason } : {}),
+        ...(!delivered && timeoutNotice.wasUnreported() ? { routeUnreported: true } : {})
+      }
     })
     if (promptDelivery === 'submit-after-ready') {
       promptDeliveryResult = deliveryPromise

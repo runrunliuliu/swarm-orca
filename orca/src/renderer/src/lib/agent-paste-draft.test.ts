@@ -31,6 +31,7 @@ const testState = vi.hoisted(() => ({
   subscribeToPtyData: vi.fn(),
   replayPreHandlerPtyData: vi.fn(),
   isRemoteRuntimePtyId: vi.fn(),
+  getForegroundProcess: vi.fn(),
   sendRuntimePtyInputVerified: vi.fn(),
   inspectRuntimeTerminalProcess: vi.fn(),
   subscribeToRuntimeTerminalData: vi.fn()
@@ -81,7 +82,8 @@ describe('pasteDraftWhenAgentReady', () => {
     vi.useFakeTimers()
     vi.stubGlobal('window', {
       setTimeout: globalThis.setTimeout,
-      clearTimeout: globalThis.clearTimeout
+      clearTimeout: globalThis.clearTimeout,
+      api: { pty: { getForegroundProcess: testState.getForegroundProcess } }
     })
     testState.appState.settings = {}
     testState.appState.ptyIdsByTabId = { 'tab-1': ['pty-1'] }
@@ -102,6 +104,8 @@ describe('pasteDraftWhenAgentReady', () => {
     testState.replayPreHandlerPtyData.mockReset()
     testState.isRemoteRuntimePtyId.mockReset()
     testState.isRemoteRuntimePtyId.mockReturnValue(false)
+    testState.getForegroundProcess.mockReset()
+    testState.getForegroundProcess.mockResolvedValue('claude')
     testState.sendRuntimePtyInputVerified.mockReset()
     testState.sendRuntimePtyInputVerified.mockResolvedValue(true)
     testState.inspectRuntimeTerminalProcess.mockReset()
@@ -182,6 +186,7 @@ describe('pasteDraftWhenAgentReady', () => {
   })
 
   it('keeps the render-quiet wait for agents without the Codex ready signal', async () => {
+    testState.getForegroundProcess.mockResolvedValue('gemini')
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
@@ -262,7 +267,7 @@ describe('pasteDraftWhenAgentReady', () => {
     // mounting its composer. A quiet window would fire during that gap and paste
     // before the composer exists (the original bug), so the cursor signal must
     // not arm one. With process inspection failing, delivery times out instead.
-    testState.inspectRuntimeTerminalProcess.mockResolvedValue(null)
+    testState.getForegroundProcess.mockResolvedValue(null)
     const onTimeout = vi.fn()
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
@@ -287,15 +292,16 @@ describe('pasteDraftWhenAgentReady', () => {
     await expect(promise).resolves.toBe(false)
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
     expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith({
+      reason: 'ready-timeout',
+      expectedProcess: 'opencode'
+    })
   })
 
   it('best-effort pastes for opencode at the hard timeout when its process is running', async () => {
     // Why: with no quiet window, the hard-timeout process-ownership check is the
     // backstop if show-cursor is somehow missed — same model as Codex.
-    testState.inspectRuntimeTerminalProcess.mockResolvedValue({
-      foregroundProcess: 'opencode',
-      hasChildProcesses: false
-    })
+    testState.getForegroundProcess.mockResolvedValue('opencode')
     const onUnconfirmedDelivery = vi.fn()
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
@@ -319,10 +325,7 @@ describe('pasteDraftWhenAgentReady', () => {
   })
 
   it('keeps the existing fallback budget for unrelated markerless agents', async () => {
-    testState.inspectRuntimeTerminalProcess.mockResolvedValue({
-      foregroundProcess: 'claude',
-      hasChildProcesses: false
-    })
+    testState.getForegroundProcess.mockResolvedValue('claude')
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
@@ -342,6 +345,92 @@ describe('pasteDraftWhenAgentReady', () => {
       'pty-1',
       PASTED_ISSUE_URL
     )
+  })
+
+  it('does not mistake a shell bracketed-paste handshake for the expected agent', async () => {
+    const onTimeout = vi.fn()
+    testState.getForegroundProcess.mockResolvedValue('sh')
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      forcePaste: true,
+      onTimeout
+    })
+    await flushMicrotasks()
+
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await vi.advanceTimersByTimeAsync(1500)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await expect(promise).resolves.toBe(false)
+    expect(onTimeout).toHaveBeenCalledWith({
+      reason: 'process-mismatch',
+      expectedProcess: 'claude',
+      foregroundProcess: 'sh'
+    })
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+  })
+
+  it('marks a generic bracketed-paste handshake as one blind write for the expected process', async () => {
+    const onUnconfirmedDelivery = vi.fn()
+    testState.getForegroundProcess.mockResolvedValue('claude')
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      forcePaste: true,
+      submit: true,
+      onUnconfirmedDelivery
+    })
+    await flushMicrotasks()
+
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await vi.advanceTimersByTimeAsync(1500)
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
+
+    await expect(promise).resolves.toBe(true)
+    expect(onUnconfirmedDelivery).toHaveBeenCalledTimes(1)
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledTimes(2)
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(
+      1,
+      {},
+      'pty-1',
+      PASTED_ISSUE_URL
+    )
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(2, {}, 'pty-1', '\r')
+  })
+
+  it('does not veto a real bracketed-paste handshake for an exec-wrapper foreground', async () => {
+    const onUnconfirmedDelivery = vi.fn()
+    testState.getForegroundProcess.mockResolvedValue('node')
+    const promise = pasteDraftWhenAgentReady({
+      tabId: 'tab-1',
+      content: ISSUE_URL,
+      agent: 'claude',
+      forcePaste: true,
+      submit: true,
+      onUnconfirmedDelivery
+    })
+    await flushMicrotasks()
+
+    testState.ptyObserver?.(DECSET_BRACKETED_PASTE)
+    await vi.advanceTimersByTimeAsync(1500)
+    await vi.advanceTimersByTimeAsync(1000)
+    await vi.advanceTimersByTimeAsync(POST_PASTE_SUBMIT_DELAY_MS)
+
+    await expect(promise).resolves.toBe(true)
+    expect(onUnconfirmedDelivery).not.toHaveBeenCalled()
+    expect(testState.getForegroundProcess).toHaveBeenCalled()
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenCalledTimes(2)
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(
+      1,
+      {},
+      'pty-1',
+      PASTED_ISSUE_URL
+    )
+    expect(testState.sendRuntimePtyInputVerified).toHaveBeenNthCalledWith(2, {}, 'pty-1', '\r')
   })
 
   it('does not paste for agents that already use native draft prefill', async () => {
@@ -432,10 +521,7 @@ describe('pasteDraftWhenAgentReady', () => {
   })
 
   it('best-effort pastes when the ready escape was missed but the agent process is running', async () => {
-    testState.inspectRuntimeTerminalProcess.mockResolvedValue({
-      foregroundProcess: 'codex',
-      hasChildProcesses: false
-    })
+    testState.getForegroundProcess.mockResolvedValue('codex')
 
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
@@ -459,6 +545,7 @@ describe('pasteDraftWhenAgentReady', () => {
     // is a positive readiness proof, so the marker-gated budget waits for it
     // instead of giving up at 8s and dropping the handoff prompt. Process
     // inspection stays 'bash' so only the real marker — not the fallback — delivers.
+    testState.getForegroundProcess.mockResolvedValue('bash')
     const promise = pasteDraftWhenAgentReady({
       tabId: 'tab-1',
       content: ISSUE_URL,
@@ -501,6 +588,7 @@ describe('pasteDraftWhenAgentReady', () => {
 
     await expect(promise).resolves.toBe(false)
     expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith({ reason: 'no-pty' })
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
   })
@@ -575,6 +663,7 @@ describe('pasteDraftWhenAgentReady', () => {
 
     await expect(promise).resolves.toBe(false)
     expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith({ reason: 'no-pty' })
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
   })
 
@@ -681,7 +770,7 @@ describe('pasteDraftWhenAgentReady', () => {
 
   it('honors the fallback inspection deadline for pty-bound draft paste', async () => {
     const onTimeout = vi.fn()
-    testState.inspectRuntimeTerminalProcess.mockReturnValue(new Promise(() => {}))
+    testState.getForegroundProcess.mockReturnValue(new Promise(() => {}))
 
     const promise = pasteDraftToAgentPtyWhenReady({
       tabId: 'tab-1',
@@ -700,6 +789,38 @@ describe('pasteDraftWhenAgentReady', () => {
 
     await expect(promise).resolves.toBe(false)
     expect(onTimeout).toHaveBeenCalledTimes(1)
+    expect(onTimeout).toHaveBeenCalledWith({
+      reason: 'ready-timeout',
+      expectedProcess: 'codex'
+    })
+    expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
+  })
+
+  it('reports the expected and foreground names when the fallback process mismatches', async () => {
+    const onTimeout = vi.fn()
+    testState.getForegroundProcess.mockResolvedValue('wrapper-shell')
+
+    const promise = pasteDraftToAgentPtyWhenReady({
+      tabId: 'tab-1',
+      ptyId: 'pty-1',
+      content: ISSUE_URL,
+      agent: 'codex',
+      forcePaste: true,
+      timeoutMs: 1,
+      onTimeout
+    })
+    await flushMicrotasks()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await flushMicrotasks(5)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    await expect(promise).resolves.toBe(false)
+    expect(onTimeout).toHaveBeenCalledWith({
+      reason: 'process-mismatch',
+      expectedProcess: 'codex',
+      foregroundProcess: 'wrapper-shell'
+    })
     expect(testState.sendRuntimePtyInputVerified).not.toHaveBeenCalled()
   })
 

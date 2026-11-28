@@ -701,8 +701,7 @@
           "in": {
             "new": {
               "tab": {
-                "11cce5cc77": "Could not launch {{value0}} in a new terminal.",
-                "a5a1f7033f": "Your {{value0}} wasn't sent — paste it once the agent is ready."
+                "11cce5cc77": "Could not launch {{value0}} in a new terminal."
               }
             }
           },
@@ -18643,7 +18642,11 @@
       "agentDisabled": "{{agent}} is disabled in Agent settings.",
       "agentUnavailable": "{{agent}} was not detected on this workspace host.",
       "sent": "Session context sent to {{agent}} in a new session.",
-      "deliveryFailed": "The new {{agent}} session started, but its context could not be sent.",
+      "deliveryNoPty": "No terminal became available for the new {{agent}} session. Open the session, choose Copy prompt, paste it into the input, and press Enter once.",
+      "deliveryReadyTimeout": "{{agent}} did not become ready, and Orca could not verify its process. Open the session, choose Copy prompt, paste it into the input, and press Enter once.",
+      "deliveryProcessMismatch": "{{agent}} did not become ready: expected {{expectedProcess}}, but found {{foregroundProcess}}. Check the session or wrapper, then choose Copy prompt, paste the context, and press Enter once.",
+      "deliveryObservedNoTurn": "Orca wrote the context to {{agent}}, but did not observe a new turn. Check the session; if the input is empty, choose Copy prompt, paste it, and press Enter once.",
+      "deliveryRouteUnreported": "The new {{agent}} session did not report whether it received the context. Open it; if the input is empty, choose Copy prompt, paste it, and press Enter once.",
       "deliveryUnconfirmed": "Orca could not confirm {{agent}} received the session context. Check the new session, and paste it yourself if its input is empty.",
       "copyPrompt": "Copy prompt",
       "launchFailed": "Could not start a new {{agent}} session."

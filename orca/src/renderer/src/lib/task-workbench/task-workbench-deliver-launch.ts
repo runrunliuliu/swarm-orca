@@ -6,10 +6,14 @@ import { copyPromptToastAction } from '@/lib/copy-prompt-toast-action'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import type { AgentPromptSubmissionVerdict } from '@/lib/agent-prompt-submission'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
-import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import type { TuiAgent } from '../../../../shared/tui-agent'
+import {
+  describeAgentPromptDeliveryFailure,
+  type AgentPromptDeliveryFailureReason
+} from '@/lib/launch-agent-paste-timeout-notice'
+import type { AgentPasteFailureReason } from '@/lib/agent-paste-draft'
 import {
   TASK_WORKBENCH_DELIVER_SESSION_LABEL,
   isTaskWorkbenchDeliverSessionName
@@ -84,9 +88,13 @@ export type TaskWorkbenchDeliverLaunchResult =
 export type TaskWorkbenchDeliverSettlement =
   | { state: 'submitted' }
   | { state: 'written' }
-  | { state: 'unconfirmed' }
-  | { state: 'not-delivered'; alreadyNotified: boolean }
-  | { state: 'unreported' }
+  | { state: 'unconfirmed'; reason: { reason: 'observed-no-turn' } }
+  | {
+      state: 'not-delivered'
+      reason: AgentPromptDeliveryFailureReason
+      alreadyNotified: boolean
+    }
+  | { state: 'unreported'; reason: { reason: 'route-unreported' } }
 
 /**
  * The frozen no-agent notice (§7.11.3 rule 6: reuse the existing terminal line,
@@ -370,34 +378,50 @@ export function launchTaskWorkbenchDeliver(
  * about: the instruction sat in the input box while a turn that had already started kept running.
  */
 export async function settleTaskWorkbenchDeliverSettlement(args: {
-  promptDeliveryResult?: Promise<{ delivered: boolean; failureNotified: boolean }>
+  promptDeliveryResult?: Promise<{
+    delivered: boolean
+    failureNotified: boolean
+    failureReason?: AgentPasteFailureReason
+    routeUnreported?: boolean
+  }>
   readVerdict: () => AgentPromptSubmissionVerdict | null
 }): Promise<TaskWorkbenchDeliverSettlement> {
   if (!args.promptDeliveryResult) {
     // Why not a failure: this route reports nothing about the prompt, so delivery cannot claim it
     // either way. Saying "failed" here would invent evidence (the same rule the projection follows).
-    return { state: 'unreported' }
+    return { state: 'unreported', reason: { reason: 'route-unreported' } }
   }
   let delivered: boolean
   let failureNotified: boolean
+  let failureReason: AgentPasteFailureReason | undefined
+  let routeUnreported: boolean
   try {
     const result = await args.promptDeliveryResult
     delivered = result.delivered
     failureNotified = result.failureNotified
+    failureReason = result.failureReason
+    routeUnreported = result.routeUnreported === true
   } catch {
-    return { state: 'unreported' }
+    return { state: 'unreported', reason: { reason: 'route-unreported' } }
   }
   if (!delivered) {
-    return { state: 'not-delivered', alreadyNotified: failureNotified }
+    const reason: AgentPromptDeliveryFailureReason = routeUnreported
+      ? { reason: 'route-unreported', ...(failureReason ? { cause: failureReason } : {}) }
+      : (failureReason ?? { reason: 'route-unreported' })
+    return { state: 'not-delivered', reason, alreadyNotified: failureNotified }
   }
   switch (args.readVerdict()) {
     case 'submitted':
       return { state: 'submitted' }
     case 'unconfirmed':
-      return { state: 'unconfirmed' }
+      return { state: 'unconfirmed', reason: { reason: 'observed-no-turn' } }
     case 'not-written':
       // The route wrote and then lost its own write; treat it as the failed-delivery case.
-      return { state: 'not-delivered', alreadyNotified: failureNotified }
+      return {
+        state: 'not-delivered',
+        reason: { reason: 'route-unreported' },
+        alreadyNotified: failureNotified
+      }
     case 'written':
     case null:
       return { state: 'written' }
@@ -407,10 +431,8 @@ export async function settleTaskWorkbenchDeliverSettlement(args: {
 /**
  * Surface a delivery that could not be confirmed, and stay silent otherwise.
  *
- * Why these two strings and no new ones: they are the existing session-continuation lines for
- * exactly these two facts, and both delivery hosts already render the frozen `TaskWorkbenchDeliver.*`
- * copy for the launch itself. A success sentence would be new interface copy for a state the
- * reader can already see in the new session.
+ * Both delivery hosts use the same reason-specific copy. A success sentence would be new interface
+ * copy for a state the reader can already see in the new session.
  */
 export function reportTaskWorkbenchDeliverSettlement(args: {
   settlement: TaskWorkbenchDeliverSettlement
@@ -420,11 +442,7 @@ export function reportTaskWorkbenchDeliverSettlement(args: {
   const agentLabel = getAgentLabel(args.agent)
   if (args.settlement.state === 'unconfirmed') {
     toast.warning(
-      translate(
-        'components.agentSessionContinuation.deliveryUnconfirmed',
-        'Orca could not confirm {{agent}} received the session context. Check the new session, and paste it yourself if its input is empty.',
-        { agent: agentLabel }
-      ),
+      describeAgentPromptDeliveryFailure(args.settlement.reason, agentLabel),
       copyPromptToastAction(args.prompt)
     )
     return
@@ -433,11 +451,14 @@ export function reportTaskWorkbenchDeliverSettlement(args: {
     // Why suppressed when already notified: the terminal route's own readiness notice has spoken,
     // and two toasts for one failed paste read as two failures (F6: one sentence, one surface).
     toast.error(
-      translate(
-        'components.agentSessionContinuation.deliveryFailed',
-        'The new {{agent}} session started, but its context could not be sent.',
-        { agent: agentLabel }
-      ),
+      describeAgentPromptDeliveryFailure(args.settlement.reason, agentLabel),
+      copyPromptToastAction(args.prompt)
+    )
+    return
+  }
+  if (args.settlement.state === 'unreported') {
+    toast.error(
+      describeAgentPromptDeliveryFailure(args.settlement.reason, agentLabel),
       copyPromptToastAction(args.prompt)
     )
   }

@@ -799,7 +799,7 @@ describe('launchAgentInNewTab', () => {
 
   it('marks failed submit-after-ready delivery as notified after readiness timeout toast', async () => {
     mockPasteDraftWhenAgentReady.mockImplementation(({ onTimeout }) => {
-      onTimeout?.()
+      onTimeout?.({ reason: 'ready-timeout', expectedProcess: 'command-code' })
       return Promise.resolve(false)
     })
     store.tabsByWorktree = { 'wt-1': [{ id: 'tab-1', ptyId: 'pty-1' } as never] }
@@ -814,17 +814,18 @@ describe('launchAgentInNewTab', () => {
 
     await expect(result?.promptDeliveryResult).resolves.toEqual({
       delivered: false,
-      failureNotified: true
+      failureNotified: true,
+      failureReason: { reason: 'ready-timeout', expectedProcess: 'command-code' }
     })
     expect(mockToastMessage).toHaveBeenCalledWith(
-      "Your prompt wasn't sent — paste it once the agent is ready.",
+      expect.stringContaining('did not become ready'),
       expect.objectContaining({ action: expect.objectContaining({ onClick: expect.any(Function) }) })
     )
   })
 
   it('leaves a cancelled submit-after-ready launch unnotified when the user closed the tab', async () => {
     mockPasteDraftWhenAgentReady.mockImplementation(({ onTimeout }) => {
-      onTimeout?.()
+      onTimeout?.({ reason: 'no-pty' })
       return Promise.resolve(false)
     })
     // User closed the tab before the agent became ready — it is gone from the list.
@@ -842,14 +843,20 @@ describe('launchAgentInNewTab', () => {
     // statement that the text did not arrive (issue #60).
     await expect(result?.promptDeliveryResult).resolves.toEqual({
       delivered: false,
-      failureNotified: false
+      failureNotified: false,
+      failureReason: { reason: 'no-pty' },
+      routeUnreported: true
     })
     expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
   it('leaves a cancelled submit-after-ready launch unnotified when the user switched worktrees', async () => {
     mockPasteDraftWhenAgentReady.mockImplementation(({ onTimeout }) => {
-      onTimeout?.()
+      onTimeout?.({
+        reason: 'process-mismatch',
+        expectedProcess: 'command-code',
+        foregroundProcess: 'sh'
+      })
       return Promise.resolve(false)
     })
     store.tabsByWorktree = { 'wt-1': [{ id: 'tab-1', ptyId: 'pty-1' } as never] }
@@ -865,14 +872,20 @@ describe('launchAgentInNewTab', () => {
 
     await expect(result?.promptDeliveryResult).resolves.toEqual({
       delivered: false,
-      failureNotified: false
+      failureNotified: false,
+      failureReason: {
+        reason: 'process-mismatch',
+        expectedProcess: 'command-code',
+        foregroundProcess: 'sh'
+      },
+      routeUnreported: true
     })
     expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
   it('leaves a genuine launch failure unnotified so the caller surfaces it', async () => {
     mockPasteDraftWhenAgentReady.mockImplementation(({ onTimeout }) => {
-      onTimeout?.()
+      onTimeout?.({ reason: 'no-pty' })
       return Promise.resolve(false)
     })
     // PTY never spawned: a real failure, not a user cancellation.
@@ -888,7 +901,9 @@ describe('launchAgentInNewTab', () => {
 
     await expect(result?.promptDeliveryResult).resolves.toEqual({
       delivered: false,
-      failureNotified: false
+      failureNotified: false,
+      failureReason: { reason: 'no-pty' },
+      routeUnreported: true
     })
     expect(mockToastMessage).not.toHaveBeenCalled()
   })

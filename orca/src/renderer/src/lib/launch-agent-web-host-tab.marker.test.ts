@@ -178,4 +178,35 @@ describe('launchAgentInWebHostTab — the delivery marker', () => {
     expect(request).not.toHaveProperty('hostAuthorityCapability')
     expect(request).not.toHaveProperty('prompt')
   })
+
+  it('keeps a silent host fallback failure reason for the delivery owner', async () => {
+    const failureReason = {
+      reason: 'process-mismatch' as const,
+      expectedProcess: 'claude',
+      foregroundProcess: 'sh'
+    }
+    mocks.createAgentTerminal.mockResolvedValue({
+      outcome: { status: 'created' },
+      promptDelivered: false,
+      failureReason
+    })
+
+    await expect(
+      launchAgentInWebHostTab({
+        agent: 'claude',
+        worktreeId: WORKTREE_ID,
+        environmentId: 'env-1',
+        startupPlan: startupPlan(),
+        prompt: 'deliver the task',
+        promptDelivery: 'submit-after-ready',
+        pastePromptAfterReady: 'deliver the task',
+        submitPastedPrompt: true
+      })
+    ).resolves.toEqual({
+      delivered: false,
+      failureNotified: false,
+      failureReason,
+      routeUnreported: true
+    })
+  })
 })

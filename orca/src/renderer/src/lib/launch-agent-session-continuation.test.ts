@@ -119,7 +119,11 @@ describe('launchAgentSessionContinuation', () => {
   it('distinguishes prompt delivery failure from terminal launch failure', async () => {
     launchAgentInNewTab.mockReturnValue({
       surface: { kind: 'local-terminal', tabId: 'tab-new' },
-      promptDeliveryResult: Promise.resolve({ delivered: false, failureNotified: false })
+      promptDeliveryResult: Promise.resolve({
+        delivered: false,
+        failureNotified: false,
+        failureReason: { reason: 'no-pty' }
+      })
     })
     const { launchAgentSessionContinuation } = await import('./launch-agent-session-continuation')
 
@@ -135,7 +139,7 @@ describe('launchAgentSessionContinuation', () => {
     )
     await vi.waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'The new Codex session started, but its context could not be sent.',
+        'No terminal became available for the new Codex session. Open the session, choose Copy prompt, paste it into the input, and press Enter once.',
         expect.objectContaining({ action: expect.objectContaining({ label: 'Copy prompt' }) })
       )
     )

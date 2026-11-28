@@ -4,12 +4,15 @@ import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { resolveDraftPasteReadyTimeoutMs } from '../../../shared/draft-paste-ready-timeout'
 import { withDeadline } from '../../../shared/promise-deadline'
 import { useAppStore } from '@/store'
-import { inspectRuntimeTerminalProcess } from '@/runtime/runtime-terminal-inspection'
+import {
+  inspectRuntimeTerminalProcess,
+  isRemoteRuntimePtyId
+} from '@/runtime/runtime-terminal-inspection'
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START
 } from '@/components/terminal-pane/terminal-bracketed-paste'
-import { waitForAgentReady } from './agent-ready-wait'
+import { isShellProcess } from './tui-agent-startup'
 import { getSettingsForWorktreeRuntimeOwner } from './worktree-runtime-owner'
 import { sendBracketedPasteToAgent } from './agent-bracketed-paste-write'
 import { agentDeliversDraftViaNativePrefill } from './agent-native-draft-prefill'
@@ -38,6 +41,15 @@ export { POST_PASTE_SUBMIT_DELAY_MS } from './agent-bracketed-paste-write'
 // composer budget on top would only delay that verdict. Keeping them distinct
 // also stops one slow step from spending the other's budget (STA-3367).
 const PTY_SPAWN_TIMEOUT_MS = 8000
+
+export type AgentPasteFailureReason =
+  | { reason: 'no-pty' }
+  | { reason: 'ready-timeout'; expectedProcess?: string }
+  | {
+      reason: 'process-mismatch'
+      expectedProcess: string
+      foregroundProcess: string
+    }
 
 export function getSettingsForAgentTabRuntimeOwner(
   tabId: string
@@ -77,7 +89,7 @@ export async function pasteDraftWhenAgentReady(args: {
   submit?: boolean
   forcePaste?: boolean
   timeoutMs?: number
-  onTimeout?: () => void
+  onTimeout?: (failure: AgentPasteFailureReason) => void
   onUnconfirmedDelivery?: () => void
   /** Called immediately before the bytes are written, so a caller can timestamp the write itself. */
   onWriteStart?: () => void
@@ -117,21 +129,50 @@ export async function pasteDraftWhenAgentReady(args: {
     settings
   })
   if (!readiness) {
-    onTimeout?.()
+    onTimeout?.({ reason: 'no-pty' })
     return false
   }
 
   const { ptyId } = readiness
+  if (
+    readiness.ready &&
+    agentConfig &&
+    readySignal === 'render-quiet-after-bracketed-paste'
+  ) {
+    const processReady = await waitForExpectedAgentOnPty(
+      ptyId,
+      agentConfig.expectedProcess,
+      1000,
+      settings
+    )
+    if (processReady.ready) {
+      // The shell can emit DECSET 2004 too; expected-process ownership is still a blind write.
+      if (submit === true) {
+        onUnconfirmedDelivery?.()
+      }
+    } else if (
+      processReady.foregroundProcess &&
+      isShellProcess(processReady.foregroundProcess)
+    ) {
+      onTimeout?.(fallbackFailureReason(agentConfig.expectedProcess, processReady))
+      return false
+    }
+  }
   if (!readiness.ready) {
     // Why: fast-starting TUIs can emit the paste-ready escape sequence before
     // this sidecar subscription attaches. If process/title inspection says the
     // launched agent owns the PTY, fall back to a best-effort paste instead of
     // silently dropping generated prompts.
     const fallbackReady = agentConfig
-      ? await waitForAgentReady(tabId, agentConfig.expectedProcess, { timeoutMs: 1000 })
-      : { ready: false }
+      ? await waitForExpectedAgentOnPty(
+          ptyId,
+          agentConfig.expectedProcess,
+          1000,
+          settings
+        )
+      : { ready: false as const }
     if (!fallbackReady.ready) {
-      onTimeout?.()
+      onTimeout?.(fallbackFailureReason(agentConfig?.expectedProcess, fallbackReady))
       return false
     }
     // Why: the process merely exists -- its composer was never observed. On Windows this is
@@ -160,7 +201,7 @@ export async function pasteDraftToAgentPtyWhenReady(args: {
   submit?: boolean
   forcePaste?: boolean
   timeoutMs?: number
-  onTimeout?: () => void
+  onTimeout?: (failure: AgentPasteFailureReason) => void
   onUnconfirmedDelivery?: () => void
 }): Promise<boolean> {
   const {
@@ -187,9 +228,9 @@ export async function pasteDraftToAgentPtyWhenReady(args: {
   if (!ready) {
     const fallbackReady = agentConfig
       ? await waitForExpectedAgentOnPty(ptyId, agentConfig.expectedProcess, 1000, settings)
-      : false
-    if (!fallbackReady) {
-      onTimeout?.()
+      : { ready: false as const }
+    if (!fallbackReady.ready) {
+      onTimeout?.(fallbackFailureReason(agentConfig?.expectedProcess, fallbackReady))
       return false
     }
     onUnconfirmedDelivery?.()
@@ -306,20 +347,29 @@ async function waitForExpectedAgentOnPty(
   expectedProcess: string,
   timeoutMs: number,
   settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
-): Promise<boolean> {
+): Promise<{ ready: true } | { ready: false; foregroundProcess?: string }> {
   const deadline = Date.now() + timeoutMs
+  let foregroundProcess: string | undefined
   while (Date.now() < deadline) {
     try {
-      const process = await withDeadline(
-        inspectRuntimeTerminalProcess(settings, ptyId),
+      // This gate only needs a process name. The full inspection also captures process-table evidence
+      // and can spend this entire bounded fallback before returning (issue #71).
+      const foreground = await withDeadline(
+        isRemoteRuntimePtyId(ptyId)
+          ? inspectRuntimeTerminalProcess(settings, ptyId).then(
+              (process) => process.foregroundProcess
+            )
+          : window.api.pty.getForegroundProcess(ptyId),
         Math.max(0, deadline - Date.now())
       )
-      if (!process) {
-        return false
+      if (foreground === null) {
+        return { ready: false }
       }
-      const foreground = process.foregroundProcess?.toLowerCase() ?? ''
-      if (isExpectedAgentProcess(foreground, expectedProcess)) {
-        return true
+      if (isExpectedAgentProcess(foreground.toLowerCase(), expectedProcess)) {
+        return { ready: true }
+      }
+      if (foreground) {
+        foregroundProcess = foreground
       }
     } catch {
       // Ignore transient PTY inspection failures and keep polling.
@@ -329,5 +379,22 @@ async function waitForExpectedAgentOnPty(
       await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs))
     }
   }
-  return false
+  return { ready: false, ...(foregroundProcess ? { foregroundProcess } : {}) }
+}
+
+function fallbackFailureReason(
+  expectedProcess: string | undefined,
+  fallback: { ready: false; foregroundProcess?: string }
+): AgentPasteFailureReason {
+  if (expectedProcess && fallback.foregroundProcess) {
+    return {
+      reason: 'process-mismatch',
+      expectedProcess,
+      foregroundProcess: fallback.foregroundProcess
+    }
+  }
+  return {
+    reason: 'ready-timeout',
+    ...(expectedProcess ? { expectedProcess } : {})
+  }
 }

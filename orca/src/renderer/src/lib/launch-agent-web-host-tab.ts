@@ -14,6 +14,7 @@ import { translate } from '@/i18n/i18n'
 import { replaceWorktreeSelectorNotFoundCode } from '@/lib/worktree-selector-not-found-notice'
 import { toAgentLaunchPreferences } from '../../../shared/agent-launch-preferences'
 import type { AgentPromptSubmissionVerdict } from '@/lib/agent-prompt-submission'
+import type { AgentPasteFailureReason } from '@/lib/agent-paste-draft'
 import { AGENT_SESSION_LAUNCH_PROMPT_DELIVERY_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 
 function removeStaleLocalAgentTabsForWebHostLaunch(worktreeId: string): void {
@@ -67,7 +68,12 @@ export function launchAgentInWebHostTab(args: {
   onPromptDeliveryUnconfirmed?: () => void
   /** What this launch may claim about the instruction becoming a turn (issue #60). */
   onPromptSubmitVerdict?: (verdict: AgentPromptSubmissionVerdict) => void
-}): Promise<{ delivered: boolean; failureNotified: boolean }> {
+}): Promise<{
+  delivered: boolean
+  failureNotified: boolean
+  failureReason?: AgentPasteFailureReason
+  routeUnreported?: boolean
+}> {
   const {
     agent,
     worktreeId,
@@ -143,11 +149,18 @@ export function launchAgentInWebHostTab(args: {
 
   const handleCreation = ({
     outcome,
-    promptDelivered
+    promptDelivered,
+    failureReason
   }: {
     outcome: Awaited<ReturnType<typeof createWebRuntimeSessionTerminal>>
     promptDelivered: boolean
-  }): { delivered: boolean; failureNotified: boolean } => {
+    failureReason?: AgentPasteFailureReason
+  }): {
+    delivered: boolean
+    failureNotified: boolean
+    failureReason?: AgentPasteFailureReason
+    routeUnreported?: boolean
+  } => {
     // Why: created means the host accepted the launch, not that a local tab
     // exists; keep pruning stale local rows until the snapshot mirrors.
     removeStaleLocalAgentTabsForWebHostLaunch(worktreeId)
@@ -168,7 +181,14 @@ export function launchAgentInWebHostTab(args: {
     if (hasPrompt && promptDelivered) {
       onPromptDelivered?.()
     }
-    return { delivered: promptDelivered, failureNotified: false }
+    return {
+      delivered: promptDelivered,
+      failureNotified: false,
+      ...(!promptDelivered && failureReason ? { failureReason } : {}),
+      // No terminal-route toast runs for a mirrored host fallback. Keep that silence explicit so
+      // the delivery owner surfaces one notice while preserving the reason the fallback observed.
+      ...(!promptDelivered ? { routeUnreported: true } : {})
+    }
   }
 
   if (pastePromptAfterReady !== null) {
