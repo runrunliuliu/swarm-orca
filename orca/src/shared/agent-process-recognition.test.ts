@@ -190,6 +190,25 @@ describe('agent process recognition', () => {
     expect(recognizeAgentProcess('trae-agent')).toBeNull()
   })
 
+  it('accepts traex as the declared alias of the traecli expected process', () => {
+    // Why #82: kernel comm is the basename of the path used to exec, not the
+    // resolved symlink target, so a launch or wrapper going through `traex`
+    // reports `traex` while the configured expectation is `traecli` — the same
+    // binary under another name must not read as process-mismatch.
+    expect(isExpectedAgentProcess('traex', 'traecli')).toBe(true)
+    expect(
+      isExpectedAgentProcess('/home/test/.local/share/traex/current/traex', 'traecli')
+    ).toBe(true)
+    expect(isExpectedAgentProcess('traex', '/Users/dev/.local/bin/traecli')).toBe(true)
+    expect(isExpectedAgentProcess('traecli', 'traecli')).toBe(true)
+    // Why: the alias is an exact name, not a prefix/suffix rule, so it cannot
+    // widen into unrelated processes or into another agent's expectation.
+    expect(isExpectedAgentProcess('traex-helper', 'traecli')).toBe(false)
+    expect(isExpectedAgentProcess('traex', 'qodercli')).toBe(false)
+    expect(isExpectedAgentProcess('traex', 'muse')).toBe(false)
+    expect(isExpectedAgentProcess('ante-obsidian', 'ante')).toBe(false)
+  })
+
   it('does not recognize Trae headless one-shot commands as interactive agents', () => {
     expect(recognizeAgentProcessFromCommandLine('traecli -p "summarize this diff"')).toBeNull()
     expect(recognizeAgentProcessFromCommandLine('traecli --print "review this"')).toBeNull()
