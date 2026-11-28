@@ -194,7 +194,6 @@ export const CODEX_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
     { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', options: [codexEffort('ultra')] },
     { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', options: [codexEffort('ultra')] },
     { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', options: [codexEffort('max')] },
-    { id: 'gpt-5.5', label: 'GPT-5.5', options: [codexEffort('xhigh')] },
     {
       id: 'gpt-5.2-codex',
       label: 'GPT-5.2 Codex',

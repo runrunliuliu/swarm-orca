@@ -108,7 +108,7 @@ describe.skipIf(process.platform === 'win32')('worker writable-root RPC forwardi
     )
 
   it('carries exact roots, fresh-pane constraint, mailbox and receipt through real placement', async () => {
-    const result = await start({ model: 'gpt-5.5', effort: 'high', backendVariant: 'max' })
+    const result = await start({ model: 'gpt-5.6-sol', effort: 'high', backendVariant: 'max' })
     expect(result).toMatchObject({
       state: 'failed',
       failedStage: 'terminal_create',
@@ -129,7 +129,7 @@ describe.skipIf(process.platform === 'win32')('worker writable-root RPC forwardi
         requireFreshPane: true,
         agentArgs: prepared.agentArgs,
         traeWorkspaceWrite: prepared,
-        launchPreferences: { model: 'gpt-5.5', effort: 'high', backendVariant: 'max' },
+        launchPreferences: { model: 'gpt-5.6-sol', effort: 'high', backendVariant: 'max' },
         startupPrompt: expect.stringContaining(
           'Your complete task is in your durable Dispatch inbox.'
         )

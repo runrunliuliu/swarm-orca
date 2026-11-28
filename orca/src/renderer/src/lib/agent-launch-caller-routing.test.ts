@@ -230,7 +230,7 @@ describe('agent launch caller routing', () => {
     const result = launchAgentInNewTab({
       agent: 'codex',
       worktreeId: 'wt-1',
-      agentArgs: "--model 'gpt-5.5"
+      agentArgs: "--model 'gpt-5.6-sol"
     })
 
     expect(result).toBeNull()

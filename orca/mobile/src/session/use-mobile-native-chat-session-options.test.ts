@@ -158,7 +158,7 @@ describe('useMobileNativeChatSessionOptions', () => {
   })
 
   it('types the Codex effort picker command', async () => {
-    mount({ agent: 'codex', reportedModel: 'gpt-5.5' })
+    mount({ agent: 'codex', reportedModel: 'gpt-5.6-sol' })
     await act(async () => {
       await api!.invokeAction('effort')
     })

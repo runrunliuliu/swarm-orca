@@ -126,16 +126,16 @@ describe('a chat pane over its own launch', () => {
   })
 
   it('keeps the selection its create seeded when a pick in another chat saves a new one', () => {
-    saveSelection('gpt-5.5')
+    saveSelection('gpt-5.6-sol')
     startStructuredAgentLaunch('wt-first', 'codex')
     const second = startStructuredAgentLaunch('wt-second', 'codex')
     const { result, rerender } = renderLaunchedChat('wt-second', second.sessionId)
-    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.5')
+    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.6-sol')
 
     // The first chat's pick lands in settings while the second is still launching.
     act(() => saveSelection('gpt-5.6-luna'))
     rerender()
-    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.5')
+    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.6-sol')
     // The catalog read names where this chat runs, so the host can check that workspace's config.
     expect(mocks.call).toHaveBeenCalledWith(
       LOCAL_TARGET,
@@ -145,7 +145,7 @@ describe('a chat pane over its own launch', () => {
   })
 
   it('shows a pick the launch could not apply the way a refused option change is shown', async () => {
-    saveSelection('gpt-5.5')
+    saveSelection('gpt-5.6-sol')
     let created!: (receipt: { sessionId: string; fence: number }) => void
     mocks.launch.mockReturnValue(new Promise((resolve) => (created = resolve)))
     mocks.call.mockImplementation((_target, method) =>
@@ -175,6 +175,6 @@ describe('a chat pane over its own launch', () => {
       expect(mocks.toastError).toHaveBeenCalledWith("The setting wasn't changed.")
     )
     // Reverted to what the chat runs; the refusal never kept the launch from publishing.
-    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.5')
+    expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.6-sol')
   })
 })

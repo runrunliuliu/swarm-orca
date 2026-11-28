@@ -34,7 +34,7 @@ class TraeCoordinatorTests(unittest.TestCase):
         self.model = self.root / "model.json"
         self.model.write_text(json.dumps({
             "schema_version": 1, "scope": "swarm_coordinator_only",
-            "selection": {"mode": "explicit", "agent": "trae", "model": "gpt-5.5",
+            "selection": {"mode": "explicit", "agent": "trae", "model": "gpt-5.6-sol",
                           "effort": "xhigh", "max_mode": True}}))
         self.runtime = self.root / "trae-runtime.json"
         self.runtime.write_text(json.dumps({
@@ -49,7 +49,7 @@ class TraeCoordinatorTests(unittest.TestCase):
             "cli_version": "0.210.1", "model_provider": "trae", "cwd": str(self.cwd),
             "source": "exec", "originator": "codex_exec", "parent_thread_id": None}}
         self.context = {"type": "turn_context", "timestamp": self.now.isoformat(),
-            "payload": {"model": "GPT-5.5", "model_provider": "trae", "effort": "xhigh",
+            "payload": {"model": "GPT-5.6-Sol", "model_provider": "trae", "effort": "xhigh",
                 "model_backend_variant": "max", "cwd": str(self.cwd), "approval_policy": "never",
                 "sandbox_policy": {"type": "workspace-write", "network_access": True,
                     "writable_roots": [str(self.bootstrap)]}}}
@@ -266,7 +266,7 @@ class TraeCoordinatorTests(unittest.TestCase):
             def mutate(source, size):
                 content = self.log.read_bytes()
                 if change == "rewrite":
-                    self.log.write_bytes(content.replace(b"GPT-5.5", b"GPT-0.0"))
+                    self.log.write_bytes(content.replace(b"GPT-5.6-Sol", b"GPT-0.0"))
                 elif change == "truncate":
                     self.log.write_bytes(content[:-20])
                 else:

@@ -29,7 +29,7 @@ export const TERMINAL_CREATE_COMMAND_SPEC: CommandSpec = {
   examples: [
     'orca terminal create --json',
     'orca terminal create --worktree active --command "codex" --json',
-    'orca terminal create --worktree active --agent trae --agent-args "exec --json -" --model gpt-5.5 --effort xhigh --backend-variant max --json',
+    'orca terminal create --worktree active --agent trae --agent-args "exec --json -" --model gpt-5.6-sol --effort xhigh --backend-variant max --json',
     'orca terminal create --worktree path:/projects/myapp --title "RUNNER" --command "opencode"',
     'orca terminal create --worktree path:/projects/myapp --command "opencode" --focus',
     'orca terminal create --worktree path:C:/src/app --shell cmd.exe --json'

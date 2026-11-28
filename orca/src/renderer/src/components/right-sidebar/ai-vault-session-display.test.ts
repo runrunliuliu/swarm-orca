@@ -17,7 +17,7 @@ const baseSession: AiVaultSession = {
   title: 'Fix the flaky golden tests',
   cwd: '/Users/ada/repo/app',
   branch: 'fix/golden',
-  model: 'gpt-5.5',
+  model: 'gpt-5.6-sol',
   filePath: '/Users/ada/.codex/sessions/session-1.jsonl',
   codexHome: null,
   createdAt: '2026-05-01T10:00:00.000Z',
@@ -97,7 +97,7 @@ describe('ai vault session display', () => {
   })
 
   it('labels the session model only when the transcript recorded one', () => {
-    expect(sessionModelLabel(baseSession)).toBe('gpt-5.5')
+    expect(sessionModelLabel(baseSession)).toBe('gpt-5.6-sol')
     expect(sessionModelLabel({ ...baseSession, model: null })).toBeNull()
   })
 

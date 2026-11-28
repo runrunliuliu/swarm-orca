@@ -163,7 +163,7 @@ describe('terminal.create RPC idempotency', () => {
         worktree: 'id:worktree-1',
         startupAgent: 'trae',
         agentArgs: 'exec --json -',
-        launchPreferences: { model: 'gpt-5.5', effort: 'xhigh', backendVariant: 'max' }
+        launchPreferences: { model: 'gpt-5.6-sol', effort: 'xhigh', backendVariant: 'max' }
       },
       {
         runtime: { createTerminal, dedupeTerminalCreate }
@@ -176,7 +176,7 @@ describe('terminal.create RPC idempotency', () => {
       expect.objectContaining({
         startupAgent: 'trae',
         agentArgs: 'exec --json -',
-        launchPreferences: { model: 'gpt-5.5', effort: 'xhigh', backendVariant: 'max' }
+        launchPreferences: { model: 'gpt-5.6-sol', effort: 'xhigh', backendVariant: 'max' }
       })
     )
   })

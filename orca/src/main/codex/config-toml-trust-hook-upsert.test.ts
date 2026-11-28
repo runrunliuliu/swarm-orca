@@ -45,7 +45,7 @@ describe('upsertHookTrustEntries', () => {
 
   it('appends to an existing config without disturbing prior content', () => {
     const original = [
-      'model = "gpt-5.5"',
+      'model = "gpt-5.6-sol"',
       'approval_policy = "never"',
       '',
       '[features]',

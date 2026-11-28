@@ -427,7 +427,7 @@ describe('NativeChatSessionOptionPickers', () => {
             kind: {
               type: 'select',
               choices: [
-                { value: 'gpt-5.5', label: 'GPT-5.5' },
+                { value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
                 { value: 'gpt-5.2-codex', label: 'GPT-5.2 Codex' }
               ]
             },
@@ -439,7 +439,7 @@ describe('NativeChatSessionOptionPickers', () => {
       />
     )
     expect(screen.getByRole('button', { name: 'Choose in agent picker…' })).not.toBeNull()
-    expect(screen.queryByText('GPT-5.5')).toBeNull()
+    expect(screen.queryByText('GPT-5.6 Sol')).toBeNull()
     expect(screen.queryByText('GPT-5.2 Codex')).toBeNull()
     screen.getByRole('button', { name: 'Choose in agent picker…' }).click()
     await waitFor(() => expect(invokeAction).toHaveBeenCalledWith('model'))
@@ -478,7 +478,7 @@ describe('NativeChatSessionOptionPickers', () => {
         surface={{ ...surface, invokeAction }}
         snapshot={[
           model({
-            kind: { type: 'select', choices: [{ value: 'gpt-5.5', label: 'GPT-5.5' }] },
+            kind: { type: 'select', choices: [{ value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }] },
             valueSource: 'unknown',
             action: { type: 'agent-picker' }
           })

@@ -71,8 +71,8 @@ describe('CommitMessageAiPane', () => {
         commitMessageAi: {
           enabled: true,
           agentId: 'codex',
-          selectedModelByAgent: { codex: 'gpt-5.5' },
-          selectedThinkingByModel: { 'gpt-5.5': 'medium' },
+          selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+          selectedThinkingByModel: { 'gpt-5.6-sol': 'medium' },
           customPrompt: 'Use Conventional Commits.',
           customAgentCommand: ''
         }
@@ -227,7 +227,7 @@ describe('CommitMessageAiPane', () => {
         commitMessageAi: {
           enabled: true,
           agentId: 'copilot',
-          selectedModelByAgent: { copilot: 'gpt-5.5' },
+          selectedModelByAgent: { copilot: 'gpt-5.6-sol' },
           selectedThinkingByModel: {},
           customPrompt: '',
           customAgentCommand: ''
@@ -383,8 +383,8 @@ describe('CommitMessageAiPane', () => {
     const config: SourceControlAiSettings = {
       enabled: true,
       agentId: 'cursor',
-      selectedModelByAgent: { cursor: 'stale-model', codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'low' },
+      selectedModelByAgent: { cursor: 'stale-model', codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'low' },
       instructionsByOperation: { commitMessage: 'Use Conventional Commits.' },
       customAgentCommand: '',
       discoveredModelsByAgent: {}
@@ -401,7 +401,7 @@ describe('CommitMessageAiPane', () => {
     expect(merged.agentId).toBe('cursor')
     expect(merged.selectedModelByAgent).toEqual({
       cursor: 'auto',
-      codex: 'gpt-5.5'
+      codex: 'gpt-5.6-sol'
     })
     expect(merged.discoveredModelsByAgent?.cursor).toEqual([{ id: 'auto', label: 'Auto' }])
     expect(merged.discoveredModelsByAgentByHost?.local?.cursor).toEqual([

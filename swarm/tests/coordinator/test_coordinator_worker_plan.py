@@ -25,7 +25,7 @@ class WorkerPlanTests(unittest.TestCase):
 
     def request(self, **updates):
         return dict(schema_version=2, cli="/verified/orca-server-cli", run="run_test",
-                    task="task_test", model="gpt-5.5", profiles_sha256=file_ref(PROFILES)["sha256"],
+                    task="task_test", model="gpt-5.6-sol", profiles_sha256=file_ref(PROFILES)["sha256"],
                     placement={"kind": "existing", "worktree": "id:repo::/worker space"},
                     **updates)
 
@@ -256,7 +256,6 @@ class WorkerPlanTests(unittest.TestCase):
     def test_model_only_resolves_fixed_profiles_without_mutating_request(self):
         for model, effort, backend in (("DeepSeek-V4.1-Flash", None, "max"),
                                        ("gpt-5.6-sol", "high", "max"),
-                                       ("gpt-5.5", "high", "max"),
                                        ("gpt-5.4", "xhigh", "standard")):
             request = dict(self.request(), model=model)
             before = copy.deepcopy(request)
@@ -358,7 +357,7 @@ class WorkerPlanTests(unittest.TestCase):
     def test_incomplete_and_unknown_profiles_fail_before_launch(self):
         with patch("subprocess.Popen") as spawn:
             for model, error in (("example-blocked-model", "effort_and_standard"),
-                                 ("GPT-5.5", "not_in_fixed_profiles"),
+                                 ("GPT-5.6-Sol", "not_in_fixed_profiles"),
                                  ("other", "not_in_fixed_profiles")):
                 with self.subTest(model=model), self.assertRaisesRegex(ValueError, error):
                     build_plan(dict(self.request(), model=model))
@@ -389,10 +388,10 @@ class WorkerPlanTests(unittest.TestCase):
             for changes in ({"effort": "max"}, {"agent": "codex"}, {"backend_variant": None},
                             {"extra_args": []}, {"blocked_reason": False}):
                 changed = copy.deepcopy(original)
-                changed["profiles"]["gpt-5.5"].update(changes)
+                changed["profiles"]["gpt-5.6-sol"].update(changes)
                 variants.append(changed)
             changed = copy.deepcopy(original)
-            changed["profiles"]["gpt-5.5"]["backend_variant"] = "standard"
+            changed["profiles"]["gpt-5.6-sol"]["backend_variant"] = "standard"
             variants.append(changed)
             for catalog in variants:
                 profile_path.write_text(json.dumps(catalog))

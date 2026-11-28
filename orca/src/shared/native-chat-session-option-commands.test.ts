@@ -72,7 +72,7 @@ describe('buildNativeChatSessionOptionCommand', () => {
     expect(
       buildNativeChatSessionOptionCommand({
         optionId: 'model',
-        value: 'gpt-5.5',
+        value: 'gpt-5.6-sol',
         apply: CODEX_SESSION_OPTION_CATALOG.modelApply,
         modelId: null,
         catalog: CODEX_SESSION_OPTION_CATALOG,
@@ -130,7 +130,7 @@ describe('recordNativeChatSessionOptionCommand', () => {
     })
     expect(claudeResult.opensAgentPicker).toBe(true)
     const codexRecord = createNativeChatSessionOptionRecord('codex')
-    codexRecord.model = { value: 'gpt-5.5', source: 'dispatched' }
+    codexRecord.model = { value: 'gpt-5.6-sol', source: 'dispatched' }
     const codexResult = recordNativeChatSessionOptionCommand({
       catalog: CODEX_SESSION_OPTION_CATALOG,
       models: CODEX_SESSION_OPTION_CATALOG.models,

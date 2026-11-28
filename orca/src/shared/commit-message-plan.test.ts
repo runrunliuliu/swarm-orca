@@ -473,7 +473,7 @@ describe('planCommitMessageGeneration', () => {
       {
         agentId: 'opencode',
         model: 'opencode/gpt-5.4-mini',
-        agentArgs: '--model opencode/gpt-5.5'
+        agentArgs: '--model opencode/gpt-5.6-sol'
       },
       'PROMPT'
     )
@@ -481,7 +481,7 @@ describe('planCommitMessageGeneration', () => {
     expect(result).toMatchObject({
       ok: true,
       plan: {
-        args: ['run', '--model', 'opencode/gpt-5.5', '--agent', 'build', '--format', 'default'],
+        args: ['run', '--model', 'opencode/gpt-5.6-sol', '--agent', 'build', '--format', 'default'],
         stdinPayload: 'PROMPT'
       }
     })
@@ -489,14 +489,14 @@ describe('planCommitMessageGeneration', () => {
 
   it('overrides the generated OpenCode model from a short-form recipe alias', () => {
     const result = planCommitMessageGeneration(
-      { agentId: 'opencode', model: 'opencode/gpt-5.4-mini', agentArgs: '-m opencode/gpt-5.5' },
+      { agentId: 'opencode', model: 'opencode/gpt-5.4-mini', agentArgs: '-m opencode/gpt-5.6-sol' },
       'PROMPT'
     )
 
     expect(result).toMatchObject({
       ok: true,
       plan: {
-        args: ['run', '-m', 'opencode/gpt-5.5', '--agent', 'build', '--format', 'default']
+        args: ['run', '-m', 'opencode/gpt-5.6-sol', '--agent', 'build', '--format', 'default']
       }
     })
   })
@@ -591,7 +591,7 @@ describe('planCommitMessageGeneration', () => {
       {
         agentId: 'opencode',
         model: 'opencode/gpt-5.4-mini',
-        agentCommandOverride: 'npx opencode --model opencode/gpt-5.5 --log-level DEBUG'
+        agentCommandOverride: 'npx opencode --model opencode/gpt-5.6-sol --log-level DEBUG'
       },
       'PROMPT'
     )
@@ -603,7 +603,7 @@ describe('planCommitMessageGeneration', () => {
         args: [
           'opencode',
           '--model',
-          'opencode/gpt-5.5',
+          'opencode/gpt-5.6-sol',
           '--log-level',
           'DEBUG',
           'run',
@@ -673,7 +673,7 @@ describe('planCommitMessageGeneration', () => {
         agentId: 'custom',
         model: '',
         customAgentCommand: 'agent --message {prompt}',
-        agentArgs: '--model gpt-5.5'
+        agentArgs: '--model gpt-5.6-sol'
       },
       'PROMPT'
     )
@@ -682,7 +682,7 @@ describe('planCommitMessageGeneration', () => {
       ok: true,
       plan: {
         binary: 'agent',
-        args: ['--message', '--model', 'gpt-5.5', 'PROMPT'],
+        args: ['--message', '--model', 'gpt-5.6-sol', 'PROMPT'],
         stdinPayload: null,
         label: 'agent'
       }
@@ -695,7 +695,7 @@ describe('planCommitMessageGeneration', () => {
         agentId: 'custom',
         model: '',
         customAgentCommand: 'agent --message',
-        agentArgs: '--model gpt-5.5'
+        agentArgs: '--model gpt-5.6-sol'
       },
       'PROMPT'
     )
@@ -703,7 +703,7 @@ describe('planCommitMessageGeneration', () => {
     expect(result).toMatchObject({
       ok: true,
       plan: {
-        args: ['--message', '--model', 'gpt-5.5'],
+        args: ['--message', '--model', 'gpt-5.6-sol'],
         stdinPayload: 'PROMPT'
       }
     })

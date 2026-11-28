@@ -49,7 +49,7 @@ describe('upsertProjectTrustLevel', () => {
 
   it('updates an existing project block without touching unrelated keys', () => {
     const original = [
-      'model = "gpt-5.5"',
+      'model = "gpt-5.6-sol"',
       '',
       '[projects."/tmp/codex-ws"]',
       'notes = "keep"',
@@ -62,7 +62,7 @@ describe('upsertProjectTrustLevel', () => {
 
     const updated = upsertProjectTrustLevelInContent(original, '/tmp/codex-ws', 'trusted')
 
-    expect(updated).toContain('model = "gpt-5.5"')
+    expect(updated).toContain('model = "gpt-5.6-sol"')
     expect(updated).toContain('[projects."/tmp/codex-ws"]\nnotes = "keep"')
     expect(updated).toContain('trust_level = "trusted"')
     expect(updated).not.toContain('trust_level = "untrusted"')

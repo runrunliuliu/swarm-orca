@@ -61,7 +61,7 @@ export const AGENT_LAUNCH_CALLER_PROFILES: readonly AgentLaunchCallerProfile[] =
       worktreeId: 'wt-1',
       groupId: 'group-1',
       prompt: PROMPT,
-      agentArgs: '--model gpt-5.5',
+      agentArgs: '--model gpt-5.6-sol',
       promptDelivery: 'submit-after-ready',
       launchPlatform: 'darwin',
       // Caller-supplied, not fixed at the call site: one representative value stands in.
@@ -76,7 +76,7 @@ export const AGENT_LAUNCH_CALLER_PROFILES: readonly AgentLaunchCallerProfile[] =
       worktreeId: 'wt-1',
       groupId: 'group-1',
       prompt: PROMPT,
-      agentArgs: '--model gpt-5.5',
+      agentArgs: '--model gpt-5.6-sol',
       promptDelivery: 'submit-after-ready',
       launchPlatform: 'darwin',
       launchSource: 'source_control_recovery'
@@ -140,7 +140,7 @@ export const AGENT_LAUNCH_CALLER_PROFILES: readonly AgentLaunchCallerProfile[] =
       worktreeId: 'wt-1',
       groupId: 'group-1',
       prompt: PROMPT,
-      agentArgs: '--model gpt-5.5',
+      agentArgs: '--model gpt-5.6-sol',
       promptDelivery: 'submit-after-ready',
       launchPlatform: 'darwin',
       // Caller-supplied, not fixed at the call site: one representative value stands in.

@@ -779,7 +779,7 @@ DISPLAY=:99 ORCA_BACKGROUND_LAUNCH=1 node tests/tools/task-workbench-rendered/ru
 ```text
 ▾ TUI · claude-sonnet-4.5              ◐ working   12m
   ├─ 派生1 · codex-5.1                 ◐ working    4m
-  └─ 派生2 · gpt-5.5                   ✓ done       2m
+  └─ 派生2 · gpt-5.6-sol                   ✓ done       2m
 ```
 
 **这条不依赖 `taskRecords`，也不依赖 M2a**，可以在 M1 之前或并行单独交付。

@@ -154,13 +154,13 @@ describe('codex settings write-back promotion', () => {
     syncSystemConfigIntoManagedCodexHome()
     expect(existsSync(baselinePath())).toBe(true)
 
-    simulateCodexSettingWrite('model', '"gpt-5.5-codex"')
+    simulateCodexSettingWrite('model', '"gpt-5.6-sol-codex"')
     syncSystemConfigIntoManagedCodexHome()
 
     expect(readSystemConfig()).toBe(
-      'model = "gpt-5.5-codex"\napproval_policy = "on-request"\n\n[features]\nhooks = true\n'
+      'model = "gpt-5.6-sol-codex"\napproval_policy = "on-request"\n\n[features]\nhooks = true\n'
     )
-    expect(readRuntimeConfig()).toContain('model = "gpt-5.5-codex"')
+    expect(readRuntimeConfig()).toContain('model = "gpt-5.6-sol-codex"')
 
     const settledSystem = readSystemConfig()
     const settledRuntime = readRuntimeConfig()
@@ -287,11 +287,11 @@ describe('codex settings write-back promotion', () => {
     expect(existsSync(baselinePath())).toBe(true)
 
     // Codex itself creates the runtime config.toml on the first /model write.
-    simulateCodexSettingWrite('model', '"gpt-5.5-codex"')
+    simulateCodexSettingWrite('model', '"gpt-5.6-sol-codex"')
     syncSystemConfigIntoManagedCodexHome()
 
-    expect(readSystemConfig()).toBe('model = "gpt-5.5-codex"\n')
-    expect(readRuntimeConfig()).toContain('model = "gpt-5.5-codex"')
+    expect(readSystemConfig()).toBe('model = "gpt-5.6-sol-codex"\n')
+    expect(readRuntimeConfig()).toContain('model = "gpt-5.6-sol-codex"')
   })
 
   it('keeps runtime-only settings when promotion has to create ~/.codex/config.toml', () => {

@@ -33,14 +33,14 @@ describe('OrcaRuntimeService', () => {
       [
         'Booting MCP server: computer-use(0s  esc to interrupt)\n',
         ' >_ OpenAI Codex (v0.132.0)\n',
-        ' model:       gpt-5.5 high   /model to change\n',
+        ' model:       gpt-5.6-sol high   /model to change\n',
         ' directory:   ~/orca/workspaces/orca/cli-debug\n',
         [
           'Starting MCP servers (0/2): codex_apps, computer-use (2s  esc to interrupt)',
-          'Run /review on my current changes gpt-5.5 high ~/orca/workspaces/orca/cli-debug',
-          'Run /review on my current changes gpt-5.5 high ~/orca/workspaces/orca/cli-debug',
-          'Run /review on my current changes gpt-5.5 high ~/orca/workspaces/orca/cli-debug',
-          'Run /review on my current changes gpt-5.5 high ~/orca/workspaces/orca/cli-debug\n'
+          'Run /review on my current changes gpt-5.6-sol high ~/orca/workspaces/orca/cli-debug',
+          'Run /review on my current changes gpt-5.6-sol high ~/orca/workspaces/orca/cli-debug',
+          'Run /review on my current changes gpt-5.6-sol high ~/orca/workspaces/orca/cli-debug',
+          'Run /review on my current changes gpt-5.6-sol high ~/orca/workspaces/orca/cli-debug\n'
         ].join('')
       ].join(''),
       Date.now()
@@ -101,7 +101,7 @@ describe('OrcaRuntimeService', () => {
         'Choose working directory to resume this session\n',
         'Press enter to continue\n',
         ' >_ OpenAI Codex (v0.132.0)\n',
-        ' model:       gpt-5.5 high   /model to change\n',
+        ' model:       gpt-5.6-sol high   /model to change\n',
         ' directory:   ~/orca/workspaces/orca/cli-debug\n'
       ].join(''),
       Date.now()
@@ -132,7 +132,7 @@ describe('OrcaRuntimeService', () => {
         'Update available! 0.131.0 -> 0.132.0\n',
         'Press enter to continue\n',
         ' >_ OpenAI Codex (v0.132.0)\n',
-        ' model:       gpt-5.5 high   /model to change\n',
+        ' model:       gpt-5.6-sol high   /model to change\n',
         ' directory:   ~/orca/workspaces/orca/cli-debug\n',
         'Hooks need review\n',
         'Press enter to confirm\n'

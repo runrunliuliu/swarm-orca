@@ -113,7 +113,7 @@ describe('registerFilesystemHandlers', () => {
     }
     const sourceControlAiResolvedParams = {
       agentId: 'codex' as const,
-      model: 'gpt-5.5',
+      model: 'gpt-5.6-sol',
       thinkingLevel: 'high',
       customPrompt: 'Use Conventional Commits.'
     }

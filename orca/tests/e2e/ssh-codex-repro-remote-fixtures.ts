@@ -45,14 +45,14 @@ for (let frame = 0; frame < ${REMOTE_TUI_FRAMES}; frame += 1) {
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'][frame % 8]
   const bands = [
     { row: statusRow, width: statusWidth, text: \`\${spinner} Working for background terminal · frame \${String(frame).padStart(3, '0')}\` },
-    { row: 27 + (frame % 9), width: Math.max(32, statusWidth - 18), text: \`gpt-5.5 high · ~/remote/repro/pr-5969 · /ps to view · /stop to close \${frame}\` },
+    { row: 27 + (frame % 9), width: Math.max(32, statusWidth - 18), text: \`gpt-5.6-sol high · ~/remote/repro/pr-5969 · /ps to view · /stop to close \${frame}\` },
     { row: 40 + (frame % 11), width: Math.max(28, statusWidth - 8), text: \`• Working for background terminal · rtk bun run e2e:ui --filter=@dalp/app \${frame}\` }
   ]
   await write('\\x1b[?2026h')
   await write(\`\\x1b[\${priorRow};1H\\x1b[2K\`)
   await write(\`\\x1b[\${27 + ((frame + 8) % 9)};1H\\x1b[2K\`)
   await write(\`\\x1b[\${40 + ((frame + 10) % 11)};1H\\x1b[2K\`)
-  await write('\\x1b[1;1H\\x1b[38;2;142;196;255mgpt-5.5 high\\x1b[0m ')
+  await write('\\x1b[1;1H\\x1b[38;2;142;196;255mgpt-5.6-sol high\\x1b[0m ')
   await write('\\x1b[38;2;106;176;76m~/remote/repro/pr-5969\\x1b[0m ')
   await write('/ps to view · /stop to close')
   await write('\\x1b[3;1H• Reproducing remote Codex SSH display artifacts with fast status movement')
@@ -73,7 +73,7 @@ for (let frame = 0; frame < ${REMOTE_TUI_FRAMES}; frame += 1) {
 }
 
 await write('\\x1b[?2026h\\x1b[2J\\x1b[H')
-await write('\\x1b[38;2;142;196;255mgpt-5.5 high\\x1b[0m ')
+await write('\\x1b[38;2;142;196;255mgpt-5.6-sol high\\x1b[0m ')
 await write('\\x1b[38;2;106;176;76m~/remote/repro/pr-5969\\x1b[0m clean final frame\\r\\n\\r\\n')
 await write('Final screen intentionally has no gray background bands.\\r\\n')
 await write('If Orca leaves wide gray rectangles here, they are stale remote-PTY render artifacts.\\r\\n')
@@ -118,7 +118,7 @@ async function codexViewportFrame(frame) {
   await write('\\x1b[?2026h')
   await write('\\x1b[?25l')
   await write(\`\\x1b[\${viewportTop};1H\\x1b[2K\\x1b[38;2;142;196;255m>_ OpenAI Codex\\x1b[0m  \`)
-  await write('\\x1b[38;2;106;176;76mgpt-5.5 high\\x1b[0m  ')
+  await write('\\x1b[38;2;106;176;76mgpt-5.6-sol high\\x1b[0m  ')
   await write('\\x1b[38;2;180;180;180m/model to change · /ps to view · /stop to close\\x1b[0m')
   await grayLine(viewportTop + 2 + (frame % 5), \`• Working for background terminal · rtk bun run e2e:ui --filter=@dalp/app \${frame}\`)
   await write(\`\\x1b[\${viewportTop + 8};1H\\x1b[2K\\x1b[38;2;153;199;255m› \${pad('Reviewing terminal renderer state after remote SSH output burst ' + frame, width - 4)}\\x1b[0m\`)
@@ -135,7 +135,7 @@ async function insertCodexHistory(frame) {
     const phase = String(frame).padStart(4, '0') + '.' + index
     await write('\\r\\n')
     await write(\`\\x1b[48;2;72;72;72m\\x1b[K\`)
-    await write(\`\\x1b[38;2;220;220;220;48;2;72;72;72m\${pad('gpt-5.5 high · ' + phase + ' · ~/code/pr-12250-migration-compare-move-baseprice-claim · /ps to view · /stop to close', width)}\\x1b[0m\`)
+    await write(\`\\x1b[38;2;220;220;220;48;2;72;72;72m\${pad('gpt-5.6-sol high · ' + phase + ' · ~/code/pr-12250-migration-compare-move-baseprice-claim · /ps to view · /stop to close', width)}\\x1b[0m\`)
   }
   await write('\\x1b[r')
   await write(\`\\x1b[\${viewportBottom};1H\`)
@@ -164,7 +164,7 @@ async function reverseIndexCodexHistory(frame) {
 await write('\\x1b]0;codex\\x07')
 await write('\\x1b[?25l')
 await write('>_ OpenAI Codex (fixture)\\r\\n')
-await write('model:     gpt-5.5  /model to change\\r\\n')
+await write('model:     gpt-5.6-sol  /model to change\\r\\n')
 await write('directory: ' + process.cwd() + '\\r\\n')
 await write('permissions: YOLO mode\\r\\n\\r\\n')
 await write('Tip: deterministic fixture for Orca SSH Codex display artifacts.\\r\\n\\r\\n')
@@ -176,7 +176,7 @@ for (let frame = 0; frame < ${REMOTE_CODEX_FIXTURE_FRAMES}; frame += 1) {
     await reverseIndexCodexHistory(frame)
   }
   if (frame % 9 === 0) {
-    await grayScrollLine(\`gpt-5.5 high · \${frame} · ~/code/pr-12250-migration-compare-move-baseprice-claim · /ps to view · /stop to close\`)
+    await grayScrollLine(\`gpt-5.6-sol high · \${frame} · ~/code/pr-12250-migration-compare-move-baseprice-claim · /ps to view · /stop to close\`)
   }
   await sleep(${REMOTE_CODEX_FIXTURE_FRAME_DELAY_MS})
 }

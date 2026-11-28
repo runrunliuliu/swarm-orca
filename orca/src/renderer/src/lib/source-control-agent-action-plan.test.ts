@@ -46,13 +46,13 @@ describe('planSourceControlAgentActionLaunch', () => {
     const result = planSourceControlAgentActionLaunch({
       agent: 'codex',
       commandInput: 'Fix checks',
-      agentArgs: '--model gpt-5.5',
+      agentArgs: '--model gpt-5.6-sol',
       promptDelivery: 'submit-after-ready',
       detectedAgents: ['codex'],
       platform: 'linux'
     })
 
-    expect(result.ok && result.commandLabel).toBe("codex '--model' 'gpt-5.5'")
+    expect(result.ok && result.commandLabel).toBe("codex '--model' 'gpt-5.6-sol'")
   })
 
   it.each([

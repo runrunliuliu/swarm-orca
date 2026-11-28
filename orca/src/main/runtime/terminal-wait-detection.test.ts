@@ -190,7 +190,7 @@ describe('detectTerminalWaitBlockedReason live prompts', () => {
       'Update available! 0.131.0 -> 0.132.0',
       'Press enter to continue',
       ' >_ OpenAI Codex (v0.132.0)',
-      ' model:       gpt-5.5 high   /model to change',
+      ' model:       gpt-5.6-sol high   /model to change',
       ' directory:   ~/orca/workspaces/orca/cli-debug',
       'Hooks need review',
       'Press enter to confirm'

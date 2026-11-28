@@ -480,7 +480,7 @@ describe('OrcaRuntimeService', () => {
     const write = vi.fn(() => true)
     const kill = vi.fn(() => true)
     const READY_SCREEN =
-      ' >_ OpenAI Codex (v0.131.0)\r\n model:       gpt-5.5 high\r\n directory:   /repo\r\n'
+      ' >_ OpenAI Codex (v0.131.0)\r\n model:       gpt-5.6-sol high\r\n directory:   /repo\r\n'
     // Why scrollbackRows-aware: a visible-only request gets the grid in `data`;
     // a scrollback request gets history. Collapsing the two would let a test
     // pass on evidence the caller never asked for.
@@ -567,7 +567,7 @@ describe('OrcaRuntimeService', () => {
     expect(kill).not.toHaveBeenCalled()
     const [terminal] = (await runtime.listTerminals()).terminals
     await expect(runtime.readTerminal(terminal.handle)).resolves.toMatchObject({
-      tail: [' >_ OpenAI Codex (v0.131.0)', ' model:       gpt-5.5 high', ' directory:   /repo']
+      tail: [' >_ OpenAI Codex (v0.131.0)', ' model:       gpt-5.6-sol high', ' directory:   /repo']
     })
     expect(serializeProviderBuffer).toHaveBeenCalledWith('pty-legacy', {
       scrollbackRows: 120

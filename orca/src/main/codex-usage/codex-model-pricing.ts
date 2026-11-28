@@ -33,17 +33,11 @@ export const MODEL_PRICING: Record<string, CodexModelPricing> = {
     output: 15,
     longContext: { input: 5, cachedInput: 0.5, output: 22.5 }
   },
-  'gpt-5.5-pro': {
+  'gpt-5.6-sol-pro': {
     input: 30,
     cachedInput: 30,
     output: 180,
     longContext: { input: 60, cachedInput: 60, output: 270 }
-  },
-  'gpt-5.5': {
-    input: 5,
-    cachedInput: 0.5,
-    output: 30,
-    longContext: { input: 10, cachedInput: 1, output: 45 }
   },
   // Why: Sol's $4/$20 is OpenAI's promotional rate, listed through at least 2026-11-21.
   'gpt-5.6-sol': {
@@ -165,11 +159,8 @@ export function normalizeModelForPricing(model: string | null): string | null {
   if (normalized === 'gpt-5.4' || normalized.startsWith('gpt-5.4-')) {
     return 'gpt-5.4'
   }
-  if (normalized === 'gpt-5.5-pro' || normalized.startsWith('gpt-5.5-pro-')) {
-    return 'gpt-5.5-pro'
-  }
-  if (normalized === 'gpt-5.5' || normalized.startsWith('gpt-5.5-')) {
-    return 'gpt-5.5'
+  if (normalized === 'gpt-5.6-sol-pro' || normalized.startsWith('gpt-5.6-sol-pro-')) {
+    return 'gpt-5.6-sol-pro'
   }
   if (normalized === 'gpt-5.6-sol' || normalized.startsWith('gpt-5.6-sol-')) {
     return 'gpt-5.6-sol'

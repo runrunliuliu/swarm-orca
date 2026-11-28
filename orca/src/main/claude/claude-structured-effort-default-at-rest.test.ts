@@ -213,13 +213,13 @@ describe('Claude effort default at rest', () => {
       provider: 'codex',
       accountHome: { variable: 'CODEX_HOME', path: '/accounts/codex' },
       location: { wslDistro: null },
-      options: { model: 'gpt-5.5' }
+      options: { model: 'gpt-5.6-sol' }
     } as unknown as AgentSessionRecord
     store.recordSuccess(agentModelCatalogFingerprintForRecord(record), 'codex', {
       models: [
         {
-          id: 'gpt-5.5',
-          label: 'GPT-5.5',
+          id: 'gpt-5.6-sol',
+          label: 'GPT-5.6 Sol',
           isDefault: true,
           defaultEffort: 'medium',
           efforts: [
@@ -234,7 +234,7 @@ describe('Claude effort default at rest', () => {
 
     const result = await readAtRest(store, record)
 
-    expect(result.current).toEqual({ model: 'gpt-5.5' })
+    expect(result.current).toEqual({ model: 'gpt-5.6-sol' })
   })
 
   it("never saves the applied effort as the chat's pick, yet shows it at rest", async () => {

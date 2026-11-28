@@ -191,13 +191,13 @@ describe('buildCommitMessageGenerationParams', () => {
       buildCommitMessageGenerationParams({
         agentId: 'codex',
         commandTemplate: '{basePrompt}\n\nUse Conventional Commits.',
-        agentArgs: '--model gpt-5.5',
+        agentArgs: '--model gpt-5.6-sol',
         baseParams: {
           agentId: 'codex',
           model: 'gpt-5.4-mini',
           thinkingLevel: 'xhigh',
           commandInputTemplate: '{basePrompt}',
-          agentArgs: '--model gpt-5.5',
+          agentArgs: '--model gpt-5.6-sol',
           agentCommandOverride: 'codex'
         },
         settings: { agentCmdOverrides: { codex: 'codex --profile work' } }
@@ -207,7 +207,7 @@ describe('buildCommitMessageGenerationParams', () => {
       model: 'gpt-5.4-mini',
       thinkingLevel: 'xhigh',
       commandInputTemplate: '{basePrompt}\n\nUse Conventional Commits.',
-      agentArgs: '--model gpt-5.5',
+      agentArgs: '--model gpt-5.6-sol',
       agentCommandOverride: 'codex --profile work'
     })
   })
@@ -371,13 +371,13 @@ describe('buildCommitMessageGenerationParams', () => {
           agentId: 'codex',
           model: 'gpt-5.4-mini',
           commandInputTemplate: '{basePrompt}\n\nKeep it short.',
-          agentArgs: '--model gpt-5.5'
+          agentArgs: '--model gpt-5.6-sol'
         }
       ).actions?.pullRequest
     ).toEqual({
       agentId: 'codex',
       commandInputTemplate: '{basePrompt}\n\nKeep it short.',
-      agentArgs: '--model gpt-5.5'
+      agentArgs: '--model gpt-5.6-sol'
     })
   })
 })

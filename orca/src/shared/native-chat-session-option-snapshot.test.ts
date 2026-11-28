@@ -255,7 +255,7 @@ describe('buildNativeChatSessionOptionSnapshot', () => {
     expect(snapshot[0]?.action).toEqual({ type: 'agent-picker' })
     expect(snapshot[0]?.kind).toMatchObject({
       type: 'select',
-      choices: expect.arrayContaining([{ value: 'gpt-5.5', label: 'GPT-5.5' }])
+      choices: expect.arrayContaining([{ value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }])
     })
   })
 

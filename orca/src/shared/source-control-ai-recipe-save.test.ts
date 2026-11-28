@@ -17,7 +17,7 @@ function settings(): GlobalSettings {
       ...base.sourceControlAi!,
       enabled: true,
       agentId: 'codex',
-      selectedModelByAgent: { codex: 'gpt-5.5' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
       selectedThinkingByModel: {}
     }
   }

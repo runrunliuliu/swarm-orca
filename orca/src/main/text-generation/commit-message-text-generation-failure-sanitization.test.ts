@@ -135,7 +135,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',
@@ -203,7 +203,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',
@@ -233,7 +233,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',
@@ -263,7 +263,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',
@@ -295,7 +295,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',
@@ -336,7 +336,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',
@@ -363,7 +363,7 @@ describe('generateCommitMessageFromContext', () => {
       },
       {
         agentId: 'pi',
-        model: 'github-copilot/gpt-5.5'
+        model: 'github-copilot/gpt-5.6-sol'
       },
       {
         kind: 'remote',

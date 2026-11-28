@@ -155,7 +155,7 @@ describe('parseCodexUsageRecord', () => {
       sessionId: 'session-1',
       sessionCwd: '/workspace/repo',
       currentCwd: '/workspace/repo',
-      currentModel: 'gpt-5.5',
+      currentModel: 'gpt-5.6-sol',
       previousTotals: null
     }
 

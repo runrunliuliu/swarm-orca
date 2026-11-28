@@ -78,11 +78,11 @@ describe('registerFilesystemHandlers', () => {
         id: 'codex',
         label: 'Codex',
         modelSource: 'dynamic',
-        defaultModelId: 'gpt-5.5',
-        models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }]
+        defaultModelId: 'gpt-5.6-sol',
+        models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }]
       },
-      models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }],
-      defaultModelId: 'gpt-5.5'
+      models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }],
+      defaultModelId: 'gpt-5.6-sol'
     })
     const storeWithOverride = {
       ...store,
@@ -216,11 +216,11 @@ describe('registerFilesystemHandlers', () => {
           id: 'codex',
           label: 'Codex',
           modelSource: 'dynamic',
-          defaultModelId: 'gpt-5.5',
-          models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }]
+          defaultModelId: 'gpt-5.6-sol',
+          models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }]
         },
-        models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }],
-        defaultModelId: 'gpt-5.5'
+        models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' }],
+        defaultModelId: 'gpt-5.6-sol'
       })
       const prepareForCodexLaunch = vi.fn(() => '\\\\wsl.localhost\\Ubuntu\\home\\tester\\.codex')
       const wslStore = {

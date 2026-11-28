@@ -403,7 +403,7 @@ describe('markCodexProjectTrusted', () => {
       writeFileSync(
         join(codexDir, 'config.toml'),
         [
-          'model = "gpt-5.5"',
+          'model = "gpt-5.6-sol"',
           '',
           `[projects."${escapeTomlBasicString(realpath)}"]`,
           'notes = "keep"',
@@ -429,7 +429,7 @@ describe('markCodexProjectTrusted', () => {
 
       const written = readFileSync(join(codexDir, 'config.toml'), 'utf-8')
       const runtimeWritten = readFileSync(join(runtimeCodexDir, 'config.toml'), 'utf-8')
-      expect(written).toContain('model = "gpt-5.5"')
+      expect(written).toContain('model = "gpt-5.6-sol"')
       expect(written).toContain('notes = "keep"')
       expect(written).toContain('trust_level = "trusted"')
       expect(written).not.toContain('trust_level = "untrusted"')

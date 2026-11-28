@@ -314,7 +314,7 @@ describe('commit-message generation defaults', () => {
               ...settings.sourceControlAi!.actions,
               pullRequest: {
                 commandInputTemplate: '{basePrompt}',
-                agentArgs: '--model gpt-5.5'
+                agentArgs: '--model gpt-5.6-sol'
               }
             }
           }

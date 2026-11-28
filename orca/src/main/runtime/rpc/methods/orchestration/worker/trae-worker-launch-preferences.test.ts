@@ -50,7 +50,7 @@ describe('Trae worker launch overrides', () => {
     ).toThrow('does not support backendVariant max')
   })
 
-  it.each(['gpt-5.5', 'gpt-5.6-sol', 'DeepSeek-V4-Flash', 'unknown'])(
+  it.each(['gpt-5.6-sol', 'gpt-5.6-sol', 'DeepSeek-V4-Flash', 'unknown'])(
     'does not extend xhigh support to %s',
     (model) => {
       expect(() =>
@@ -154,7 +154,7 @@ describe('Trae worker launch overrides', () => {
     ).toThrow('does not support backendVariant ultra')
   })
 
-  it.each(['gpt-5.6-sol', 'gpt-5.5'])('validates and records the complete %s tuple', (model) => {
+  it.each(['gpt-5.6-sol', 'gpt-5.6-sol'])('validates and records the complete %s tuple', (model) => {
     const requested = { ...selection, model }
     expect(resolveWorkerLaunchPreferences(requested)).toEqual({
       preferences: { model, effort: 'high', backendVariant: 'max' },

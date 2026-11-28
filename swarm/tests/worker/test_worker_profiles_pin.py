@@ -26,7 +26,7 @@ class WorkerProfilesPinTests(unittest.TestCase):
         self.root = Path(self.temp.name).resolve()
         self.policy = self.root / "private profiles.json"
         self.config = {"schema_version": 1, "scope": "swarm_worker_only", "profiles": {
-            "gpt-5.5": {"agent": "trae", "effort": "high",
+            "gpt-5.6-sol": {"agent": "trae", "effort": "high",
                         "backend_variant": "max", "blocked_reason": None}}}
 
     def write(self, config=None):
@@ -38,9 +38,9 @@ class WorkerProfilesPinTests(unittest.TestCase):
         with patch.dict(os.environ, {"SWARM_WORKER_PROFILES": str(self.policy)}):
             # Pinning the bundled fixture while the process reads the override.
             with self.assertRaisesRegex(ValueError, "worker_profiles_pin_source_mismatch"):
-                resolve("gpt-5.5", file_ref(PROFILES)["sha256"])
+                resolve("gpt-5.6-sol", file_ref(PROFILES)["sha256"])
             # Same call with the pin of the active file stays green.
-            _, profile = resolve("gpt-5.5", private)
+            _, profile = resolve("gpt-5.6-sol", private)
             self.assertEqual(profile["config"], {"path": str(self.policy), "sha256": private})
 
     def test_genuinely_changed_active_file_is_not_relabelled(self):
@@ -48,19 +48,19 @@ class WorkerProfilesPinTests(unittest.TestCase):
         with patch.dict(os.environ, {"SWARM_WORKER_PROFILES": str(self.policy)}):
             self.policy.write_text(json.dumps(self.config) + "\n")
             with self.assertRaisesRegex(ValueError, "file_pin_changed"):
-                resolve("gpt-5.5", private)
+                resolve("gpt-5.6-sol", private)
 
     def test_identical_bytes_are_not_a_source_mismatch(self):
         copied = self.root / "copy.json"
         copied.write_bytes(PROFILES.read_bytes())
         with patch.dict(os.environ, {"SWARM_WORKER_PROFILES": str(copied)}):
-            _, profile = resolve("gpt-5.5", file_ref(copied)["sha256"])
+            _, profile = resolve("gpt-5.6-sol", file_ref(copied)["sha256"])
         self.assertEqual(profile["config"]["path"], str(copied))
 
     def test_unreadable_override_never_falls_back_to_the_bundled_file(self):
         with patch.dict(os.environ, {"SWARM_WORKER_PROFILES": str(self.root / "gone.json")}):
             with self.assertRaisesRegex(ValueError, "worker_profiles_unreadable"):
-                resolve("gpt-5.5", file_ref(PROFILES)["sha256"])
+                resolve("gpt-5.6-sol", file_ref(PROFILES)["sha256"])
 
     def test_bundled_file_pin_still_rejects_a_real_change(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -69,10 +69,10 @@ class WorkerProfilesPinTests(unittest.TestCase):
             changed_pin = file_ref(changed)["sha256"]
             with patch("coordinator_worker_profiles.PROFILES", changed):
                 with self.assertRaisesRegex(ValueError, "file_pin_changed"):
-                    resolve("gpt-5.5", file_ref(PROFILES)["sha256"])
+                    resolve("gpt-5.6-sol", file_ref(PROFILES)["sha256"])
                 changed.unlink()
                 with self.assertRaisesRegex(ValueError, "worker_profiles_unreadable"):
-                    resolve("gpt-5.5", changed_pin)
+                    resolve("gpt-5.6-sol", changed_pin)
 
 
 if __name__ == "__main__":

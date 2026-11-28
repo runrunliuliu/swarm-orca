@@ -900,14 +900,14 @@ describe('launchAgentInNewTab', () => {
       agent: 'codex',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
-      agentArgs: '--model gpt-5.5',
+      agentArgs: '--model gpt-5.6-sol',
       promptDelivery: 'submit-after-ready'
     })
 
     expect(mockQueueTabStartupCommand).toHaveBeenCalledWith(
       'tab-1',
       expect.objectContaining({
-        command: "codex '--model' 'gpt-5.5'"
+        command: "codex '--model' 'gpt-5.6-sol'"
       })
     )
   })

@@ -17,8 +17,8 @@ function settings(): GlobalSettings {
       ...base.sourceControlAi!,
       enabled: true,
       agentId: 'codex' as const,
-      selectedModelByAgent: { codex: 'gpt-5.5' },
-      selectedThinkingByModel: { 'gpt-5.5': 'medium', 'gpt-5.4': 'high' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol' },
+      selectedThinkingByModel: { 'gpt-5.6-sol': 'medium', 'gpt-5.4': 'high' },
       instructionsByOperation: {
         commitMessage: 'Global commit style',
         pullRequest: 'Global PR style',
@@ -65,7 +65,7 @@ describe('source-control AI action recipes', () => {
     base.sourceControlAi = {
       ...base.sourceControlAi!,
       agentId: 'claude',
-      selectedModelByAgent: { codex: 'gpt-5.5', claude: 'sonnet' },
+      selectedModelByAgent: { codex: 'gpt-5.6-sol', claude: 'sonnet' },
       actions: {
         ...base.sourceControlAi!.actions,
         commitMessage: { agentId: null, commandInputTemplate: '{basePrompt}' }
@@ -79,7 +79,7 @@ describe('source-control AI action recipes', () => {
       discoveryHostKey: 'local'
     })
     expect(result.ok && result.value.params.agentId).toBe('codex')
-    expect(result.ok && result.value.params.model).toBe('gpt-5.5')
+    expect(result.ok && result.value.params.model).toBe('gpt-5.6-sol')
   })
 
   it('treats a repo action null agent as the default agent, not the global action agent', () => {
@@ -88,7 +88,7 @@ describe('source-control AI action recipes', () => {
     base.sourceControlAi = {
       ...base.sourceControlAi!,
       agentId: 'claude',
-      selectedModelByAgent: { codex: 'gpt-5.5', claude: 'sonnet' }
+      selectedModelByAgent: { codex: 'gpt-5.6-sol', claude: 'sonnet' }
     }
     const result = resolveSourceControlAiForOperation({
       settings: base,
@@ -132,7 +132,7 @@ describe('source-control AI action recipes', () => {
               fixChecks: {
                 agentId: 'codex',
                 commandInputTemplate: '  {basePrompt}\n\nrepo  ',
-                agentArgs: '  --model gpt-5.5  '
+                agentArgs: '  --model gpt-5.6-sol  '
               }
             }
           }
@@ -142,7 +142,7 @@ describe('source-control AI action recipes', () => {
     ).toEqual({
       agentId: 'codex',
       commandInputTemplate: '{basePrompt}\n\nrepo',
-      agentArgs: '--model gpt-5.5'
+      agentArgs: '--model gpt-5.6-sol'
     })
   })
 

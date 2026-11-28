@@ -77,7 +77,7 @@ describe('hook trust recognises Codex quoted hooks.state spellings', () => {
     mkdirSync(systemHomePath)
     writeFileSync(
       join(systemHomePath, 'config.toml'),
-      ['model = "gpt-5.5"', '', '["hooks"."state"]', '', `["hooks"."state"."${HOOK_KEY}"]`]
+      ['model = "gpt-5.6-sol"', '', '["hooks"."state"]', '', `["hooks"."state"."${HOOK_KEY}"]`]
         .concat(['enabled = true', 'trusted_hash = "sha256:system"', ''])
         .join('\n')
     )
@@ -101,7 +101,7 @@ describe('repairing Orca hooks.state duplicates', () => {
   it('fully repairs a file holding both project and hook duplicates', () => {
     const projectPath = '/Users/me/Projects/agentic-WPS'
     const broken = [
-      'model = "gpt-5.5"',
+      'model = "gpt-5.6-sol"',
       '',
       `["projects"."${projectPath}"]`,
       '"trust_level" = "trusted"',
@@ -129,7 +129,7 @@ describe('repairing Orca hooks.state duplicates', () => {
     const repaired = readFileSync(configPath, 'utf-8')
     expect(repaired).toBe(
       [
-        'model = "gpt-5.5"',
+        'model = "gpt-5.6-sol"',
         '',
         `["projects"."${projectPath}"]`,
         'trust_level = "trusted"',

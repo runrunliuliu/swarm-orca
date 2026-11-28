@@ -776,7 +776,7 @@ describe('terminal create --shell', () => {
         ['worktree', WORKTREE],
         ['agent', 'trae'],
         ['agent-args', 'exec --json -'],
-        ['model', 'gpt-5.5'],
+        ['model', 'gpt-5.6-sol'],
         ['effort', 'xhigh'],
         ['backend-variant', 'max']
       ]),
@@ -792,7 +792,7 @@ describe('terminal create --shell', () => {
         command: undefined,
         startupAgent: 'trae',
         agentArgs: 'exec --json -',
-        launchPreferences: { model: 'gpt-5.5', effort: 'xhigh', backendVariant: 'max' }
+        launchPreferences: { model: 'gpt-5.6-sol', effort: 'xhigh', backendVariant: 'max' }
       })
     )
   })

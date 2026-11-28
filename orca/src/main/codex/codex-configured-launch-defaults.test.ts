@@ -24,7 +24,7 @@ function connection(
   return {
     request: vi.fn(async (method: string) => {
       if (method === 'model/list') {
-        return { data: [modelRow('gpt-6-astra', true), modelRow('gpt-5.5')], nextCursor: null }
+        return { data: [modelRow('gpt-6-astra', true), modelRow('gpt-5.6-sol')], nextCursor: null }
       }
       if (method === 'config/read') {
         if ('error' in configRead) {
@@ -45,12 +45,12 @@ describe('Codex listing default follows the configured launch model', () => {
   it('marks the configured model and effort as what a launch runs', async () => {
     const listing = await fetchCodexModelCatalogListing({
       connection: connection({
-        answer: { config: { model: 'gpt-5.5', model_reasoning_effort: 'xhigh' } }
+        answer: { config: { model: 'gpt-5.6-sol', model_reasoning_effort: 'xhigh' } }
       })
     })
     expect(defaults(listing.models)).toEqual([
       { id: 'gpt-6-astra', isDefault: false, defaultEffort: 'medium' },
-      { id: 'gpt-5.5', isDefault: true, defaultEffort: 'xhigh' }
+      { id: 'gpt-5.6-sol', isDefault: true, defaultEffort: 'xhigh' }
     ])
   })
 
@@ -62,7 +62,7 @@ describe('Codex listing default follows the configured launch model', () => {
     })
     expect(defaults(listing.models)).toEqual([
       { id: 'gpt-6-astra', isDefault: true, defaultEffort: 'high' },
-      { id: 'gpt-5.5', isDefault: false, defaultEffort: 'medium' }
+      { id: 'gpt-5.6-sol', isDefault: false, defaultEffort: 'medium' }
     ])
   })
 
@@ -74,7 +74,7 @@ describe('Codex listing default follows the configured launch model', () => {
     })
     expect(defaults(listing.models)).toEqual([
       { id: 'gpt-6-astra', isDefault: false, defaultEffort: 'medium' },
-      { id: 'gpt-5.5', isDefault: false, defaultEffort: 'medium' }
+      { id: 'gpt-5.6-sol', isDefault: false, defaultEffort: 'medium' }
     ])
   })
 
@@ -84,7 +84,7 @@ describe('Codex listing default follows the configured launch model', () => {
     })
     expect(defaults(listing.models)).toEqual([
       { id: 'gpt-6-astra', isDefault: true, defaultEffort: 'medium' },
-      { id: 'gpt-5.5', isDefault: false, defaultEffort: 'medium' }
+      { id: 'gpt-5.6-sol', isDefault: false, defaultEffort: 'medium' }
     ])
   })
 
@@ -94,7 +94,7 @@ describe('Codex listing default follows the configured launch model', () => {
     expect(rpc.request.mock.calls.map(([method]) => method)).toEqual(['model/list', 'config/read'])
     expect(defaults(listing.models)).toEqual([
       { id: 'gpt-6-astra', isDefault: true, defaultEffort: 'medium' },
-      { id: 'gpt-5.5', isDefault: false, defaultEffort: 'medium' }
+      { id: 'gpt-5.6-sol', isDefault: false, defaultEffort: 'medium' }
     ])
   })
 })

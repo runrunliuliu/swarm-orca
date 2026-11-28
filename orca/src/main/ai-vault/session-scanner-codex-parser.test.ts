@@ -255,7 +255,7 @@ describe('parseCodexSessionFile', () => {
           // A /model switch mid-session writes a later turn_context.
           timestamp: '2026-07-05T10:00:03.000Z',
           type: 'turn_context',
-          payload: { cwd: '/repo/app', model: 'gpt-5.5' }
+          payload: { cwd: '/repo/app', model: 'gpt-5.6-sol' }
         }
       ])
     )
@@ -271,6 +271,6 @@ describe('parseCodexSessionFile', () => {
       root
     )
 
-    expect(session?.model).toBe('gpt-5.5')
+    expect(session?.model).toBe('gpt-5.6-sol')
   })
 })

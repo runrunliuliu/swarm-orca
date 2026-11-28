@@ -266,7 +266,7 @@ describe('structured session acquisition options', () => {
     const created = await attempt({ model: 'gpt-5.6-sol', effort: 'medium' }, 'spawn-a')
     // Why: the user may reselect a model between an unknown-outcome create and the
     // retry that reuses its operation id; the retry must replay, not conflict.
-    const retried = await attempt({ model: 'gpt-5.5', effort: 'high' }, 'spawn-b')
+    const retried = await attempt({ model: 'gpt-5.6-sol', effort: 'high' }, 'spawn-b')
 
     expect(created).toMatchObject({ ok: true })
     expect(retried).toMatchObject({ ok: true })

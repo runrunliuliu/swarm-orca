@@ -70,7 +70,7 @@ Codex 的片段仍需调用者纳入实际交接，不借用 Trae 的输入证�
 ## 已支持的执行边界
 
 - 当前仅支持已核验的 Server 1.4.219、Trae CLI 0.210.1 或 0.211.1 `run` 阶段、
-  同会话 `gpt-5.5 / xhigh / Max`。沿用原计划中的 AutoReview 或明确的历史
+  同会话 `gpt-5.6-sol / xhigh / Max`。沿用原计划中的 AutoReview 或明确的历史
   `never` 策略，不修改全局配置、不把 Codex Full Access 参数套给 Trae。
 - 上一计划必须与现有 `build_trae_plan` 重建结果完全一致。下一计划只替换
   任务输入文件及其 `input_contract`，保留 argv、cwd、会话、模型和可写根。

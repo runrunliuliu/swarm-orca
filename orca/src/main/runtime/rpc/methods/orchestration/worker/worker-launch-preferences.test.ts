@@ -157,11 +157,6 @@ describe('orchestration worker launch preferences', () => {
       rejected: ['ultra', 'future-effort']
     },
     {
-      model: 'gpt-5.5',
-      accepted: ['minimal', 'low', 'medium', 'high', 'xhigh'],
-      rejected: ['max', 'ultra', 'future-effort']
-    },
-    {
       model: 'gpt-5.2-codex',
       accepted: ['minimal', 'low', 'medium', 'high', 'xhigh'],
       rejected: ['max', 'ultra', 'future-effort']
